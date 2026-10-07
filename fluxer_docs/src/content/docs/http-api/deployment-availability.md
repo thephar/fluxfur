@@ -48,8 +48,6 @@ When billing is switched off or no Stripe secret key is configured on a hosted d
 | Method | Route | Operation |
 | --- | --- | --- |
 | POST | /v1/stripe/checkout/subscription | [Create subscription checkout](/http-api/billing/#create-subscription-checkout) |
-| POST | /v1/stripe/checkout/subscription/preapproval | [Create localised card preapproval](/http-api/billing/#create-localised-card-preapproval) |
-| POST | /v1/stripe/checkout/subscription/preapproval/continue | [Continue localised card preapproval](/http-api/billing/#continue-localised-card-preapproval) |
 | POST | /v1/stripe/checkout/gift | [Create gift checkout](/http-api/billing/#create-gift-checkout) |
 | GET | /v1/premium/price-ids | [Get price IDs](/http-api/premium/#get-price-ids) |
 
@@ -101,3 +99,5 @@ A route every deployment registers can still produce a different answer on a sel
 Premium state is the clearest case. Every deployment registers [Get premium state](/http-api/premium/#get-premium-state) and [Set premium perks disabled](/http-api/premium/#set-premium-perks-disabled). A self-hosted instance still reports premium state and still records the perks-disabled flag. The response repeats the deployment kind in `self_hosted` on the [effective premium state object](/http-api/premium/#effective-premium-state-object). That flag alone does not make `is_premium` true. A self-hosted deployment grants premium to every account only while its instance [premium mode](/admin-api/instance/#premium-modes) is `everyone`. That mode also overrides the perks-disabled flag, so `is_premium` stays true while `premium_perks_disabled` is true.
 
 The other instance feature flags published by [instance discovery](/http-api/instance/#instance-features-object) work the same way. `voice_enabled`, `presigned_attachment_uploads`, and `emails_enabled` each report whether a capability is switched on. The routes for that capability stay registered when the flag is false, so a client reads the flag before it uses them.
+
+`account_identity` is the same kind of flag. Every deployment registers the email routes and the username-only routes alike. A `username` deployment answers the email routes with 400 `EMAIL_UNAVAILABLE_ON_INSTANCE`, and an `email` deployment answers the username-only routes with 400 `USERNAME_SIGN_IN_ONLY`. A hosted deployment is always `email`.

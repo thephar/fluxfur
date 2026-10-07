@@ -7,6 +7,7 @@ import * as AuthenticationCommands from '@app/features/auth/commands/Authenticat
 import styles from '@app/features/auth/flow/BrowserLoginHandoffModal.module.css';
 import {HandoffCodeDisplay} from '@app/features/auth/flow/HandoffCodeDisplay';
 import type {LoginSuccessPayload} from '@app/features/auth/state/AuthFlow';
+import {currentInstanceTarget} from '@app/features/platform/transport/InstanceHTTP';
 import {remFromPx} from '@app/features/theme/layout/RemFromPx';
 import {Button} from '@app/features/ui/button/Button';
 import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
@@ -34,13 +35,14 @@ export type BrowserLoginHandoffVariant = 'browser' | 'old_app';
 
 interface BrowserLoginHandoffModalProps {
 	onSuccess: (payload: LoginSuccessPayload) => Promise<void>;
-	prefillEmail?: string;
+	prefillLogin?: string;
 	variant?: BrowserLoginHandoffVariant;
 }
 
 const POLL_INTERVAL_MS = 2000;
 
-const BrowserLoginHandoffModal = observer(({onSuccess, prefillEmail, variant}: BrowserLoginHandoffModalProps) => {
+const BrowserLoginHandoffModal = observer(({onSuccess, prefillLogin, variant}: BrowserLoginHandoffModalProps) => {
+	const prefillEmail = prefillLogin;
 	const {i18n} = useLingui();
 	const isOldAppVariant = variant === 'old_app';
 	const currentWebAppUrl = RuntimeConfig.webAppBaseUrl;
@@ -57,7 +59,7 @@ const BrowserLoginHandoffModal = observer(({onSuccess, prefillEmail, variant}: B
 		setHandoffCode(null);
 		setHandoffExpiresAt(null);
 		try {
-			const result = await AuthenticationCommands.initiateDesktopHandoff();
+			const result = await AuthenticationCommands.initiateDesktopHandoff(currentInstanceTarget());
 			handoffPollSecretRef.current = result.poll_secret ?? null;
 			setHandoffCode(result.code);
 			setHandoffExpiresAt(result.expires_at);
@@ -76,7 +78,11 @@ const BrowserLoginHandoffModal = observer(({onSuccess, prefillEmail, variant}: B
 		const timer = setInterval(async () => {
 			if (!pollingRef.current) return;
 			try {
-				const result = await AuthenticationCommands.pollDesktopHandoffStatus(handoffCode, handoffPollSecretRef.current);
+				const result = await AuthenticationCommands.pollDesktopHandoffStatus(
+					handoffCode,
+					handoffPollSecretRef.current,
+					currentInstanceTarget(),
+				);
 				if (result.status === 'completed' && result.token && result.user_id) {
 					pollingRef.current = false;
 					completedRef.current = true;
@@ -102,11 +108,11 @@ const BrowserLoginHandoffModal = observer(({onSuccess, prefillEmail, variant}: B
 	const handleOpenBrowser = useCallback(async () => {
 		const loginUrl = new URL('/login', currentWebAppUrl);
 		loginUrl.searchParams.set('handoff', '1');
-		if (prefillEmail) {
-			loginUrl.searchParams.set('email', prefillEmail);
+		if (prefillLogin) {
+			loginUrl.searchParams.set(RuntimeConfig.usesUsernameSignIn ? 'login' : 'email', prefillLogin);
 		}
 		await openExternalUrl(loginUrl.toString());
-	}, [currentWebAppUrl, prefillEmail]);
+	}, [currentWebAppUrl, prefillLogin]);
 	return (
 		<Modal.Root
 			size="small"
@@ -144,7 +150,7 @@ const BrowserLoginHandoffModal = observer(({onSuccess, prefillEmail, variant}: B
 						}
 						data-flx="auth.flow.browser-login-handoff-modal.handoff-code-display"
 					/>
-					{prefillEmail && !isOldAppVariant ? (
+					{prefillLogin && !isOldAppVariant ? (
 						<Modal.Description
 							className={styles.prefillHint}
 							data-flx="auth.flow.browser-login-handoff-modal.prefill-hint"
@@ -185,7 +191,7 @@ const BrowserLoginHandoffModal = observer(({onSuccess, prefillEmail, variant}: B
 
 export function showBrowserLoginHandoffModal(
 	onSuccess: (payload: LoginSuccessPayload) => Promise<void>,
-	prefillEmail?: string,
+	prefillLogin?: string,
 	variant: BrowserLoginHandoffVariant = 'browser',
 ): void {
 	ModalCommands.push(
@@ -194,7 +200,7 @@ export function showBrowserLoginHandoffModal(
 				onSuccess={async (payload) => {
 					await onSuccess(payload);
 				}}
-				prefillEmail={prefillEmail}
+				prefillLogin={prefillLogin}
 				variant={variant}
 				data-flx="auth.flow.browser-login-handoff-modal.show-browser-login-handoff-modal.browser-login-handoff-modal"
 			/>

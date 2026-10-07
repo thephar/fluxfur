@@ -9,6 +9,10 @@ export const CACHE_PURGE_ADAPTER_NAMES = ['none', 'http'] as const;
 export type CachePurgeAdapterName = (typeof CACHE_PURGE_ADAPTER_NAMES)[number];
 export const STORE_PRODUCT_SLOT_NAMES = ['monthly', 'yearly', 'gift_1_month', 'gift_1_year'] as const;
 export type StoreProductSlotName = (typeof STORE_PRODUCT_SLOT_NAMES)[number];
+export const ACCOUNT_IDENTITY_MODE_NAMES = ['email', 'username'] as const;
+export type AccountIdentityModeName = (typeof ACCOUNT_IDENTITY_MODE_NAMES)[number];
+export const TAG_STYLE_NAMES = ['none', 'random'] as const;
+export type TagStyleName = (typeof TAG_STYLE_NAMES)[number];
 
 export interface InstanceBrandingConfig {
 	product_name: string;
@@ -84,8 +88,14 @@ export interface MasterConfig {
 			headers_timeout_ms: number;
 			request_timeout_ms: number;
 			max_inflight_requests: number;
+			automated_message_deletion_delay_days: number;
 			ip_ban_exempt_ips: Array<string>;
 			donation_proxy_key: string;
+			trusted_callers: Array<{
+				name: string;
+				key: string;
+				buckets: Array<string>;
+			}>;
 			presigned_attachment_uploads_enabled: boolean;
 			presigned_harvest_downloads_enabled: boolean;
 			unfurl_ignored_hosts: Array<string>;
@@ -95,6 +105,7 @@ export interface MasterConfig {
 				lane?: 'realtime' | 'unfurl' | 'lifecycle' | 'batch' | 'crosspost';
 				task?: string;
 				enable_cron_scheduler?: boolean;
+				metrics_port?: number;
 				lane_concurrency_overrides?: {
 					realtime?: number;
 					unfurl?: number;
@@ -138,6 +149,7 @@ export interface MasterConfig {
 	auth: {
 		sudo_mode_secret: string;
 		connection_initiation_secret: string;
+		profile_pseudonym_secret: string;
 		sso_allow_private_addresses: boolean;
 		passkeys: {
 			rp_name: string;
@@ -294,6 +306,8 @@ export interface MasterConfig {
 		setup: {
 			configured: boolean;
 		};
+		account_identity: AccountIdentityModeName | null;
+		tag_style: TagStyleName | null;
 	};
 	dev: {
 		relax_registration_rate_limits: boolean;

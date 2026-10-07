@@ -12,10 +12,14 @@ import {http} from '@app/features/platform/transport/RestTransport';
 import {Logger} from '@app/features/platform/utils/AppLogger';
 import Users from '@app/features/user/state/Users';
 import type {Message as WireMessage} from '@fluxer/schema/src/domains/message/MessageResponseSchemas';
-import type {HarvestStatusResponse} from '@fluxer/schema/src/domains/user/UserHarvestSchemas';
+import type {
+	HarvestDownloadUrlResponse,
+	HarvestStatusResponse,
+} from '@fluxer/schema/src/domains/user/UserHarvestSchemas';
 import type {
 	BackupCode,
 	PasswordChangeCompleteResponse,
+	UserPasswordUpdateResponse,
 	UserPrivate,
 } from '@fluxer/schema/src/domains/user/UserResponseSchemas';
 import type {PublicKeyCredentialCreationOptionsJSON, RegistrationResponseJSON} from '@simplewebauthn/browser';
@@ -411,12 +415,28 @@ export async function completePasswordChange(
 		const response = await http.post<PasswordChangeCompleteResponse>(Endpoints.USER_PASSWORD_CHANGE_COMPLETE, {
 			body: completePasswordChangeBody(ticket, verificationProof, newPassword),
 		});
-		SessionManager.setToken(response.body.token);
+		await SessionManager.setToken(response.body.token);
 		GatewayConnection.setToken(response.body.token);
 		AuthSession.handleAuthSessionChange(response.body.auth_session_id_hash);
 		logger.info('Password changed successfully');
 	} catch (error) {
 		logger.error('Failed to complete password change', error);
+		throw error;
+	}
+}
+
+export async function updatePasswordWithSudo(newPassword: string): Promise<void> {
+	try {
+		logger.debug('Updating password with sudo verification');
+		const response = await http.post<UserPasswordUpdateResponse>(Endpoints.USER_PASSWORD, {
+			body: {new_password: newPassword},
+		});
+		SessionManager.setToken(response.body.token);
+		GatewayConnection.setToken(response.body.token);
+		AuthSession.handleAuthSessionChange(response.body.auth_session_id_hash);
+		logger.info('Password changed successfully');
+	} catch (error) {
+		logger.error('Failed to update password', error);
 		throw error;
 	}
 }
@@ -592,6 +612,17 @@ export async function getHarvestStatus(harvestId: string): Promise<HarvestStatus
 		return response.body;
 	} catch (error) {
 		logger.error('Failed to fetch harvest status', error);
+		throw error;
+	}
+}
+
+export async function getHarvestDownloadUrl(harvestId: string): Promise<HarvestDownloadUrlResponse> {
+	try {
+		logger.debug('Fetching harvest download URL', {harvestId});
+		const response = await http.get<HarvestDownloadUrlResponse>(Endpoints.USER_HARVEST_DOWNLOAD(harvestId));
+		return response.body;
+	} catch (error) {
+		logger.error('Failed to fetch harvest download URL', error);
 		throw error;
 	}
 }

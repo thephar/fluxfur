@@ -59,11 +59,17 @@ param(
 	[string[]]$Rest = @()
 )
 
+$FluxerScriptArguments = @{}
+foreach ($entry in $PSBoundParameters.GetEnumerator()) {
+	$FluxerScriptArguments[$entry.Key] = $entry.Value
+}
+
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 $FluxerRawBase = 'https://raw.githubusercontent.com/fluxerapp/fluxer'
+$FluxerInstallerUrl = 'https://fluxer.dev/install.ps1'
 $FluxerStackPath = 'deploy/self-hosting'
 $FluxerHealthPath = '/_health'
 $FluxerInitService = 'seaweedfs-init'
@@ -173,6 +179,7 @@ $FluxerBackupVolumes = @(
 $FluxerUpgradeSecretKeys = @(
 	@{Name = 'FLUXER_ERLANG_COOKIE'; Kind = 'hex'}
 	@{Name = 'FLUXER_MEDIA_PROXY_UPLOAD_RELAY_SECRET_BASE64'; Kind = 'base64'}
+	@{Name = 'FLUXER_PROFILE_PSEUDONYM_SECRET'; Kind = 'hex'}
 )
 
 $FluxerSecretKeys = @(
@@ -181,6 +188,7 @@ $FluxerSecretKeys = @(
 	@{Name = 'FLUXER_S3_SECRET_KEY'; Kind = 'hex'}
 	@{Name = 'FLUXER_SUDO_MODE_SECRET'; Kind = 'hex'}
 	@{Name = 'FLUXER_CONNECTION_INITIATION_SECRET'; Kind = 'hex'}
+	@{Name = 'FLUXER_PROFILE_PSEUDONYM_SECRET'; Kind = 'hex'}
 	@{Name = 'FLUXER_GATEWAY_RPC_AUTH_TOKEN'; Kind = 'hex'}
 	@{Name = 'FLUXER_ERLANG_COOKIE'; Kind = 'hex'}
 	@{Name = 'FLUXER_MEDIA_PROXY_SECRET_KEY'; Kind = 'hex'}
@@ -216,13 +224,13 @@ function Stop-Fluxer([string]$Message, [int]$Code) {
 }
 
 function Show-FluxerUsage {
-	Write-FluxerLine 'Usage: install.ps1 -Domain <host> -Email <address> [options]'
+	Write-FluxerLine 'Usage: install.ps1 -Domain <host> [options]'
 	Write-FluxerLine '       install.ps1 -Update [options]'
 	Write-FluxerLine '       install.ps1 -Rollback [options]'
 	Write-FluxerLine ''
 	Write-FluxerLine 'Options:'
 	Write-FluxerLine '  -Domain <host>          Hostname the instance answers on. Prompted when absent.'
-	Write-FluxerLine '  -Email <address>        Contact email for web push. Prompted when absent.'
+	Write-FluxerLine '  -Email <address>        Contact email for web push. Default: admin@<domain>.'
 	Write-FluxerLine '  -Engine <command>       Container engine to drive. Default: docker, or podman when'
 	Write-FluxerLine '                          docker is absent.'
 	Write-FluxerLine '  -Dir <path>             Working directory. Default: the fluxer folder in the home'
@@ -680,9 +688,9 @@ function Move-FluxerStackFiles([string]$StagingDir, [string]$TargetDir) {
 #
 #   Copy-Item .env.example .env
 #
-# Close .env to every account but your own, then set FLUXER_DOMAIN and FLUXER_VAPID_EMAIL, the two
-# values only the operator knows. The five other non-secret keys in the list above ship correct in
-# .env.example and need no edit.
+# Close .env to every account but your own, then set FLUXER_DOMAIN, the one value only the operator
+# knows. FLUXER_VAPID_EMAIL is optional, and compose derives admin@FLUXER_DOMAIN while it is unset.
+# The five other non-secret keys in the list above ship correct in .env.example and need no edit.
 #
 # Every secret in .env.example contains the literal CHANGE_ME. A key whose name ends in _BASE64
 # takes 32 random bytes as base64, every other key takes 32 random bytes as hex, and the VAPID pair
@@ -1978,6 +1986,71 @@ function Assert-FluxerComposeFiles([string]$TargetDir, [string]$EnvPath) {
 	}
 }
 
+function Get-FluxerSha256([string]$Path) {
+	return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
+function Update-FluxerInstaller {
+	if ($env:FLUXER_INSTALLER_REFRESHED) {
+		return
+	}
+	$self = $PSCommandPath
+	if (-not $self) {
+		return
+	}
+	$selfDir = Split-Path -Parent $self
+	if ($DryRun) {
+		$staging = New-FluxerStagingDirectory ([System.IO.Path]::GetTempPath())
+	} else {
+		$staging = New-FluxerStagingDirectory $selfDir
+	}
+	try {
+		$digestPath = Join-Path $staging 'install.ps1.sha256'
+		try {
+			Invoke-WebRequest -Uri "$FluxerInstallerUrl.sha256" -OutFile $digestPath -UseBasicParsing -MaximumRedirection 5 -TimeoutSec 60
+		} catch {
+			Write-FluxerLine "Could not reach $FluxerInstallerUrl.sha256, so this run goes on with $self."
+			return
+		}
+		$published = ([System.IO.File]::ReadAllText($digestPath).Trim() -split '\s+')[0].ToLowerInvariant()
+		if ($published -notmatch '^[0-9a-f]{64}$') {
+			Stop-Fluxer "$FluxerInstallerUrl.sha256 holds no sha256 digest. Nothing was changed." $FluxerExitDownload
+		}
+		if ((Get-FluxerSha256 $self) -eq $published) {
+			return
+		}
+		$fresh = Join-Path $staging 'install.ps1'
+		try {
+			Invoke-WebRequest -Uri $FluxerInstallerUrl -OutFile $fresh -UseBasicParsing -MaximumRedirection 5 -TimeoutSec 120
+		} catch {
+			Stop-Fluxer "Download failed for $FluxerInstallerUrl. Nothing was changed." $FluxerExitDownload
+		}
+		if ((Get-FluxerSha256 $fresh) -ne $published) {
+			Stop-Fluxer "$FluxerInstallerUrl does not match the digest in $FluxerInstallerUrl.sha256. Nothing was changed." $FluxerExitDownload
+		}
+		Write-FluxerLine "$self differs from the installer $FluxerInstallerUrl serves. The stack files an upgrade downloads can require .env keys that only the current installer writes."
+		if ($DryRun) {
+			Write-FluxerLine 'The run asks to replace it with the current installer before it changes anything. The plan below is the one this copy would follow.'
+			return
+		}
+		if ($NonInteractive -or [Console]::IsInputRedirected) {
+			Stop-Fluxer "Nothing was changed. Download the current installer and run it:`n  Invoke-WebRequest -Uri $FluxerInstallerUrl -OutFile install.ps1 -UseBasicParsing" $FluxerExitRefused
+		}
+		$answer = Read-Host -Prompt "Replace $self with the current installer and run that? [y/N]"
+		if ($null -eq $answer -or $answer.Trim() -notmatch '^(y|yes)$') {
+			Stop-Fluxer "Kept $self. Nothing was changed. Read the current installer at $FluxerInstallerUrl and run it once it is in place." $FluxerExitRefused
+		}
+		Move-Item -LiteralPath $fresh -Destination $self -Force
+	} finally {
+		Remove-FluxerStagingDirectory $staging
+	}
+	Write-FluxerLine "Replaced $self. Running it."
+	$env:FLUXER_INSTALLER_REFRESHED = '1'
+	$global:LASTEXITCODE = 0
+	& $self @FluxerScriptArguments
+	exit $LASTEXITCODE
+}
+
 function Invoke-FluxerInstall {
 	if ($Help) {
 		Show-FluxerUsage
@@ -2019,6 +2092,10 @@ function Invoke-FluxerInstall {
 	}
 
 	Invoke-FluxerPreflight
+
+	if ($Update) {
+		Update-FluxerInstaller
+	}
 
 	$targetPath = $Dir
 	$adoptedCwd = $false
@@ -2093,9 +2170,11 @@ function Invoke-FluxerInstall {
 	}
 
 	$domainValue = Resolve-FluxerValue $Domain 'Hostname the instance answers on' '-Domain' $allowPrompt
-	$emailValue = Resolve-FluxerValue $Email 'Contact email for web push' '-Email' $allowPrompt
+	$emailValue = $Email
 	Assert-FluxerDomain $domainValue
-	Assert-FluxerEmail $emailValue
+	if ($emailValue.Length -gt 0) {
+		Assert-FluxerEmail $emailValue
+	}
 
 	if ($Ref.Length -eq 0) {
 		$script:Ref = Get-FluxerRefForTag $ImageTag
@@ -2112,7 +2191,11 @@ function Invoke-FluxerInstall {
 			Write-FluxerLine "  Edge bind:  $EdgeBind"
 		}
 		Write-FluxerLine "  Domain:     $domainValue"
-		Write-FluxerLine "  Email:      $emailValue"
+		if ($emailValue.Length -gt 0) {
+			Write-FluxerLine "  Email:      $emailValue"
+		} else {
+			Write-FluxerLine "  Email:      admin@$domainValue, derived by compose"
+		}
 		Write-FluxerLine "  Files:      $($FluxerStackFiles -join ', ')"
 		Write-FluxerLine "  Secrets:    $($FluxerSecretKeys.Count) generated into .env"
 		Write-FluxerLine 'Nothing was written.'
@@ -2145,6 +2228,9 @@ function Invoke-FluxerInstall {
 			} elseif ($entry.Kind -eq 'domain') {
 				$value = $domainValue
 			} elseif ($entry.Kind -eq 'email') {
+				if ($emailValue.Length -eq 0) {
+					continue
+				}
 				$value = $emailValue
 			} elseif ($entry.Kind -eq 'image_tag') {
 				$value = $ImageTag
@@ -2181,10 +2267,14 @@ function Invoke-FluxerInstall {
 			exit 0
 		}
 
+		Write-FluxerLine 'Pulling images. The first start pulls eighteen of them, which takes several minutes.'
+		if ((Invoke-FluxerDocker @('compose', 'pull')) -ne 0) {
+			Stop-Fluxer 'docker compose pull failed. Nothing was started.' $FluxerExitDownload
+		}
 		if ((Invoke-FluxerDocker @('compose', 'up', '-d')) -ne 0) {
 			Stop-Fluxer 'docker compose up -d failed.' $FluxerExitUnhealthy
 		}
-		Wait-FluxerStack 'Waiting for the stack to report healthy. The first start pulls images and takes several minutes.'
+		Wait-FluxerStack 'Waiting for the stack to report healthy.'
 		$readyOrigin = Get-FluxerPublicOrigin $envPath
 		if ($readyOrigin.Length -eq 0) {
 			$readyOrigin = "https://$domainValue"

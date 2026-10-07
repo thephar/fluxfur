@@ -50,7 +50,8 @@ set -eu
 LC_ALL=C
 export LC_ALL
 
-FLUXER_RAW_BASE='https://raw.githubusercontent.com/thephar/fluxfur'
+FLUXER_RAW_BASE='https://raw.githubusercontent.com/fluxerapp/fluxer'
+FLUXER_INSTALLER_URL='https://fluxer.dev/install.sh'
 FLUXER_STACK_PATH='deploy/self-hosting'
 FLUXER_MIN_ENGINE='24.0.0'
 # Podman numbers its releases on its own scale, so the Docker Engine floor says
@@ -110,6 +111,7 @@ MEILI_MASTER_KEY hex
 FLUXER_S3_SECRET_KEY hex
 FLUXER_SUDO_MODE_SECRET hex
 FLUXER_CONNECTION_INITIATION_SECRET hex
+FLUXER_PROFILE_PSEUDONYM_SECRET hex
 FLUXER_GATEWAY_RPC_AUTH_TOKEN hex
 FLUXER_ERLANG_COOKIE hex
 FLUXER_MEDIA_PROXY_SECRET_KEY hex
@@ -203,13 +205,13 @@ VOLUMES
 
 fluxer_usage() {
 	cat <<'USAGE'
-Usage: sh install.sh --domain <host> --email <address> [options]
+Usage: sh install.sh --domain <host> [options]
        sh install.sh --update [options]
        sh install.sh --rollback [options]
 
 Options:
   --domain <host>          Hostname the instance answers on. Prompted when absent.
-  --email <address>        Contact email for web push. Prompted when absent.
+  --email <address>        Contact email for web push. Default admin@<domain>.
   --engine <command>       Container engine to drive. Default docker, or podman
                            when docker is absent.
   --dir <path>             Working directory. Default ~/fluxer, or the working
@@ -303,6 +305,18 @@ opt_no_volume_backup=0
 opt_no_volume_compression=0
 opt_skip_backup=0
 opt_allow_root=0
+
+fluxer_self=''
+if [ -f "$0" ]; then
+	case $0 in
+		/*) fluxer_self=$0 ;;
+		*) fluxer_self="$(pwd)/$0" ;;
+	esac
+fi
+fluxer_self_args=''
+for fluxer_arg in "$@"; do
+	fluxer_self_args="$fluxer_self_args '$(printf '%s' "$fluxer_arg" | sed "s/'/'\\\\''/g")'"
+done
 
 while [ $# -gt 0 ]; do
 	case $1 in
@@ -650,6 +664,74 @@ fluxer_prompt() {
 	return 1
 }
 
+fluxer_sha256() {
+	openssl dgst -sha256 < "$1" | awk '{print $NF}'
+}
+
+fluxer_drop_scratch() {
+	fluxer_cleanup
+	fluxer_scratch=''
+}
+
+fluxer_refresh_installer() {
+	[ -z "${FLUXER_INSTALLER_REFRESHED:-}" ] || return 0
+	[ -n "$fluxer_self" ] || return 0
+	fluxer_self_dir=$(dirname "$fluxer_self")
+	if [ "$opt_dry_run" -eq 1 ]; then
+		fluxer_open_scratch "${TMPDIR:-/tmp}"
+	elif [ -w "$fluxer_self_dir" ]; then
+		fluxer_open_scratch "$fluxer_self_dir"
+	else
+		fluxer_say "$fluxer_self_dir is not writable, so this run cannot check $fluxer_self against $FLUXER_INSTALLER_URL and goes on with it."
+		return 0
+	fi
+	if ! curl -fsSL --proto '=https' --tlsv1.2 -o "$fluxer_scratch/install.sh.sha256" "$FLUXER_INSTALLER_URL.sha256"; then
+		fluxer_say "Could not reach $FLUXER_INSTALLER_URL.sha256, so this run goes on with $fluxer_self."
+		fluxer_drop_scratch
+		return 0
+	fi
+	fluxer_published=$(awk 'NR == 1 {print $1}' "$fluxer_scratch/install.sh.sha256")
+	case $fluxer_published in
+		''|*[!0-9a-f]*) fluxer_fail 4 "$FLUXER_INSTALLER_URL.sha256 holds no sha256 digest. Nothing was changed." ;;
+	esac
+	if [ "$(fluxer_sha256 "$fluxer_self")" = "$fluxer_published" ]; then
+		fluxer_drop_scratch
+		return 0
+	fi
+	if ! curl -fsSL --proto '=https' --tlsv1.2 -o "$fluxer_scratch/install.sh" "$FLUXER_INSTALLER_URL"; then
+		fluxer_fail 4 "Download failed for $FLUXER_INSTALLER_URL. Nothing was changed."
+	fi
+	if [ "$(fluxer_sha256 "$fluxer_scratch/install.sh")" != "$fluxer_published" ]; then
+		fluxer_fail 4 "$FLUXER_INSTALLER_URL does not match the digest in $FLUXER_INSTALLER_URL.sha256. Nothing was changed."
+	fi
+	fluxer_say "$fluxer_self differs from the installer $FLUXER_INSTALLER_URL serves. The stack files an upgrade downloads can require .env keys that only the current installer writes."
+	if [ "$opt_dry_run" -eq 1 ]; then
+		fluxer_say 'The run asks to replace it with the current installer before it changes anything. The plan below is the one this copy would follow.'
+		fluxer_drop_scratch
+		return 0
+	fi
+	if [ "$opt_non_interactive" -eq 1 ] || [ ! -t 0 ]; then
+		fluxer_fail 3 "Nothing was changed. Download the current installer and run it:
+  curl -fsSLO $FLUXER_INSTALLER_URL"
+	fi
+	printf 'Replace %s with the current installer and run that? [y/N] ' "$fluxer_self" >&2
+	fluxer_answer=''
+	read -r fluxer_answer || true
+	case $fluxer_answer in
+		y|Y|yes|Yes|YES) ;;
+		*) fluxer_fail 3 "Kept $fluxer_self. Nothing was changed. Read the current installer at $FLUXER_INSTALLER_URL and run it once it is in place." ;;
+	esac
+	if [ -x "$fluxer_self" ]; then
+		chmod +x "$fluxer_scratch/install.sh"
+	fi
+	mv "$fluxer_scratch/install.sh" "$fluxer_self"
+	fluxer_drop_scratch
+	fluxer_say "Replaced $fluxer_self. Running it."
+	FLUXER_INSTALLER_REFRESHED=1
+	export FLUXER_INSTALLER_REFRESHED
+	eval "exec sh \"\$fluxer_self\" $fluxer_self_args"
+}
+
 fluxer_resolve_values() {
 	if [ "$opt_update" -eq 1 ] || [ "$opt_rollback" -eq 1 ]; then
 		return 0
@@ -661,15 +743,10 @@ fluxer_resolve_values() {
 		fluxer_prompt 'Hostname the instance answers on' || fluxer_fail 1 'No hostname given.'
 		opt_domain=$fluxer_prompt_value
 	fi
-	if [ -z "$opt_email" ]; then
-		if [ "$opt_non_interactive" -eq 1 ] || [ "$opt_dry_run" -eq 1 ] || [ ! -t 0 ]; then
-			fluxer_bad_usage '--email is required.'
-		fi
-		fluxer_prompt 'Contact email for web push' || fluxer_fail 1 'No address given.'
-		opt_email=$fluxer_prompt_value
-	fi
 	fluxer_valid_domain "$opt_domain" || fluxer_bad_usage "--domain $opt_domain is not a lowercase hostname. Give a bare hostname such as chat.example.com."
-	fluxer_valid_email "$opt_email" || fluxer_bad_usage "--email $opt_email is not an address."
+	if [ -n "$opt_email" ]; then
+		fluxer_valid_email "$opt_email" || fluxer_bad_usage "--email $opt_email is not an address."
+	fi
 }
 
 fluxer_validate_options() {
@@ -745,9 +822,15 @@ fluxer_print_plan() {
 		fluxer_say "  edge bind     $opt_edge_bind"
 	fi
 	fluxer_say "  domain        $opt_domain"
-	fluxer_say "  email         $opt_email"
+	fluxer_plan_non_secret=$(fluxer_non_secret_keys | wc -l | tr -d ' ')
+	if [ -n "$opt_email" ]; then
+		fluxer_say "  email         $opt_email"
+	else
+		fluxer_say "  email         admin@$opt_domain, derived by compose"
+		fluxer_plan_non_secret=$((fluxer_plan_non_secret - 1))
+	fi
 	fluxer_say '  action        download the stack files, write .env, start the stack'
-	fluxer_say "  .env keys     $(fluxer_non_secret_keys | wc -l | tr -d ' ') non-secret values and $(fluxer_secret_keys | wc -l | tr -d ' ') secrets"
+	fluxer_say "  .env keys     $fluxer_plan_non_secret non-secret values and $(fluxer_secret_keys | wc -l | tr -d ' ') secrets"
 	fluxer_say '  files         docker-compose.yml docker-compose.proxy.yml tunnel.compose.yml Caddyfile .env.example'
 	if [ -e "$opt_dir/.env" ]; then
 		fluxer_say "  note          $opt_dir/.env exists. A run without --update refuses it."
@@ -896,9 +979,10 @@ fluxer_generate_vapid() {
 #   cp .env.example .env
 #   chmod 600 .env
 #
-# Then set FLUXER_DOMAIN and FLUXER_VAPID_EMAIL, the two values only the
-# operator knows. The five other non-secret keys in the list above ship correct
-# in .env.example and need no edit.
+# Then set FLUXER_DOMAIN, the one value only the operator knows. FLUXER_VAPID_EMAIL
+# is optional, and compose derives admin@FLUXER_DOMAIN while it is unset. The five
+# other non-secret keys in the list above ship correct in .env.example and need no
+# edit.
 #
 # Every secret in .env.example contains the literal CHANGE_ME. A key whose name
 # ends in _BASE64 takes openssl rand -base64 32, every other key takes
@@ -917,7 +1001,10 @@ fluxer_write_env() {
 		[ -n "$fluxer_key" ] || continue
 		case $fluxer_kind in
 			domain) fluxer_value=$opt_domain ;;
-			email) fluxer_value=$opt_email ;;
+			email)
+				[ -n "$opt_email" ] || continue
+				fluxer_value=$opt_email
+				;;
 			image_tag) fluxer_value=$opt_image_tag ;;
 			literal) fluxer_value=$fluxer_literal ;;
 			*) fluxer_fail 5 "Unknown non-secret kind $fluxer_kind for $fluxer_key." ;;
@@ -1119,6 +1206,7 @@ fluxer_upgrade_secret_keys() {
 	cat <<'KEYS'
 FLUXER_ERLANG_COOKIE hex
 FLUXER_MEDIA_PROXY_UPLOAD_RELAY_SECRET_BASE64 base64
+FLUXER_PROFILE_PSEUDONYM_SECRET hex
 KEYS
 }
 
@@ -2093,6 +2181,10 @@ fluxer_preflight
 fluxer_validate_options
 fluxer_resolve_values
 
+if [ "$opt_update" -eq 1 ]; then
+	fluxer_refresh_installer
+fi
+
 if [ "$opt_update" -eq 1 ] || [ "$opt_rollback" -eq 1 ]; then
 	fluxer_require_instance
 	fluxer_resolve_ref
@@ -2153,11 +2245,15 @@ if [ "$opt_no_start" -eq 1 ]; then
 	exit 0
 fi
 
+fluxer_say 'Pulling images. The first start pulls eighteen of them, which takes several minutes.'
+if ! $fluxer_engine compose pull; then
+	fluxer_fail 4 "$fluxer_engine compose pull failed in $opt_dir. Nothing was started."
+fi
 fluxer_say 'Starting the stack.'
 if ! $fluxer_engine compose up -d; then
 	fluxer_fail 6 "$fluxer_engine compose up -d failed in $opt_dir. Read $fluxer_engine compose logs there."
 fi
-fluxer_say 'Waiting for every service to report ready. This takes several minutes on the first start, which pulls eighteen images.'
+fluxer_say 'Waiting for every service to report ready.'
 if ! fluxer_wait_ready; then
 	fluxer_fail 6 "The stack is not ready after $FLUXER_READY_TIMEOUT seconds. $(fluxer_not_ready_detail)
 Read $fluxer_engine compose logs in $opt_dir."

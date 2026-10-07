@@ -6,6 +6,7 @@ import type {DomainMigrationAssignmentResponse} from '@fluxer/schema/src/domains
 import {
 	type ExperimentAssignmentsResponse,
 	INERT_EXPERIMENT_ASSIGNMENTS_RESPONSE,
+	readChannelThreadsAssignment,
 	readDomainMigrationAssignment,
 } from '@fluxer/schema/src/domains/experiment/ExperimentSchemas';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
@@ -25,6 +26,7 @@ vi.mock('@app/features/platform/transport/RestTransport', () => ({
 
 const {http} = await import('@app/features/platform/transport/RestTransport');
 const {ExperimentAssignments} = await import('@app/features/experiment/state/ExperimentAssignments');
+const {ResettableStates} = await import('@app/features/app/state/ResettableStates');
 
 const CANARY_ASSIGNMENT: DomainMigrationAssignmentResponse = {
 	enabled: true,
@@ -130,6 +132,21 @@ describe('ExperimentAssignments response handling', () => {
 		await adopt(CANARY_ENVELOPE);
 		expect(ExperimentAssignments.response).toEqual(CANARY_ENVELOPE);
 		expect(readDomainMigrationAssignment(ExperimentAssignments.response)).toEqual(CANARY_ASSIGNMENT);
+	});
+
+	it('parses the channel_threads assignment alongside the others', async () => {
+		const envelope: ExperimentAssignmentsResponse = {
+			...CANARY_ENVELOPE,
+			assignments: {...CANARY_ENVELOPE.assignments, channel_threads: {active: true, config_version: 3}},
+		};
+		await adopt(envelope);
+		expect(readChannelThreadsAssignment(ExperimentAssignments.response)).toEqual({active: true, config_version: 3});
+		expect(readDomainMigrationAssignment(ExperimentAssignments.response)).toEqual(CANARY_ASSIGNMENT);
+	});
+
+	it('reads no channel_threads assignment when the key is absent', async () => {
+		await adopt(CANARY_ENVELOPE);
+		expect(readChannelThreadsAssignment(ExperimentAssignments.response)).toBeNull();
 	});
 
 	it('requests the shared experiment endpoint', async () => {
@@ -524,5 +541,48 @@ describe('ExperimentAssignments endpoint failures', () => {
 		await vi.advanceTimersByTimeAsync(600_000);
 		expect(vi.mocked(http.get)).toHaveBeenCalledTimes(5);
 		expect(vi.getTimerCount()).toBe(1);
+	});
+});
+
+describe('ExperimentAssignments account transitions', () => {
+	it('clears the previous account assignments and etag on an account switch', async () => {
+		vi.mocked(http.get).mockResolvedValue(reply(200, CANARY_ENVELOPE, {etag: 'W/"a"'}));
+		ExperimentAssignments.start('a');
+		await settle();
+		expect(migrationEnabled()).toBe(true);
+		ResettableStates.prepareForAccountTransition('account-switch');
+		expect(ExperimentAssignments.response).toBe(INERT_EXPERIMENT_ASSIGNMENTS_RESPONSE);
+		expect(ExperimentAssignments.ownerId).toBeNull();
+		expect(vi.getTimerCount()).toBe(0);
+		vi.mocked(http.get).mockResolvedValue(reply(200, CANARY_ENVELOPE, {etag: 'W/"b"'}));
+		ExperimentAssignments.start('b');
+		await settle();
+		expect(ExperimentAssignments.ownerId).toBe('b');
+		expect(requestHeaders(1)['If-None-Match']).toBeUndefined();
+	});
+
+	it('polls the next account after the previous instance disabled the endpoint', async () => {
+		vi.mocked(http.get).mockResolvedValue(reply(404, {message: '404: Not Found'}));
+		ExperimentAssignments.start('a');
+		await settle();
+		await vi.advanceTimersByTimeAsync(600_000);
+		await vi.advanceTimersByTimeAsync(1_200_000);
+		expect(vi.mocked(http.get)).toHaveBeenCalledTimes(3);
+		ResettableStates.prepareForAccountTransition('account-switch');
+		vi.mocked(http.get).mockResolvedValue(reply(200, CANARY_ENVELOPE, {etag: 'W/"b"'}));
+		ExperimentAssignments.start('b');
+		await settle();
+		expect(vi.mocked(http.get)).toHaveBeenCalledTimes(4);
+		expect(migrationEnabled()).toBe(true);
+	});
+
+	it('ignores a response for the previous account that lands after the switch', async () => {
+		const pending = deferredReply();
+		ExperimentAssignments.start('a');
+		await settle();
+		ResettableStates.prepareForAccountTransition('account-switch');
+		pending.resolve(reply(200, CANARY_ENVELOPE, {etag: 'W/"a"'}));
+		await settle();
+		expect(ExperimentAssignments.response).toBe(INERT_EXPERIMENT_ASSIGNMENTS_RESPONSE);
 	});
 });

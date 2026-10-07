@@ -69,6 +69,7 @@ import {shouldUseKeyboardShortcutsOverlayFallbackFromEvent} from '@app/features/
 import {jsKeyToUiohookKeycode} from '@app/features/input/utils/UiohookKeycodes';
 import type {Message} from '@app/features/messaging/models/MessagingMessage';
 import MessageFocus from '@app/features/messaging/state/MessageFocus';
+import {getSortedDmChannels} from '@app/features/messaging/utils/DmChannelUtils';
 import * as NavigationCommands from '@app/features/navigation/commands/NavigationCommands';
 import Navigation from '@app/features/navigation/state/Navigation';
 import SelectedChannel from '@app/features/navigation/state/SelectedChannel';
@@ -102,7 +103,7 @@ import {ME} from '@fluxer/constants/src/AppConstants';
 import {ChannelTypes} from '@fluxer/constants/src/ChannelConstants';
 import type {I18n} from '@lingui/core';
 import CombokeysImport from 'combokeys';
-import {autorun, compareStructural, reaction} from 'mobx';
+import {autorun, compareStructural, computed, reaction} from 'mobx';
 
 const normalizeKeyboardShortcutKey = (key: string): string => {
 	if (key === ' ') return 'space';
@@ -256,14 +257,21 @@ class KeybindManager {
 		}
 	}
 
-	private get resolvedKeybinds(): Array<RuntimeKeybind> {
-		const skipDefaults = Keybind.getDisableBuiltinKeybinds();
-		const defaults = skipDefaults ? [] : Keybind.getDefaultsForRuntimeDispatch();
-		const customs = Keybind.getCustomKeybinds();
-		return [
-			...buildDefaultRuntimeKeybinds(defaults, getSuppressedBuiltinActions(customs)),
-			...buildCustomRuntimeKeybinds(customs, (action) => Keybind.getDefaultByAction(action)),
-		];
+	private readonly resolvedKeybindsValue = computed(
+		(): ReadonlyArray<RuntimeKeybind> => {
+			const skipDefaults = Keybind.getDisableBuiltinKeybinds();
+			const defaults = skipDefaults ? [] : Keybind.getDefaultsForRuntimeDispatch();
+			const customs = Keybind.getCustomKeybinds();
+			return [
+				...buildDefaultRuntimeKeybinds(defaults, getSuppressedBuiltinActions(customs)),
+				...buildCustomRuntimeKeybinds(customs, (action) => Keybind.getDefaultByAction(action)),
+			];
+		},
+		{keepAlive: true},
+	);
+
+	private get resolvedKeybinds(): ReadonlyArray<RuntimeKeybind> {
+		return this.resolvedKeybindsValue.get();
 	}
 
 	private get activeKeybinds(): Array<RuntimeKeybind> {
@@ -374,7 +382,7 @@ class KeybindManager {
 	}
 
 	private cycleDirectMessageContext(direction: 1 | -1): void {
-		const dmChannels = Channels.dmChannels;
+		const dmChannels = getSortedDmChannels(Channels.dmChannels, Authentication.currentUserId);
 		const slotCount = dmChannels.length + 1;
 		const currentChannelId = this.currentChannelId;
 		const currentIndex = currentChannelId ? dmChannels.findIndex((channel) => channel.id === currentChannelId) + 1 : 0;
@@ -490,7 +498,6 @@ class KeybindManager {
 				this.inputMonitoringHookStatus = 'granted';
 				return true;
 			case 'denied':
-			case 'declined':
 				NativePermission.setInputMonitoringStatus('denied');
 				this.inputMonitoringHookStatus = 'denied';
 				return false;

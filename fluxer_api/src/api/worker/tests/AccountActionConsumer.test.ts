@@ -1,6 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {createUserID, type UserID} from '@app/api/BrandedTypes';
+import {
+	type ChannelID,
+	createChannelID,
+	createMessageID,
+	createUserID,
+	type MessageID,
+	type UserID,
+} from '@app/api/BrandedTypes';
+import {SYSTEM_USER_ID} from '@app/api/constants/Core';
 import type {UserRow} from '@app/api/database/types/UserTypes';
 import {EMPTY_USER_ROW} from '@app/api/database/types/UserTypes';
 import {
@@ -20,6 +28,8 @@ import {
 	stopAccountActionConsumer,
 } from '@app/api/worker/AccountActionConsumer';
 import {UserFlags} from '@fluxer/constants/src/UserConstants';
+import type {AdminArchiveResponse} from '@fluxer/schema/src/domains/admin/AdminArchiveSchemas';
+import {createSnowflakeFromTimestamp} from '@fluxer/snowflake/src/Snowflake';
 import {AckPolicy, DeliverPolicy, type JsMsg, jetstream, jetstreamManager} from '@nats-io/jetstream';
 import {connect} from '@nats-io/transport-node';
 import {afterAll, beforeAll, beforeEach, describe, expect, it} from 'vitest';
@@ -27,6 +37,33 @@ import {afterAll, beforeAll, beforeEach, describe, expect, it} from 'vitest';
 const USER_ID = '1174109840998400001';
 const NOW = 1_759_000_000_000;
 const NATS_URL = process.env.FLUXER_TEST_ACTIVITY_NATS_URL;
+const DAY_MS = 86_400_000;
+const DELETION_DELAY_MS = 7 * DAY_MS;
+
+function archiveAt(
+	requestedAtMs: number,
+	userId: UserID,
+	requestedBy: UserID,
+	archiveId: string,
+	failed = false,
+): AdminArchiveResponse {
+	return {
+		archive_id: archiveId,
+		subject_type: 'user',
+		subject_id: userId.toString(),
+		requested_by: requestedBy.toString(),
+		requested_at: new Date(requestedAtMs).toISOString(),
+		started_at: null,
+		completed_at: null,
+		failed_at: failed ? new Date(requestedAtMs + 1_000).toISOString() : null,
+		file_size: null,
+		progress_percent: 0,
+		progress_step: 'Queued',
+		error_message: null,
+		download_url_expires_at: null,
+		expires_at: null,
+	};
+}
 
 function limitEnvelope(overrides: Partial<Extract<ActionEnvelope, {type: 'set_account_limit'}>> = {}) {
 	return envelope<'set_account_limit'>({
@@ -80,14 +117,27 @@ class FakeUsers {
 		this.rows.set(user.id.toString(), next);
 		return new User(next);
 	}
+
+	async patchUpsert(userId: UserID, patch: Partial<UserRow>): Promise<User> {
+		const next = {...this.rows.get(userId.toString())!, ...patch};
+		this.rows.set(userId.toString(), next);
+		return new User(next);
+	}
 }
 
 interface Harness {
 	users: FakeUsers;
 	cached: Map<string, unknown>;
 	presence: Array<unknown>;
+	profiles: Array<unknown>;
 	bans: Array<{ip: string; ttl: number}>;
 	refreshes: number;
+	authored: Array<{channelId: ChannelID; messageId: MessageID}>;
+	visibility: Array<UserID>;
+	removed: Array<{channelId: ChannelID; authorId: UserID; messageIds: Array<MessageID>}>;
+	archives: Array<AdminArchiveResponse>;
+	archiveRequests: Array<{userId: UserID; requestedBy: UserID; includeAttachments: boolean}>;
+	queued: Map<string, number>;
 	deps: AccountActionDeps;
 }
 
@@ -97,15 +147,38 @@ function harness(): Harness {
 		users,
 		cached: new Map(),
 		presence: [],
+		profiles: [],
 		bans: [],
 		refreshes: 0,
+		authored: [],
+		visibility: [],
+		removed: [],
+		archives: [],
+		archiveRequests: [],
+		queued: new Map(),
 		deps: null as never,
+	};
+	const authored = {
+		listMessagesByAuthor: async (_authorId: UserID, limit: number, before?: MessageID) =>
+			[...h.authored]
+				.sort((a, b) => (a.messageId > b.messageId ? -1 : 1))
+				.filter((m) => before === undefined || m.messageId < before)
+				.slice(0, limit),
 	};
 	const state: AccountStateDeps = {
 		users: users as unknown as AccountStateDeps['users'],
 		dispatch: {
 			userUpdated: async (user) => {
 				h.presence.push(user.id);
+			},
+			profileChanged: async (user) => {
+				h.profiles.push(user.id);
+			},
+			contentVisibilityChanged: async (user) => {
+				h.visibility.push(user.id);
+			},
+			messagesRemoved: async (channelId, authorId, messageIds) => {
+				h.removed.push({channelId, authorId, messageIds});
 			},
 		},
 		ipBans: {
@@ -126,6 +199,26 @@ function harness(): Harness {
 				h.cached.delete(key);
 			},
 		} as unknown as AccountStateDeps['cache'],
+		archives: {
+			listArchives: async ({subjectId}) =>
+				h.archives.filter((archive) => archive.subject_id === subjectId?.toString()).reverse(),
+			triggerUserArchive: async (userId, requestedBy, includeAttachments) => {
+				h.archiveRequests.push({userId, requestedBy, includeAttachments});
+				const archive = archiveAt(NOW, userId, requestedBy, String(9000 + h.archives.length));
+				h.archives.push(archive);
+				return archive;
+			},
+		},
+		messageDeletionQueue: {
+			scheduleDeletion: async (userId, scheduledAt) => {
+				h.queued.set(userId.toString(), scheduledAt.getTime());
+			},
+			removeFromQueue: async (userId) => {
+				h.queued.delete(userId.toString());
+			},
+		},
+		messageDeletionDelayMs: DELETION_DELAY_MS,
+		authored: authored as unknown as AccountStateDeps['authored'],
 		now: () => NOW,
 	};
 	h.deps = {js: {} as AccountActionDeps['js'], state, now: () => NOW};
@@ -308,6 +401,268 @@ describe('account action apply', () => {
 		);
 		expect(ending.status).toBe('noop');
 		expect(h.bans).toEqual([]);
+	});
+
+	it('hides the profile reversibly and tells clients both ways', async () => {
+		h.users.put({flags: UserFlags.ACCOUNT_LIMITED});
+		const hide = envelope<'hide_profile'>({type: 'hide_profile', user_id: USER_ID, on: true});
+		expect(await applyAction(h.deps, hide)).toMatchObject({status: 'applied', action_type: 'hide_profile'});
+		expect(h.users.current().flags).toBe(UserFlags.ACCOUNT_LIMITED | UserFlags.PROFILE_HIDDEN);
+		expect((await applyAction(h.deps, hide)).status).toBe('noop');
+		const show = envelope<'hide_profile'>({type: 'hide_profile', user_id: USER_ID, on: false});
+		expect((await applyAction(h.deps, show)).status).toBe('applied');
+		expect(h.users.current().flags).toBe(UserFlags.ACCOUNT_LIMITED);
+		expect((await applyAction(h.deps, show)).status).toBe('noop');
+		expect(h.presence).toHaveLength(2);
+		expect(h.profiles).toHaveLength(2);
+	});
+
+	it('never hides staff or trusted profiles and skips bots and deleted accounts', async () => {
+		const hide = envelope<'hide_profile'>({type: 'hide_profile', user_id: USER_ID, on: true});
+		for (const flags of [UserFlags.STAFF, UserFlags.LIMIT_EXEMPT]) {
+			h.users.put({flags});
+			expect((await applyAction(h.deps, hide)).status).toBe('exempt');
+		}
+		for (const overrides of [{bot: true}, {flags: UserFlags.DELETED}] satisfies Array<Partial<UserRow>>) {
+			h.users.put(overrides);
+			expect((await applyAction(h.deps, hide)).status).toBe('ineligible');
+		}
+		h.users.put({flags: UserFlags.STAFF | UserFlags.PROFILE_HIDDEN});
+		const show = envelope<'hide_profile'>({type: 'hide_profile', user_id: USER_ID, on: false});
+		expect((await applyAction(h.deps, show)).status).toBe('applied');
+		expect(h.profiles).toHaveLength(1);
+	});
+
+	function hideEnvelope(on: boolean, sinceMs = NOW - 86_400_000) {
+		return envelope<'hide_recent_messages'>({type: 'hide_recent_messages', user_id: USER_ID, since_ms: sinceMs, on});
+	}
+
+	function authorAt(timestampMs: number, channel: number): MessageID {
+		const messageId = createMessageID(createSnowflakeFromTimestamp(timestampMs) + BigInt(h.authored.length));
+		h.authored.push({channelId: createChannelID(BigInt(channel)), messageId});
+		return messageId;
+	}
+
+	function removedIds(): Array<MessageID> {
+		return h.removed.flatMap((entry) => entry.messageIds).sort((a, b) => (a < b ? -1 : 1));
+	}
+
+	it('hides every message from the window onward and tells each channel they are gone', async () => {
+		const since = NOW - 86_400_000;
+		const before = [authorAt(since - 60_000, 100), authorAt(since - 1, 101)];
+		const inside: Array<MessageID> = [authorAt(since, 100)];
+		for (let i = 0; i < 250; i++) inside.push(authorAt(since + 1_000 + i, 100 + (i % 3)));
+		const outcome = await applyAction(h.deps, hideEnvelope(true, since));
+		expect(outcome).toEqual({
+			action_id: 'a:07:4242:0',
+			action_type: 'hide_recent_messages',
+			status: 'applied',
+			detail: 'messages=251',
+			observed: {flags: '0', deleted: false},
+			user_id: USER_ID,
+		});
+		expect(h.users.current().contentHiddenSince?.getTime()).toBe(since);
+		expect(h.visibility).toEqual([createUserID(BigInt(USER_ID))]);
+		expect(removedIds()).toEqual([...inside].sort((a, b) => (a < b ? -1 : 1)));
+		for (const id of before) expect(removedIds()).not.toContain(id);
+		for (const entry of h.removed) {
+			expect(entry.authorId).toBe(createUserID(BigInt(USER_ID)));
+			for (const id of entry.messageIds) {
+				expect(h.authored.find((m) => m.messageId === id)?.channelId).toBe(entry.channelId);
+			}
+		}
+		expect(h.users.current().flags).toBe(0n);
+		expect(h.queued.size).toBe(0);
+	});
+
+	it('keeps the wider window when asked again and resends the deletes as a noop', async () => {
+		const since = NOW - 86_400_000;
+		authorAt(since + 5_000, 100);
+		await applyAction(h.deps, hideEnvelope(true, since));
+		const later = await applyAction(h.deps, hideEnvelope(true, since + 60_000));
+		expect(later).toMatchObject({status: 'noop', detail: 'messages=1'});
+		expect(h.users.current().contentHiddenSince?.getTime()).toBe(since);
+		expect(h.visibility).toHaveLength(1);
+		const wider = await applyAction(h.deps, hideEnvelope(true, since - 60_000));
+		expect(wider.status).toBe('applied');
+		expect(h.users.current().contentHiddenSince?.getTime()).toBe(since - 60_000);
+		expect(h.visibility).toHaveLength(2);
+	});
+
+	it('reports a hide with nothing in the window as applied with no deletes', async () => {
+		authorAt(NOW - 2 * 86_400_000, 100);
+		const outcome = await applyAction(h.deps, hideEnvelope(true));
+		expect(outcome).toMatchObject({status: 'applied', detail: 'messages=0'});
+		expect(h.removed).toEqual([]);
+	});
+
+	it('restores by clearing the window and sends no gateway events', async () => {
+		const since = NOW - 86_400_000;
+		authorAt(since + 5_000, 100);
+		h.users.put({content_hidden_since: new Date(since)});
+		const outcome = await applyAction(h.deps, hideEnvelope(false));
+		expect(outcome).toMatchObject({status: 'applied', detail: null, observed: {flags: '0', deleted: false}});
+		expect(h.users.current().contentHiddenSince).toBeNull();
+		expect(h.removed).toEqual([]);
+		expect(h.presence).toHaveLength(0);
+		expect(h.visibility).toHaveLength(1);
+		expect((await applyAction(h.deps, hideEnvelope(false))).status).toBe('noop');
+		expect(h.visibility).toHaveLength(1);
+	});
+
+	it('never hides staff, trusted or system messages and skips bots and deleted accounts', async () => {
+		authorAt(NOW - 1_000, 100);
+		for (const overrides of [{flags: UserFlags.STAFF}, {flags: UserFlags.LIMIT_EXEMPT}, {system: true}] satisfies Array<
+			Partial<UserRow>
+		>) {
+			h.users.put(overrides);
+			expect((await applyAction(h.deps, hideEnvelope(true))).status).toBe('exempt');
+			expect(h.users.current().contentHiddenSince).toBeNull();
+		}
+		for (const overrides of [{bot: true}, {flags: UserFlags.DELETED}] satisfies Array<Partial<UserRow>>) {
+			h.users.put(overrides);
+			expect((await applyAction(h.deps, hideEnvelope(true))).status).toBe('ineligible');
+		}
+		h.users.rows.clear();
+		expect(await applyAction(h.deps, hideEnvelope(true))).toMatchObject({status: 'ineligible', observed: null});
+		expect(h.removed).toEqual([]);
+		expect(h.visibility).toEqual([]);
+		h.users.put({flags: UserFlags.STAFF, content_hidden_since: new Date(NOW - 1_000)});
+		expect((await applyAction(h.deps, hideEnvelope(false))).status).toBe('applied');
+		expect(h.users.current().contentHiddenSince).toBeNull();
+	});
+
+	it('keeps the message hide and the profile mask independent', async () => {
+		const since = NOW - 86_400_000;
+		authorAt(since + 5_000, 100);
+		await applyAction(h.deps, hideEnvelope(true, since));
+		await applyAction(h.deps, envelope<'hide_profile'>({type: 'hide_profile', user_id: USER_ID, on: true}));
+		expect(h.users.current().flags).toBe(UserFlags.PROFILE_HIDDEN);
+		expect(h.users.current().contentHiddenSince?.getTime()).toBe(since);
+		await applyAction(h.deps, hideEnvelope(false));
+		expect(h.users.current().flags).toBe(UserFlags.PROFILE_HIDDEN);
+		expect(h.users.current().contentHiddenSince).toBeNull();
+		await applyAction(h.deps, hideEnvelope(true, since));
+		await applyAction(h.deps, envelope<'hide_profile'>({type: 'hide_profile', user_id: USER_ID, on: false}));
+		expect(h.users.current().flags).toBe(0n);
+		expect(h.users.current().contentHiddenSince?.getTime()).toBe(since);
+	});
+
+	it('hides every message the account ever sent when the window starts at zero', async () => {
+		const all = [authorAt(1_420_070_401_000, 100), authorAt(NOW - 400 * DAY_MS, 101), authorAt(NOW - 1_000, 102)];
+		const outcome = await applyAction(h.deps, hideEnvelope(true, 0));
+		expect(outcome).toMatchObject({status: 'applied', detail: 'messages=3'});
+		expect(h.users.current().contentHiddenSince?.getTime()).toBe(0);
+		expect(removedIds()).toEqual([...all].sort((a, b) => (a < b ? -1 : 1)));
+		expect((await applyAction(h.deps, hideEnvelope(true, NOW - DAY_MS))).status).toBe('noop');
+		expect(h.users.current().contentHiddenSince?.getTime()).toBe(0);
+		expect((await applyAction(h.deps, hideEnvelope(false, 0))).status).toBe('applied');
+		expect(h.users.current().contentHiddenSince).toBeNull();
+	});
+
+	it('hides the messages of an account whose deletion is only scheduled', async () => {
+		authorAt(NOW - 1_000, 100);
+		h.users.put({flags: UserFlags.DELETED | UserFlags.SPAMMER, pending_deletion_at: new Date(NOW + 60 * DAY_MS)});
+		expect((await applyAction(h.deps, hideEnvelope(true, 0))).status).toBe('applied');
+		expect(h.users.current().contentHiddenSince?.getTime()).toBe(0);
+	});
+
+	function purgeEnvelope(on = true) {
+		return envelope<'delete_user_messages'>({type: 'delete_user_messages', user_id: USER_ID, on});
+	}
+
+	const userId = createUserID(BigInt(USER_ID));
+
+	it('archives with attachments and schedules the deletion instead of deleting now', async () => {
+		authorAt(NOW - 1_000, 100);
+		const outcome = await applyAction(h.deps, purgeEnvelope());
+		const scheduledAt = NOW + DELETION_DELAY_MS;
+		expect(outcome).toEqual({
+			action_id: 'a:07:4242:0',
+			action_type: 'delete_user_messages',
+			status: 'applied',
+			detail: `archive=9000 reused=false scheduled_at=${new Date(scheduledAt).toISOString()}`,
+			observed: {flags: '0', deleted: false},
+			user_id: USER_ID,
+		});
+		expect(h.archiveRequests).toEqual([{userId, requestedBy: SYSTEM_USER_ID, includeAttachments: true}]);
+		expect(h.users.current().pendingBulkMessageDeletionAt?.getTime()).toBe(scheduledAt);
+		expect(h.queued.get(USER_ID)).toBe(scheduledAt);
+		expect(h.removed).toEqual([]);
+		expect(h.authored).toHaveLength(1);
+		expect(h.presence).toEqual([userId]);
+	});
+
+	it('reuses an archive from the last day and makes a new one when it is older or failed', async () => {
+		h.archives.push(archiveAt(NOW - DAY_MS + 60_000, userId, createUserID(42n), '777'));
+		expect((await applyAction(h.deps, purgeEnvelope())).detail).toMatch(/^archive=777 reused=true /);
+		expect(h.archiveRequests).toEqual([]);
+		h.archives.length = 0;
+		h.archives.push(archiveAt(NOW - DAY_MS - 60_000, userId, createUserID(42n), '778'));
+		h.archives.push(archiveAt(NOW - 60_000, userId, createUserID(42n), '779', true));
+		h.users.put();
+		expect((await applyAction(h.deps, purgeEnvelope())).detail).toMatch(/^archive=9002 reused=false /);
+		expect(h.archiveRequests).toHaveLength(1);
+	});
+
+	it('keeps an earlier schedule and pulls a later one forward', async () => {
+		const earlier = NOW + DAY_MS;
+		h.users.put({pending_bulk_message_deletion_at: new Date(earlier), pending_bulk_message_deletion_message_count: 4});
+		const kept = await applyAction(h.deps, purgeEnvelope());
+		expect(kept).toMatchObject({status: 'noop'});
+		expect(kept.detail).toContain(`scheduled_at=${new Date(earlier).toISOString()}`);
+		expect(h.users.current().pendingBulkMessageDeletionAt?.getTime()).toBe(earlier);
+		expect(h.users.current().pendingBulkMessageDeletionMessageCount).toBe(4);
+		expect(h.queued.get(USER_ID)).toBe(earlier);
+		expect(h.presence).toHaveLength(0);
+		h.users.put({pending_bulk_message_deletion_at: new Date(NOW + 30 * DAY_MS)});
+		expect((await applyAction(h.deps, purgeEnvelope())).status).toBe('applied');
+		expect(h.users.current().pendingBulkMessageDeletionAt?.getTime()).toBe(NOW + DELETION_DELAY_MS);
+		expect(h.queued.get(USER_ID)).toBe(NOW + DELETION_DELAY_MS);
+		expect(h.archiveRequests).toHaveLength(1);
+	});
+
+	it('schedules for accounts already scheduled for deletion and paid accounts', async () => {
+		for (const overrides of [
+			{flags: UserFlags.DELETED | UserFlags.SPAMMER, pending_deletion_at: new Date(NOW + 60 * DAY_MS)},
+			{has_ever_purchased: true, premium_type: 2},
+		] satisfies Array<Partial<UserRow>>) {
+			h.users.put(overrides);
+			expect((await applyAction(h.deps, purgeEnvelope())).status).toBe('applied');
+			expect(h.users.current().pendingBulkMessageDeletionAt?.getTime()).toBe(NOW + DELETION_DELAY_MS);
+		}
+	});
+
+	it('cancels the schedule on off and is a noop when nothing is scheduled', async () => {
+		await applyAction(h.deps, purgeEnvelope());
+		const cancelled = await applyAction(h.deps, purgeEnvelope(false));
+		expect(cancelled).toMatchObject({status: 'applied', detail: null, observed: {flags: '0', deleted: false}});
+		expect(h.users.current().pendingBulkMessageDeletionAt).toBeNull();
+		expect(h.queued.has(USER_ID)).toBe(false);
+		expect(h.presence).toHaveLength(2);
+		expect((await applyAction(h.deps, purgeEnvelope(false))).status).toBe('noop');
+		expect(h.archives).toHaveLength(1);
+		h.users.put({flags: UserFlags.STAFF, pending_bulk_message_deletion_at: new Date(NOW + DAY_MS)});
+		expect((await applyAction(h.deps, purgeEnvelope(false))).status).toBe('applied');
+		h.users.rows.clear();
+		expect(await applyAction(h.deps, purgeEnvelope(false))).toMatchObject({status: 'ineligible', observed: null});
+	});
+
+	it('never schedules for staff, trusted, system, bot, deleted or missing accounts', async () => {
+		for (const overrides of [{flags: UserFlags.STAFF}, {flags: UserFlags.LIMIT_EXEMPT}, {system: true}] satisfies Array<
+			Partial<UserRow>
+		>) {
+			h.users.put(overrides);
+			expect((await applyAction(h.deps, purgeEnvelope())).status).toBe('exempt');
+		}
+		for (const overrides of [{bot: true}, {flags: UserFlags.DELETED}] satisfies Array<Partial<UserRow>>) {
+			h.users.put(overrides);
+			expect((await applyAction(h.deps, purgeEnvelope())).status).toBe('ineligible');
+		}
+		h.users.rows.clear();
+		expect(await applyAction(h.deps, purgeEnvelope())).toMatchObject({status: 'ineligible', observed: null});
+		expect(h.archiveRequests).toEqual([]);
+		expect(h.queued.size).toBe(0);
 	});
 
 	it('answers expired actions and unknown shapes without touching the account', async () => {

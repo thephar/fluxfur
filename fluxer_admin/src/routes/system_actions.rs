@@ -7,19 +7,20 @@ use crate::{
             AppBrandingConfigUpdateRequest, AppLegalConfigUpdateRequest,
             AppPublicConfigUpdateRequest, AppRegistrationConfigUpdateRequest,
             AppSetupConfigUpdateRequest, CAPTCHA_COST_RANGE, CAPTCHA_MAX_COUNTER_RANGE,
-            CaptchaConfigUpdateRequest, CreateRegistrationUrlRequest,
-            DomainMigrationConfigUpdateRequest, EXPERIMENT_MAX_TARGETED_USERS,
-            ExperimentDeliveryConfigUpdateRequest, GatewayRolloutConfigUpdateRequest,
-            GatewayRolloutMode, InstanceAttachmentDecayUpdateRequest,
-            InstanceBlueskyIntegrationUpdateRequest, InstanceBlueskyKeyIntegrationUpdateRequest,
-            InstanceConfigUpdateRequest, InstanceEmailIntegrationUpdateRequest,
-            InstanceEmailSmtpIntegrationUpdateRequest, InstanceEmailSmtpTestRequest,
-            InstanceGifIntegrationUpdateRequest, InstanceIntegrationsUpdateRequest,
-            InstanceMediaUpdateRequest, InstancePolicyUpdateRequest,
-            InstanceRegistrationConfigUpdateRequest, InstanceServicesUpdateRequest,
-            InstanceYoutubeIntegrationUpdateRequest, LimitConfigUpdateRequest, LimitRule,
-            LimitRuleFilters, PlutoniumPageConfigUpdateRequest, PremiumMode,
-            PushRelayConfigUpdateRequest, RegistrationMode, SsoConfigUpdateRequest, VoiceE2eeScope,
+            CaptchaConfigUpdateRequest, ChannelThreadsConfigUpdateRequest,
+            CreateRegistrationUrlRequest, DomainMigrationConfigUpdateRequest,
+            EXPERIMENT_MAX_TARGETED_USERS, ExperimentDeliveryConfigUpdateRequest,
+            GatewayRolloutConfigUpdateRequest, GatewayRolloutMode,
+            InstanceAttachmentDecayUpdateRequest, InstanceBlueskyIntegrationUpdateRequest,
+            InstanceBlueskyKeyIntegrationUpdateRequest, InstanceConfigUpdateRequest,
+            InstanceEmailIntegrationUpdateRequest, InstanceEmailSmtpIntegrationUpdateRequest,
+            InstanceEmailSmtpTestRequest, InstanceGifIntegrationUpdateRequest,
+            InstanceIntegrationsUpdateRequest, InstanceMediaUpdateRequest,
+            InstancePolicyUpdateRequest, InstanceRegistrationConfigUpdateRequest,
+            InstanceServicesUpdateRequest, InstanceYoutubeIntegrationUpdateRequest,
+            LimitConfigUpdateRequest, LimitRule, LimitRuleFilters,
+            PlutoniumPageConfigUpdateRequest, PremiumMode, PushRelayConfigUpdateRequest,
+            RegistrationMode, SsoConfigUpdateRequest, VoiceE2eeScope,
         },
     },
     config::AdminConfig,
@@ -228,6 +229,11 @@ pub async fn instance_config_post(
             Ok(update) => instance_config_result(client.update_instance_config(&update).await),
             Err(message) => FlashData::error(message),
         },
+        "update_channel_threads" => instance_config_result(
+            client
+                .update_instance_config(&build_channel_threads_update(&form))
+                .await,
+        ),
         "update_experiment_delivery" => match build_experiment_delivery_update(&form) {
             Ok(update) => instance_config_result(client.update_instance_config(&update).await),
             Err(message) => FlashData::error(message),
@@ -671,6 +677,28 @@ fn build_captcha_update(form: &MultiValueForm) -> Result<InstanceConfigUpdateReq
     })
 }
 
+fn build_channel_threads_update(form: &MultiValueForm) -> InstanceConfigUpdateRequest {
+    let channel_threads = if form.bool_value("channel_threads_everyone") {
+        ChannelThreadsConfigUpdateRequest {
+            enabled: Some(true),
+            guild_basis_points: Some(EXPERIMENT_ROLLOUT_BASIS_POINTS_MAX),
+            user_basis_points: Some(EXPERIMENT_ROLLOUT_BASIS_POINTS_MAX),
+            disabled_guild_ids: Some(Vec::new()),
+            excluded_user_ids: Some(Vec::new()),
+            ..Default::default()
+        }
+    } else {
+        ChannelThreadsConfigUpdateRequest {
+            enabled: Some(false),
+            ..Default::default()
+        }
+    };
+    InstanceConfigUpdateRequest {
+        channel_threads: Some(channel_threads),
+        ..Default::default()
+    }
+}
+
 fn build_experiment_delivery_update(
     form: &MultiValueForm,
 ) -> Result<InstanceConfigUpdateRequest, String> {
@@ -838,7 +866,9 @@ fn build_integrations_update(form: &MultiValueForm) -> InstanceConfigUpdateReque
             youtube: Some(InstanceYoutubeIntegrationUpdateRequest {
                 api_key: clean("integration_youtube_api_key"),
             }),
-            email: Some(InstanceEmailIntegrationUpdateRequest {
+            email: (form.has_key_starting_with("integration_email_")
+                || form.has_key_starting_with("integration_smtp_"))
+            .then(|| InstanceEmailIntegrationUpdateRequest {
                 enabled: Some(form.bool_value("integration_email_enabled")),
                 provider: Some("smtp".to_owned()),
                 from_email: clean("integration_email_from_email"),
@@ -1196,6 +1226,37 @@ mod tests {
     use super::*;
 
     #[test]
+    fn build_integrations_update_leaves_email_alone_when_its_fields_are_hidden() {
+        let hidden = build_integrations_update(&MultiValueForm::parse(
+            b"integration_klipy_api_key=&integration_youtube_api_key=",
+        ));
+        let integrations = hidden.integrations.expect("integrations update");
+        assert!(integrations.email.is_none());
+        assert!(integrations.gif.is_some());
+
+        let shown = build_integrations_update(&MultiValueForm::parse(
+            b"integration_email_present=1&integration_smtp_host=smtp.example.com",
+        ));
+        let email = shown
+            .integrations
+            .and_then(|integrations| integrations.email)
+            .expect("email update");
+        assert_eq!(email.enabled, Some(false));
+
+        let from_an_older_page = build_integrations_update(&MultiValueForm::parse(
+            b"integration_klipy_api_key=&integration_smtp_host=smtp.example.com",
+        ));
+        let email = from_an_older_page
+            .integrations
+            .and_then(|integrations| integrations.email)
+            .expect("email update from a page without the presence marker");
+        assert_eq!(
+            email.smtp.and_then(|smtp| smtp.host).as_deref(),
+            Some("smtp.example.com")
+        );
+    }
+
+    #[test]
     fn build_sso_update_keeps_repeated_allowed_domains() {
         let form = MultiValueForm::parse(
             b"sso_enabled=true&sso_auto_provision=on&sso_allowed_domains%5B%5D=example.com&sso_allowed_domains%5B%5D=example.org&sso_display_name= Fluxer ",
@@ -1401,6 +1462,30 @@ mod tests {
                 message
             );
         }
+    }
+
+    #[test]
+    fn build_channel_threads_update_turns_threads_on_for_everyone() {
+        let form = MultiValueForm::parse(b"_csrf=token&channel_threads_everyone=true");
+        assert_eq!(
+            serde_json::to_value(build_channel_threads_update(&form)).expect("serializable update"),
+            serde_json::json!({"channel_threads": {
+                "enabled": true,
+                "guild_basis_points": 10000,
+                "user_basis_points": 10000,
+                "disabled_guild_ids": [],
+                "excluded_user_ids": [],
+            }})
+        );
+    }
+
+    #[test]
+    fn build_channel_threads_update_only_turns_threads_off_when_unchecked() {
+        let form = MultiValueForm::parse(b"_csrf=token");
+        assert_eq!(
+            serde_json::to_value(build_channel_threads_update(&form)).expect("serializable update"),
+            serde_json::json!({"channel_threads": {"enabled": false}})
+        );
     }
 
     #[test]

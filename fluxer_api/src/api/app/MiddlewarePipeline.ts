@@ -3,6 +3,7 @@
 import type {ILogger} from '@app/api/ILogger';
 import {ActivityContextMiddleware} from '@app/api/infrastructure/activity/ActivityMeta';
 import {AuditLogMiddleware} from '@app/api/middleware/AuditLogMiddleware';
+import {ClientFeaturesMiddleware} from '@app/api/middleware/ClientFeaturesMiddleware';
 import {ConcurrencyLimitMiddleware} from '@app/api/middleware/ConcurrencyLimitMiddleware';
 import ContentFilterMiddleware from '@app/api/middleware/ContentFilterMiddleware';
 import {GuildAvailabilityMiddleware} from '@app/api/middleware/GuildAvailabilityMiddleware';
@@ -57,10 +58,17 @@ export function configureMiddleware(routes: HonoApp, options: MiddlewarePipeline
 			allowedHeaders: [
 				HttpHeaders.CONTENT_TYPE,
 				HttpHeaders.AUTHORIZATION,
-				'X-Requested-With',
-				'Accept-Language',
+				HttpHeaders.X_REQUESTED_WITH,
+				HttpHeaders.ACCEPT_LANGUAGE,
 				HttpHeaders.X_REQUEST_ID,
 				HttpHeaders.IF_NONE_MATCH,
+				HttpHeaders.X_AUDIT_LOG_REASON,
+				HttpHeaders.X_CAPTCHA_ID,
+				HttpHeaders.X_CAPTCHA_TOKEN,
+				HttpHeaders.X_FLUXER_CLIENT_INSTALLATION_ID,
+				HttpHeaders.X_FLUXER_FEATURES,
+				HttpHeaders.X_FLUXER_PLATFORM,
+				HttpHeaders.X_FLUXER_SUDO_MODE_JWT,
 			],
 			exposedHeaders: [HttpHeaders.X_FLUXER_VERSION, HttpHeaders.ETAG],
 		},
@@ -78,6 +86,7 @@ export function configureMiddleware(routes: HonoApp, options: MiddlewarePipeline
 	);
 	routes.use(RequestErrorTelemetry);
 	routes.use(RequestCacheMiddleware);
+	routes.use(ClientFeaturesMiddleware);
 	if (nodeEnv === 'production') {
 		routes.use('*', async (ctx, next) => {
 			const host = ctx.req.header('host');

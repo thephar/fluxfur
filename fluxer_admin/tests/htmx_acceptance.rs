@@ -469,6 +469,7 @@ async fn mutating_admin_pages_render_usable_csrf_tokens() {
                 "/instance-config?action=update_gateway_rollout",
                 "/instance-config?action=update_sso",
                 "/instance-config?action=update_domain_migration",
+                "/instance-config?action=update_channel_threads",
                 "/instance-config?action=update_plutonium_page",
                 "/instance-config?action=update_experiment_delivery",
             ][..],
@@ -482,6 +483,50 @@ async fn mutating_admin_pages_render_usable_csrf_tokens() {
         for form_action in form_actions {
             assert_form_has_csrf(&body, form_action, &csrf_token);
         }
+    }
+}
+
+#[tokio::test]
+async fn channel_threads_section_renders_and_saves_through_htmx_toasts() {
+    let app = setup().await;
+    let (headers, body) = get_with_headers(&app, "/instance-config", &[]).await;
+    assert_full_layout(&body);
+    assert!(body.contains("Threads and forums"), "{body}");
+    assert!(body.contains("Available to everyone"), "{body}");
+    assert!(
+        body.contains(r#"name="channel_threads_everyone""#),
+        "{body}"
+    );
+    assert!(
+        !body.contains("channel_threads_guild_basis_points"),
+        "{body}"
+    );
+    let csrf_token = csrf_cookie(&headers)
+        .unwrap_or_else(|| panic!("instance config page did not set csrf_token cookie\n{body}"));
+    let cookie = format!("{}; csrf_token={}", app.session_cookie, csrf_token);
+    let htmx_headers = [
+        ("HX-Request", "true"),
+        ("HX-Target", "flash-container"),
+        ("Cookie", cookie.as_str()),
+    ];
+
+    for form in [
+        format!("_csrf={csrf_token}&channel_threads_everyone=true"),
+        format!("_csrf={csrf_token}"),
+    ] {
+        let (status, response_headers, response_body) = post_form_with_headers(
+            &app,
+            "/instance-config?action=update_channel_threads",
+            &htmx_headers,
+            &form,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{response_body}");
+        let toast = response_headers
+            .get("X-Fluxer-Admin-Toast")
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_else(|| panic!("missing toast header\n{response_body}"));
+        assert!(toast.contains("Instance config updated"), "{toast}");
     }
 }
 
@@ -1192,6 +1237,19 @@ fn instance_config() -> Value {
             "excluded_user_ids": [],
             "anonymous_rollout_basis_points": 0,
             "standalone_forwarding": false
+        },
+        "channel_threads": {
+            "enabled": false,
+            "config_version": 3,
+            "ever_enabled": true,
+            "guild_basis_points": 0,
+            "guild_salt": "channel-threads-guild-v1",
+            "enabled_guild_ids": ["1600000000000000001"],
+            "disabled_guild_ids": [],
+            "user_basis_points": 10000,
+            "user_salt": "channel-threads-user-v1",
+            "included_user_ids": [],
+            "excluded_user_ids": ["1500000000000000009"]
         },
         "plutonium_page": {
             "enabled": false,

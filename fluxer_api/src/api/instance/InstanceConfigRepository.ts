@@ -6,6 +6,13 @@ import type {APIConfig, BlueskyOAuthConfig, BlueskyOAuthKeyConfig} from '@app/ap
 import {executeConditional, fetchMany, fetchOne, upsertOne} from '@app/api/database/CassandraQueryExecution';
 import {Db, type PreparedQuery} from '@app/api/database/CassandraTypes';
 import type {InstanceConfigurationRow} from '@app/api/database/types/InstanceConfigTypes';
+import {syncChannelThreadsConfig} from '@app/api/experiment/ChannelThreadsGate';
+import {
+	type AccountIdentity,
+	resolveAccountIdentity,
+	type StoredAccountIdentity,
+	setCachedAccountIdentity,
+} from '@app/api/instance/AccountIdentityModeCache';
 import {
 	getDefaultDateOfBirthCollection,
 	setCachedDateOfBirthCollection,
@@ -20,9 +27,15 @@ import {
 	isStripeServiceable,
 	setStoredBillingConfig,
 } from '@app/api/stripe/BillingConfigCache';
-import {InstanceConfiguration} from '@app/api/Tables';
+import {InstanceConfiguration, Users} from '@app/api/Tables';
 import {DEFAULT_DECAY_CONSTANTS, DEFAULT_RENEWAL_CONSTANTS} from '@app/api/utils/AttachmentDecay';
 import {isJsonRecord} from '@app/api/utils/JsonBoundaryUtils';
+import {
+	type AccountIdentityMode,
+	AccountIdentityModes,
+	type TagStyle,
+	TagStyles,
+} from '@fluxer/constants/src/AccountIdentityConstants';
 import {APIErrorCodes} from '@fluxer/constants/src/ApiErrorCodes';
 import {ConflictError} from '@fluxer/errors/src/domains/core/ConflictError';
 import {ServiceUnavailableError} from '@fluxer/errors/src/domains/core/ServiceUnavailableError';
@@ -38,6 +51,11 @@ import {
 	CaptchaConfigSchema,
 	type CaptchaConfigUpdateRequest,
 } from '@fluxer/schema/src/domains/admin/CaptchaSchemas';
+import {
+	type ChannelThreadsConfig,
+	ChannelThreadsConfigSchema,
+	type CompiledChannelThreadsConfig,
+} from '@fluxer/schema/src/domains/admin/ChannelThreadsSchemas';
 import {
 	type DomainMigrationConfig,
 	DomainMigrationConfigSchema,
@@ -84,6 +102,7 @@ const PUSH_RELAY_CONFIG_KEY = 'push_service_delivery_config';
 const DOMAIN_MIGRATION_CONFIG_KEY = 'domain_migration_config';
 const PLUTONIUM_PAGE_CONFIG_KEY = 'plutonium_page_config';
 const CAPTCHA_CONFIG_KEY = 'captcha_config';
+const CHANNEL_THREADS_CONFIG_KEY = 'channel_threads_config';
 const EXPERIMENT_DELIVERY_CONFIG_KEY = 'experiment_delivery_config';
 const REGISTRATION_CONFIG_KEY = 'registration_config';
 const REGISTRATION_URLS_KEY = 'registration_urls';
@@ -95,6 +114,7 @@ const LIMIT_CONFIG_KEY = 'limit_config';
 const INSTANCE_INTEGRATIONS_CONFIG_KEY = 'instance_integrations_config';
 const INSTANCE_MEDIA_CONFIG_KEY = 'instance_media_config';
 const INSTANCE_BILLING_CONFIG_KEY = 'instance_billing_config';
+const ACCOUNT_IDENTITY_CONFIG_KEY = 'account_identity_config';
 export const INSTANCE_CONFIG_REFRESH_CHANNEL = 'instance-config-refresh';
 export const REGISTRATION_PENDING_APPROVAL_TRAIT = 'registration_pending_approval';
 export const REGISTRATION_REJECTED_TRAIT = 'registration_rejected';
@@ -347,6 +367,7 @@ const FETCH_CONFIG_QUERY = InstanceConfiguration.selectCql({
 	limit: 1,
 });
 const FETCH_ALL_CONFIG_QUERY = InstanceConfiguration.selectCql();
+const FETCH_ANY_USER_QUERY = Users.selectCql({columns: ['user_id'], limit: 1, unordered: true});
 const FETCH_LIMIT_CONFIG_INPUTS_QUERY = InstanceConfiguration.selectCql({
 	where: InstanceConfiguration.where.in('key', 'keys'),
 });
@@ -414,6 +435,7 @@ type StoredConfigSection =
 	| 'domain migration'
 	| 'plutonium page'
 	| 'captcha'
+	| 'channel threads'
 	| 'experiment delivery'
 	| 'instance policy'
 	| 'integrations'
@@ -423,7 +445,8 @@ type StoredConfigSection =
 	| 'registration URLs'
 	| 'pending registrations'
 	| 'SSO flags'
-	| 'SSO allowed domains';
+	| 'SSO allowed domains'
+	| 'account identity';
 
 function parseStoredConfigValue(raw: string | null, section: StoredConfigSection): unknown {
 	if (raw === null) return {};
@@ -535,6 +558,62 @@ function checkStoredConfig(section: StoredConfigSection, decode: () => unknown):
 	readStoredConfigOrDefault(section, decode, () => null);
 }
 
+export type AccountIdentityDecisionSource = 'new_instance' | 'existing_instance' | 'setup';
+
+const StoredAccountIdentityConfigSchema = z.object({
+	mode: z.enum([AccountIdentityModes.EMAIL, AccountIdentityModes.USERNAME]),
+	tag_style: z.enum([TagStyles.NONE, 'zero_first', TagStyles.RANDOM]).optional(),
+	unique_usernames: z.boolean().optional(),
+	decided_at: z.string(),
+	source: z.enum(['new_instance', 'existing_instance', 'setup']),
+});
+
+export type StoredAccountIdentityConfig = z.infer<typeof StoredAccountIdentityConfigSchema>;
+
+function parseStoredAccountIdentityConfig(raw: string | null): StoredAccountIdentityConfig | null {
+	if (raw === null) return null;
+	return validateStoredConfig(
+		StoredAccountIdentityConfigSchema,
+		parseStoredConfigValue(raw, 'account identity'),
+		'account identity',
+	);
+}
+
+function readStoredAccountIdentity(raw: string | null): StoredAccountIdentity | null {
+	return readStoredConfigOrDefault(
+		'account identity',
+		() => {
+			const stored = parseStoredAccountIdentityConfig(raw);
+			return stored ? {mode: stored.mode, tagStyle: readStoredTagStyle(stored)} : null;
+		},
+		() => null,
+	);
+}
+
+function readStoredAccountIdentitySource(raw: string | null): AccountIdentityDecisionSource | null {
+	return readStoredConfigOrDefault(
+		'account identity',
+		() => parseStoredAccountIdentityConfig(raw)?.source ?? null,
+		() => null,
+	);
+}
+
+function readStoredTagStyle(stored: StoredAccountIdentityConfig): TagStyle {
+	if (stored.mode === AccountIdentityModes.USERNAME) return TagStyles.NONE;
+	if (stored.tag_style === 'zero_first') return TagStyles.NONE;
+	if (stored.tag_style) return stored.tag_style;
+	return stored.unique_usernames === true ? TagStyles.NONE : TagStyles.RANDOM;
+}
+
+function serialiseAccountIdentity(identity: StoredAccountIdentity, source: AccountIdentityDecisionSource): string {
+	return JSON.stringify({
+		mode: identity.mode,
+		tag_style: identity.tagStyle,
+		decided_at: new Date().toISOString(),
+		source,
+	});
+}
+
 function decodeGatewayRolloutConfig(value: unknown): GatewayRolloutConfig {
 	const input =
 		isJsonRecord(value) &&
@@ -580,6 +659,10 @@ function parseStoredPlutoniumPageConfig(raw: string | null): PlutoniumPageConfig
 
 function parseStoredCaptchaConfig(raw: string | null): CaptchaConfig {
 	return parseStoredConfigOrDefault(CaptchaConfigSchema, raw, 'captcha');
+}
+
+function parseStoredChannelThreadsConfig(raw: string | null): ChannelThreadsConfig {
+	return parseStoredConfigOrDefault(ChannelThreadsConfigSchema, raw, 'channel threads');
 }
 
 function parseStoredExperimentDeliveryConfig(raw: string | null): ExperimentDeliveryConfig {
@@ -1246,6 +1329,7 @@ export class InstanceConfigRepository {
 		parseStoredDomainMigrationConfig(snapshot.get(DOMAIN_MIGRATION_CONFIG_KEY) ?? null);
 		parseStoredPlutoniumPageConfig(snapshot.get(PLUTONIUM_PAGE_CONFIG_KEY) ?? null);
 		parseStoredCaptchaConfig(snapshot.get(CAPTCHA_CONFIG_KEY) ?? null);
+		syncChannelThreadsConfig(snapshot.get(CHANNEL_THREADS_CONFIG_KEY) ?? null, parseStoredChannelThreadsConfig);
 		parseStoredExperimentDeliveryConfig(snapshot.get(EXPERIMENT_DELIVERY_CONFIG_KEY) ?? null);
 		parseStoredInstancePolicyConfig(snapshot.get(INSTANCE_POLICY_CONFIG_KEY) ?? null);
 		checkStoredConfig('registration', () =>
@@ -1276,6 +1360,7 @@ export class InstanceConfigRepository {
 		setStoredBillingConfig(parseStoredInstanceBillingConfig(snapshot.get(INSTANCE_BILLING_CONFIG_KEY) ?? null));
 		const appPublic = parseStoredAppPublicConfig(snapshot.get(APP_PUBLIC_CONFIG_KEY) ?? null);
 		setCachedDateOfBirthCollection(appPublic.registration.collect_date_of_birth);
+		setCachedAccountIdentity(readStoredAccountIdentity(snapshot.get(ACCOUNT_IDENTITY_CONFIG_KEY) ?? null));
 	}
 
 	private async publishRefresh(sourceId: string): Promise<void> {
@@ -1293,6 +1378,8 @@ export class InstanceConfigRepository {
 	}
 
 	clearCacheForTesting(): void {
+		setCachedAccountIdentity(null);
+		syncChannelThreadsConfig(null, parseStoredChannelThreadsConfig);
 		const shutdown = this.shutdown();
 		this.configCache = this.createConfigCache(shutdown);
 		void shutdown.catch((error) => {
@@ -1306,6 +1393,131 @@ export class InstanceConfigRepository {
 
 	async markAdminBootstrapped(): Promise<void> {
 		await this.setConfig(ADMIN_BOOTSTRAP_KEY, 'true');
+	}
+
+	async getAccountIdentity(): Promise<AccountIdentity> {
+		if (!Config.instance.selfHosted) return resolveAccountIdentity(null);
+		const stored = readStoredAccountIdentity(await this.getConfig(ACCOUNT_IDENTITY_CONFIG_KEY));
+		setCachedAccountIdentity(stored);
+		return resolveAccountIdentity(stored);
+	}
+
+	async getAccountIdentityMode(): Promise<AccountIdentityMode> {
+		return (await this.getAccountIdentity()).mode;
+	}
+
+	async getTagStyle(): Promise<TagStyle> {
+		return (await this.getAccountIdentity()).tagStyle;
+	}
+
+	async usesUniqueUsernames(): Promise<boolean> {
+		return (await this.getTagStyle()) === TagStyles.NONE;
+	}
+
+	async isAccountIdentityLocked(): Promise<boolean> {
+		if (!Config.instance.selfHosted) return true;
+		if (Config.instance.setup.configured) return true;
+		if (readStoredAccountIdentitySource(await this.getConfig(ACCOUNT_IDENTITY_CONFIG_KEY)) === 'existing_instance') {
+			return true;
+		}
+		const appPublic = await this.getAppPublicConfig();
+		if (appPublic.setup.configured) return true;
+		if (await this.isAdminBootstrapped()) return true;
+		return await this.hasAnyUser();
+	}
+
+	async setAccountIdentityMode(
+		mode: AccountIdentityMode,
+		source: AccountIdentityDecisionSource,
+		tagStyle: TagStyle = TagStyles.NONE,
+	): Promise<void> {
+		if (!Config.instance.selfHosted) {
+			throw new Error('The account identity mode is fixed on the hosted service');
+		}
+		const identity: StoredAccountIdentity = {
+			mode,
+			tagStyle: mode === AccountIdentityModes.USERNAME ? TagStyles.NONE : tagStyle,
+		};
+		const value = serialiseAccountIdentity(identity, source);
+		const cache = this.configCache;
+		await this.compareAndSetStoredValue(cache, ACCOUNT_IDENTITY_CONFIG_KEY, () => ({value, result: undefined}));
+		setCachedAccountIdentity(identity);
+		await this.publishRefresh(cache.sourceId);
+	}
+
+	async ensureAccountIdentityMode(): Promise<void> {
+		if (!Config.instance.selfHosted) return;
+		const cache = this.configCache;
+		let identity: StoredAccountIdentity;
+		let source: AccountIdentityDecisionSource;
+		try {
+			if ((await this.fetchConfigForWrite(ACCOUNT_IDENTITY_CONFIG_KEY)) !== null) return;
+			const existing = await this.hasExistingInstanceSignals();
+			const defaultMode = (await this.hasEmailDeliverySignal())
+				? AccountIdentityModes.EMAIL
+				: AccountIdentityModes.USERNAME;
+			const mode = existing ? AccountIdentityModes.EMAIL : (Config.instance.accountIdentity ?? defaultMode);
+			if (!existing && mode === AccountIdentityModes.USERNAME && Config.instance.tagStyle === TagStyles.RANDOM) {
+				Logger.warn('FLUXER_TAG_STYLE=random only applies to email sign-in, username sign-in always uses no tags');
+			}
+			identity = {
+				mode,
+				tagStyle: existing
+					? TagStyles.RANDOM
+					: mode === AccountIdentityModes.USERNAME
+						? TagStyles.NONE
+						: (Config.instance.tagStyle ?? TagStyles.NONE),
+			};
+			source = existing ? 'existing_instance' : 'new_instance';
+		} catch (error) {
+			Logger.error({error}, 'Could not decide the account identity mode, leaving it on email until the next boot');
+			return;
+		}
+		const value = serialiseAccountIdentity(identity, source);
+		try {
+			const {written} = await this.compareAndSetStoredValue(cache, ACCOUNT_IDENTITY_CONFIG_KEY, (raw) => ({
+				value: raw === null ? value : null,
+				result: undefined,
+			}));
+			if (!written) {
+				setCachedAccountIdentity(
+					readStoredAccountIdentity(await this.fetchConfigFromDatabase(ACCOUNT_IDENTITY_CONFIG_KEY)),
+				);
+				return;
+			}
+			setCachedAccountIdentity(identity);
+			Logger.info({mode: identity.mode, tag_style: identity.tagStyle, source}, 'Stamped the account identity mode');
+			await this.publishRefresh(cache.sourceId);
+		} catch (error) {
+			Logger.error({error}, 'Could not store the account identity mode, leaving it on email until the next boot');
+		}
+	}
+
+	private async hasExistingInstanceSignals(): Promise<boolean> {
+		if (Config.instance.setup.configured) return true;
+		const [adminBootstrapped, appPublicRaw] = await Promise.all([
+			this.fetchConfigFromDatabase(ADMIN_BOOTSTRAP_KEY),
+			this.fetchConfigFromDatabase(APP_PUBLIC_CONFIG_KEY),
+		]);
+		if (adminBootstrapped === 'true') return true;
+		const appPublic = parseStoredConfigValue(appPublicRaw, 'app public');
+		const setupConfigured = isJsonRecord(appPublic) && isJsonRecord(appPublic.setup) && appPublic.setup.configured;
+		if (setupConfigured === true) return true;
+		return await this.hasAnyUser();
+	}
+
+	private async hasEmailDeliverySignal(): Promise<boolean> {
+		if (Config.email.enabled) return true;
+		const integrations = parseStoredConfigValue(
+			await this.fetchConfigFromDatabase(INSTANCE_INTEGRATIONS_CONFIG_KEY),
+			'integrations',
+		);
+		return isJsonRecord(integrations) && isJsonRecord(integrations.email) && integrations.email.enabled === true;
+	}
+
+	private async hasAnyUser(): Promise<boolean> {
+		const rows = await fetchMany<{user_id: bigint}>(FETCH_ANY_USER_QUERY, {});
+		return rows.length > 0;
 	}
 
 	async getGatewayRolloutConfig(): Promise<GatewayRolloutConfig> {
@@ -1385,6 +1597,30 @@ export class InstanceConfigRepository {
 		return this.updateStoredConfig(CAPTCHA_CONFIG_KEY, (raw) =>
 			validateStoredConfig(CaptchaConfigSchema, {...parseStoredCaptchaConfig(raw), ...patch}, 'captcha'),
 		);
+	}
+
+	async getChannelThreadsConfig(): Promise<ChannelThreadsConfig> {
+		return (await this.getCompiledChannelThreadsConfig()).config;
+	}
+
+	async getCompiledChannelThreadsConfig(): Promise<CompiledChannelThreadsConfig> {
+		const raw = await this.getConfig(CHANNEL_THREADS_CONFIG_KEY);
+		return syncChannelThreadsConfig(raw, parseStoredChannelThreadsConfig);
+	}
+
+	async refreshChannelThreadsConfig(): Promise<CompiledChannelThreadsConfig> {
+		const raw = await this.fetchConfigFromDatabase(CHANNEL_THREADS_CONFIG_KEY);
+		return syncChannelThreadsConfig(raw, parseStoredChannelThreadsConfig);
+	}
+
+	async updateChannelThreadsConfig(
+		update: (current: ChannelThreadsConfig) => ChannelThreadsConfig,
+	): Promise<ChannelThreadsConfig> {
+		const landed = await this.updateStoredConfig(CHANNEL_THREADS_CONFIG_KEY, (raw) =>
+			validateStoredConfig(ChannelThreadsConfigSchema, update(parseStoredChannelThreadsConfig(raw)), 'channel threads'),
+		);
+		syncChannelThreadsConfig(JSON.stringify(landed), parseStoredChannelThreadsConfig);
+		return landed;
 	}
 
 	async getExperimentDeliveryConfig(): Promise<ExperimentDeliveryConfig> {
@@ -1647,9 +1883,10 @@ export class InstanceConfigRepository {
 			fromName,
 			smtp,
 		};
+		const usernameMode = (await this.getAccountIdentityMode()) === AccountIdentityModes.USERNAME;
 		return {
 			...next,
-			enabled: next.enabled && hasCompleteSmtpConfig(next),
+			enabled: !usernameMode && next.enabled && hasCompleteSmtpConfig(next),
 		};
 	}
 

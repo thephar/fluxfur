@@ -36,6 +36,34 @@ Precedence, highest first:
 
 Use `true` or `false` for booleans, decimal integers for integer settings, and the specified object or array for JSON settings. Defaults and accepted values are listed below. Every service built from this version of the stack files or later reads an empty or blank value the same as an unset one, so an empty value restores the default. Older images do not, which [Match the images to the stack files](/operator/upgrading/#match-the-images-to-the-stack-files) covers.
 
+### Reading a secret from a file
+
+Any setting a Fluxer service reads for its configuration can come from a file instead, such as a Docker secret. Set the variable's name with `_FILE` appended to the file's path, and leave the variable itself empty. The service reads the file at startup and drops one trailing newline. Startup fails, naming both variables, when the variable and its `_FILE` form are both set. It also fails, naming the path, when the file is missing, unreadable or not valid UTF-8. The name to use is the one the service sees, so `POSTGRES_PASSWORD` in `.env` becomes `FLUXER_POSTGRES_PASSWORD_FILE`.
+
+Add the secrets through a local Compose override. `FLUXER_SUDO_MODE_SECRET` is read by `api` and `worker` only:
+
+```yaml
+secrets:
+  sudo_mode_secret:
+    file: ./secrets/sudo_mode_secret
+
+services:
+  api:
+    secrets: [sudo_mode_secret]
+    environment:
+      FLUXER_SUDO_MODE_SECRET: ''
+      FLUXER_SUDO_MODE_SECRET_FILE: /run/secrets/sudo_mode_secret
+  worker:
+    secrets: [sudo_mode_secret]
+    environment:
+      FLUXER_SUDO_MODE_SECRET: ''
+      FLUXER_SUDO_MODE_SECRET_FILE: /run/secrets/sudo_mode_secret
+```
+
+Compose still checks the required names in `.env` before it applies the override, so keep a placeholder value there. Every Fluxer service gets the same shared settings, so a secret several services read, such as `FLUXER_POSTGRES_PASSWORD`, needs the same two entries on each of them: `api`, `worker`, `gateway`, `media-proxy`, `push`, `admin`, and `snowflakes`, `users`, `gifs`, `messages` and `unfurl` with their `-shard` services. Any service left out keeps the placeholder. The secret file must be readable by the user the container runs as.
+
+The bundled backing containers read their own settings. The `postgres` container takes `POSTGRES_PASSWORD: ''` and `POSTGRES_PASSWORD_FILE` in its own `environment`, and on a fresh volume it creates the database with that password. `seaweedfs-init`, `meilisearch` and `livekit` have no `_FILE` form, so a file-based S3, Meilisearch or LiveKit secret still needs its real value in `.env` for them. `FLUXER_ENV`, `LOG_LEVEL`, `FLUXER_DISABLE_RATE_LIMITS` and the `FLUXER_ERLANG_*` settings other than `FLUXER_ERLANG_COOKIE` are read directly, so set them as plain values.
+
 ## Core identity and public address
 
 `FLUXER_DOMAIN` is required. Everything else here is optional.
@@ -77,6 +105,10 @@ Sudo mode JWTs, as a raw HS256 key. Changing it ends every active sudo mode sess
 #### `FLUXER_CONNECTION_INITIATION_SECRET`
 
 Connection initiation tokens and harvest download links. Changing it invalidates connection initiation tokens not yet verified and harvest download links already issued.
+
+#### `FLUXER_PROFILE_PSEUDONYM_SECRET`
+
+Derives the stable placeholder name and tag that other users see while an account's profile is hidden. Must be byte-identical on `api`, `worker`, and `users-shard`, or the same account shows two different names. Changing it gives every hidden profile a new placeholder. `api` and `worker` refuse to start without it when `FLUXER_ENV` is `production`. `users-shard` refuses to start without it unless `FLUXER_ENV` is `development` or `test`.
 
 #### `FLUXER_GATEWAY_RPC_AUTH_TOKEN`
 
@@ -312,9 +344,19 @@ Default empty. Addresses and CIDR ranges exempt from IP bans. Comma separated. A
 
 The API returns 403 for any request whose client-IP header is missing, empty, or not a parsable address, and for every request while `FLUXER_TRUST_CLIENT_IP_HEADER` is `false`. The exceptions are `/_health`, `/webhooks/livekit`, `/test`, and the Bluesky client metadata and JWKS routes. The edge sets the header on every upstream hop, so a missing or unparsable header happens only in a layout that puts something other than the edge directly in front of `api`. A proxy in front of the edge that never sets the header passes the check, and every request then looks as though it came from the proxy.
 
+#### `FLUXER_API_TRUSTED_CALLERS`
+
+Default `[]`, which keys every rate limit on the caller. A JSON array of trusted callers, such as a front end that talks to the API for its own visitors. Each entry is an object with a `name`, a `key` of at least 32 characters, and `buckets`, the rate limit buckets the caller may set the client address for. Only `donation:request_link`, `donation:manage`, `donation:checkout`, `oauth:token` and `oauth:revoke` accept it. Any other bucket name is ignored. A malformed entry or a short key fails the API at boot.
+
+The caller sends its key in `X-Fluxer-Internal-Key` and its own client's address in `X-Fluxer-Client-Ip`. The API keys the request on that address only when the key matches an entry that lists the route's bucket. Otherwise it ignores both headers and keys the request on the caller, so a browser cannot set the address. Self-hosters leave this empty. Compose forwards it from `.env`.
+
+```json
+[{"name": "bugs", "key": "<at least 32 characters>", "buckets": ["oauth:token", "oauth:revoke"]}]
+```
+
 #### `FLUXER_API_DONATION_PROXY_KEY`
 
-Default empty, which keys donation rate limits on the caller. Set it to let a trusted front end, such as the marketing site, send the donor address the limits apply to. The key must be at least 32 characters or the API fails at boot. The front end sends the same value in `X-Fluxer-Internal-Key` and the donor address in `X-Fluxer-Donor-Ip`. The API ignores the address header unless the key matches, so a browser cannot set it. Self-hosters leave this empty. Compose forwards it from `.env`.
+Default empty. The older form of a trusted caller limited to the three donation buckets, for the marketing site. The key must be at least 32 characters or the API fails at boot. The API also accepts the address in the older `X-Fluxer-Donor-Ip` header. Self-hosters leave this empty. Compose forwards it from `.env`.
 
 ## Images
 
@@ -374,7 +416,7 @@ Default `fluxer`. The password. The literal `fluxer` is rejected in production. 
 
 #### `FLUXER_POSTGRES_SSL`
 
-Default `false`. TLS to the database. Must be `true` or `false`. In production it must be `true` unless `FLUXER_SELF_HOSTED=true`. Compose forwards it from `.env`.
+Default `false`. TLS to the database. Must be `true` or `false`. When `false`, an `sslmode` other than `prefer` in `FLUXER_POSTGRES_URL` still applies. In production it must be `true` unless `FLUXER_SELF_HOSTED=true`. Compose forwards it from `.env`.
 
 #### `FLUXER_POSTGRES_SSL_CA`
 
@@ -706,6 +748,8 @@ The `Caddyfile` is a bind mount, so the edge reads the copy that sits on disk be
 
 ## Email
 
+Only an instance where members sign in with email sends mail. A username instance sends none whatever the values below hold, and needs none of them. [Sign-in methods](/operator/sign-in/) covers the difference.
+
 Email is off by default, and the conditions below turn it on. The email switch must be on. It is the value saved in the admin dashboard, or `FLUXER_EMAIL_ENABLED` when the dashboard has no saved value. Also, the provider must be `smtp` with a complete SMTP configuration, meaning `FLUXER_EMAIL_FROM_EMAIL`, `FLUXER_EMAIL_SMTP_HOST`, `FLUXER_EMAIL_SMTP_PORT`, `FLUXER_EMAIL_SMTP_USERNAME`, and `FLUXER_EMAIL_SMTP_PASSWORD` are all non-empty. All are optional.
 
 The same conditions turn on a DNS check at registration. The check runs when email is on by the rule above. A switch or SMTP value saved in the admin dashboard wins over the matching variable. The address domain has to publish an `MX` record, or an `A` or `AAAA` record as a fallback, and an address at a domain that publishes neither is answered `That email domain cannot receive mail.` however well formed it is. The first admin account is no exception, so an owner address at a `.lan`, `.internal` or `home.arpa` name needs email left off.
@@ -912,6 +956,10 @@ Default `push.fluxer.com`. Hostnames, comma separated, of the Fluxer-run push re
 
 Default empty. Hostnames, comma separated, of a push relay this instance runs itself. `push` delivers a browser push endpoint on one of them straight through its own APNs or FCM credentials, with no HTTP hop. Compose forwards it from `.env`.
 
+#### `FLUXER_PUSH_SERVICE_PRIVATE_HOSTS`
+
+Default empty. Hostnames, comma separated, that a push endpoint may use even when they resolve to private, loopback, or other non-public addresses, such as a ntfy server on your own network. `push` refuses every other such endpoint and logs `blocked_address`. Compose forwards it from `.env`.
+
 `push` also runs as a relay under `--mode relay`, which the stack does not use. Only that mode reads `FLUXER_PUSH_RELAY_MAX_CONCURRENT`, default `1024`, `FLUXER_PUSH_RELAY_MAX_BODY_BYTES`, default `2816`, `FLUXER_PUSH_RELAY_TRUSTED_PROXY_HOPS`, default `1`, and `FLUXER_PUSH_RELAY_SOURCE_BUCKET_ENABLED`, default `false`. Compose does not forward them, and [Names the stack has no use for](#names-the-stack-has-no-use-for) lists them.
 
 ## Payments
@@ -1010,6 +1058,7 @@ The API and worker read configuration saved by older releases under these rules:
 - Registration accepts `adminRegistrationUrlsEnabled` only when `admin_registration_urls_enabled` is absent. Missing registration settings default to `open` with admin registration URLs enabled.
 - Missing SSO settings default to disabled. A missing enforcement flag takes the value of the enabled flag, and automatic provisioning defaults to on. Stored flags require `true` or `false`.
 - SSO allowed domains accept a JSON string array or a legacy comma-separated list of at most 100 entries. Domains are trimmed, lowercased, IDNA encoded and deduplicated. An empty list leaves domains unrestricted. Invalid lists must be repaired even while SSO is disabled.
+- A self-hosted instance with no stored sign-in method gets one on its next start, by the rules in [Sign-in methods](/operator/sign-in/#instances-that-already-exist). Until that write succeeds the instance behaves as an email instance.
 - Missing registration URL and pending-registration lists mean empty lists. Invalid records are rejected rather than discarded. Timestamps require an explicit UTC marker or offset, and null is accepted only for nullable fields.
 
 Explicit `false` values and supported null clears remain valid. Branding and integration strings retain their documented trimming and blank-value behaviour. Media size and lifetime adjustments also remain unchanged. These checks do not make a multi-section update atomic. Read back the result after a failed write before retrying.
@@ -1205,6 +1254,14 @@ Default empty. The incident history page of the status page. Compose forwards it
 #### `FLUXER_INSTANCE_SETUP_CONFIGURED`
 
 Default `false`. Whether setup is marked complete. The stored `app_public_config` row wins whenever its `setup.configured` is a boolean. This variable supplies the default only while no such row exists, and only on a self-hosted instance. Off a self-hosted instance the state is always true whatever this says. Compose forwards it from `.env`.
+
+#### `FLUXER_ACCOUNT_IDENTITY`
+
+Default empty, which means `email` when SMTP is set up and `username` otherwise. How members sign in on a new self-hosted instance, `username` or `email`. Case is ignored, and any other value fails startup. The API reads it once, on the first start of an instance with no stored sign-in method, and stores the result. An instance that is already in use is stored as `email` whatever this says, by the rules in [Instances that already exist](/operator/sign-in/#instances-that-already-exist). The setup wizard can change the stored method until setup is complete or the first account exists, and after that nothing changes it. Off a self-hosted instance the method is always `email`. Compose forwards it from `.env`. See [Sign-in methods](/operator/sign-in/).
+
+#### `FLUXER_TAG_STYLE`
+
+Default empty, which means `none`. How usernames are tagged on a new self-hosted email instance. `none` gives unique usernames with no tag, and `random` gives every account a random tag. A username instance always uses `none` and ignores this value. Case is ignored, and any other value fails startup. The API reads it once, together with `FLUXER_ACCOUNT_IDENTITY`, on the first start of an instance with no stored sign-in method. An instance that is already in use is stored as `random` whatever this says. The setup wizard can change it until setup is complete or the first account exists. Compose forwards it from `.env`. See [Sign-in methods](/operator/sign-in/).
 
 #### `FLUXER_AUTO_JOIN_INVITE_CODE`
 
@@ -1710,7 +1767,7 @@ Single-community mode, direct messages and friends, the premium model, and optio
 
 #### Instance Config, Runtime Integrations
 
-The Klipy GIF key, the YouTube Data API key, email delivery with an SMTP connection test, and Bluesky OAuth.
+The Klipy GIF key, the YouTube Data API key, email delivery with an SMTP connection test, and Bluesky OAuth. Email delivery and its test show only on an email instance.
 
 #### Instance Config, Premium & billing
 
@@ -2108,13 +2165,15 @@ CORS origins are exactly the app endpoint, the `FLUXER_APP_ORIGIN_ALIASES` origi
 | --- | --- | --- |
 | postgres-data | Every account, message, and configuration row | Yes |
 | seaweedfs-data | Every uploaded file | Yes |
-| valkey-data | Deletion queues and shared cache | Yes |
+| valkey-data | Pending file deletions, other queues and shared cache | Yes |
 | nats-data | Pending and failed background jobs | Yes |
 | edge-data | Issued TLS certificates | Optional, a loss only costs a re-issue |
 | edge-config | The edge's own state | No |
-| meilisearch-data | The search index, rebuildable | No |
+| meilisearch-data | The search index, rebuildable from Postgres | Optional |
 
-Losing `valkey-data` can delay scheduled account and bulk-message deletions while their queues are rebuilt. Pending asset deletions and cache purges can be lost, so do not treat this volume as disposable cache.
+Losing `valkey-data` can delay scheduled account and bulk-message deletions while their queues are rebuilt. Pending asset deletions and cache purges exist only here and are lost with it, so do not treat this volume as disposable cache.
+
+Losing `meilisearch-data` leaves search empty until it is rebuilt. Nothing rebuilds it automatically, because Postgres still records every channel as indexed. Rebuild each index with [`POST /admin/search/indexes/{index_name}/refreshes`](/admin-api/search-indexes/). The `channel_messages` and `guild_members` indexes rebuild one community at a time and need a `guild_id` for each. A backup of the volume avoids those calls on a large instance.
 
 `nats-data` retains pending jobs in `JOBS` for up to 7 days and failed jobs in `JOBS_DLQ` for up to 30 days. A full jobs stream rejects new work. A full dead-letter stream drops its oldest entries, so investigate failures promptly. If dead-letter storage is unavailable, failed jobs remain in `JOBS` only until they expire. Losing this volume loses queued work, which is not automatically recovered from the database.
 

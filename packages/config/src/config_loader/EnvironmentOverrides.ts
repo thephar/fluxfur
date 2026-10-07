@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import {readFileSync} from 'node:fs';
 import {type ConfigObject, isConfigObject} from '@fluxer/config/src/config_loader/ConfigObject';
 
 type ConfigPathKey = string | number;
@@ -71,8 +72,13 @@ const NAMED_FLUXER_ENV_OVERRIDES: Record<string, NamedEnvOverride> = {
 	FLUXER_API_HEADERS_TIMEOUT_MS: {path: ['services', 'api', 'headers_timeout_ms'], parse: parseInteger},
 	FLUXER_API_REQUEST_TIMEOUT_MS: {path: ['services', 'api', 'request_timeout_ms'], parse: parseInteger},
 	FLUXER_API_MAX_INFLIGHT_REQUESTS: {path: ['services', 'api', 'max_inflight_requests'], parse: parseInteger},
+	FLUXER_API_AUTOMATED_MESSAGE_DELETION_DELAY_DAYS: {
+		path: ['services', 'api', 'automated_message_deletion_delay_days'],
+		parse: parseInteger,
+	},
 	FLUXER_API_IP_BAN_EXEMPT_IPS: {path: ['services', 'api', 'ip_ban_exempt_ips'], parse: parseCsv},
 	FLUXER_API_DONATION_PROXY_KEY: {path: ['services', 'api', 'donation_proxy_key']},
+	FLUXER_API_TRUSTED_CALLERS: {path: ['services', 'api', 'trusted_callers'], parse: parseJsonArray},
 	FLUXER_API_PRESIGNED_ATTACHMENT_UPLOADS_ENABLED: {
 		path: ['services', 'api', 'presigned_attachment_uploads_enabled'],
 		parse: parseBoolean,
@@ -88,6 +94,7 @@ const NAMED_FLUXER_ENV_OVERRIDES: Record<string, NamedEnvOverride> = {
 		path: ['services', 'api', 'worker', 'enable_cron_scheduler'],
 		parse: parseBoolean,
 	},
+	FLUXER_API_WORKER_METRICS_PORT: {path: ['services', 'api', 'worker', 'metrics_port'], parse: parseInteger},
 	FLUXER_API_WORKER_LANE_CONCURRENCY_OVERRIDES: {
 		path: ['services', 'api', 'worker', 'lane_concurrency_overrides'],
 		parse: parseJsonObject,
@@ -127,6 +134,7 @@ const NAMED_FLUXER_ENV_OVERRIDES: Record<string, NamedEnvOverride> = {
 	FLUXER_GATEWAY_RPC_AUTH_TOKEN: {path: ['services', 'gateway', 'rpc_auth_token']},
 	FLUXER_SUDO_MODE_SECRET: {path: ['auth', 'sudo_mode_secret']},
 	FLUXER_CONNECTION_INITIATION_SECRET: {path: ['auth', 'connection_initiation_secret']},
+	FLUXER_PROFILE_PSEUDONYM_SECRET: {path: ['auth', 'profile_pseudonym_secret']},
 	FLUXER_SSO_ALLOW_PRIVATE_ADDRESSES: {path: ['auth', 'sso_allow_private_addresses'], parse: parseBoolean},
 	FLUXER_VAPID_PUBLIC_KEY: {path: ['auth', 'vapid', 'public_key']},
 	FLUXER_VAPID_PRIVATE_KEY: {path: ['auth', 'vapid', 'private_key']},
@@ -279,6 +287,8 @@ const NAMED_FLUXER_ENV_OVERRIDES: Record<string, NamedEnvOverride> = {
 	FLUXER_APP_STATUS_PAGE_URL: {path: ['instance', 'branding', 'status_page_url']},
 	FLUXER_APP_STATUS_PAGE_INCIDENT_HISTORY_URL: {path: ['instance', 'branding', 'status_page_incident_history_url']},
 	FLUXER_INSTANCE_SETUP_CONFIGURED: {path: ['instance', 'setup', 'configured'], parse: parseBoolean},
+	FLUXER_ACCOUNT_IDENTITY: {path: ['instance', 'account_identity'], parse: parseAccountIdentity},
+	FLUXER_TAG_STYLE: {path: ['instance', 'tag_style'], parse: parseTagStyle},
 	FLUXER_DISCOVERY_ENABLED: {path: ['discovery', 'enabled'], parse: parseBoolean},
 	FLUXER_DISCOVERY_MIN_MEMBER_COUNT: {path: ['discovery', 'min_member_count'], parse: parseInteger},
 	FLUXER_DELETION_GRACE_PERIOD_HOURS: {path: ['deletion_grace_period_hours'], parse: parseInteger},
@@ -323,6 +333,18 @@ function parseBoolean(raw: string): boolean {
 		default:
 			throw new Error('must be true or false');
 	}
+}
+
+function parseAccountIdentity(raw: string): string {
+	const value = raw.trim().toLowerCase();
+	if (value === 'email' || value === 'username') return value;
+	throw new Error('must be email or username');
+}
+
+function parseTagStyle(raw: string): string {
+	const value = raw.trim().toLowerCase();
+	if (value === 'none' || value === 'random') return value;
+	throw new Error('must be none or random');
 }
 
 function parseJson(raw: string): unknown {
@@ -400,9 +422,27 @@ const NAMED_FLUXER_ENV_ALIASES: Record<string, string | undefined> = {
 
 export const NAMED_FLUXER_ENV_NAMES = Object.keys(NAMED_FLUXER_ENV_OVERRIDES);
 
-export function readEnvValue(env: NodeJS.ProcessEnv, name: string): string | undefined {
-	const value = env[name];
+function nonBlank(value: string | undefined): string | undefined {
 	return value === undefined || value.trim().length === 0 ? undefined : value;
+}
+
+export function readEnvValue(env: NodeJS.ProcessEnv, name: string): string | undefined {
+	const value = nonBlank(env[name]);
+	const filePath = nonBlank(env[`${name}_FILE`]);
+	if (filePath === undefined) {
+		return value;
+	}
+	if (value !== undefined) {
+		throw new Error(`${name} and ${name}_FILE are both set, set only one`);
+	}
+	let contents: string;
+	try {
+		contents = new TextDecoder('utf-8', {fatal: true}).decode(readFileSync(filePath));
+	} catch (error) {
+		const reason = error instanceof Error && 'code' in error ? String(error.code) : 'unreadable';
+		throw new Error(`${name}_FILE could not read ${filePath} (${reason})`);
+	}
+	return nonBlank(contents.replace(/\r?\n$/, ''));
 }
 
 export function buildNamedFluxerEnvOverrides(env: NodeJS.ProcessEnv): ConfigObject {

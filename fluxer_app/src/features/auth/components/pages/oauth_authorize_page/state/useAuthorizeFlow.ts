@@ -8,7 +8,7 @@ import {
 	createBotInviteDestinationKey,
 	parseBotInviteDestinationKey,
 	useBotInviteDestinations,
-} from '@app/features/auth/components/pages/oauth_authorize_page/hooks/useBotGuilds';
+} from '@app/features/auth/components/pages/oauth_authorize_page/hooks/useBotInviteDestinations';
 import {useOAuthPublicApp} from '@app/features/auth/components/pages/oauth_authorize_page/hooks/useOAuthPublicApp';
 import {usePermissionSelection} from '@app/features/auth/components/pages/oauth_authorize_page/hooks/usePermissionSelection';
 import {useScopeSelection} from '@app/features/auth/components/pages/oauth_authorize_page/hooks/useScopeSelection';
@@ -26,11 +26,13 @@ import {
 	selectAuthorizePhase,
 	transitionAuthorizeSnapshot,
 } from '@app/features/auth/components/pages/oauth_authorize_page/state/authorizeMachine';
+import Accounts from '@app/features/auth/state/Accounts';
 import {getDefaultLandingPath} from '@app/features/navigation/utils/DefaultLandingUtils';
 import type {BotPermissionOption} from '@app/features/permissions/utils/PermissionUtils';
 import {http} from '@app/features/platform/transport/RestTransport';
 import {HttpError} from '@app/features/platform/types/EndpointError';
 import {failureMessage} from '@app/features/platform/utils/ResponseInspection';
+import ThreadGuilds from '@app/features/threads/state/ThreadGuilds';
 import {msg} from '@lingui/core/macro';
 import {useLingui} from '@lingui/react/macro';
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
@@ -183,8 +185,15 @@ export function useAuthorizeFlow(options: UseAuthorizeFlowOptions = {}): Authori
 	const initialMissingClientId = !params;
 	const publicAppState = useOAuthPublicApp(params?.clientId ?? null);
 	const scopeSelection = useScopeSelection(scopes);
-	const permissionSelection = usePermissionSelection(params?.permissions ?? null);
-	const destinations = useBotInviteDestinations(hasBotScope, permissionSelection.requestedBitfield);
+	const destinations = useBotInviteDestinations(hasBotScope, params?.permissions ?? null);
+	const selectedDestinationTarget = parseBotInviteDestinationKey(selectedDestinationKey);
+	const selectedGuildId = selectedDestinationTarget?.kind === 'guild' ? selectedDestinationTarget.id : null;
+	const permissionSelection = usePermissionSelection(
+		params?.permissions ?? null,
+		selectedGuildId != null &&
+			(ThreadGuilds.isActive(selectedGuildId) ||
+				destinations.guilds.some((guild) => guild.id === selectedGuildId && guild.threadsActive)),
+	);
 	const initialReviewStep: ReviewStep = includeAccountStep ? 'account' : 'scopes';
 	const preFetchValidationError = useMemo(() => {
 		if (!params) return i18n._(MISSING_CLIENT_ID_DESCRIPTOR);
@@ -259,14 +268,23 @@ export function useAuthorizeFlow(options: UseAuthorizeFlowOptions = {}): Authori
 	]);
 	useEffect(() => {
 		if (phase.kind !== 'session_expired') return;
-		void import('@app/features/platform/state/AuthSession').then(({default: SessionManager}) => {
+		void import('@app/features/platform/state/AuthSession').then(async ({default: SessionManager}) => {
 			const expiredUserId = SessionManager.userId;
 			if (expiredUserId) SessionManager.markAccountInvalid(expiredUserId);
-			SessionManager.handleConnectionClosed(4004);
-			window.location.replace(getLoginRedirectPath());
+			try {
+				await SessionManager.handleConnectionClosed(4004);
+				window.location.replace(getLoginRedirectPath());
+			} catch (error) {
+				logger.error('Failed to complete the expired session transition', error);
+			}
 		});
 	}, [phase.kind]);
+	const currentAccountKey = Accounts.currentAccountKey;
 	const destinationInitRef = useRef(false);
+	useEffect(() => {
+		destinationInitRef.current = false;
+		setSelectedDestinationKey(null);
+	}, [currentAccountKey]);
 	useEffect(() => {
 		if (!hasBotScope) {
 			destinationInitRef.current = false;

@@ -9,6 +9,7 @@ export const Routes = {
 	REGISTER: '/register',
 	FORGOT_PASSWORD: '/forgot',
 	RESET_PASSWORD: '/reset',
+	RECOVER_ACCOUNT: '/recover',
 	VERIFY_EMAIL: '/verify',
 	AUTHORIZE_IP: '/authorize-ip',
 	EMAIL_REVERT: '/wasntme',
@@ -52,6 +53,8 @@ export const Routes = {
 		channelId ? `/channels/${guildId}/${channelId}` : `/channels/${guildId}`,
 	channelMessage: (guildId: string, channelId: string, messageId: string) =>
 		`${Routes.guildChannel(guildId, channelId)}/${messageId}`,
+	threadPanel: (guildId: string, channelId: string, threadId: string, messageId?: string) =>
+		`${Routes.guildChannel(guildId, channelId)}/threads/${threadId}${messageId ? `/${messageId}` : ''}`,
 	dmChannelMessage: (channelId: string, messageId: string) => `${Routes.dmChannel(channelId)}/${messageId}`,
 	favoritesChannelMessage: (channelId: string, messageId: string) =>
 		`${Routes.favoritesChannel(channelId)}/${messageId}`,

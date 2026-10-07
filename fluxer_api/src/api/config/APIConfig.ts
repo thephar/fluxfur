@@ -2,6 +2,7 @@
 
 import type {WorkerTaskName} from '@app/api/worker/WorkerLaneConfig';
 import type {CachePurgeAdapterName, StoreProductSlotName} from '@fluxer/config/src/MasterConfig';
+import type {AccountIdentityMode, TagStyle} from '@fluxer/constants/src/AccountIdentityConstants';
 
 export type APIWorkerMode = 'all_lanes' | 'single_lane' | 'single_task';
 export type APIWorkerLaneName = 'realtime' | 'unfurl' | 'lifecycle' | 'batch' | 'crosspost';
@@ -16,6 +17,12 @@ export interface PushProviderAppConfig {
 export interface AppStoreAppConfig {
 	bundleId: string;
 	appAppleId: number;
+}
+
+export interface TrustedCallerConfig {
+	name: string;
+	key: string;
+	buckets: Array<string>;
 }
 
 export interface APICachePurgeConfig {
@@ -47,6 +54,7 @@ export interface APIConfig {
 	headersTimeoutMs: number;
 	requestTimeoutMs: number;
 	maxInflightRequests: number;
+	automatedMessageDeletionDelayDays: number;
 	ipBanExemptIps: Array<string>;
 	cassandra: {
 		hosts: string;
@@ -129,7 +137,7 @@ export interface APIConfig {
 	};
 	internal: {
 		gatewayRpcAuthToken: string;
-		donationProxyKey: string;
+		trustedCallers: Array<TrustedCallerConfig>;
 	};
 	hosts: {
 		marketing: string;
@@ -242,6 +250,7 @@ export interface APIConfig {
 	auth: {
 		sudoModeSecret: string;
 		connectionInitiationSecret: string;
+		profilePseudonymSecret: string;
 		ssoAllowPrivateAddresses: boolean;
 		passkeys: {
 			rpName: string;
@@ -263,6 +272,7 @@ export interface APIConfig {
 	};
 	instance: {
 		selfHosted: boolean;
+		baseDomain: string;
 		autoJoinInviteCode?: string;
 		visionariesGuildId?: string;
 		visionariesGuildVisionaryRoleId?: string;
@@ -280,6 +290,8 @@ export interface APIConfig {
 		setup: {
 			configured: boolean;
 		};
+		accountIdentity: AccountIdentityMode | null;
+		tagStyle: TagStyle | null;
 	};
 	discovery: {
 		enabled: boolean;
@@ -338,6 +350,7 @@ export interface APIConfig {
 		laneName?: APIWorkerLaneName;
 		taskName?: WorkerTaskName;
 		enableCronScheduler?: boolean;
+		metricsPort?: number;
 		laneConcurrencyOverrides: {
 			realtime?: number;
 			unfurl?: number;

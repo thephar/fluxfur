@@ -49,6 +49,9 @@ import {resolveRetryAfterMs} from '@app/features/messaging/utils/RetryAfterUtils
 import * as IARCommands from '@app/features/moderation/commands/IARCommands';
 import * as NavigationCommands from '@app/features/navigation/commands/NavigationCommands';
 import Permission from '@app/features/permissions/state/Permission';
+import {AccountScopedWork} from '@app/features/platform/state/AccountScopedWork';
+import {isAccountTransitionAbortError} from '@app/features/platform/state/AccountTransitionAbort';
+import SessionManager from '@app/features/platform/state/AuthSession';
 import {http} from '@app/features/platform/transport/RestTransport';
 import {HttpError} from '@app/features/platform/types/EndpointError';
 import type {RestResponse} from '@app/features/platform/types/TransportTypes';
@@ -58,6 +61,8 @@ import {failureCode, failureMessage} from '@app/features/platform/utils/Response
 import * as ReadStateCommands from '@app/features/read_state/commands/ReadStateCommands';
 import ReadStates from '@app/features/read_state/state/ReadStates';
 import * as SlowmodeCommands from '@app/features/slowmode/commands/SlowmodeCommands';
+import ChannelThreads from '@app/features/threads/state/ChannelThreads';
+import ThreadGuilds from '@app/features/threads/state/ThreadGuilds';
 import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
 import {modal} from '@app/features/ui/commands/ModalCommands';
 import * as ToastCommands from '@app/features/ui/commands/ToastCommands';
@@ -172,6 +177,9 @@ function shouldBlockMessageFetch(channelId: string): boolean {
 	const channel = Channels.getChannel(channelId);
 	if (!channel || channel.isPrivate()) {
 		return false;
+	}
+	if (channel.isThreadOnly()) {
+		return true;
 	}
 	return GuildMatureContentAgree.shouldShowGate({channelId: channel.id, guildId: channel.guildId ?? null});
 }
@@ -291,6 +299,9 @@ function handleMessageFetchSuccess(
 	cached: boolean,
 	jump?: JumpOptions,
 ): void {
+	if (ThreadGuilds.anyActive) {
+		ChannelThreads.ingestMessageThreads(messages);
+	}
 	Messages.handleLoadMessagesSuccess({
 		channelId,
 		messages,
@@ -435,6 +446,7 @@ export async function fetchMessages(
 	const inFlight = pendingFetchPromises.get(key);
 	const preflightDecision = resolveMessageFetchPreflightDecision({
 		hasInFlightRequest: inFlight != null,
+		accountTransitionActive: AccountScopedWork.isSuspended,
 		shouldBlockForGate: shouldBlockMessageFetch(channelId),
 		cacheHit: getMessageFetchCacheHit(channelId, before, after, jump),
 	});
@@ -442,6 +454,10 @@ export async function fetchMessages(
 		case 'useInFlightRequest':
 			logger.debug(`Using in-flight fetchMessages for channel ${channelId} (deduped)`);
 			return inFlight as Promise<Array<WireMessage>>;
+		case 'waitForAccountTransition':
+			logger.debug(`Holding message fetch for channel ${channelId} until the account transition completes`);
+			Messages.handleLoadMessagesBlocked({channelId});
+			return [];
 		case 'blockForGate':
 			logger.debug(`Skipping message fetch for gated channel ${channelId}`);
 			Messages.handleLoadMessagesBlocked({channelId});
@@ -479,7 +495,11 @@ export async function fetchMessages(
 			return messages;
 		} catch (error) {
 			logger.error(`Failed to fetch messages for channel ${channelId}:`, error);
-			Messages.handleLoadMessagesFailure({channelId});
+			if (isAccountTransitionAbortError(error)) {
+				Messages.handleLoadMessagesBlocked({channelId});
+			} else {
+				Messages.handleLoadMessagesFailure({channelId});
+			}
 			if (options?.throwOnError) {
 				throw error;
 			}
@@ -570,6 +590,7 @@ function nextChannelOrder(channelId: string): number {
 }
 
 export async function send(channelId: string, params: SendMessageParams): Promise<WireMessage | null> {
+	const accountKey = SessionManager.currentAccountKey;
 	if (!MessageQueue.consumeLocalSendReservation(channelId, params.nonce)) {
 		MessageQueue.rejectLocalRateLimitedSend(channelId, params.nonce, params.hasAttachments);
 		return null;
@@ -584,6 +605,7 @@ export async function send(channelId: string, params: SendMessageParams): Promis
 	}
 	const payload = {
 		type: 'send' as const,
+		accountKey,
 		channelId,
 		nonce: params.nonce,
 		content: params.content,
@@ -926,6 +948,7 @@ export async function crosspost(i18n: I18n, channelId: string, messageId: string
 export function deleteLocal(channelId: string, messageId: string): void {
 	logger.debug(`Deleting message ${messageId} locally in channel ${channelId}`);
 	Messages.handleMessageDelete({id: messageId, channelId});
+	MessageReply.handleMessageDelete(channelId, messageId);
 }
 
 export function revealMessage(channelId: string, messageId: string | null): void {

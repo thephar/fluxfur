@@ -11,6 +11,11 @@ import {
 	UserFlags,
 } from '@fluxer/constants/src/UserConstants';
 import {MS_PER_DAY} from '@fluxer/date_utils/src/DateConstants';
+import {snowflakeToDate} from '@fluxer/snowflake/src/Snowflake';
+
+export function isSsoUserWithoutPassword(user: Pick<User, 'traits' | 'passwordHash'>): boolean {
+	return user.passwordHash === null && user.traits.has('sso');
+}
 
 export function isAccountClosed(user: Pick<User, 'flags' | 'deletionStartedAt'>): boolean {
 	return (user.flags & UserFlags.DELETED) !== 0n || user.deletionStartedAt != null;
@@ -33,6 +38,10 @@ export function isSignInRefused(user: Pick<User, 'flags' | 'deletionStartedAt' |
 
 export function canOwnerRunBots(owner: Pick<User, 'flags' | 'deletionStartedAt' | 'tempBannedUntil'>): boolean {
 	return !isAccountClosed(owner) && !isAccountDisabled(owner);
+}
+
+export function isContentHidden(user: Pick<User, 'contentHiddenSince'>, messageId: bigint): boolean {
+	return user.contentHiddenSince !== null && snowflakeToDate(messageId) >= user.contentHiddenSince;
 }
 
 export function isDirectDeliverySuppressed(user: Pick<User, 'isBot' | 'flags'>): boolean {

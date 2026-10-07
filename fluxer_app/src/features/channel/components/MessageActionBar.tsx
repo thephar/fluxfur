@@ -26,6 +26,7 @@ import {
 	DELETE_MESSAGE_DESCRIPTOR,
 	EDIT_MESSAGE_DESCRIPTOR,
 	MARK_AS_UNREAD_DESCRIPTOR,
+	MORE_DESCRIPTOR,
 	PIN_MESSAGE_DESCRIPTOR,
 	REPLY_DESCRIPTOR,
 	TRY_AGAIN_DESCRIPTOR,
@@ -34,10 +35,13 @@ import {
 import type {Message} from '@app/features/messaging/models/MessagingMessage';
 import {getEmojiNameWithColons, toReactionEmoji} from '@app/features/messaging/utils/ReactionUtils';
 import {ComponentBus} from '@app/features/platform/utils/ComponentBus';
+import {openCreateThread} from '@app/features/threads/commands/ThreadNavigation';
+import {CREATE_THREAD_DESCRIPTOR} from '@app/features/threads/utils/ThreadMessageDescriptors';
 import {
 	AddReactionIcon,
 	CopyIdIcon,
 	CopyLinkIcon,
+	CreateThreadIcon,
 	CrosspostIcon,
 	DebugMessageIcon,
 	DeleteIcon,
@@ -74,10 +78,6 @@ const CLICK_TO_REACT_DESCRIPTOR = msg({
 const MESSAGE_DEBUG_DESCRIPTOR = msg({
 	message: 'Message debug',
 	comment: 'Title of the developer-mode message debug modal opened from the message action bar.',
-});
-const MORE_DESCRIPTOR = msg({
-	message: 'More',
-	comment: 'Tooltip on the overflow button in the inline message hover action bar. Opens the full action menu.',
 });
 const DEBUG_MESSAGE_DESCRIPTOR = msg({
 	message: 'Debug message',
@@ -252,6 +252,7 @@ interface MessageActionBarCoreProps {
 		canForwardMessage: boolean;
 		canCrosspostMessage: boolean;
 		shouldRenderSuppressEmbeds: boolean;
+		canCreateThread?: boolean;
 	};
 	developerMode: boolean;
 	isActive: boolean;
@@ -645,6 +646,19 @@ export const MessageActionBarCore: React.FC<MessageActionBarCoreProps> = observe
 										disabled={message.isCrossposted}
 										onClick={handlers.handleCrosspostMessage}
 										data-flx="channel.message-action-bar.message-action-bar-core.message-action-bar-button.crosspost"
+									/>
+								)}
+								{permissions.canCreateThread && (
+									<MessageActionBarButton
+										icon={
+											<CreateThreadIcon
+												size={20}
+												data-flx="channel.message-action-bar.message-action-bar-core.create-thread-icon"
+											/>
+										}
+										label={i18n._(CREATE_THREAD_DESCRIPTOR)}
+										onClick={() => openCreateThread(channel, message.id)}
+										data-flx="channel.message-action-bar.message-action-bar-core.message-action-bar-button.create-thread"
 									/>
 								)}
 								{showFullActions && canDeleteMessage && (

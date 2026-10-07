@@ -433,6 +433,19 @@ fn deserialize_instance_config_response_with_unknown_keys() {
             "max_counter": 1000,
             "future_captcha_knob": 1
         },
+        "channel_threads": {
+            "enabled": true,
+            "config_version": 3,
+            "ever_enabled": true,
+            "guild_basis_points": 0,
+            "guild_salt": "channel-threads-guild-v1",
+            "enabled_guild_ids": ["1600000000000000001"],
+            "disabled_guild_ids": [],
+            "user_basis_points": 10000,
+            "user_salt": "channel-threads-user-v1",
+            "included_user_ids": [],
+            "excluded_user_ids": []
+        },
         "experiment_delivery": {"poll_interval_seconds": 300, "poll_jitter_percent": 15},
         "registration": {
             "mode": "open",
@@ -441,6 +454,7 @@ fn deserialize_instance_config_response_with_unknown_keys() {
             "pending_registrations": []
         },
         "self_hosted": false,
+        "account_identity": {"mode": "username", "locked": true, "tag_style": "none"},
         "app_public": {
             "branding": {
                 "product_name": "Fluxer",
@@ -594,6 +608,9 @@ fn deserialize_instance_config_response_with_unknown_keys() {
     assert!(resp.push_relay.relay_consent_accepted);
     assert!(resp.captcha.enabled);
     assert_eq!(resp.captcha.max_counter, 1000);
+    assert!(resp.channel_threads.enabled);
+    assert_eq!(resp.channel_threads.config_version, 3);
+    assert_eq!(resp.channel_threads.enabled_guild_ids.len(), 1);
     assert_eq!(resp.experiment_delivery.poll_interval_seconds, 300);
     assert!(resp.policy.single_community_guild_id.is_none());
     assert_eq!(resp.policy.services.gif_enabled, Some(true));
@@ -601,9 +618,15 @@ fn deserialize_instance_config_response_with_unknown_keys() {
     assert_eq!(resp.app_public.branding.premium_product_name, "Gold");
     assert!(resp.billing.billing_active);
     assert!(resp.media.attachment_decay.effective.enabled);
+    assert!(resp.account_identity.locked);
 
     let ours: types::InstanceConfigResponse =
         serde_json::from_str(json).expect("hand-written instance config");
+    assert_eq!(
+        ours.account_identity.mode,
+        types::AccountIdentityMode::Username
+    );
+    assert_eq!(ours.account_identity.locked, Some(true));
     assert_eq!(ours.app_public.branding.premium_product_name, "Gold");
     assert!(ours.billing.stripe_secret_key_stored);
     assert_eq!(ours.billing.tax_id_collection, Some(true));
@@ -652,6 +675,63 @@ fn deserialize_instance_config_response_with_unknown_keys() {
     assert_eq!(
         serde_json::to_value(&baseline).unwrap(),
         serde_json::to_value(&resp).unwrap()
+    );
+}
+
+#[test]
+fn deserialize_channel_threads_config() {
+    let config: types::ChannelThreadsConfigResponse = serde_json::from_str(
+        r#"{
+        "enabled": true,
+        "config_version": 12,
+        "ever_enabled": true,
+        "guild_basis_points": 50,
+        "guild_salt": "channel-threads-guild-v2",
+        "enabled_guild_ids": ["1600000000000000001"],
+        "disabled_guild_ids": ["1600000000000000002", "1600000000000000003"],
+        "user_basis_points": 10000,
+        "user_salt": "channel-threads-user-v1",
+        "included_user_ids": [],
+        "excluded_user_ids": ["1500000000000000001"],
+        "future_threads_knob": 1
+    }"#,
+    )
+    .expect("a channel threads config must deserialize");
+
+    assert!(config.enabled);
+    assert!(config.ever_enabled);
+    assert_eq!(config.config_version, 12);
+    assert_eq!(config.guild_basis_points, 50);
+    assert_eq!(config.guild_salt, "channel-threads-guild-v2");
+    assert_eq!(config.enabled_guild_ids, vec!["1600000000000000001"]);
+    assert_eq!(config.disabled_guild_ids.len(), 2);
+    assert_eq!(config.user_basis_points, 10000);
+    assert_eq!(config.excluded_user_ids, vec!["1500000000000000001"]);
+
+    let absent: types::ChannelThreadsConfigResponse =
+        serde_json::from_str("{}").expect("an api without the experiment still deserializes");
+    assert!(!absent.enabled);
+    assert!(!absent.ever_enabled);
+    assert_eq!(absent.guild_salt, types::CHANNEL_THREADS_DEFAULT_GUILD_SALT);
+    assert_eq!(absent.user_salt, types::CHANNEL_THREADS_DEFAULT_USER_SALT);
+}
+
+#[test]
+fn serialize_channel_threads_update_never_sends_server_owned_fields() {
+    let update = types::InstanceConfigUpdateRequest {
+        channel_threads: Some(types::ChannelThreadsConfigUpdateRequest {
+            enabled: Some(true),
+            enabled_guild_ids: Some(vec!["1600000000000000001".to_owned()]),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    assert_eq!(
+        serde_json::to_value(&update).unwrap(),
+        serde_json::json!({"channel_threads": {
+            "enabled": true,
+            "enabled_guild_ids": ["1600000000000000001"],
+        }})
     );
 }
 
@@ -1068,4 +1148,57 @@ fn deserialize_list_admin_api_key_entry() {
     assert_eq!(resp.key_id, "k_123");
     assert_eq!(resp.created_by_user_id, "1130650140672000000");
     assert_eq!(resp.acls.len(), 2);
+}
+
+#[test]
+fn account_identity_lock_is_unknown_when_the_api_omits_it() {
+    let identity: types::AccountIdentityConfigResponse =
+        serde_json::from_str("{}").expect("empty account identity");
+    assert_eq!(identity.mode, types::AccountIdentityMode::Email);
+    assert_eq!(identity.locked, None);
+}
+
+#[test]
+fn deserialize_guild_threads_response() {
+    let json = r#"{
+        "threads": [
+            {
+                "id": "1600000000000000010",
+                "type": 12,
+                "guild_id": "1600000000000000001",
+                "parent_id": "1600000000000000002",
+                "owner_id": "1500000000000000001",
+                "name": "secret plans",
+                "last_message_id": null,
+                "last_pin_timestamp": null,
+                "rate_limit_per_user": 0,
+                "flags": 0,
+                "thread_metadata": {
+                    "archived": true,
+                    "auto_archive_duration": 4320,
+                    "archive_timestamp": "2026-09-27T12:00:00.000Z",
+                    "locked": false,
+                    "invitable": false,
+                    "create_timestamp": "2026-09-26T12:00:00.000Z"
+                },
+                "message_count": 3,
+                "total_message_sent": 4,
+                "member_count": 2
+            }
+        ]
+    }"#;
+    let generated: generated_types::ListGuildThreadsResponse =
+        serde_json::from_str(json).expect("the generated client must accept the thread list");
+    assert_eq!(generated.threads.len(), 1);
+    let resp: types::ListGuildThreadsResponse = serde_json::from_str(json).unwrap();
+    let thread = &resp.threads[0];
+    assert_eq!(thread.channel_type, 12);
+    assert_eq!(thread.name.as_deref(), Some("secret plans"));
+    assert_eq!(thread.member_count, Some(2));
+    assert!(
+        thread
+            .thread_metadata
+            .as_ref()
+            .is_some_and(|m| m.archived && !m.locked)
+    );
 }

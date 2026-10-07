@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type {APIConfig, BlueskyOAuthConfig} from '@app/api/config/APIConfig';
+import type {APIConfig, BlueskyOAuthConfig, TrustedCallerConfig} from '@app/api/config/APIConfig';
+import {DonationRateLimitConfigs} from '@app/api/rate_limit_configs/DonationRateLimitConfig';
 import {parseIpBanEntry} from '@app/api/utils/IpRangeUtils';
 import type {WorkerTaskName} from '@app/api/worker/WorkerLaneConfig';
 import type {MasterConfig} from '@fluxer/config/src/MasterConfig';
@@ -99,6 +100,52 @@ function mapApnsApps(
 	});
 }
 
+const TRUSTED_CALLER_MIN_KEY_LENGTH = 32;
+
+function parseTrustedCaller(entry: unknown, index: number): TrustedCallerConfig {
+	const label = `FLUXER_API_TRUSTED_CALLERS entry ${index + 1}`;
+	if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+		throw new Error(`${label} must be a JSON object`);
+	}
+	const name = Reflect.get(entry, 'name');
+	if (typeof name !== 'string' || name.trim().length === 0) {
+		throw new Error(`${label} must have a name`);
+	}
+	const key = Reflect.get(entry, 'key');
+	if (typeof key !== 'string' || key.trim().length < TRUSTED_CALLER_MIN_KEY_LENGTH) {
+		throw new Error(`${label} key must be at least ${TRUSTED_CALLER_MIN_KEY_LENGTH} characters`);
+	}
+	const buckets = Reflect.get(entry, 'buckets');
+	if (
+		!Array.isArray(buckets) ||
+		buckets.length === 0 ||
+		!buckets.every((bucket) => typeof bucket === 'string' && bucket.trim().length > 0)
+	) {
+		throw new Error(`${label} buckets must be a non-empty list of bucket names`);
+	}
+	return {
+		name: name.trim(),
+		key: key.trim(),
+		buckets: buckets.map((bucket: string) => bucket.trim()),
+	};
+}
+
+function buildTrustedCallers(master: MasterConfig): Array<TrustedCallerConfig> {
+	const trustedCallers = (master.services.api.trusted_callers ?? []).map(parseTrustedCaller);
+	const donationProxyKey = (master.services.api.donation_proxy_key ?? '').trim();
+	if (donationProxyKey.length > 0 && donationProxyKey.length < TRUSTED_CALLER_MIN_KEY_LENGTH) {
+		throw new Error(`FLUXER_API_DONATION_PROXY_KEY must be at least ${TRUSTED_CALLER_MIN_KEY_LENGTH} characters`);
+	}
+	if (donationProxyKey.length > 0) {
+		trustedCallers.push({
+			name: 'donation',
+			key: donationProxyKey,
+			buckets: Object.values(DonationRateLimitConfigs).map((routeConfig) => routeConfig.bucket),
+		});
+	}
+	return trustedCallers;
+}
+
 export function buildAPIConfigFromMaster(master: MasterConfig): APIConfig {
 	if (!master.internal) {
 		throw new Error('internal configuration is required for the API');
@@ -118,10 +165,7 @@ export function buildAPIConfigFromMaster(master: MasterConfig): APIConfig {
 	if (Buffer.from(uploadRelaySecretBase64, 'base64').length < 32) {
 		throw new Error('FLUXER_MEDIA_PROXY_UPLOAD_RELAY_SECRET_BASE64 must decode to at least 32 bytes');
 	}
-	const donationProxyKey = (master.services.api.donation_proxy_key ?? '').trim();
-	if (donationProxyKey.length > 0 && donationProxyKey.length < 32) {
-		throw new Error('FLUXER_API_DONATION_PROXY_KEY must be at least 32 characters');
-	}
+	const trustedCallers = buildTrustedCallers(master);
 	if (!s3Config) {
 		throw new Error('S3 configuration is required for the API');
 	}
@@ -143,6 +187,7 @@ export function buildAPIConfigFromMaster(master: MasterConfig): APIConfig {
 		headersTimeoutMs: master.services.api.headers_timeout_ms,
 		requestTimeoutMs: master.services.api.request_timeout_ms,
 		maxInflightRequests: master.services.api.max_inflight_requests,
+		automatedMessageDeletionDelayDays: master.services.api.automated_message_deletion_delay_days,
 		ipBanExemptIps: normalizeIpBanExemptIps(master.services.api.ip_ban_exempt_ips),
 		cassandra: {
 			hosts: cassandraSource?.hosts.join(',') ?? '',
@@ -227,7 +272,7 @@ export function buildAPIConfigFromMaster(master: MasterConfig): APIConfig {
 		},
 		internal: {
 			gatewayRpcAuthToken: master.services.gateway.rpc_auth_token ?? '',
-			donationProxyKey,
+			trustedCallers,
 		},
 		hosts: {
 			marketing: extractHostname(master.endpoints.marketing),
@@ -347,6 +392,7 @@ export function buildAPIConfigFromMaster(master: MasterConfig): APIConfig {
 		auth: {
 			sudoModeSecret: master.auth.sudo_mode_secret,
 			connectionInitiationSecret: master.auth.connection_initiation_secret,
+			profilePseudonymSecret: master.auth.profile_pseudonym_secret,
 			ssoAllowPrivateAddresses: master.auth.sso_allow_private_addresses,
 			passkeys: {
 				rpName: master.auth.passkeys.rp_name,
@@ -368,6 +414,7 @@ export function buildAPIConfigFromMaster(master: MasterConfig): APIConfig {
 		},
 		instance: {
 			selfHosted: master.instance.self_hosted,
+			baseDomain: master.domain.base_domain,
 			autoJoinInviteCode: master.instance.auto_join_invite_code,
 			visionariesGuildId: master.instance.visionaries_guild_id,
 			visionariesGuildVisionaryRoleId: master.instance.visionaries_guild_visionary_role_id,
@@ -385,6 +432,8 @@ export function buildAPIConfigFromMaster(master: MasterConfig): APIConfig {
 			setup: {
 				configured: master.instance.setup.configured,
 			},
+			accountIdentity: master.instance.account_identity,
+			tagStyle: master.instance.tag_style,
 		},
 		discovery: {
 			enabled: master.discovery.enabled,
@@ -446,6 +495,7 @@ export function buildAPIConfigFromMaster(master: MasterConfig): APIConfig {
 			laneName: apiWorkerConfig?.lane,
 			taskName: apiWorkerConfig?.task as WorkerTaskName | undefined,
 			enableCronScheduler: apiWorkerConfig?.enable_cron_scheduler,
+			metricsPort: apiWorkerConfig?.metrics_port,
 			laneConcurrencyOverrides: {
 				realtime: apiWorkerConfig?.lane_concurrency_overrides?.realtime,
 				unfurl: apiWorkerConfig?.lane_concurrency_overrides?.unfurl,

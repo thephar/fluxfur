@@ -1,12 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import styles from '@app/features/app/components/setup/SelfHostedSetupWizardGate.module.css';
+import {SetupWelcomeGate} from '@app/features/app/components/setup/SetupWelcomeGate';
 import type {SetupBrandingAssetKind} from '@app/features/app/components/setup/SetupWizardClient';
-import {
-	createRandomWelcomeRotationState,
-	createWelcomeRotationState,
-	WELCOME_ROTATION,
-} from '@app/features/app/components/setup/SetupWizardWelcomeRotation';
+import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
 import {AuthRegisterFormCore} from '@app/features/auth/flow/AuthRegisterFormCore';
 import {Button} from '@app/features/ui/button/Button';
 import {ColorPickerField} from '@app/features/ui/components/form/ColorPickerField';
@@ -15,9 +12,16 @@ import {Switch} from '@app/features/ui/components/form/FormSwitch';
 import {Spinner} from '@app/features/ui/components/Spinner';
 import FocusRing from '@app/features/ui/focus_ring/FocusRing';
 import {RadioGroup, type RadioOption} from '@app/features/ui/radio_group/RadioGroup';
+import {WarningAlert} from '@app/features/ui/warning_alert/WarningAlert';
 import {ThemeSelector} from '@app/features/user/components/modals/tabs/appearance_tab/theme/ThemeTabContent';
 import {LanguageSelector} from '@app/features/user/components/modals/tabs/LanguageTab';
 import * as LocaleUtils from '@app/features/user/utils/LocaleUtils';
+import {
+	type AccountIdentityMode,
+	AccountIdentityModes,
+	type TagStyle,
+	TagStyles,
+} from '@fluxer/constants/src/AccountIdentityConstants';
 import type {ThemeType} from '@fluxer/constants/src/UserConstants';
 import type {MessageDescriptor} from '@lingui/core';
 import {msg} from '@lingui/core/macro';
@@ -26,7 +30,7 @@ import {ImageIcon, TrashIcon, UploadSimpleIcon} from '@phosphor-icons/react';
 import {AnimatePresence, motion, type Transition, useReducedMotion} from 'framer-motion';
 import {observer} from 'mobx-react-lite';
 import type React from 'react';
-import {useCallback, useEffect, useLayoutEffect, useRef, useState} from 'react';
+import {useCallback} from 'react';
 
 const PUSH_RELAY_NOTICE_URL = 'https://fluxer.com/push-relay';
 
@@ -39,15 +43,6 @@ export interface BrandingAssetState {
 	preview: string | null;
 }
 
-const WELCOME_AUTHED_TITLE_DESCRIPTOR = msg({
-	message: 'Welcome to {productName}',
-	comment: 'Setup wizard title shown once the operator is signed in as the instance admin.',
-});
-const WELCOME_AUTHED_BODY_DESCRIPTOR = msg({
-	message:
-		'You are signed in as the instance administrator. The next steps configure branding, registration, and core policy for everyone on this instance.',
-	comment: 'Setup wizard body shown to the signed-in instance administrator.',
-});
 const WELCOME_UNAUTHED_TITLE_DESCRIPTOR = msg({
 	message: 'Create the administrator account',
 	comment: 'Setup wizard title prompting the operator to create the first account.',
@@ -67,6 +62,93 @@ const THEME_TITLE_DESCRIPTOR = msg({
 const THEME_BODY_DESCRIPTOR = msg({
 	message: 'Pick the appearance this administrator account should start with.',
 	comment: 'Setup wizard body for choosing the initial account theme.',
+});
+const SIGN_IN_METHOD_TITLE_DESCRIPTOR = msg({
+	message: 'Choose how people sign in',
+	comment: 'Setup wizard title for choosing whether accounts use usernames or email addresses to sign in.',
+});
+const SIGN_IN_METHOD_BODY_DESCRIPTOR = msg({
+	message: 'You cannot change this once the first account exists.',
+	comment: 'Setup wizard body for the sign-in method step.',
+});
+const SIGN_IN_METHOD_USERNAME_NAME_DESCRIPTOR = msg({
+	message: 'Usernames (recommended)',
+	comment: 'Setup wizard option where people sign in with a username and password and no email is collected.',
+});
+const SIGN_IN_METHOD_USERNAME_DESC_DESCRIPTOR = msg({
+	message:
+		'People sign in with a username and password. No email address is collected. Each person can save a recovery kit in case they forget their password.',
+	comment: 'Description for the username sign-in option in the setup wizard.',
+});
+const SIGN_IN_METHOD_USERNAME_MOBILE_NOTICE_DESCRIPTOR = msg({
+	message: 'Username sign-in is still rolling out to the mobile apps. Full support on every platform is coming soon.',
+	comment: 'Warning shown in the setup wizard when the username sign-in option is selected. Keep it short and plain.',
+});
+const SIGN_IN_METHOD_EMAIL_NAME_DESCRIPTOR = msg({
+	message: 'Email',
+	comment: 'Setup wizard option where people sign in with an email address and password.',
+});
+const SIGN_IN_METHOD_EMAIL_DESC_DESCRIPTOR = msg({
+	message:
+		'People sign in with an email address and password. Password resets and verification need email delivery, which you can set up later.',
+	comment: 'Description for the email sign-in option in the setup wizard.',
+});
+const SIGN_IN_METHOD_USERNAME_SUMMARY_DESCRIPTOR = msg({
+	message: 'Usernames',
+	comment: 'Summary value on the setup wizard finish step when people sign in with a username.',
+});
+const TAG_STYLE_NONE_SUMMARY_DESCRIPTOR = msg({
+	message: 'No tags',
+	comment: 'Setup wizard finish summary value when usernames are unique and shown without a tag.',
+});
+const TAG_STYLE_RANDOM_SUMMARY_DESCRIPTOR = msg({
+	message: 'Random tags',
+	comment: 'Setup wizard finish summary value when every username gets a random four digit tag.',
+});
+const TAG_STYLE_TITLE_DESCRIPTOR = msg({
+	message: 'Username tags',
+	comment: 'Heading above the choice of how usernames are tagged in the setup wizard.',
+});
+const TAG_STYLE_NONE_NAME_DESCRIPTOR = msg({
+	message: 'No tags (recommended)',
+	comment: 'Setup wizard option where every username is unique and shown without a tag.',
+});
+const TAG_STYLE_NONE_EMAIL_DESC_DESCRIPTOR = msg({
+	message: 'Each name belongs to one person and shows on its own, like alex.',
+	comment: 'Description for the no tags option when people sign in with email. Keep the example name alex.',
+});
+const TAG_STYLE_RANDOM_NAME_DESCRIPTOR = msg({
+	message: 'Random tags',
+	comment: 'Setup wizard option where every username gets a random four digit tag.',
+});
+const TAG_STYLE_RANDOM_EMAIL_DESC_DESCRIPTOR = msg({
+	message: 'Names get a random tag, like alex#4821, so several people can share a name.',
+	comment: 'Description for the random tags option when people sign in with email. Keep alex#4821.',
+});
+const ADMIN_RECOVERY_KIT_TITLE_DESCRIPTOR = msg({
+	message: 'Save your recovery kit',
+	comment: 'Setup wizard title asking the administrator to create an account recovery kit.',
+});
+const ADMIN_RECOVERY_KIT_BODY_DESCRIPTOR = msg({
+	message:
+		'Your account has no email address. If you forget your password, a recovery kit is the only way back in. Create one now and keep it somewhere safe.',
+	comment: 'Setup wizard body explaining why the administrator needs a recovery kit.',
+});
+const ADMIN_RECOVERY_KIT_CREATE_DESCRIPTOR = msg({
+	message: 'Create recovery kit',
+	comment: 'Button in the setup wizard that creates a recovery kit for the administrator account.',
+});
+const ADMIN_RECOVERY_KIT_RECREATE_DESCRIPTOR = msg({
+	message: 'Create a new kit',
+	comment: 'Button in the setup wizard that replaces the administrator recovery kit with a new one.',
+});
+const ADMIN_RECOVERY_KIT_SAVED_DESCRIPTOR = msg({
+	message: 'Your recovery kit is ready. You can continue.',
+	comment: 'Status shown in the setup wizard once the administrator has a recovery kit.',
+});
+const ADMIN_RECOVERY_KIT_MISSING_DESCRIPTOR = msg({
+	message: 'Create a recovery kit to continue.',
+	comment: 'Status shown in the setup wizard while the administrator has no recovery kit.',
 });
 export const CREATE_ADMIN_ACCOUNT_DESCRIPTOR = msg({
 	message: 'Create administrator account',
@@ -388,6 +470,10 @@ const SUMMARY_PREMIUM_DESCRIPTOR = msg({
 	message: 'Premium model',
 	comment: 'Summary row label for the premium model in the setup wizard.',
 });
+const SUMMARY_SIGN_IN_METHOD_DESCRIPTOR = msg({
+	message: 'Sign-in method',
+	comment: 'Summary row label for how people sign in, on the setup wizard finish step.',
+});
 const SUMMARY_ACCEPTED_DESCRIPTOR = msg({
 	message: 'Accepted',
 	comment: 'Summary value when the operator accepted the push relay notice.',
@@ -413,7 +499,6 @@ const ASSET_DESCRIPTORS: Record<SetupBrandingAssetKind, MessageDescriptor> = {
 	favicon: ASSET_FAVICON_DESCRIPTOR,
 };
 
-const WELCOME_WORD_INLINE_PADDING_PX = 8;
 const SETUP_LANGUAGE_MENU_MAX_HEIGHT = 220;
 
 interface StepHeaderProps {
@@ -443,65 +528,7 @@ export const WelcomeStep = observer(
 		initialFocusRef?: React.Ref<HTMLElement>;
 	}) => {
 		const {i18n} = useLingui();
-		const prefersReducedMotion = useReducedMotion();
 		const currentLocale = LocaleUtils.getCurrentOrDetectedLocale();
-		const welcomeFrameRef = useRef<HTMLDivElement | null>(null);
-		const welcomeMeasureRef = useRef<HTMLSpanElement | null>(null);
-		const [welcomeScale, setWelcomeScale] = useState(1);
-		const [welcomeRotation, setWelcomeRotation] = useState(() => createWelcomeRotationState(currentLocale));
-		const measureWelcomeScale = useCallback(() => {
-			const frame = welcomeFrameRef.current;
-			const measure = welcomeMeasureRef.current;
-			if (!frame || !measure) return;
-			const availableWidth = Math.max(0, frame.clientWidth - WELCOME_WORD_INLINE_PADDING_PX);
-			const measuredWidth = Math.max(measure.scrollWidth, measure.getBoundingClientRect().width);
-			const nextScale = measuredWidth > 0 && availableWidth > 0 ? Math.min(1, availableWidth / measuredWidth) : 1;
-			setWelcomeScale((currentScale) => (Math.abs(currentScale - nextScale) > 0.005 ? nextScale : currentScale));
-		}, []);
-		useLayoutEffect(() => {
-			measureWelcomeScale();
-			const frame = welcomeFrameRef.current;
-			if (!frame) return undefined;
-			const ownerWindow = frame.ownerDocument.defaultView;
-			const resizeObserver =
-				typeof ownerWindow?.ResizeObserver === 'function' ? new ownerWindow.ResizeObserver(measureWelcomeScale) : null;
-			resizeObserver?.observe(frame);
-			ownerWindow?.addEventListener('resize', measureWelcomeScale);
-			void frame.ownerDocument.fonts?.ready.then(measureWelcomeScale);
-			return () => {
-				resizeObserver?.disconnect();
-				ownerWindow?.removeEventListener('resize', measureWelcomeScale);
-			};
-		}, [measureWelcomeScale, welcomeRotation]);
-		useEffect(() => {
-			setWelcomeRotation(createWelcomeRotationState(currentLocale));
-		}, [currentLocale]);
-		useEffect(() => {
-			const interval = window.setInterval(() => {
-				setWelcomeRotation((rotation) => {
-					if (rotation.position + 1 < rotation.order.length) {
-						return {
-							...rotation,
-							position: rotation.position + 1,
-						};
-					}
-					return createRandomWelcomeRotationState(rotation.order[rotation.position]);
-				});
-			}, 1800);
-			return () => window.clearInterval(interval);
-		}, []);
-		const welcome = WELCOME_ROTATION[welcomeRotation.order[welcomeRotation.position] ?? 0];
-		const motionState = prefersReducedMotion
-			? {
-					initial: {opacity: 0, scale: welcomeScale},
-					animate: {opacity: 1, scale: welcomeScale},
-					exit: {opacity: 0, scale: welcomeScale},
-				}
-			: {
-					initial: {opacity: 0, y: 14, scale: welcomeScale * 0.98},
-					animate: {opacity: 1, y: 0, scale: welcomeScale},
-					exit: {opacity: 0, y: -14, scale: welcomeScale * 0.98},
-				};
 		return (
 			<section
 				ref={initialFocusRef}
@@ -509,49 +536,12 @@ export const WelcomeStep = observer(
 				tabIndex={-1}
 				data-flx="app.self-hosted-setup-wizard-gate.welcome-step"
 			>
-				<div className={styles.welcomeHero} data-flx="app.self-hosted-setup-wizard-gate.welcome-hero">
-					<div
-						ref={welcomeFrameRef}
-						className={styles.welcomeWordFrame}
-						data-flx="app.self-hosted-setup-wizard-gate.welcome-word-frame"
-					>
-						<span
-							ref={welcomeMeasureRef}
-							className={styles.welcomeWordMeasure}
-							aria-hidden="true"
-							data-flx="app.self-hosted-setup-wizard-gate.welcome-word-measure"
-						>
-							{welcome.text}
-						</span>
-						<AnimatePresence
-							mode="wait"
-							initial={false}
-							data-flx="app.setup.setup-wizard-steps.welcome-step.animate-presence"
-						>
-							<motion.h2
-								key={welcome.code}
-								className={styles.welcomeWord}
-								initial={motionState.initial}
-								animate={motionState.animate}
-								exit={motionState.exit}
-								transition={{duration: prefersReducedMotion ? 0.22 : 0.42, ease: [0.22, 1, 0.36, 1]}}
-								data-flx="app.self-hosted-setup-wizard-gate.welcome-word"
-							>
-								{welcome.text}
-							</motion.h2>
-						</AnimatePresence>
-					</div>
-					{isAuthenticated ? (
-						<>
-							<h3 className={styles.welcomeTitle} data-flx="app.self-hosted-setup-wizard-gate.welcome-title">
-								{i18n._(WELCOME_AUTHED_TITLE_DESCRIPTOR, {productName})}
-							</h3>
-							<p className={styles.body} data-flx="app.self-hosted-setup-wizard-gate.welcome-body">
-								{i18n._(WELCOME_AUTHED_BODY_DESCRIPTOR)}
-							</p>
-						</>
-					) : null}
-				</div>
+				<SetupWelcomeGate
+					localeCode={currentLocale}
+					productName={productName}
+					isAuthenticated={isAuthenticated}
+					data-flx="app.setup.setup-wizard-steps.welcome-step.setup-welcome-gate"
+				/>
 				<div className={styles.localeBlock} data-flx="app.self-hosted-setup-wizard-gate.locale-block">
 					<div className={styles.fieldLabel} data-flx="app.self-hosted-setup-wizard-gate.locale-label">
 						{i18n._(WELCOME_LANGUAGE_LABEL_DESCRIPTOR)}
@@ -596,6 +586,95 @@ export const ThemeStep = observer(
 	},
 );
 
+export const SignInMethodStep = observer(
+	({
+		mode,
+		tagStyle,
+		disabled,
+		error,
+		onChange,
+		onTagStyleChange,
+	}: {
+		mode: AccountIdentityMode;
+		tagStyle: TagStyle;
+		disabled: boolean;
+		error: string | null;
+		onChange: (mode: AccountIdentityMode) => void;
+		onTagStyleChange: (tagStyle: TagStyle) => void;
+	}) => {
+		const {i18n} = useLingui();
+		const options: ReadonlyArray<RadioOption<AccountIdentityMode>> = [
+			{
+				value: AccountIdentityModes.USERNAME,
+				name: i18n._(SIGN_IN_METHOD_USERNAME_NAME_DESCRIPTOR),
+				desc: i18n._(SIGN_IN_METHOD_USERNAME_DESC_DESCRIPTOR),
+			},
+			{
+				value: AccountIdentityModes.EMAIL,
+				name: i18n._(SIGN_IN_METHOD_EMAIL_NAME_DESCRIPTOR),
+				desc: i18n._(SIGN_IN_METHOD_EMAIL_DESC_DESCRIPTOR),
+			},
+		];
+		const usernameSignIn = mode === AccountIdentityModes.USERNAME;
+		const tagStyleOptions: ReadonlyArray<RadioOption<TagStyle>> = [
+			{
+				value: TagStyles.NONE,
+				name: i18n._(TAG_STYLE_NONE_NAME_DESCRIPTOR),
+				desc: i18n._(TAG_STYLE_NONE_EMAIL_DESC_DESCRIPTOR),
+			},
+			{
+				value: TagStyles.RANDOM,
+				name: i18n._(TAG_STYLE_RANDOM_NAME_DESCRIPTOR),
+				desc: i18n._(TAG_STYLE_RANDOM_EMAIL_DESC_DESCRIPTOR),
+			},
+		];
+		return (
+			<section className={styles.step} data-flx="app.self-hosted-setup-wizard-gate.sign-in-method-step">
+				<StepHeader
+					title={i18n._(SIGN_IN_METHOD_TITLE_DESCRIPTOR)}
+					body={i18n._(SIGN_IN_METHOD_BODY_DESCRIPTOR)}
+					data-flx="app.setup.setup-wizard-steps.sign-in-method-step.step-header"
+				/>
+				<RadioGroup
+					options={options}
+					value={mode}
+					onChange={onChange}
+					disabled={disabled}
+					aria-label={i18n._(SIGN_IN_METHOD_TITLE_DESCRIPTOR)}
+					data-flx="app.self-hosted-setup-wizard-gate.sign-in-method-radio-group"
+				/>
+				{usernameSignIn && (
+					<WarningAlert data-flx="app.self-hosted-setup-wizard-gate.username-mobile-notice">
+						{i18n._(SIGN_IN_METHOD_USERNAME_MOBILE_NOTICE_DESCRIPTOR)}
+					</WarningAlert>
+				)}
+				{!usernameSignIn && (
+					<div className={styles.usernameStyle} data-flx="app.self-hosted-setup-wizard-gate.username-style">
+						<h3 className={styles.usernameStyleTitle}>{i18n._(TAG_STYLE_TITLE_DESCRIPTOR)}</h3>
+						<RadioGroup
+							options={tagStyleOptions}
+							value={tagStyle}
+							onChange={onTagStyleChange}
+							disabled={disabled}
+							aria-label={i18n._(TAG_STYLE_TITLE_DESCRIPTOR)}
+							data-flx="app.self-hosted-setup-wizard-gate.username-style-radio-group"
+						/>
+					</div>
+				)}
+				{error && (
+					<p
+						className={styles.submitError}
+						role="alert"
+						data-flx="app.self-hosted-setup-wizard-gate.sign-in-method-error"
+					>
+						{error}
+					</p>
+				)}
+			</section>
+		);
+	},
+);
+
 export const AdminIntroStep = observer(() => {
 	const {i18n} = useLingui();
 	return (
@@ -609,20 +688,23 @@ export const AdminIntroStep = observer(() => {
 	);
 });
 
-export const AdminAccountStep = observer(({theme}: {theme: ThemeType}) => {
+export const AdminAccountStep = observer(({theme, usernameSignIn}: {theme: ThemeType; usernameSignIn: boolean}) => {
 	const {i18n} = useLingui();
 	return (
 		<section className={styles.step} data-flx="app.self-hosted-setup-wizard-gate.admin-account-step">
 			<div className={styles.accountSetupForm} data-flx="app.self-hosted-setup-wizard-gate.admin-form">
 				<AuthRegisterFormCore
 					fields={{
-						showEmail: true,
+						showEmail: !usernameSignIn,
 						showPassword: true,
 						showPasswordConfirmation: true,
 						showUsernameValidation: true,
+						requireUsername: usernameSignIn,
 					}}
 					submitLabel={i18n._(CREATE_ADMIN_ACCOUNT_DESCRIPTOR)}
 					redirectPath=""
+					runtimeSnapshot={RuntimeConfig.getSnapshot()}
+					offerRecoveryKit={usernameSignIn}
 					theme={theme}
 					showLegalConsent={false}
 					data-flx="app.self-hosted-setup-wizard-gate.admin-register-form"
@@ -631,6 +713,34 @@ export const AdminAccountStep = observer(({theme}: {theme: ThemeType}) => {
 		</section>
 	);
 });
+
+export const AdminRecoveryKitStep = observer(
+	({hasRecoveryKit, creating, onCreate}: {hasRecoveryKit: boolean; creating: boolean; onCreate: () => void}) => {
+		const {i18n} = useLingui();
+		return (
+			<section className={styles.centeredStep} data-flx="app.self-hosted-setup-wizard-gate.admin-recovery-kit-step">
+				<StepHeader
+					title={i18n._(ADMIN_RECOVERY_KIT_TITLE_DESCRIPTOR)}
+					body={i18n._(ADMIN_RECOVERY_KIT_BODY_DESCRIPTOR)}
+					data-flx="app.setup.setup-wizard-steps.admin-recovery-kit-step.step-header"
+				/>
+				<Button
+					variant={hasRecoveryKit ? 'secondary' : 'primary'}
+					submitting={creating}
+					onClick={onCreate}
+					data-flx="app.self-hosted-setup-wizard-gate.admin-recovery-kit-step.button.create"
+				>
+					{hasRecoveryKit
+						? i18n._(ADMIN_RECOVERY_KIT_RECREATE_DESCRIPTOR)
+						: i18n._(ADMIN_RECOVERY_KIT_CREATE_DESCRIPTOR)}
+				</Button>
+				<p className={styles.body} role="status" data-flx="app.self-hosted-setup-wizard-gate.admin-recovery-kit-status">
+					{hasRecoveryKit ? i18n._(ADMIN_RECOVERY_KIT_SAVED_DESCRIPTOR) : i18n._(ADMIN_RECOVERY_KIT_MISSING_DESCRIPTOR)}
+				</p>
+			</section>
+		);
+	},
+);
 
 export const LoadingStep = observer(() => {
 	const {i18n} = useLingui();
@@ -1640,6 +1750,8 @@ const SummaryRow: React.FC<SummaryRowProps> = ({label, value}) => (
 export const FinishStep = observer(
 	({
 		productName,
+		accountIdentity,
+		tagStyle,
 		registrationMode,
 		singleCommunityEnabled,
 		directMessagesDisabled,
@@ -1649,6 +1761,8 @@ export const FinishStep = observer(
 		submitError,
 	}: {
 		productName: string;
+		accountIdentity: AccountIdentityMode;
+		tagStyle: TagStyle;
 		registrationMode: RegistrationMode;
 		singleCommunityEnabled: boolean;
 		directMessagesDisabled: boolean;
@@ -1681,6 +1795,24 @@ export const FinishStep = observer(
 						value={productName}
 						data-flx="app.setup.setup-wizard-steps.finish-step.summary-row"
 					/>
+					<SummaryRow
+						label={i18n._(SUMMARY_SIGN_IN_METHOD_DESCRIPTOR)}
+						value={
+							accountIdentity === AccountIdentityModes.USERNAME
+								? i18n._(SIGN_IN_METHOD_USERNAME_SUMMARY_DESCRIPTOR)
+								: i18n._(SIGN_IN_METHOD_EMAIL_NAME_DESCRIPTOR)
+						}
+						data-flx="app.setup.setup-wizard-steps.finish-step.summary-row.sign-in-method"
+					/>
+					{accountIdentity === AccountIdentityModes.EMAIL && (
+						<SummaryRow
+							label={i18n._(TAG_STYLE_TITLE_DESCRIPTOR)}
+							value={i18n._(
+								tagStyle === TagStyles.NONE ? TAG_STYLE_NONE_SUMMARY_DESCRIPTOR : TAG_STYLE_RANDOM_SUMMARY_DESCRIPTOR,
+							)}
+							data-flx="app.setup.setup-wizard-steps.finish-step.summary-row.username-style"
+						/>
+					)}
 					<SummaryRow
 						label={i18n._(SUMMARY_REGISTRATION_DESCRIPTOR)}
 						value={registrationLabel}

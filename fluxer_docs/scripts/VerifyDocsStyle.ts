@@ -66,7 +66,7 @@ function frontmatterOf(source: string): string | null {
 	return source.slice(4, end);
 }
 
-const pages = await readMarkdownPages(DOCS_ROOT);
+const pages = await readMarkdownPages(DOCS_ROOT, {includeDrafts: true});
 const findings: Array<Finding> = [];
 
 for (const {file, relativePath: relative, source, lines} of pages) {
@@ -281,14 +281,14 @@ const ACCEPTED_TABLE_FINDINGS = new Map<string, Readonly<Partial<Record<TableRul
 	['gateway/opcodes-and-close-codes.md', {'table-cell': 1}],
 	['gateway/overview.md', {'table-cell': 1}],
 	['http-api/authentication.mdx', {'table-identifier': 1}],
-	['http-api/billing.mdx', {'table-identifier': 5}],
+	['http-api/billing.mdx', {'table-identifier': 4}],
 	['http-api/calls.mdx', {'table-fit': 1, 'table-cell': 3}],
 	['http-api/channels.mdx', {'table-cell': 6}],
 	['http-api/connections.mdx', {'table-cell': 2}],
-	['http-api/deployment-availability.md', {'table-fit': 1}],
 	['http-api/discovery.mdx', {'table-cell': 2}],
 	['http-api/donations.mdx', {'table-cell': 1}],
 	['http-api/entrance-sounds.mdx', {'table-cell': 3, 'table-parallel': 1}],
+	['http-api/forums.mdx', {'table-identifier': 2}],
 	['http-api/gifs.mdx', {'table-cell': 5}],
 	['http-api/gifts.mdx', {'table-cell': 1}],
 	['http-api/guild-audit-logs.mdx', {'table-identifier': 3}],
@@ -298,7 +298,7 @@ const ACCEPTED_TABLE_FINDINGS = new Map<string, Readonly<Partial<Record<TableRul
 	['http-api/guild-moderation.mdx', {'table-cell': 1}],
 	['http-api/guild-stickers.mdx', {'table-cell': 3}],
 	['http-api/guilds.mdx', {'table-fit': 1, 'table-identifier': 4}],
-	['http-api/instance.mdx', {'table-identifier': 6}],
+	['http-api/instance.mdx', {'table-identifier': 7}],
 	['http-api/invites.mdx', {'table-cell': 6}],
 	['http-api/messages.mdx', {'table-fit': 1, 'table-cell': 20, 'table-identifier': 1}],
 	['http-api/permissions.mdx', {'table-cell': 8}],

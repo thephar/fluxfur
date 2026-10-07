@@ -8,6 +8,7 @@ import FavoriteGif from '@app/features/expressions/state/FavoriteGif';
 import FavoriteMemes from '@app/features/expressions/state/FavoriteMemes';
 import * as FavoriteGifUtils from '@app/features/expressions/utils/FavoriteGifUtils';
 import * as FavoriteMemeUtils from '@app/features/expressions/utils/FavoriteMemeUtils';
+import {isMediaDownloadHidden} from '@app/features/forum/utils/MediaDownloadPolicy';
 import {
 	ADD_TO_FAVORITES_DESCRIPTOR,
 	COPY_LINK_DESCRIPTOR,
@@ -19,6 +20,10 @@ import {
 import {EditAltTextModal} from '@app/features/messaging/components/modals/EditAltTextModal';
 import type {Message} from '@app/features/messaging/models/MessagingMessage';
 import AttachmentUrlRefresher from '@app/features/messaging/state/AttachmentUrlRefresher';
+import {
+	unwrapDesktopLocalResourceURL,
+	wrapDesktopLocalResourceURL,
+} from '@app/features/messaging/utils/DesktopResourceUrl';
 import {createDownloadHandler} from '@app/features/messaging/utils/FileDownloadUtils';
 import {buildMediaProxyURL, stripMediaProxyParams} from '@app/features/messaging/utils/MediaProxyUtils';
 import Permission from '@app/features/permissions/state/Permission';
@@ -436,7 +441,11 @@ export async function copyMediaToClipboard({
 		ToastCommands.createToast({type: 'success', children: i18n._(LINK_COPIED_TO_CLIPBOARD_DESCRIPTOR)});
 		return;
 	}
-	const baseProxyURL = proxyURL ? await AttachmentUrlRefresher.refresh(stripMediaProxyParams(proxyURL)) : null;
+	const baseProxyURL = proxyURL
+		? wrapDesktopLocalResourceURL(
+				await AttachmentUrlRefresher.refresh(unwrapDesktopLocalResourceURL(stripMediaProxyParams(proxyURL))),
+			)
+		: null;
 	const clipboardFileMediaType = getClipboardFileMediaType(type);
 	if (clipboardFileMediaType) {
 		const electronApi = getElectronAPI();
@@ -453,7 +462,7 @@ export async function copyMediaToClipboard({
 				timeout: 0,
 			});
 			const result = await electronApi.clipboardWriteFile({
-				url: baseProxyURL || freshSrc,
+				url: unwrapDesktopLocalResourceURL(baseProxyURL || freshSrc),
 				suggestedName: defaultName,
 				mediaType: clipboardFileMediaType,
 			});
@@ -838,6 +847,7 @@ export function useMediaMenuData(props: MediaMenuDataProps, options: MediaMenuDa
 				],
 			});
 		}
+		if (isMediaDownloadHidden(message.channelId, type)) return result;
 		result.push({
 			items: [
 				{

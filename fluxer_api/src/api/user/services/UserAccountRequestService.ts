@@ -5,6 +5,7 @@ import {requireEmailVerified} from '@app/api/auth/EmailVerificationUtils';
 import {requireSudoMode, type SudoVerificationResult} from '@app/api/auth/services/SudoVerificationService';
 import {createChannelID, createGuildID, type UserID} from '@app/api/BrandedTypes';
 import type {UserConnectionRow} from '@app/api/database/types/ConnectionTypes';
+import type {ThreadViewer} from '@app/api/experiment/ChannelThreadsGate';
 import {emitActivity} from '@app/api/infrastructure/activity/ActivityEvents';
 import {isBlockedEmailDomain} from '@app/api/infrastructure/activity/SharedLists';
 import type {UserCacheService} from '@app/api/infrastructure/UserCacheService';
@@ -15,6 +16,7 @@ import type {User} from '@app/api/models/User';
 import type {HonoEnv} from '@app/api/types/HonoEnv';
 import {assertAccountNotLimited} from '@app/api/user/AccountLimit';
 import type {IUserRepository} from '@app/api/user/IUserRepository';
+import {isProfileHidden} from '@app/api/user/ProfileVisibility';
 import type {EmailChangeService} from '@app/api/user/services/EmailChangeService';
 import type {UserAccountService} from '@app/api/user/services/UserAccountService';
 import type {UserChannelService} from '@app/api/user/services/UserChannelService';
@@ -26,6 +28,7 @@ import {
 	mapUserToProfileResponse,
 } from '@app/api/user/UserMappers';
 import {extractEmailDomain} from '@app/api/utils/EmailDomainUtils';
+import {AccountIdentityModes} from '@fluxer/constants/src/AccountIdentityConstants';
 import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
 import {getCurrentTimeZoneOffsetMinutes} from '@fluxer/date_utils/src/TimeZoneUtils';
 import {InputValidationError} from '@fluxer/errors/src/domains/core/InputValidationError';
@@ -157,6 +160,12 @@ export class UserAccountRequestService {
 		}
 		if (isUnclaimed) {
 			const allowed = new Set(['new_password', 'has_dismissed_premium_onboarding', 'has_unread_gift_inventory']);
+			if (
+				userUpdateData.new_password !== undefined &&
+				(await ctx.get('instanceConfigRepository').getAccountIdentityMode()) === AccountIdentityModes.USERNAME
+			) {
+				allowed.add('username');
+			}
 			const disallowedField = Object.keys(userUpdateData).find((key) => !allowed.has(key));
 			if (disallowedField) {
 				throw InputValidationError.fromCode(
@@ -255,12 +264,14 @@ export class UserAccountRequestService {
 
 	async preloadMessages(params: {
 		userId: UserID;
+		viewer: ThreadViewer;
 		channels: ReadonlyArray<bigint>;
 		requestCache: RequestCache;
 	}): Promise<Record<string, unknown>> {
 		const channelIds = params.channels.map((channelId) => createChannelID(channelId));
 		return this.userChannelService.preloadDMMessages({
 			userId: params.userId,
+			viewer: params.viewer,
 			channelIds,
 		});
 	}
@@ -301,8 +312,12 @@ export class UserAccountRequestService {
 			}
 		}
 		const restrictProfile = profile.restrictProfile;
+		const hidden = isProfileHidden(profileUser);
 		const userProfile = mapUserToProfileResponse(profileUser, {restrictProfile});
-		const guildMemberProfile = mapGuildMemberToProfileResponse(profile.guildMemberDomain ?? null, {restrictProfile});
+		const guildMemberProfile = mapGuildMemberToProfileResponse(profile.guildMemberDomain ?? null, {
+			restrictProfile,
+			hidden,
+		});
 		const timezoneOffset = profile.timezoneVisible ? getCurrentTimeZoneOffsetMinutes(profileUser.timezone) : null;
 		const mutualFriends = profile.mutualFriends
 			? profile.mutualFriends.map((user) =>
@@ -313,7 +328,8 @@ export class UserAccountRequestService {
 					}),
 				)
 			: undefined;
-		const connectedAccounts = profile.connections ? this.mapConnectionsToResponse(profile.connections) : undefined;
+		const connectedAccounts =
+			profile.connections && !hidden ? this.mapConnectionsToResponse(profile.connections) : undefined;
 		return {
 			user: mapUserToPartialResponseWithCache({
 				user: profileUser,

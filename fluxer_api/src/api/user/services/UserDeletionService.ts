@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {randomInt} from 'node:crypto';
+import {deleteRecoveryKit} from '@app/api/auth/AuthRecoveryKit';
 import {revokeAllAuthSessions} from '@app/api/auth/AuthSessionRevocation';
 import {createMessageID, createUserID, type MessageID, type UserID} from '@app/api/BrandedTypes';
 import {Config} from '@app/api/Config';
 import {mapChannelToResponse} from '@app/api/channel/ChannelMappers';
 import type {ChannelRepository} from '@app/api/channel/ChannelRepository';
+import {UserMessageDeletionService} from '@app/api/channel/services/message/UserMessageDeletionService';
 import type {IConnectionRepository} from '@app/api/connection/IConnectionRepository';
 import type {FavoriteMemeRepository} from '@app/api/favorite_meme/FavoriteMemeRepository';
 import type {GuildRepository} from '@app/api/guild/repositories/GuildRepository';
@@ -370,6 +372,25 @@ export async function processUserDeletion(
 			Logger.error({error, userId, channelId: channel.id}, 'Failed to leave group DM');
 		}
 	}
+	if (user.pendingBulkMessageDeletionAt) {
+		const deleted = await new UserMessageDeletionService({
+			channelRepository,
+			gatewayService,
+			storageService,
+			purgeQueue,
+			workerService,
+		}).deleteUserMessagesBulk(userId);
+		await userRepository.patchUpsert(
+			userId,
+			{
+				pending_bulk_message_deletion_at: null,
+				pending_bulk_message_deletion_channel_count: null,
+				pending_bulk_message_deletion_message_count: null,
+			},
+			user.toRow(),
+		);
+		Logger.debug({userId, deleted}, 'Deleted messages scheduled for deletion before anonymizing the rest');
+	}
 	Logger.debug({userId}, 'Anonymizing user messages');
 	let lastMessageId: MessageID | undefined;
 	let processedCount = 0;
@@ -447,6 +468,7 @@ export async function processUserDeletion(
 		revokeAllAuthSessions({users: userRepository, gateway: gatewayService}, userId),
 		userRepository.deleteAllMfaBackupCodes(userId),
 		userRepository.deleteAllWebAuthnCredentials(userId),
+		deleteRecoveryKit(userId),
 		userRepository.deleteAllPushSubscriptions(userId),
 		userRepository.deleteAllRecentMentions(userId),
 		userRepository.deleteAllAuthorizedIps(userId),

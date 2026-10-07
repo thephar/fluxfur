@@ -7,9 +7,9 @@ import {
 	ANIMATED_IMAGE_FORMATS,
 	AVATAR_RECOMMENDED_SIZE_LABEL,
 	IMAGE_MAX_SIZE_BYTES,
-	PREMIUM_PRODUCT_NAME,
 	STATIC_IMAGE_FORMATS,
 } from '@app/features/app/config/I18nDisplayConstants';
+import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
 import {LimitResolver} from '@app/features/app/utils/LimitResolverAdapter';
 import {isLimitToggleEnabled} from '@app/features/app/utils/LimitUtils';
 import type {Gif} from '@app/features/expressions/commands/GifCommands';
@@ -34,7 +34,7 @@ import {openFilePicker} from '@app/features/messaging/utils/FilePickerUtils';
 import {formatFileSize} from '@app/features/messaging/utils/FileUtils';
 import {canDecodeAnimatedAvif} from '@app/features/platform/utils/ImageDecoderInterop';
 import * as PremiumModalCommands from '@app/features/premium/commands/PremiumModalCommands';
-import {shouldShowPremiumFeatures} from '@app/features/premium/utils/PremiumUtils';
+import {getPremiumProductName, shouldShowPremiumFeatures} from '@app/features/premium/utils/PremiumUtils';
 import {Button} from '@app/features/ui/button/Button';
 import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
 import {modal} from '@app/features/ui/commands/ModalCommands';
@@ -133,6 +133,7 @@ export const AvatarUploader = observer(
 		avatarMode = 'inherit',
 		onAvatarModeChange,
 	}: AvatarUploaderProps) => {
+		const PREMIUM_PRODUCT_NAME = getPremiumProductName();
 		const {i18n} = useLingui();
 		const hasAnimatedAvatarEntitlement = isLimitToggleEnabled(
 			{feature_animated_avatar: LimitResolver.resolve({key: 'feature_animated_avatar', fallback: 0})},
@@ -185,7 +186,7 @@ export const AvatarUploader = observer(
 						ModalCommands.push(
 							modal(() => (
 								<ConfirmModal
-									title={i18n._(ANIMATED_AVATARS_REQUIRE_DESCRIPTOR, {premiumProductName: PREMIUM_PRODUCT_NAME})}
+									title={i18n._(ANIMATED_AVATARS_REQUIRE_DESCRIPTOR, {premiumProductName: getPremiumProductName()})}
 									description={
 										<>
 											<p data-flx="user.my-profile-tab.avatar-uploader.handle-avatar-upload.p">
@@ -198,14 +199,21 @@ export const AvatarUploader = observer(
 												className={styles.spacedParagraph}
 												data-flx="user.my-profile-tab.avatar-uploader.handle-avatar-upload.spaced-paragraph"
 											>
-												<Trans>
-													With {PREMIUM_PRODUCT_NAME}, you can use animated avatars ({ANIMATED_AVATAR_FORMATS}) and
-													profile banners, customize your tag, and unlock many other {PREMIUM_PRODUCT_NAME} perks.
-												</Trans>
+												{RuntimeConfig.usesUniqueUsernames ? (
+													<Trans>
+														With {PREMIUM_PRODUCT_NAME}, you can use animated avatars ({ANIMATED_AVATAR_FORMATS}) and
+														profile banners, and unlock many other {PREMIUM_PRODUCT_NAME} perks.
+													</Trans>
+												) : (
+													<Trans>
+														With {PREMIUM_PRODUCT_NAME}, you can use animated avatars ({ANIMATED_AVATAR_FORMATS}) and
+														profile banners, customize your tag, and unlock many other {PREMIUM_PRODUCT_NAME} perks.
+													</Trans>
+												)}
 											</p>
 										</>
 									}
-									primaryText={i18n._(GET_PREMIUM_DESCRIPTOR, {premiumProductName: PREMIUM_PRODUCT_NAME})}
+									primaryText={i18n._(GET_PREMIUM_DESCRIPTOR, {premiumProductName: getPremiumProductName()})}
 									primaryVariant="primary"
 									secondaryText={i18n._(CANCEL_DESCRIPTOR)}
 									onPrimary={() => {
@@ -310,7 +318,7 @@ export const AvatarUploader = observer(
 							recommendedSize: AVATAR_RECOMMENDED_SIZE_LABEL,
 							note: i18n._(ANIMATED_AVATARS_REQUIRE_PREMIUM_NOTE_DESCRIPTOR, {
 								animatedAvatarFormats: ANIMATED_AVATAR_FORMATS,
-								premiumProductName: PREMIUM_PRODUCT_NAME,
+								premiumProductName: getPremiumProductName(),
 							}),
 						})
 					: formatImageUploadRecommendedHint(i18n, {

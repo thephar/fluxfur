@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import Accessibility, {ChannelTypingIndicatorMode} from '@app/features/accessibility/state/Accessibility';
+import {ChannelSettingsModal} from '@app/features/app/components/dialogs/LoadableSettingsModals';
 import styles from '@app/features/app/components/layout/ChannelItem.module.css';
 import {ChannelItemContent} from '@app/features/app/components/layout/ChannelItemContent';
 import {ChannelItemIcon} from '@app/features/app/components/layout/ChannelItemIcon';
@@ -21,6 +22,7 @@ import {type DragItem, DragItemType, type DropResult} from '@app/features/app/co
 import {isCategory, isTextChannel} from '@app/features/app/components/layout/utils/ChannelOrganization';
 import {getChannelUnreadState} from '@app/features/app/components/layout/utils/ChannelUnreadState';
 import {VoiceChannelUserCount} from '@app/features/app/components/layout/VoiceChannelUserCount';
+import {useChannelHoverPreload} from '@app/features/app/hooks/useChannelHoverPreload';
 import {useContextMenuHoverState} from '@app/features/app/hooks/useContextMenuHoverState';
 import {useMergeRefs} from '@app/features/app/hooks/useMergeRefs';
 import {useTextOverflow} from '@app/features/app/hooks/useTextOverflow';
@@ -29,11 +31,11 @@ import {CategoryBottomSheet} from '@app/features/channel/components/bottomsheets
 import {ChannelBottomSheet} from '@app/features/channel/components/bottomsheets/ChannelBottomSheet';
 import {Typing} from '@app/features/channel/components/ChannelTyping';
 import {ChannelCreateModal} from '@app/features/channel/components/modals/ChannelCreateModal';
-import {ChannelSettingsModal} from '@app/features/channel/components/modals/ChannelSettingsModal';
 import {getTypingText, usePresentableTypingUsers} from '@app/features/channel/components/TypingUsers';
 import type {Channel} from '@app/features/channel/models/Channel';
 import Channels from '@app/features/channel/state/Channels';
 import * as ChannelUtils from '@app/features/channel/utils/ChannelUtils';
+import {hasForumUnread} from '@app/features/forum/state/ForumReadState';
 import type {Guild} from '@app/features/guild/models/Guild';
 import {
 	CREATE_CHANNEL_DESCRIPTOR,
@@ -219,11 +221,17 @@ export const ChannelItem = observer(
 		const channelIsCategory = isCategory(channel);
 		const channelIsVoice = channelType === ChannelTypes.GUILD_VOICE;
 		const channelIsText = isTextChannel(channel);
+		const {scheduleChannelPreload, cancelChannelPreload, preloadChannelNow} = useChannelHoverPreload({
+			channel,
+			guild,
+			defaultHiddenForChannel: channelIsVoice,
+			enabled: !channelIsCategory,
+		});
 		const draggingChannel = activeDragItem?.type === DragItemType.CHANNEL ? activeDragItem : null;
 		const isVoiceDragActive = draggingChannel?.channelType === ChannelTypes.GUILD_VOICE;
 		const shouldDimForVoiceDrag = Boolean(isVoiceDragActive && channelIsText && channel.parentId !== null);
 		const unreadCount = ReadStates.getUnreadCount(channel.id);
-		const hasUnread = ReadStates.hasUnread(channel.id);
+		const hasUnread = channel.isThreadOnly() ? hasForumUnread(channel) : ReadStates.hasUnread(channel.id);
 		const connectedVoiceGuildId = channelIsVoice ? MediaEngine.guildId : null;
 		const connectedVoiceChannelId = channelIsVoice ? MediaEngine.channelId : null;
 		const canManageChannels = Permission.can(Permissions.MANAGE_CHANNELS, channel);
@@ -394,11 +402,12 @@ export const ChannelItem = observer(
 		const singleClickConnectsToVoice =
 			channelIsVoice && !Accessibility.voiceChannelJoinRequiresDoubleClick && !isVoiceSelected;
 		const navigateToChannel = useCallback(() => {
+			preloadChannelNow();
 			NavigationCommands.selectChannel(guild.id, channel.id);
 			if (MobileLayout.isMobileLayout()) {
 				LayoutCommands.updateMobileLayoutState(false, true);
 			}
-		}, [guild.id, channel.id]);
+		}, [guild.id, channel.id, preloadChannelNow]);
 		const collapseVoiceCallView = useCallback(() => {
 			if (!channelIsVoice) return;
 			CompactVoiceCallHeight.setExpandedForKey(getGuildVoiceCallExpansionKey(channel.id), false);
@@ -496,10 +505,12 @@ export const ChannelItem = observer(
 		const [isPointerHovered, setIsPointerHovered] = useState(false);
 		const handleMouseEnter = useCallback(() => {
 			setIsPointerHovered(true);
-		}, []);
+			scheduleChannelPreload();
+		}, [scheduleChannelPreload]);
 		const handleMouseLeave = useCallback(() => {
 			setIsPointerHovered(false);
-		}, []);
+			cancelChannelPreload();
+		}, [cancelChannelPreload]);
 		const hoverAffordancesActive =
 			allowHoverAffordances &&
 			(contextMenuOpen || showKeyboardAffordances || shouldShowSelectedState || isPointerHovered);
@@ -596,12 +607,15 @@ export const ChannelItem = observer(
 		const handleChannelSettingsClick = useCallback(() => {
 			armActionModalReturn();
 			ModalCommands.push(
-				modal(() => (
-					<ChannelSettingsModal
-						channelId={channel.id}
-						data-flx="app.channel-item.handle-channel-settings-click.channel-settings-modal"
-					/>
-				)),
+				modal(
+					() => (
+						<ChannelSettingsModal
+							channelId={channel.id}
+							data-flx="app.channel-item.handle-channel-settings-click.channel-settings-modal"
+						/>
+					),
+					'channel-settings',
+				),
 			);
 		}, [channel.id, armActionModalReturn]);
 		const channelSettingsLabel = channelIsCategory

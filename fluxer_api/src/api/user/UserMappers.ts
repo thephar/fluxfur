@@ -11,6 +11,7 @@ import type {UserGuildSettings} from '@app/api/models/UserGuildSettings';
 import type {UserSettings} from '@app/api/models/UserSettings';
 import type {WebAuthnCredential} from '@app/api/models/WebAuthnCredential';
 import {isAccountLimited} from '@app/api/user/AccountLimit';
+import {hiddenUserPartial, isProfileHidden} from '@app/api/user/ProfileVisibility';
 import {canUserAccessNsfwContent} from '@app/api/utils/AgeUtils';
 import type {ChannelMessageNotifications} from '@fluxer/constants/src/NotificationConstants';
 import {
@@ -70,10 +71,18 @@ function sortUserIds(userIds: Iterable<UserID>): Array<string> {
 }
 
 export function mapUserToPartialResponse(user: User): UserPartialResponse {
+	const partial = mapUserToOwnPartialResponse(user);
+	return isProfileHidden(user) && !isDeletedForDisplay(user) ? hiddenUserPartial(partial) : partial;
+}
+
+function isDeletedForDisplay(user: User): boolean {
+	return (user.flags & UserFlags.DELETED) !== 0n && user.pendingDeletionAt === null && !user.isSystem;
+}
+
+function mapUserToOwnPartialResponse(user: User): UserPartialResponse {
 	const isBot = user.isBot;
 	const avatarHash = stripAvatarForUser(user);
-	const isDeleted = (user.flags & UserFlags.DELETED) !== 0n && user.pendingDeletionAt === null && !user.isSystem;
-	if (isDeleted) {
+	if (isDeletedForDisplay(user)) {
 		return {
 			id: user.id.toString(),
 			username: DELETED_USER_USERNAME,
@@ -119,7 +128,7 @@ export function hasPartialUserFieldsChanged(oldUser: User, newUser: User): boole
 
 export function mapUserToPrivateResponse(user: User): UserPrivateResponse {
 	const isStaff = (user.flags & UserFlags.STAFF) !== 0n;
-	const partialResponse = mapUserToPartialResponse(user);
+	const partialResponse = mapUserToOwnPartialResponse(user);
 	const isActuallyPremium = user.isPremium();
 	const traitSet = new Set<string>();
 	for (const trait of user.traits ?? []) {
@@ -193,6 +202,9 @@ export function mapUserToPrivateResponse(user: User): UserPrivateResponse {
 }
 
 export function mapUserToProfileResponse(user: User, options?: {restrictProfile?: boolean}): UserProfileResponse {
+	if (isProfileHidden(user)) {
+		return {bio: null, pronouns: null, banner: null, banner_color: null, accent_color: null};
+	}
 	if (options?.restrictProfile) {
 		return {
 			bio: null,
@@ -236,9 +248,12 @@ export function mapUserToOAuthResponse(
 
 export function mapGuildMemberToProfileResponse(
 	guildMember: GuildMember | null | undefined,
-	options?: {restrictProfile?: boolean},
+	options?: {restrictProfile?: boolean; hidden?: boolean},
 ): UserProfileResponse | null {
 	if (!guildMember) return null;
+	if (options?.hidden) {
+		return {bio: null, pronouns: null, banner: null, accent_color: null};
+	}
 	if (options?.restrictProfile) {
 		return {
 			bio: null,
@@ -375,7 +390,10 @@ const mapMuteConfigToResponse = (
 			}
 		: null;
 
-function mapChannelOverrideToResponse(override: GuildChannelOverride): {
+function mapChannelOverrideToResponse(
+	override: GuildChannelOverride,
+	withFlags: boolean,
+): {
 	collapsed: boolean;
 	message_notifications: ChannelMessageNotifications;
 	muted: boolean;
@@ -384,6 +402,7 @@ function mapChannelOverrideToResponse(override: GuildChannelOverride): {
 		selected_time_window: number;
 	} | null;
 	unread_badges: ChannelMessageNotifications | null;
+	flags?: number;
 } {
 	return {
 		collapsed: override.collapsed,
@@ -391,10 +410,23 @@ function mapChannelOverrideToResponse(override: GuildChannelOverride): {
 		muted: override.muted,
 		mute_config: mapMuteConfigToResponse(override.muteConfig),
 		unread_badges: override.unreadBadges ?? null,
+		...(withFlags && override.flags ? {flags: override.flags} : {}),
 	};
 }
 
-export function mapUserGuildSettingsToResponse(settings: UserGuildSettings): UserGuildSettingsResponse {
+export interface UserGuildSettingsThreadView {
+	flags: boolean;
+	hiddenChannelIds?: ReadonlySet<string>;
+}
+
+export function mapUserGuildSettingsToResponse(
+	settings: UserGuildSettings,
+	threadView?: UserGuildSettingsThreadView,
+): UserGuildSettingsResponse {
+	const hidden = threadView?.hiddenChannelIds;
+	const overrides = hidden?.size
+		? Array.from(settings.channelOverrides.entries()).filter(([channelId]) => !hidden.has(channelId.toString()))
+		: Array.from(settings.channelOverrides.entries());
 	return {
 		guild_id: settings.guildId === createGuildID(0n) ? null : settings.guildId.toString(),
 		message_notifications: settings.messageNotifications ?? 0,
@@ -404,11 +436,11 @@ export function mapUserGuildSettingsToResponse(settings: UserGuildSettings): Use
 		suppress_everyone: settings.suppressEveryone,
 		suppress_roles: settings.suppressRoles,
 		hide_muted_channels: settings.hideMutedChannels,
-		channel_overrides: settings.channelOverrides.size
+		channel_overrides: overrides.length
 			? Object.fromEntries(
-					Array.from(settings.channelOverrides.entries()).map(([channelId, override]) => [
+					overrides.map(([channelId, override]) => [
 						channelId.toString(),
-						mapChannelOverrideToResponse(override),
+						mapChannelOverrideToResponse(override, threadView?.flags === true),
 					]),
 				)
 			: null,

@@ -204,9 +204,6 @@ catalogs:
     clsx:
       specifier: 2.1.1
       version: 2.1.1
-    colorjs.io:
-      specifier: 0.7.1
-      version: 0.7.1
     combokeys:
       specifier: 3.0.1
       version: 3.0.1
@@ -225,6 +222,9 @@ catalogs:
     eventemitter3:
       specifier: 5.0.4
       version: 5.0.4
+    fake-indexeddb:
+      specifier: 6.2.5
+      version: 6.2.5
     fast-xml-parser:
       specifier: 5.11.1
       version: 5.11.1
@@ -312,6 +312,9 @@ catalogs:
     onnxruntime-web:
       specifier: 1.30.0
       version: 1.30.0
+    pdf-lib:
+      specifier: 1.17.1
+      version: 1.17.1
     pg:
       specifier: 8.23.0
       version: 8.23.0
@@ -1378,6 +1381,9 @@ importers:
       '@fluxer/date_utils':
         specifier: workspace:*
         version: link:../packages/date_utils
+      '@fluxer/desktop_ipc':
+        specifier: workspace:*
+        version: link:../packages/desktop_ipc
       '@fluxer/geo_utils':
         specifier: workspace:*
         version: link:../packages/geo_utils
@@ -1459,9 +1465,6 @@ importers:
       codemirror:
         specifier: ^6.0.2
         version: 6.0.2
-      colorjs.io:
-        specifier: 'catalog:'
-        version: 0.7.1
       combokeys:
         specifier: 'catalog:'
         version: 3.0.1
@@ -1531,6 +1534,9 @@ importers:
       onnxruntime-web:
         specifier: 'catalog:'
         version: 1.30.0
+      pdf-lib:
+        specifier: 'catalog:'
+        version: 1.17.1
       qrcode:
         specifier: 'catalog:'
         version: 1.5.4
@@ -1646,6 +1652,9 @@ importers:
       esbuild:
         specifier: 'catalog:'
         version: 0.28.2
+      fake-indexeddb:
+        specifier: 'catalog:'
+        version: 6.2.5
       happy-dom:
         specifier: 20.14.5
         version: 20.14.5
@@ -1731,6 +1740,18 @@ importers:
 
   fluxer_desktop:
     dependencies:
+      '@fluxer/constants':
+        specifier: workspace:*
+        version: link:../packages/constants
+      '@fluxer/desktop_ipc':
+        specifier: workspace:*
+        version: link:../packages/desktop_ipc
+      '@fluxer/instance_bootstrap':
+        specifier: workspace:*
+        version: link:../packages/instance_bootstrap
+      '@fluxer/ip_utils':
+        specifier: workspace:*
+        version: link:../packages/ip_utils
       '@fluxer/voice_engine_v2':
         specifier: workspace:*
         version: link:../packages/voice_engine_v2
@@ -1769,6 +1790,12 @@ importers:
         specifier: catalog:ts7
         version: 7.0.2
     optionalDependencies:
+      '@fluxer/app-store':
+        specifier: file:./native/app-store
+        version: file:fluxer_desktop/native/app-store
+      '@fluxer/gateway-socket':
+        specifier: file:./native/gateway-socket
+        version: file:fluxer_desktop/native/gateway-socket
       '@fluxer/hardware-encoder':
         specifier: file:./native/hardware-encoder
         version: file:fluxer_desktop/native/hardware-encoder
@@ -1938,6 +1965,15 @@ importers:
       '@vvo/tzdb':
         specifier: 'catalog:'
         version: 6.198.0
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.6.1
+      typescript:
+        specifier: catalog:ts7
+        version: 7.0.2
+
+  packages/desktop_ipc:
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
@@ -4453,6 +4489,14 @@ packages:
   '@floating-ui/utils@0.2.12':
     resolution: {integrity: sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww==}
 
+  '@fluxer/app-store@file:fluxer_desktop/native/app-store':
+    resolution: {directory: fluxer_desktop/native/app-store, type: directory}
+    cpu: [x64, arm64]
+
+  '@fluxer/gateway-socket@file:fluxer_desktop/native/gateway-socket':
+    resolution: {directory: fluxer_desktop/native/gateway-socket, type: directory}
+    cpu: [x64, arm64]
+
   '@fluxer/hardware-encoder@file:fluxer_desktop/native/hardware-encoder':
     resolution: {directory: fluxer_desktop/native/hardware-encoder, type: directory}
     cpu: [x64, arm64]
@@ -5603,6 +5647,12 @@ packages:
   '@parcel/watcher@2.5.1':
     resolution: {integrity: sha512-dfUnCxiN9H4ap84DvD2ubjw+3vUNpstxa0TneY/Paat8a3R4uQZDLSvWjmznAY/DoahqTHl9V46HF/Zs3F29pg==}
     engines: {node: '>= 10.0.0'}
+
+  '@pdf-lib/standard-fonts@1.0.0':
+    resolution: {integrity: sha512-hU30BK9IUN/su0Mn9VdlVKsWBS6GyhVfqjwl1FjZN4TxP6cCw0jP2w7V3Hf5uX7M0AZJ16vey9yE0ny7Sa59ZA==}
+
+  '@pdf-lib/upng@1.0.1':
+    resolution: {integrity: sha512-dQK2FUMQtowVP00mtIksrlZhdFXQZPC+taih1q4CvPZ5vqdxR/LKBaFg0oAfzd1GlHZXXSPdQfzQnt+ViGvEIQ==}
 
   '@peculiar/asn1-android@2.9.4':
     resolution: {integrity: sha512-SYHm4SoWSI0nRCoos6jpGusIqhPH9bbGBqv7ohlZ+H6BunrDzzQPk2ePgDuEUzV82OdvbLgtW4twUDwhU9P3YQ==}
@@ -7336,9 +7386,6 @@ packages:
   colorette@2.0.20:
     resolution: {integrity: sha512-IfEDxwoWIjkeXL1eXcDiow4UbKjhLdq6/EuSVR9GMN7KVH3r9gQ83e73hsz1Nd1T3ijd5xv1wcWRYO+D6kCI2w==}
 
-  colorjs.io@0.7.1:
-    resolution: {integrity: sha512-LY7OHnJZxHwT5UlzNa9bbhHHDbzB6yE5+3MIPwJEQKRvSCt/T4G7epsj+9j2BExUIIfXFIJGsIXUKdfrK9Q5tA==}
-
   combined-stream@1.0.8:
     resolution: {integrity: sha512-FQN4MRfuJeHf7cBbBMJFXhKSDq+2kAArBlmRBvcvFE5BB1HZKXtSFASDhdlz9zOYwxh8lDdnvmMOe/+5cdoEdg==}
     engines: {node: '>= 0.8'}
@@ -7882,6 +7929,10 @@ packages:
   extend@3.0.2:
     resolution: {integrity: sha512-fjquC59cD7CyW6urNXK0FBufkZcoiGG80wTuPujX590cB5Ttln20E2UB4S/WARVqhXffZl2LNgS+gQdPIIim/g==}
 
+  fake-indexeddb@6.2.5:
+    resolution: {integrity: sha512-CGnyrvbhPlWYMngksqrSSUT1BAVP49dZocrHuK0SvtR0D5TMs5wP0o3j7jexDJW01KSadjBp1M/71o/KR3nD1w==}
+    engines: {node: '>=18'}
+
   fast-copy@4.1.1:
     resolution: {integrity: sha512-A4QTJmuiztpGtr6AMeJts9R4hbj2ZBUwtOaKrG6rw2y7t6+IaJKjz5M3XDs8BUznxDH43FVc6A0y/gWlMl4UtA==}
 
@@ -8284,6 +8335,7 @@ packages:
   idna-uts46-hx@6.2.1:
     resolution: {integrity: sha512-ywCsEJObClsvgOeiUaV70O4sGZvwX+w2Svr1I+KECCtPelsuANcLK4Y1n+TZ3KNAlnQYMF6Te8rTZ2xbIuK8WQ==}
     engines: {node: ^24.15.0 || ^26.0.0, npm: '>=12.0.0'}
+    deprecated: contains no types file, upgrade to 6.2.2
     hasBin: true
 
   ieee754@1.2.1:
@@ -9356,6 +9408,9 @@ packages:
   path-type@4.0.0:
     resolution: {integrity: sha512-gDKb8aZMDeD/tZWs9P6+q0J9Mwkdl6xMV8TjnGP3qJVJ06bdMgkbBlLU8IdfOsIsFz2BW1rNVT3XuNEl8zPAvw==}
     engines: {node: '>=8'}
+
+  pdf-lib@1.17.1:
+    resolution: {integrity: sha512-V/mpyJAoTsN4cnP31vc0wfNA1+p20evqqnap0KLoRUN0Yk/p3wN52DOEsL4oBFcLdb76hlpKPtzJIgo67j/XLw==}
 
   pe-library@0.4.1:
     resolution: {integrity: sha512-eRWB5LBz7PpDu4PUlwT0PhnQfTQJlDDdPa35urV4Osrm0t0AqQFGn+UIkU3klZvwJ8KPO3VbBFsXquA6p6kqZw==}
@@ -13566,6 +13621,12 @@ snapshots:
 
   '@floating-ui/utils@0.2.12': {}
 
+  '@fluxer/app-store@file:fluxer_desktop/native/app-store':
+    optional: true
+
+  '@fluxer/gateway-socket@file:fluxer_desktop/native/gateway-socket':
+    optional: true
+
   '@fluxer/hardware-encoder@file:fluxer_desktop/native/hardware-encoder':
     optional: true
 
@@ -14564,6 +14625,14 @@ snapshots:
       '@parcel/watcher-win32-ia32': 2.5.1
       '@parcel/watcher-win32-x64': 2.5.1
 
+  '@pdf-lib/standard-fonts@1.0.0':
+    dependencies:
+      pako: 1.0.11
+
+  '@pdf-lib/upng@1.0.1':
+    dependencies:
+      pako: 1.0.11
+
   '@peculiar/asn1-android@2.9.4':
     dependencies:
       '@peculiar/asn1-schema': 2.9.4
@@ -15457,7 +15526,7 @@ snapshots:
 
   '@types/set-cookie-parser@2.4.10':
     dependencies:
-      '@types/node': 26.6.1
+      '@types/node': 24.13.5
 
   '@types/statuses@2.0.6': {}
 
@@ -15651,7 +15720,7 @@ snapshots:
       obug: 2.2.1
       std-env: 4.2.0
       tinyrainbow: 3.1.1
-      vitest: 5.0.1(@opentelemetry/api@1.9.1)(@types/node@26.6.1)(@vitest/coverage-v8@5.0.1)(happy-dom@20.14.5)(msw@2.15.0(@types/node@26.6.1)(typescript@6.0.3))(vite@8.3.0(@types/node@26.6.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.1))
+      vitest: 5.0.1(@opentelemetry/api@1.9.1)(@types/node@26.6.1)(@vitest/coverage-v8@5.0.1)(happy-dom@20.14.5)(msw@2.15.0(@types/node@26.6.1)(typescript@7.0.2))(vite@8.3.0(@types/node@26.6.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.1))
 
   '@vitest/istanbul-lib-coverage@1.0.1': {}
 
@@ -16320,8 +16389,6 @@ snapshots:
 
   colorette@2.0.20: {}
 
-  colorjs.io@0.7.1: {}
-
   combined-stream@1.0.8:
     dependencies:
       delayed-stream: 1.0.0
@@ -16910,6 +16977,8 @@ snapshots:
       '@expressive-code/plugin-text-markers': 0.44.2
 
   extend@3.0.2: {}
+
+  fake-indexeddb@6.2.5: {}
 
   fast-copy@4.1.1: {}
 
@@ -18768,6 +18837,13 @@ snapshots:
   path-to-regexp@6.3.0: {}
 
   path-type@4.0.0: {}
+
+  pdf-lib@1.17.1:
+    dependencies:
+      '@pdf-lib/standard-fonts': 1.0.0
+      '@pdf-lib/upng': 1.0.1
+      pako: 1.0.11
+      tslib: 1.14.1
 
   pe-library@0.4.1: {}
 

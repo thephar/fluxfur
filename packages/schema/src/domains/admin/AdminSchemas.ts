@@ -13,6 +13,10 @@ import {GuildAdminResponse} from '@fluxer/schema/src/domains/admin/AdminGuildSch
 import {UserAdminResponseSchema} from '@fluxer/schema/src/domains/admin/AdminUserSchemas';
 import {CaptchaConfigResponse, CaptchaConfigUpdateRequest} from '@fluxer/schema/src/domains/admin/CaptchaSchemas';
 import {
+	ChannelThreadsConfigResponse,
+	ChannelThreadsConfigUpdateRequest,
+} from '@fluxer/schema/src/domains/admin/ChannelThreadsSchemas';
+import {
 	DomainMigrationConfigResponse,
 	DomainMigrationConfigUpdateRequest,
 } from '@fluxer/schema/src/domains/admin/DomainMigrationSchemas';
@@ -34,7 +38,11 @@ import {
 	ExperimentDeliveryConfigUpdateRequest,
 } from '@fluxer/schema/src/domains/experiment/ExperimentSchemas';
 import {GuildMemberResponse} from '@fluxer/schema/src/domains/guild/GuildMemberSchemas';
-import {InstanceRegistrationModeSchema} from '@fluxer/schema/src/domains/instance/InstanceSchemas';
+import {
+	AccountIdentityModeSchema,
+	InstanceRegistrationModeSchema,
+	TagStyleSchema,
+} from '@fluxer/schema/src/domains/instance/InstanceSchemas';
 import {MessageResponseSchema} from '@fluxer/schema/src/domains/message/MessageResponseSchemas';
 import {GiftCodeDurationTypeSchema} from '@fluxer/schema/src/domains/premium/GiftCodeSchemas';
 import {ChannelTypeSchema} from '@fluxer/schema/src/primitives/ChannelValidators';
@@ -135,6 +143,7 @@ const SearchIndexTypeEnum = createNamedStringLiteralUnion(
 		['guild_members', 'guild_members', 'Guild member search index'],
 		['favorite_memes', 'favorite_memes', 'Favourite meme search index'],
 		['discovery', 'discovery', 'Discovery guild search index'],
+		['threads', 'threads', 'Thread search index (channel_threads experiment)'],
 	],
 	'Type of search index to refresh',
 );
@@ -228,10 +237,20 @@ export const ListReportsQuery = z.object({
 
 export type ListReportsQuery = z.infer<typeof ListReportsQuery>;
 
+const ReportResolutionEnum = createNamedStringLiteralUnion(
+	[
+		['actioned', 'actioned', 'The report was valid and action was taken'],
+		['no_violation', 'no_violation', 'The report was reviewed and no violation was found'],
+		['duplicate', 'duplicate', 'The report repeats one that was already handled'],
+	],
+	'How the report was resolved',
+);
+
 export const UpdateReportRequest = z.object({
 	status: z.literal('resolved').describe('The status to move the report to'),
 	public_comment: createStringType(0, 512).optional().describe('Public comment to include with the resolution'),
 	notify_reporter: z.boolean().default(true).describe('Whether to notify the reporter by system DM and email'),
+	resolution: ReportResolutionEnum.optional().describe('How the report was resolved'),
 });
 
 export type UpdateReportRequest = z.infer<typeof UpdateReportRequest>;
@@ -646,6 +665,12 @@ const InstanceIntegrationsResponse = z.object({
 	}),
 });
 
+const InstanceAccountIdentityConfigResponse = z.object({
+	mode: AccountIdentityModeSchema.describe('Sign-in method in effect on this instance'),
+	locked: z.boolean().describe('Whether the sign-in method can no longer change'),
+	tag_style: TagStyleSchema.describe('How usernames are tagged'),
+});
+
 export const InstanceConfigResponse = z.object({
 	sso: SsoConfigResponse,
 	gateway_rollout: GatewayRolloutConfigResponse,
@@ -653,9 +678,11 @@ export const InstanceConfigResponse = z.object({
 	domain_migration: DomainMigrationConfigResponse,
 	plutonium_page: PlutoniumPageConfigResponse,
 	captcha: CaptchaConfigResponse,
+	channel_threads: ChannelThreadsConfigResponse,
 	experiment_delivery: ExperimentDeliveryConfigResponse,
 	registration: InstanceRegistrationResponse,
 	self_hosted: z.boolean(),
+	account_identity: InstanceAccountIdentityConfigResponse,
 	app_public: AppPublicConfigResponse,
 	policy: InstancePolicyResponse,
 	integrations: InstanceIntegrationsResponse,
@@ -687,6 +714,7 @@ export const InstanceConfigUpdateRequest = z.object({
 	domain_migration: DomainMigrationConfigUpdateRequest.nullish(),
 	plutonium_page: PlutoniumPageConfigUpdateRequest.nullish(),
 	captcha: CaptchaConfigUpdateRequest.nullish(),
+	channel_threads: ChannelThreadsConfigUpdateRequest.nullish(),
 	experiment_delivery: ExperimentDeliveryConfigUpdateRequest.nullish(),
 	registration: z
 		.object({

@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {generateKeyPairSync} from 'node:crypto';
+import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {getConfig, loadConfig, resetConfig} from '@fluxer/config/src/ConfigLoader';
 import {afterEach, beforeEach, describe, expect, test, vi} from 'vitest';
 
@@ -25,6 +28,7 @@ const MINIMAL_ENV: Record<string, string> = {
 	FLUXER_GATEWAY_RPC_AUTH_TOKEN: 'test-gateway-token',
 	FLUXER_SUDO_MODE_SECRET: 'test-sudo-secret',
 	FLUXER_CONNECTION_INITIATION_SECRET: 'test-connection-secret',
+	FLUXER_PROFILE_PSEUDONYM_SECRET: 'test-profile-pseudonym-secret',
 	FLUXER_VAPID_PUBLIC_KEY: 'BB76bTFIuoqmxJtTfZX0yGTn1f_qu9H03B_nkj8OyExJFkN7Y-HBZZzShnHZoEhXKc5ZRy3jFu7OkBbnaQG-4aw',
 	FLUXER_VAPID_PRIVATE_KEY: 'Xgi-3P8J-I3Q6U1HlCcXMuc_tKLGAM9nIfznX3Hz68o',
 };
@@ -77,6 +81,24 @@ describe('ConfigLoader', () => {
 
 		vi.stubEnv('FLUXER_BASE_DOMAIN', 'changed.example');
 		expect((await loadConfig()).domain.base_domain).toBe('localhost');
+	});
+
+	test('loadConfig reads secrets from NAME_FILE', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'fluxer-config-file-'));
+		try {
+			const path = join(dir, 'postgres_password');
+			writeFileSync(path, 'from-secret-file\n');
+			stubMinimalEnv({FLUXER_POSTGRES_PASSWORD: '', FLUXER_POSTGRES_PASSWORD_FILE: path});
+			const config = await loadConfig();
+			expect(config.database.postgres.password).toBe('from-secret-file');
+		} finally {
+			rmSync(dir, {recursive: true, force: true});
+		}
+	});
+
+	test('loadConfig rejects NAME and NAME_FILE together', async () => {
+		stubMinimalEnv({FLUXER_SUDO_MODE_SECRET_FILE: '/run/secrets/sudo'});
+		await expect(loadConfig()).rejects.toThrow('FLUXER_SUDO_MODE_SECRET and FLUXER_SUDO_MODE_SECRET_FILE are both set');
 	});
 
 	test('getConfig throws when config is not loaded', () => {
@@ -475,6 +497,25 @@ describe('ConfigLoader', () => {
 		await expect(loadConfig()).rejects.toThrow('Invalid FLUXER_KV_MODE: sentinel');
 	});
 
+	test('reads the profile pseudonym secret and requires it in production', async () => {
+		stubMinimalEnv();
+		expect((await loadConfig()).auth.profile_pseudonym_secret).toBe('test-profile-pseudonym-secret');
+		resetConfig();
+		stubMinimalEnv({FLUXER_PROFILE_PSEUDONYM_SECRET: ''});
+		expect((await loadConfig()).auth.profile_pseudonym_secret).toBe('fluxer-dev-profile-pseudonym-secret');
+		resetConfig();
+		stubMinimalEnv({
+			FLUXER_ENV: 'production',
+			FLUXER_POSTGRES_HOST: 'postgres.internal',
+			FLUXER_POSTGRES_DATABASE: 'fluxer_prod',
+			FLUXER_POSTGRES_USERNAME: 'fluxer_app',
+			FLUXER_POSTGRES_PASSWORD: 'prod-postgres-secret',
+			FLUXER_POSTGRES_SSL: 'true',
+			FLUXER_PROFILE_PSEUDONYM_SECRET: '',
+		});
+		await expect(loadConfig()).rejects.toThrow('FLUXER_PROFILE_PSEUDONYM_SECRET is required');
+	});
+
 	test('rejects unsafe production Postgres defaults', async () => {
 		stubMinimalEnv({FLUXER_ENV: 'production'});
 		await expect(loadConfig()).rejects.toThrow('FLUXER_POSTGRES_HOST');
@@ -562,6 +603,48 @@ describe('ConfigLoader', () => {
 			status_page_incident_history_url: 'https://status.example/history',
 		});
 		expect(config.instance.setup.configured).toBe(true);
+	});
+
+	test('leaves the account identity unset by default', async () => {
+		stubMinimalEnv();
+		const config = await loadConfig();
+		expect(config.instance.account_identity).toBeNull();
+	});
+
+	test('treats an empty account identity as unset', async () => {
+		stubMinimalEnv({FLUXER_ACCOUNT_IDENTITY: ' '});
+		const config = await loadConfig();
+		expect(config.instance.account_identity).toBeNull();
+	});
+
+	test.each([
+		['email', 'email'],
+		['username', 'username'],
+		[' Username ', 'username'],
+	])('parses FLUXER_ACCOUNT_IDENTITY=%j', async (raw, expected) => {
+		stubMinimalEnv({FLUXER_ACCOUNT_IDENTITY: raw});
+		const config = await loadConfig();
+		expect(config.instance.account_identity).toBe(expected);
+	});
+
+	test.each([
+		['none', 'none'],
+		[' Random ', 'random'],
+		['', null],
+	])('parses FLUXER_TAG_STYLE=%j', async (raw, expected) => {
+		stubMinimalEnv({FLUXER_TAG_STYLE: raw});
+		const config = await loadConfig();
+		expect(config.instance.tag_style).toBe(expected);
+	});
+
+	test.each(['sequential', 'zero_first'])('rejects the tag style %j', async (raw) => {
+		stubMinimalEnv({FLUXER_TAG_STYLE: raw});
+		await expect(loadConfig()).rejects.toThrow('FLUXER_TAG_STYLE must be none or random');
+	});
+
+	test('rejects an unknown account identity', async () => {
+		stubMinimalEnv({FLUXER_ACCOUNT_IDENTITY: 'phone'});
+		await expect(loadConfig()).rejects.toThrow('FLUXER_ACCOUNT_IDENTITY must be email or username');
 	});
 
 	test('leaves both stores off with no apps, packages or products by default', async () => {

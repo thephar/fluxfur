@@ -13,6 +13,8 @@ pub struct InstanceConfigResponse {
     #[serde(default)]
     pub self_hosted: bool,
     #[serde(default)]
+    pub account_identity: AccountIdentityConfigResponse,
+    #[serde(default)]
     pub app_public: AppPublicConfigResponse,
     #[serde(default)]
     pub policy: InstancePolicyResponse,
@@ -29,9 +31,84 @@ pub struct InstanceConfigResponse {
     #[serde(default)]
     pub captcha: CaptchaConfigResponse,
     #[serde(default)]
+    pub channel_threads: ChannelThreadsConfigResponse,
+    #[serde(default)]
     pub experiment_delivery: ExperimentDeliveryConfigResponse,
     #[serde(default)]
     pub billing: InstanceBillingResponse,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AccountIdentityMode {
+    #[default]
+    Email,
+    Username,
+}
+
+impl AccountIdentityMode {
+    pub fn is_username(self) -> bool {
+        matches!(self, Self::Username)
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Email => "Email",
+            Self::Username => "Username",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum TagStyle {
+    None,
+    #[default]
+    #[serde(other)]
+    Random,
+}
+
+impl TagStyle {
+    pub fn is_none(self) -> bool {
+        matches!(self, Self::None)
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::None => "No tags",
+            Self::Random => "Random tags",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+pub struct AccountIdentityConfigResponse {
+    #[serde(default)]
+    pub mode: AccountIdentityMode,
+    #[serde(default)]
+    pub locked: Option<bool>,
+    #[serde(default)]
+    pub tag_style: TagStyle,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct AccountIdentitySettings {
+    pub mode: AccountIdentityMode,
+    pub tag_style: TagStyle,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct InstanceAccountIdentityDiscovery {
+    #[serde(default)]
+    pub features: InstanceAccountIdentityDiscoveryFeatures,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct InstanceAccountIdentityDiscoveryFeatures {
+    #[serde(default)]
+    pub account_identity: AccountIdentityMode,
+    #[serde(default)]
+    pub tag_style: TagStyle,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -435,6 +512,8 @@ pub const DOMAIN_MIGRATION_DEFAULT_SALT: &str = "domain-migration-v1";
 pub const PLUTONIUM_PAGE_DEFAULT_SALT: &str = "plutonium-page-v1";
 pub const CAPTCHA_COST_RANGE: std::ops::RangeInclusive<u32> = 1_000..=20_000;
 pub const CAPTCHA_MAX_COUNTER_RANGE: std::ops::RangeInclusive<u32> = 100..=20_000;
+pub const CHANNEL_THREADS_DEFAULT_GUILD_SALT: &str = "channel-threads-guild-v1";
+pub const CHANNEL_THREADS_DEFAULT_USER_SALT: &str = "channel-threads-user-v1";
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
@@ -580,6 +659,62 @@ pub struct CaptchaConfigUpdateRequest {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
+pub struct ChannelThreadsConfigResponse {
+    pub enabled: bool,
+    pub config_version: u64,
+    pub ever_enabled: bool,
+    pub guild_basis_points: u32,
+    pub guild_salt: String,
+    pub enabled_guild_ids: Vec<String>,
+    pub disabled_guild_ids: Vec<String>,
+    pub user_basis_points: u32,
+    pub user_salt: String,
+    pub included_user_ids: Vec<String>,
+    pub excluded_user_ids: Vec<String>,
+}
+
+impl Default for ChannelThreadsConfigResponse {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            config_version: 0,
+            ever_enabled: false,
+            guild_basis_points: 0,
+            guild_salt: CHANNEL_THREADS_DEFAULT_GUILD_SALT.to_owned(),
+            enabled_guild_ids: Vec::new(),
+            disabled_guild_ids: Vec::new(),
+            user_basis_points: 0,
+            user_salt: CHANNEL_THREADS_DEFAULT_USER_SALT.to_owned(),
+            included_user_ids: Vec::new(),
+            excluded_user_ids: Vec::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct ChannelThreadsConfigUpdateRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub guild_basis_points: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub guild_salt: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled_guild_ids: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disabled_guild_ids: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_basis_points: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_salt: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub included_user_ids: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub excluded_user_ids: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(default)]
 pub struct ExperimentDeliveryConfigResponse {
     pub poll_interval_seconds: u64,
     pub poll_jitter_percent: u32,
@@ -699,6 +834,8 @@ pub struct InstanceConfigUpdateRequest {
     pub plutonium_page: Option<PlutoniumPageConfigUpdateRequest>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub captcha: Option<CaptchaConfigUpdateRequest>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub channel_threads: Option<ChannelThreadsConfigUpdateRequest>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub experiment_delivery: Option<ExperimentDeliveryConfigUpdateRequest>,
     #[serde(skip_serializing_if = "Option::is_none")]
