@@ -143,6 +143,7 @@ function loadUpdater({
 		'@electron/common/DesktopIdentity': {DESKTOP_ARTIFACT_PRODUCT_NAME: 'Fluxer-Canary'},
 		'@electron/common/UserDataPath': {isPortableMode: () => false},
 		'@electron/main/DesktopTray': {destroyDesktopTray() {}},
+		'@electron/main/ModuleNetworkFetch': {moduleNetworkFetch: (input, init) => sandbox.fetch(input, init)},
 		'@electron/main/LinuxSandbox': {isFlatpakRuntime: () => false},
 		'@electron/main/Troubleshooting': {
 			relaunchAndExit() {
@@ -164,6 +165,7 @@ function loadUpdater({
 				exit() {},
 			},
 			autoUpdater: {on() {}},
+			net: {fetch: (input, init) => sandbox.fetch(input, init)},
 			ipcMain: {
 				handle(channel, handler) {
 					handlers.set(channel, handler);
@@ -545,6 +547,38 @@ describe('Updater Windows apply failures', () => {
 		assert.equal(updater.events[2].downloadStarted, false);
 		assert.equal(updater.events[2].downloadUrl, `${baseUrl}/setup`);
 		assert.equal(updater.applyState.attempt.version, PUBLISHED_VERSION);
+	});
+
+	test('keeps offering the installer when no newer release than the failed one is out', async () => {
+		const updater = loadWindowsUpdater({
+			installedVersion: CURRENT_VERSION,
+			remoteUpdate: {Version: PUBLISHED_VERSION, Size: 100},
+			applyAttempt: {version: PUBLISHED_VERSION, attemptedAt: 0},
+		});
+
+		await updater.check();
+
+		assert.deepEqual(types(updater.events), ['checking', 'error', 'available']);
+		assert.equal(updater.events[2].downloadStarted, false);
+		assert.equal(updater.applyState.cleared, 0);
+	});
+
+	test('retries the in-app update when a newer release than the failed one is out', async () => {
+		const newerVersion = '2026.905.101010';
+		const updater = loadWindowsUpdater({
+			installedVersion: CURRENT_VERSION,
+			pendingRestart: {Version: PUBLISHED_VERSION, Size: 100},
+			remoteUpdate: {Version: newerVersion, Size: 200},
+			applyAttempt: {version: PUBLISHED_VERSION, attemptedAt: 0},
+		});
+
+		await updater.check();
+
+		assert.equal(updater.applyState.cleared, 1);
+		assert.equal(updater.applyState.attempt, null);
+		assert.deepEqual(types(updater.events), ['checking', 'available']);
+		assert.equal(updater.events[1].version, newerVersion);
+		assert.equal(updater.events[1].downloadUrl, undefined);
 	});
 
 	test('resumes normal updates once the installed version catches up', async () => {

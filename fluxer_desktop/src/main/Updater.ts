@@ -13,6 +13,7 @@ import {
 	sweepAbandonedAppImageUpdates,
 } from '@electron/main/AppImageUpdate';
 import {destroyDesktopTray} from '@electron/main/DesktopTray';
+import {moduleNetworkFetch} from '@electron/main/ModuleNetworkFetch';
 import {MANUAL_DESKTOP_FORMATS, type ManualDesktopFormat} from '@electron/main/ShellDownloadFormats';
 import {resolveShellUpdatePlan, ShellUpdateCapability} from '@electron/main/ShellUpdateCapability';
 import {relaunchAndExit} from '@electron/main/Troubleshooting';
@@ -33,7 +34,7 @@ import {
 	type UpdaterDownloadOption,
 } from '@electron/main/UpdaterDownloads';
 import {setQuitting} from '@electron/main/Window';
-import {app, autoUpdater, type BrowserWindow, ipcMain} from 'electron';
+import {app, autoUpdater, type BrowserWindow, ipcMain, net} from 'electron';
 import log from 'electron-log';
 import type {UpdateInfo, VelopackAsset} from 'velopack';
 
@@ -218,12 +219,27 @@ async function checkVelopackForUpdates(
 			send(getMainWindow(), {type: 'checking', context});
 			const updateManager = createVelopackUpdateManager();
 			const failedApply = resolveFailedVelopackApply(updateManager);
-			if (failedApply) {
+			let update: Awaited<ReturnType<VelopackUpdateManager['checkForUpdatesAsync']>>;
+			try {
+				update = await updateManager.checkForUpdatesAsync();
+			} catch (error) {
+				if (!failedApply) throw error;
 				await sendVelopackApplyFailure(context, getMainWindow, failedApply);
 				return;
 			}
-			const pendingUpdate = updateManager.getUpdatePendingRestart();
-			const update = await updateManager.checkForUpdatesAsync();
+			if (failedApply) {
+				const updateVersion = update ? getVelopackUpdateVersion(update) : null;
+				if (!updateVersion || compareVersions(updateVersion, failedApply.version) <= 0) {
+					await sendVelopackApplyFailure(context, getMainWindow, failedApply);
+					return;
+				}
+				log.info('A release newer than the update that failed to apply is out, retrying the in-app update', {
+					failedVersion: failedApply.version,
+					updateVersion,
+				});
+				clearVelopackApplyAttempt();
+			}
+			const pendingUpdate = failedApply ? null : updateManager.getUpdatePendingRestart();
 			if (!update) {
 				if (pendingUpdate) {
 					pendingVelopackUpdate = pendingUpdate;
@@ -537,7 +553,7 @@ async function fetchManualLatest(options: {forceRefresh?: boolean} = {}): Promis
 	if (!options.forceRefresh && manualLatestCache && now - manualLatestCache.at < MANUAL_CACHE_TTL_MS) {
 		return manualLatestCache.info;
 	}
-	const response = await fetch(`${UPDATE_BASE_URL}/latest`, {
+	const response = await net.fetch(`${UPDATE_BASE_URL}/latest`, {
 		cache: 'no-store',
 		headers: {
 			Accept: 'application/json',
@@ -613,6 +629,7 @@ async function downloadAppImageUpdate(
 				target,
 				url,
 				expectedSha256,
+				fetchImpl: moduleNetworkFetch,
 				onProgress: ({transferred, total}) => {
 					const now = Date.now();
 					const dtMs = now - lastSampleAt;

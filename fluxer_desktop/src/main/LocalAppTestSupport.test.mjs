@@ -78,7 +78,7 @@ const DESKTOP_APP_STORAGE_STUB = dataModule(`const state = globalThis[${JSON.str
 export const getDesktopAppStorage = () => state.desktopAppStorage;`);
 
 const WINDOW_STUB = dataModule(`const state = globalThis[${JSON.stringify(LIVE_STATE_KEY)}];
-export const getMainWindow = () => state.mainWindow;
+export const isAppDocumentWindowContents = (contents) => state.mainWindow?.webContents === contents;
 export const isTrustedOrigin = () => true;`);
 
 const APP_LOGGER_STUB = dataModule(`const noop = () => undefined;
@@ -153,7 +153,8 @@ export function installElectronStub(extra = {}) {
 		}
 	}
 	const nativeTheme = {themeSource: 'system'};
-	state.electron = {nativeTheme, webContents, webFrameMain, ...extra, app};
+	const session = {defaultSession: {resolveProxy: async () => 'DIRECT'}};
+	state.electron = {nativeTheme, session, webContents, webFrameMain, ...extra, app};
 	return registry;
 }
 
