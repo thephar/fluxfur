@@ -403,7 +403,7 @@ export function getDefaultPremiumProductName(): string {
 function getDefaultAppPublicConfig(): InstanceAppPublicConfig {
 	return {
 		branding: {
-			product_name: Config.instance.branding.productName || 'Fluxer',
+			product_name: Config.instance.branding.productName || 'FluxFur',
 			icon_url: normalizeOptionalString(Config.instance.branding.iconUrl),
 			symbol_url: normalizeOptionalString(Config.instance.branding.symbolUrl),
 			logo_url: normalizeOptionalString(Config.instance.branding.logoUrl),

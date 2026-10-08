@@ -67,7 +67,7 @@ export class UserDataRepository {
 			return new User({
 				...EMPTY_USER_ROW,
 				user_id: createUserID(FLUXER_BOT_USER_ID),
-				username: 'Fluxer',
+				username: 'FluxFur',
 				discriminator: 0,
 				bot: true,
 				system: true,

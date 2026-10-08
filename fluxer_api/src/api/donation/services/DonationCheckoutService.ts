@@ -21,7 +21,7 @@ type CheckoutSessionMode = CheckoutSessionCreateParams['mode'];
 type CheckoutSessionLineItem = NonNullable<CheckoutSessionCreateParams['line_items']>[number];
 type CheckoutSessionLocale = NonNullable<CheckoutSessionCreateParams['locale']>;
 
-const PRODUCT_NAME = 'Fluxer';
+const PRODUCT_NAME = 'FluxFur';
 
 const STRIPE_CHECKOUT_LOCALES: Record<string, CheckoutSessionLocale> = {
 	bg: 'bg',

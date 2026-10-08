@@ -209,7 +209,7 @@ export function doesCommandSendCurrentChannelMessage(command: ParsedCommand): bo
 export function createSystemMessage(channelId: string, content: string): Message {
 	const fluxerbotUser = new User({
 		id: FLUXERBOT_ID,
-		username: 'Fluxerbot',
+		username: 'Fluffbot',
 		discriminator: '0000',
 		global_name: null,
 		avatar: null,

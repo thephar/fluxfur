@@ -10,9 +10,9 @@ import type {EmailTemplate, EmailTemplateKey} from '@pkgs/email/src/email_i18n/E
 
 const DEFAULT_LOCALE = 'en-US';
 const DEFAULT_EMAIL_TEMPLATE_VARIABLES = {
-	product_name: 'Fluxer',
-	appeals_email: 'appeals@fluxer.app',
-	safety_email: 'safety@fluxer.app',
+	product_name: 'FluxFur',
+	appeals_email: 'appeals@fluxfur.com',
+	safety_email: 'safety@fluxfur.com',
 } satisfies Record<string, string>;
 
 function formatEmailDate(value: unknown, locale: string, style: string | null): string {

@@ -250,7 +250,7 @@ function defaultConfig(): MasterConfig {
 		instance: {
 			self_hosted: false,
 			branding: {
-				product_name: 'Fluxer',
+				product_name: 'FluxFur',
 			},
 			setup: {
 				configured: false,

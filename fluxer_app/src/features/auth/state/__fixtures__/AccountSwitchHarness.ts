@@ -51,7 +51,7 @@ export function installHarnessBootstrap(): void {
 				push: {public_vapid_key: null},
 				app_public: {
 					branding: {
-						product_name: 'Fluxer',
+						product_name: 'FluxFur',
 						icon_url: null,
 						symbol_url: null,
 						logo_url: null,

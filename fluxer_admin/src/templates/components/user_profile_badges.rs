@@ -54,19 +54,19 @@ pub fn user_profile_badges(
     if flags & user_flag_bits::STAFF != 0 {
         badges.push(BadgeDef {
             icon_url: format!("{cdn}/badges/staff.svg?v=2"),
-            tooltip: "Fluxer Staff".into(),
+            tooltip: "FluxFur Staff".into(),
         });
     }
     if !is_self_hosted && flags & user_flag_bits::PARTNER != 0 {
         badges.push(BadgeDef {
             icon_url: format!("{cdn}/badges/partner.svg"),
-            tooltip: "Fluxer Partner".into(),
+            tooltip: "FluxFur Partner".into(),
         });
     }
     if !is_self_hosted && flags & user_flag_bits::BUG_HUNTER != 0 {
         badges.push(BadgeDef {
             icon_url: format!("{cdn}/badges/bug-hunter.svg"),
-            tooltip: "Fluxer Bug Hunter".into(),
+            tooltip: "FluxFur Bug Hunter".into(),
         });
     }
     if let Some(pt) = premium_type
