@@ -2,6 +2,7 @@
 
 import {ConfirmModal} from '@app/features/app/components/dialogs/ConfirmModal';
 import type {Channel} from '@app/features/channel/models/Channel';
+import {ChannelDebugModal} from '@app/features/devtools/components/debug/ChannelDebugModal';
 import {MARK_AS_READ_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
 import {buildChannelLink} from '@app/features/messaging/utils/MessageLinkUtils';
 import Navigation from '@app/features/navigation/state/Navigation';
@@ -28,6 +29,7 @@ import {
 import {
 	CopyIdIcon,
 	CopyLinkIcon,
+	DebugChannelIcon,
 	DeleteIcon,
 	EditIcon,
 	LeaveIcon,
@@ -83,6 +85,21 @@ export function confirmDeleteThread(i18n: I18n, thread: Channel): void {
 					}
 				}}
 				data-flx="threads.use-thread-menu-data.confirm-delete-thread"
+			/>
+		)),
+	);
+}
+
+function confirmLeavePrivateThread(i18n: I18n, thread: Channel): void {
+	ModalCommands.push(
+		modal(() => (
+			<ConfirmModal
+				title={i18n._(D.LEAVE_PRIVATE_THREAD_TITLE_DESCRIPTOR)}
+				description={i18n._(D.LEAVE_PRIVATE_THREAD_CONFIRM_DESCRIPTOR, {threadName: thread.name ?? ''})}
+				primaryText={i18n._(D.LEAVE_THREAD_DESCRIPTOR)}
+				primaryVariant="danger"
+				onPrimary={() => run(i18n, () => ThreadCommands.leaveThread(thread))}
+				data-flx="threads.use-thread-menu-data.confirm-leave-private-thread"
 			/>
 		)),
 	);
@@ -216,10 +233,14 @@ export function useThreadMenuData(thread: Channel, {onClose}: {onClose: () => vo
 		manageItems.push({
 			icon: <LeaveIcon size={20} data-flx="threads.use-thread-menu-data.leave-icon" />,
 			label: i18n._(D.LEAVE_THREAD_DESCRIPTOR),
-			danger: true,
+			danger: thread.isPrivateThread(),
 			onClick: () => {
-				run(i18n, () => ThreadCommands.leaveThread(thread));
 				onClose();
+				if (thread.isPrivateThread()) {
+					confirmLeavePrivateThread(i18n, thread);
+					return;
+				}
+				run(i18n, () => ThreadCommands.leaveThread(thread));
 			},
 		});
 	}
@@ -247,14 +268,32 @@ export function useThreadMenuData(thread: Channel, {onClose}: {onClose: () => vo
 		},
 	];
 	if (UserSettings.developerMode) {
-		copyItems.push({
-			icon: <CopyIdIcon size={20} data-flx="threads.use-thread-menu-data.copy-id-icon" />,
-			label: i18n._(D.COPY_THREAD_ID_DESCRIPTOR),
-			onClick: () => {
-				void TextCopyCommands.copy(i18n, thread.id, true);
-				onClose();
+		copyItems.push(
+			{
+				icon: <DebugChannelIcon size={20} data-flx="threads.use-thread-menu-data.debug-thread-icon" />,
+				label: i18n._(D.DEBUG_THREAD_DESCRIPTOR),
+				onClick: () => {
+					ModalCommands.pushAfterBottomSheetClose(
+						onClose,
+						modal(() => (
+							<ChannelDebugModal
+								title={i18n._(D.THREAD_DEBUG_DESCRIPTOR)}
+								channel={thread}
+								data-flx="threads.use-thread-menu-data.channel-debug-modal"
+							/>
+						)),
+					);
+				},
 			},
-		});
+			{
+				icon: <CopyIdIcon size={20} data-flx="threads.use-thread-menu-data.copy-id-icon" />,
+				label: i18n._(D.COPY_THREAD_ID_DESCRIPTOR),
+				onClick: () => {
+					void TextCopyCommands.copy(i18n, thread.id, true);
+					onClose();
+				},
+			},
+		);
 	}
 	groups.push({items: copyItems});
 	return {groups};

@@ -7,11 +7,11 @@ import {ExternalLink} from '@app/features/app/components/shared/ExternalLink';
 import {
 	AVATAR_RECOMMENDED_SIZE_LABEL,
 	IMAGE_MAX_SIZE_BYTES,
-	PRODUCT_NAME,
 	STATIC_IMAGE_FORMATS,
 	THE_OTHER_PLATFORM_TEMPLATE_EXAMPLE_URL,
 } from '@app/features/app/config/I18nDisplayConstants';
 import {useFormSubmit} from '@app/features/app/hooks/useFormSubmit';
+import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
 import {openClaimAccountModal} from '@app/features/auth/components/modals/ClaimAccountModal';
 import {AssetCropModal, AssetType} from '@app/features/expressions/components/modals/AssetCropModal';
 import {openAssetSourceModal} from '@app/features/expressions/components/modals/AssetSourceModal';
@@ -44,7 +44,11 @@ import {
 	type TemplateJsonFormInputs,
 	THIS_DOESN_T_LOOK_LIKE_A_VALID_TEMPLATE_DESCRIPTOR,
 } from '@app/features/guild/components/modals/add_guild_modal/shared';
-import {getGuildIconDisplayInitials, getInitialsLength} from '@app/features/guild/utils/GuildInitialsUtils';
+import {
+	getGuildIconDisplayInitials,
+	getGuildInitialsFitStyle,
+	getInitialsLength,
+} from '@app/features/guild/utils/GuildInitialsUtils';
 import {
 	CREATE_COMMUNITY_DESCRIPTOR,
 	FAILED_TO_PROCESS_CROPPED_IMAGE_DESCRIPTOR,
@@ -69,7 +73,7 @@ import * as StringUtils from '@app/lib/strings';
 import {ChannelTypes} from '@fluxer/constants/src/ChannelConstants';
 import {THE_OTHER_PLATFORM} from '@fluxer/constants/src/ExternalPlatformConstants';
 import type {TemplateSerializedGuild} from '@fluxer/schema/src/domains/guild/GuildTemplateSchemas';
-import {msg} from '@lingui/core/macro';
+import {msg, ph} from '@lingui/core/macro';
 import {Trans, useLingui} from '@lingui/react/macro';
 import {ArrowSquareOutIcon, EnvelopeSimpleIcon} from '@phosphor-icons/react';
 import {observer} from 'mobx-react-lite';
@@ -158,6 +162,7 @@ const IMAGE_COULDN_T_BE_USED_DESCRIPTOR = msg({
 });
 export const TemplateImportForm = observer(() => {
 	const {i18n} = useLingui();
+	const guidelinesUrl = Routes.guidelines();
 	const theOtherPlatform = THE_OTHER_PLATFORM;
 	const [step, setStep] = useState<TemplateImportStep>('url');
 	const [apiUrl, setApiUrl] = useState<string | null>(null);
@@ -245,13 +250,12 @@ export const TemplateImportForm = observer(() => {
 	const nameValue = createForm.watch('name');
 	const urlValue = urlForm.watch('url');
 	const jsonValue = jsonForm.watch('json');
-	const rawInitials = useMemo(() => {
+	const initials = useMemo(() => {
 		const raw = (nameValue || '').trim();
 		if (!raw) return '';
-		return StringUtils.getInitialsFromName(raw);
+		return getGuildIconDisplayInitials(StringUtils.getInitialsFromName(raw));
 	}, [nameValue]);
-	const initials = useMemo(() => getGuildIconDisplayInitials(rawInitials), [rawInitials]);
-	const initialsLength = useMemo(() => (rawInitials ? getInitialsLength(rawInitials) : null), [rawInitials]);
+	const initialsLength = initials ? getInitialsLength(initials) : null;
 	const showIconUploadErrorModal = useCallback(
 		(message: string) => {
 			showGuildErrorModal({
@@ -612,6 +616,7 @@ export const TemplateImportForm = observer(() => {
 									{initials ? (
 										<span
 											className={styles.iconInitials}
+											style={getGuildInitialsFitStyle(initials)}
 											data-flx="guild.add-guild-modal.template-import-form.icon-initials"
 										>
 											{initials}
@@ -655,19 +660,21 @@ export const TemplateImportForm = observer(() => {
 						required={true}
 						type="text"
 					/>
-					<p className={styles.guidelines} data-flx="guild.add-guild-modal.template-import-form.guidelines">
-						<Trans>
-							By creating a community, you agree to follow and uphold the{' '}
-							<ExternalLink
-								href={Routes.guidelines()}
-								className={styles.guidelinesLink}
-								data-flx="guild.add-guild-modal.template-import-form.guidelines-link"
-							>
-								{PRODUCT_NAME} community guidelines
-							</ExternalLink>
-							.
-						</Trans>
-					</p>
+					{guidelinesUrl && (
+						<p className={styles.guidelines} data-flx="guild.add-guild-modal.template-import-form.guidelines">
+							<Trans>
+								By creating a community, you agree to follow and uphold the{' '}
+								<ExternalLink
+									href={guidelinesUrl}
+									className={styles.guidelinesLink}
+									data-flx="guild.add-guild-modal.template-import-form.guidelines-link"
+								>
+									{ph({PRODUCT_NAME: RuntimeConfig.productName})} community guidelines
+								</ExternalLink>
+								.
+							</Trans>
+						</p>
+					)}
 				</div>
 			</Form>
 		</div>

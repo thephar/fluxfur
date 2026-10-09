@@ -29,7 +29,7 @@ import type {I18n, MessageDescriptor} from '@lingui/core';
 import {msg} from '@lingui/core/macro';
 
 const ACTIVE_DEVELOPER_OPTION_KEYS = DEVELOPER_OPTION_KEYS.filter((key) => key !== 'premiumScenarioOverride');
-export const ATTACHMENT_MOCKS_DESCRIPTOR = msg({
+const ATTACHMENT_MOCKS_DESCRIPTOR = msg({
 	message: 'Attachment mocks',
 	comment: 'Developer tools debug menu label. Internal-only surface for developers; translators may keep this terse.',
 });
@@ -71,26 +71,6 @@ const EMBED_SKELETONS_DESCRIPTOR = msg({
 });
 const MEDIA_LOADING_STATE_DESCRIPTOR = msg({
 	message: 'Media loading state',
-	comment: 'Developer tools debug menu label. Internal-only surface for developers; translators may keep this terse.',
-});
-const ANY_UPDATER_READY_DESCRIPTOR = msg({
-	message: 'Any updater ready',
-	comment: 'Developer tools debug menu label. Internal-only surface for developers; translators may keep this terse.',
-});
-const NATIVE_UPDATER_READY_DESCRIPTOR = msg({
-	message: 'Native updater ready',
-	comment: 'Developer tools debug menu label. Internal-only surface for developers; translators may keep this terse.',
-});
-const NATIVE_UPDATE_PROGRESS_DESCRIPTOR = msg({
-	message: 'Native update progress',
-	comment: 'Developer tools debug menu label. Internal-only surface for developers; translators may keep this terse.',
-});
-const WEB_UPDATER_READY_DESCRIPTOR = msg({
-	message: 'Web updater ready',
-	comment: 'Developer tools debug menu label. Internal-only surface for developers; translators may keep this terse.',
-});
-const UPDATER_STATE_DESCRIPTOR = msg({
-	message: 'Updater state',
 	comment: 'Developer tools debug menu label. Internal-only surface for developers; translators may keep this terse.',
 });
 const SHOW_MYSELF_TYPING_DESCRIPTOR = msg({
@@ -260,7 +240,7 @@ const DEVELOPER_OPTION_DESCRIPTOR = msg({
 const DEVELOPER_OPTION_LABEL_FALLBACKS: Partial<Record<keyof DeveloperOptionsState, MessageDescriptor>> = {
 	mockAttachmentStates: ATTACHMENT_MOCKS_DESCRIPTOR,
 };
-export const getDeveloperOptionFallbackLabel = (i18n: I18n, key: keyof DeveloperOptionsState): string => {
+const getDeveloperOptionFallbackLabel = (i18n: I18n, key: keyof DeveloperOptionsState): string => {
 	const descriptor = DEVELOPER_OPTION_LABEL_FALLBACKS[key];
 	return descriptor ? i18n._(descriptor) : humanizeDeveloperStateKey(String(key));
 };
@@ -297,7 +277,6 @@ const formatDeveloperOptionValue = <K extends keyof DeveloperOptionsState>(
 		case 'mockMatureContentGateReason':
 		case 'mockMatureMediaGateReason':
 		case 'mockTitlebarPlatformOverride':
-		case 'mockUpdaterState':
 			return String(value).replace(/_/g, ' ');
 		case 'premiumSinceOverride':
 		case 'premiumUntilOverride':
@@ -326,7 +305,7 @@ const formatDeveloperOptionValue = <K extends keyof DeveloperOptionsState>(
 			return String(value);
 	}
 };
-export const getDeveloperOptionLabel = (key: keyof DeveloperOptionsState): MessageDescriptor => {
+const getDeveloperOptionLabel = (key: keyof DeveloperOptionsState): MessageDescriptor => {
 	switch (key) {
 		case 'bypassLoadingSkeleton':
 			return BYPASS_LOADING_SKELETON_DESCRIPTOR;
@@ -342,16 +321,6 @@ export const getDeveloperOptionLabel = (key: keyof DeveloperOptionsState): Messa
 			return EMBED_SKELETONS_DESCRIPTOR;
 		case 'forceMediaLoading':
 			return MEDIA_LOADING_STATE_DESCRIPTOR;
-		case 'forceUpdateReady':
-			return ANY_UPDATER_READY_DESCRIPTOR;
-		case 'forceNativeUpdateReady':
-			return NATIVE_UPDATER_READY_DESCRIPTOR;
-		case 'mockNativeUpdateProgress':
-			return NATIVE_UPDATE_PROGRESS_DESCRIPTOR;
-		case 'forceWebUpdateReady':
-			return WEB_UPDATER_READY_DESCRIPTOR;
-		case 'mockUpdaterState':
-			return UPDATER_STATE_DESCRIPTOR;
 		case 'showMyselfTyping':
 			return SHOW_MYSELF_TYPING_DESCRIPTOR;
 		case 'slowAttachmentUpload':

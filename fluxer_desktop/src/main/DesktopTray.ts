@@ -11,6 +11,8 @@ import type {
 	TrayActionPayload,
 	TrayRuntimeStatePayload,
 } from '@electron/common/Types';
+import {getDesktopUpdateState, observeDesktopUpdateState} from '@electron/main/DesktopUpdateGate';
+import {checkForUpdatesFromShell, startDesktopUpdateFromShell} from '@electron/main/DesktopUpdatePrompt';
 import {relaunchStableLaunchPath} from '@electron/main/LinuxLaunchPath';
 import {onLocaleChange, t} from '@electron/main/MainI18n';
 import {app, type BrowserWindow, clipboard, Menu, nativeImage, Tray} from 'electron';
@@ -33,6 +35,7 @@ const TRAY_POSITION_GUID = TRAY_POSITION_GUIDS[BUILD_CHANNEL];
 interface DesktopTrayController {
 	createWindow: () => BrowserWindow;
 	getMainWindow: () => BrowserWindow | null;
+	isMainWindowTakenOver: () => boolean;
 	hideWindow: () => void;
 	setQuitting: (quitting: boolean) => void;
 	showWindow: () => void;
@@ -70,6 +73,9 @@ const trayState: TrayRuntimeStatePayload = {
 export function updateTrayRuntimeState(update: Partial<TrayRuntimeStatePayload>, webContentsId?: number): void {
 	if (webContentsId !== undefined) {
 		trayActionBridgeWebContentsId = webContentsId;
+	}
+	if (typeof update.buildInfo === 'string' && update.buildInfo !== trayState.buildInfo) {
+		logger.info(`The renderer reported its build: ${update.buildInfo}`);
 	}
 	Object.assign(trayState, update);
 	refreshDesktopTrayMenu();
@@ -236,7 +242,7 @@ function createTrayIcon(): Electron.NativeImage | null {
 function ensureMainWindowVisible(): void {
 	if (!controller) return;
 	const mainWindow = controller.getMainWindow();
-	if (!mainWindow || mainWindow.isDestroyed()) {
+	if ((!mainWindow || mainWindow.isDestroyed()) && !controller.isMainWindowTakenOver()) {
 		controller.createWindow();
 	}
 	controller.showWindow();
@@ -387,9 +393,18 @@ function buildTrayMenu(): Menu {
 		});
 	}
 	menuTemplate.push({type: 'separator'});
+	if (getDesktopUpdateState().available) {
+		menuTemplate.push({
+			label: t('desktop.tray.updateNow', {appName: APP_NAME}),
+			click: () => runTrayMenuAction(startDesktopUpdateFromShell),
+		});
+	}
 	menuTemplate.push({
 		label: t('desktop.tray.checkForUpdates'),
-		click: () => runTrayMenuAction(() => dispatchTrayAction({action: 'check-for-updates'})),
+		click: () =>
+			runTrayMenuAction(() => {
+				void checkForUpdatesFromShell();
+			}),
 	});
 	if (trayState.buildInfo) {
 		menuTemplate.push({
@@ -532,6 +547,7 @@ export function initializeDesktopTray(nextController: DesktopTrayController): vo
 			}
 			refreshDesktopTrayMenu();
 		});
+		observeDesktopUpdateState(refreshDesktopTrayMenu);
 	}
 }
 

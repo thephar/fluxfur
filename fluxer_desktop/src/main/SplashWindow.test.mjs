@@ -58,7 +58,10 @@ class FakeWebContents {
 }
 
 class FakeBrowserWindow {
+	static last = null;
+
 	constructor(options) {
+		FakeBrowserWindow.last = this;
 		this.options = options;
 		this.webContents = new FakeWebContents();
 		this.listeners = new Map();
@@ -391,6 +394,25 @@ describe('splash window configuration', () => {
 
 		assert.equal(window.visible, true);
 		assert.equal(window.shownInactive, 1);
+	});
+
+	test('a preloaded splash loads hidden, stays hidden once ready, and reveals on demand', async () => {
+		const {preloadSplashWindow, revealPreloadedSplashWindow} = await loadSplashWindow('preload');
+
+		const {timers} = withPlatformTimers('darwin', () => preloadSplashWindow());
+		const splash = FakeBrowserWindow.last;
+		assert.equal(timers.length, 0);
+		assert.equal(splash.visible, false);
+		assert.equal(splash.skipTaskbar, true);
+		assert.equal(revealPreloadedSplashWindow(), null);
+
+		emitIpc('desktop-splash:ready', {sender: splash.webContents});
+		assert.equal(splash.visible, false);
+
+		assert.equal(revealPreloadedSplashWindow(), splash);
+		assert.equal(splash.visible, true);
+		assert.equal(splash.skipTaskbar, false);
+		assert.equal(revealPreloadedSplashWindow(), null);
 	});
 
 	test('a preload that never reports ready still gets shown by the watchdog', async () => {
@@ -1094,7 +1116,7 @@ class StubNode {
 	}
 }
 
-function createPreloadHarness() {
+function createPreloadHarness(options = {}) {
 	const sent = [];
 	const ipcListeners = new Map();
 	const windowListeners = new Map();
@@ -1151,6 +1173,7 @@ function createPreloadHarness() {
 			}
 		},
 		window: {
+			location: {search: options.search ?? ''},
 			addEventListener: (eventName, listener) => {
 				windowListeners.set(eventName, listener);
 			},
@@ -1176,6 +1199,7 @@ function createPreloadHarness() {
 			select.dispatch('change');
 		},
 		sendState: (payload) => ipcListeners.get('desktop-splash:state')({}, payload),
+		reveal: () => ipcListeners.get('desktop-splash:revealed')({}),
 		sent,
 		channels: () => sent.map((entry) => entry.channel),
 		frames,
@@ -1207,6 +1231,21 @@ function styleRule(selector) {
 }
 
 describe('splash preload rendering', () => {
+	test('a held splash waits for its reveal before timing the diagnostics links', async () => {
+		const diagnosticsTimers = (harness) =>
+			harness.timeouts.filter((timer) => timer.delayMs === 30000 && !timer.cleared);
+		const shown = createPreloadHarness();
+		await shown.start();
+		assert.equal(diagnosticsTimers(shown).length, 1);
+
+		const held = createPreloadHarness({search: '?held=1'});
+		await held.start();
+		assert.equal(diagnosticsTimers(held).length, 0);
+
+		held.reveal();
+		assert.equal(diagnosticsTimers(held).length, 1);
+	});
+
 	test('renders before it reports ready, so the first paint is never a blank frame', async () => {
 		const harness = createPreloadHarness();
 

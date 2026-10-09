@@ -76,6 +76,7 @@ On an instance whose `tag_style` [feature](/http-api/instance/#instance-features
 | 1 &lt;&lt; 4 | FRIENDLY_BOT | Bot accepts friend requests from users |
 | 1 &lt;&lt; 5 | FRIENDLY_BOT_MANUAL_APPROVAL | Bot requires manual approval for friend requests |
 | 1 &lt;&lt; 6 | SPAMMER | Account is flagged as a spammer |
+| 1 &lt;&lt; 7 | PROFILE_HIDDEN | Profile details are hidden from other users |
 
 ## Reply mention preferences
 
@@ -226,6 +227,7 @@ The value `1` is unassigned. Any stored authenticator value outside this registr
 An account is limited while its [user object](#user-object) reports `account_limited` as true. A limited account can still read, join voice, change its own settings, and manage its sessions. The operations below return 403 [`ACCOUNT_LIMITED`](/http-api/errors/), and the error message tells the user to check their email.
 
 - [Create message](/http-api/messages/#create-message) and [Modify message](/http-api/messages/#modify-message) in any channel except the account's personal notes
+- [Start thread from message](/http-api/threads/#start-thread-from-message) and [Start thread](/http-api/threads/#start-thread)
 - [Crosspost message](/http-api/messages/#crosspost-message)
 - [Add own reaction](/http-api/messages/#add-own-reaction)
 - [Create webhook](/http-api/webhooks/#create-webhook)
@@ -294,6 +296,8 @@ The [user settings update object](/http-api/users/settings/#user-settings-update
 | synced_preferences<sup>6</sup> | string | The base64-encoded [synced preferences](/http-api/users/settings-protobuf/) message |
 | profile_privacy | integer | [Profile privacy level](#profile-privacy-levels) |
 | default_share_voice_activity<sup>7</sup> | boolean | Whether a newly accepted friend relationship starts with voice activity sharing on |
+| privacy_setup_version<sup>8</sup> | integer | The latest privacy setup version the account has reviewed, 0 if it never has |
+| privacy_setup_completed_at | ?ISO8601 timestamp | When the account last completed the privacy setup, or null if it never has |
 
 <sup>1</sup> Duplicate identifiers are removed when the array is written
 
@@ -308,6 +312,8 @@ The [user settings update object](/http-api/users/settings/#user-settings-update
 <sup>6</sup> The message is `fluxer.user.preferences.v1.SyncedPreferences`. The empty string means nothing has been synced yet. The decoded message cannot exceed 524288 bytes, the 512 KiB ceiling
 
 <sup>7</sup> The field is read-only here and is changed by [Modify voice activity sharing](/http-api/users/settings/#modify-voice-activity-sharing)
+
+<sup>8</sup> Fluxer only stores this number. The first-party client compares it with the privacy setup version it ships and asks the user to review their direct message settings while the stored number is lower
 
 ## Custom status object
 

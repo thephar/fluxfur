@@ -11,14 +11,15 @@ import batchGuildAuditLogMessageDeletes from '@app/api/worker/tasks/BatchGuildAu
 import bulkDeleteSelfMessagesImmediate from '@app/api/worker/tasks/BulkDeleteSelfMessagesImmediate';
 import bulkDeleteUserMessages from '@app/api/worker/tasks/BulkDeleteUserMessages';
 import bulkDeleteUserMessagesScoped from '@app/api/worker/tasks/BulkDeleteUserMessagesScoped';
+import clearAuthenticatedReporterEmails from '@app/api/worker/tasks/ClearAuthenticatedReporterEmails';
 import crosspostMessage from '@app/api/worker/tasks/CrosspostMessage';
 import crosspostMessageChunk from '@app/api/worker/tasks/CrosspostMessageChunk';
 import deleteUserMessagesInGuildByTime from '@app/api/worker/tasks/DeleteUserMessagesInGuildByTime';
 import drainActivitySpool from '@app/api/worker/tasks/DrainActivitySpool';
 import expireAttachments from '@app/api/worker/tasks/ExpireAttachments';
+import expireReportSnapshots from '@app/api/worker/tasks/ExpireReportSnapshots';
 import expireStaleJobs from '@app/api/worker/tasks/ExpireStaleJobs';
 import extractEmbeds from '@app/api/worker/tasks/ExtractEmbeds';
-import finalizeNcmecAttachmentReport from '@app/api/worker/tasks/FinalizeNcmecAttachmentReport';
 import flushUserActivityBuffer from '@app/api/worker/tasks/FlushUserActivityBuffer';
 import handleMentionChunk from '@app/api/worker/tasks/HandleMentionChunk';
 import handleMentions from '@app/api/worker/tasks/HandleMentions';
@@ -55,7 +56,6 @@ import syncUrlBlocklists from '@app/api/worker/tasks/SyncUrlBlocklists';
 import {
 	archiveInactiveThreads,
 	deleteChannelThreads,
-	rebuildThreadAutoArchiveQueue,
 	removeThreadMembershipsForGuildMember,
 	repairThreadIndexes,
 } from '@app/api/worker/tasks/ThreadMaintenanceTasks';
@@ -69,7 +69,6 @@ export const workerTasks: Record<WorkerTaskName, WorkerTaskHandler> = {
 	applicationProcessDeletion,
 	archiveInactiveThreads,
 	deleteChannelThreads,
-	rebuildThreadAutoArchiveQueue,
 	removeThreadMembershipsForGuildMember,
 	repairThreadIndexes,
 	syncThreadSearchDocument,
@@ -84,14 +83,15 @@ export const workerTasks: Record<WorkerTaskName, WorkerTaskHandler> = {
 	bulkScheduleUserDeletion: bulkScheduleUserDeletion,
 	bulkUpdateGuildFeatures: bulkUpdateGuildFeatures,
 	bulkUpdateUserFlags: bulkUpdateUserFlags,
+	clearAuthenticatedReporterEmails,
 	crosspostMessage,
 	crosspostMessageChunk,
 	deleteUserMessagesInGuildByTime,
 	drainActivitySpool,
 	expireAttachments,
+	expireReportSnapshots,
 	expireStaleJobs,
 	extractEmbeds,
-	finalizeNcmecAttachmentReport,
 	handleMentions,
 	handleMentionChunk,
 	harvestGuildData,

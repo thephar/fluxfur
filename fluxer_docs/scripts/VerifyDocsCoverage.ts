@@ -165,61 +165,7 @@ const OUT_OF_BAND_CREDENTIAL = new Map<string, OutOfBandRoute>([
 
 const HEALTH_AND_METRICS_PATHS = new Set(['/_health', '/_health/ready', '/_health/drain', '/_healthz', '/_metrics']);
 
-const CHANNEL_THREADS_UNTIL_GA = {
-	routes: new Set<string>([
-		'POST /channels/{}/messages/{}/threads',
-		'POST /channels/{}/threads',
-		'GET /guilds/{}/threads/active',
-		'GET /channels/{}/threads/archived/public',
-		'GET /channels/{}/threads/archived/private',
-		'GET /channels/{}/users/@me/threads/archived/private',
-		'GET /channels/{}/thread-members',
-		'GET /channels/{}/thread-members/{}',
-		'PUT /channels/{}/thread-members/@me',
-		'PUT /channels/{}/thread-members/{}',
-		'DELETE /channels/{}/thread-members/@me',
-		'DELETE /channels/{}/thread-members/{}',
-		'PATCH /channels/{}/thread-members/@me/settings',
-		'GET /channels/{}/threads/search',
-		'POST /channels/{}/post-data',
-		'POST /channels/{}/tags',
-		'PUT /channels/{}/tags/{}',
-		'DELETE /channels/{}/tags/{}',
-		'GET /admin/guilds/{}/threads',
-		'DELETE /admin/channels/{}',
-	]),
-	events: new Set<string>([
-		'THREAD_CREATE',
-		'THREAD_UPDATE',
-		'THREAD_DELETE',
-		'THREAD_LIST_SYNC',
-		'THREAD_MEMBER_UPDATE',
-		'THREAD_MEMBERS_UPDATE',
-	]),
-	opcodes: new Set<number>([28]),
-	errorCodes: new Set<string>([
-		'CHANNEL_HAS_THREADS',
-		'FORUM_TAG_NAMES_MUST_BE_UNIQUE',
-		'FORUM_TAG_REQUIRED',
-		'HIDE_MEDIA_DOWNLOAD_OPTION_MEDIA_ONLY',
-		'INVALID_THREAD_NOTIFICATION_SETTINGS',
-		'MAX_ACTIVE_THREADS',
-		'MAX_FORUM_TAGS',
-		'MAX_PINNED_THREADS_IN_FORUM',
-		'MAX_THREAD_MEMBERS',
-		'NO_TAGS_AVAILABLE_TO_NON_MODERATORS',
-		'SEARCH_INDEX_NOT_READY',
-		'THREAD_ALREADY_CREATED_FOR_MESSAGE',
-		'THREAD_ARCHIVED',
-		'THREAD_LOCKED',
-		'UNKNOWN_FORUM_TAG',
-		'UNKNOWN_THREAD_MEMBER',
-		'WEBHOOK_FORUM_TARGET_CONFLICT',
-		'WEBHOOK_FORUM_TARGET_REQUIRED',
-		'WEBHOOK_SERVICE_FORUM_UNSUPPORTED',
-		'WEBHOOK_THREAD_NAME_REQUIRES_FORUM',
-	]),
-};
+const LEGACY_REPORT_ROUTES = new Set(['POST /reports/message', 'POST /reports/user', 'POST /reports/guild']);
 
 interface ExemptionRule {
 	readonly name: string;
@@ -277,17 +223,11 @@ const EXEMPTION_RULES: ReadonlyArray<ExemptionRule> = [
 		covers: (shape) => OUT_OF_BAND_CREDENTIAL.has(shape),
 	},
 	{
-		name: 'channel_threads',
+		name: 'legacy report routes',
 		justification:
-			'threads, forum and media channels are behind the channel_threads experiment and ChannelThreadsRouteGuard answers 404 outside it. Their pages are withheld until general availability, which removes this rule',
-		mayCoverNothing: true,
-		anchors: [
-			{
-				file: 'fluxer_api/src/api/channel/threads/ChannelThreadsRouteGuard.ts',
-				anchor: 'export function ChannelThreadsRouteGuard',
-			},
-		],
-		covers: (shape) => CHANNEL_THREADS_UNTIL_GA.routes.has(shape),
+			'still served for clients released before report flows, which new callers must use instead. The generator drops them at OpenAPIGeneratorCatalog excluded.paths',
+		anchors: [{file: 'packages/openapi/src/generator/OpenAPIGeneratorCatalog.ts', anchor: "'/reports/message'"}],
+		covers: (shape) => LEGACY_REPORT_ROUTES.has(shape),
 	},
 ];
 
@@ -662,7 +602,7 @@ failures += section(
 			if (aliasShapes.has(shape)) {
 				return false;
 			}
-			return !DELIBERATELY_UNDOCUMENTED.has(shape) && !CHANNEL_THREADS_UNTIL_GA.routes.has(shape);
+			return !DELIBERATELY_UNDOCUMENTED.has(shape);
 		})
 		.map((operation) => `${operation.method} ${operation.path}  [${operation.tags.join(', ')}]`)
 		.sort(),
@@ -686,12 +626,6 @@ const wronglyDocumented = [...DELIBERATELY_UNDOCUMENTED.entries()]
 	.filter(([shape]) => documentedMain.has(shape))
 	.map(([shape, reason]) => `${shape}  must not be documented: ${reason}`);
 failures += section('documented despite belonging to an unshipped system', wronglyDocumented);
-failures += section(
-	'published despite being withheld until channel_threads general availability',
-	[...CHANNEL_THREADS_UNTIL_GA.routes]
-		.filter((shape) => documentedMain.has(shape) || documentedAdmin.has(shape))
-		.sort(),
-);
 console.log(
 	`  deliberately undocumented and correctly absent: ${(DELIBERATELY_UNDOCUMENTED.size - wronglyDocumented.length).toString()}/${DELIBERATELY_UNDOCUMENTED.size.toString()}`,
 );
@@ -747,7 +681,10 @@ console.log('gateway dispatch events');
 	await collect(gatewayDirectory);
 	const erlang = erlangSources.join('\n');
 
-	const eventsPage = await readFile(path.join(DOCS_ROOT, 'gateway/events.md'), 'utf8');
+	const eventsPage = [
+		await readFile(path.join(DOCS_ROOT, 'gateway/events.md'), 'utf8'),
+		await readFile(path.join(DOCS_ROOT, 'gateway/threads.md'), 'utf8'),
+	].join('\n');
 	const documentedEvents = new Set<string>();
 	for (const entry of eventsPage.matchAll(/^###\s+(?:<span[^>]*><\/span>)?([A-Z][A-Z0-9_]{3,})\s*$/gmu)) {
 		documentedEvents.add(entry[1]);
@@ -764,19 +701,13 @@ console.log('gateway dispatch events');
 	};
 
 	const fabricated = [...documentedEvents].filter((event) => !isReal(event)).sort();
-	const undocumented = [...apiEvents]
-		.filter((event) => !documentedEvents.has(event) && !CHANNEL_THREADS_UNTIL_GA.events.has(event))
-		.sort();
+	const undocumented = [...apiEvents].filter((event) => !documentedEvents.has(event)).sort();
 	console.log(`  events in the GatewayDispatchEvent union: ${apiEvents.size.toString()}`);
-	console.log(`  events documented in gateway/events.md: ${documentedEvents.size.toString()}`);
+	console.log(`  events documented in gateway/events.md and gateway/threads.md: ${documentedEvents.size.toString()}`);
 	console.log('  a documented event counts as real if it is in the union, or appears in fluxer_gateway');
 	console.log('  as an uppercase binary or a lowercase atom');
 	failures += section('documented but not emitted by any service', fabricated);
 	failures += section('in the dispatch union but undocumented', undocumented);
-	failures += section(
-		'published despite being withheld until channel_threads general availability',
-		[...CHANNEL_THREADS_UNTIL_GA.events].filter((event) => documentedEvents.has(event)).sort(),
-	);
 }
 
 console.log('gateway opcodes and close codes');
@@ -816,13 +747,9 @@ console.log('gateway opcodes and close codes');
 	failures += section(
 		'opcodes in constants.erl but undocumented',
 		[...realOpcodes]
-			.filter((code) => !docOpcodes.has(code) && !CHANNEL_THREADS_UNTIL_GA.opcodes.has(code))
+			.filter((code) => !docOpcodes.has(code))
 			.sort((a, b) => a - b)
 			.map(String),
-	);
-	failures += section(
-		'opcodes published despite being withheld until channel_threads general availability',
-		[...CHANNEL_THREADS_UNTIL_GA.opcodes].filter((code) => docOpcodes.has(code)).map(String),
 	);
 	failures += section(
 		'close codes documented but absent from constants.erl',
@@ -981,15 +908,112 @@ console.log('registry codes with a producer');
 	failures += section('registry codes with no producer', withoutProducer);
 }
 
+console.log('admin audit actions');
+{
+	const registrySource = await readFile(path.join(REPO_ROOT, 'fluxer_api/src/api/admin/AdminAuditActions.ts'), 'utf8');
+	const registryBlock = registrySource.match(/export const AdminAuditReadActions = \{([\s\S]*?)\} as const;/u);
+	const readActions = new Set([...(registryBlock?.[1] ?? '').matchAll(/:\s*'([^']+)'/gu)].map((match) => match[1]));
+
+	const recorded = new Map<string, string>();
+	const scanAuditSources = async (directory: string, everyFile: boolean): Promise<void> => {
+		for (const entry of await readdir(directory, {withFileTypes: true})) {
+			if (entry.name === 'node_modules' || entry.name === 'tests') continue;
+			const resolved = path.join(directory, entry.name);
+			if (entry.isDirectory()) {
+				await scanAuditSources(resolved, everyFile);
+				continue;
+			}
+			if (!entry.name.endsWith('.ts') || entry.name.endsWith('.test.ts')) continue;
+			const source = await readFile(resolved, 'utf8');
+			if (!everyFile && !source.includes('createAuditLog(')) continue;
+			for (const assignment of source.matchAll(/\baction\s*[:=]\s*([^,;\n]*(?:\n\s*[?:][^,;\n]*)*)/gu)) {
+				const expression = assignment[1];
+				const value = expression.includes('?') ? expression.slice(expression.indexOf('?') + 1) : expression;
+				for (const literal of value.matchAll(/'([^']+)'/gu)) {
+					if (!recorded.has(literal[1])) recorded.set(literal[1], path.relative(REPO_ROOT, resolved));
+				}
+			}
+		}
+	};
+	await scanAuditSources(path.join(REPO_ROOT, 'fluxer_api/src/api/admin'), true);
+	await scanAuditSources(path.join(REPO_ROOT, 'fluxer_api/src/api/worker/tasks'), true);
+	await scanAuditSources(path.join(REPO_ROOT, 'fluxer_api/src'), false);
+	for (const action of readActions) {
+		if (!recorded.has(action)) recorded.set(action, 'fluxer_api/src/api/admin/AdminAuditActions.ts');
+	}
+
+	const indexPage = await readFile(path.join(DOCS_ROOT, 'admin-api/index.mdx'), 'utf8');
+	const actionTable = (heading: string): Set<string> => {
+		const start = indexPage.indexOf(`\n${heading}\n`);
+		if (start === -1) return new Set();
+		const rest = indexPage.slice(start + heading.length + 2);
+		const end = rest.search(/\n#{1,4} /u);
+		const values = new Set<string>();
+		for (const line of (end === -1 ? rest : rest.slice(0, end)).split('\n')) {
+			const cell = line
+				.match(/^\|\s*([^|]+?)\s*\|/u)?.[1]
+				?.replace(/<sup>.*?<\/sup>/gu, '')
+				.trim();
+			if (cell == null || cell === 'Value' || /^-+$/u.test(cell)) continue;
+			values.add(cell);
+		}
+		return values;
+	};
+	const documentedRead = actionTable('#### Read actions');
+	const documentedWrite = actionTable('#### Write actions');
+	console.log(
+		`  actions recorded by fluxer_api: ${recorded.size.toString()}, of which read: ${readActions.size.toString()}`,
+	);
+	console.log(
+		`  actions documented in admin-api/index.mdx: read ${documentedRead.size.toString()}, write ${documentedWrite.size.toString()}`,
+	);
+	const emptyParses = [
+		...(readActions.size === 0 ? ['the read action registry in AdminAuditActions.ts parsed empty'] : []),
+		...(recorded.size <= readActions.size ? ['no write action was found in fluxer_api source'] : []),
+		...(documentedRead.size === 0 ? ['the Read actions table parsed empty'] : []),
+		...(documentedWrite.size === 0 ? ['the Write actions table parsed empty'] : []),
+	];
+	failures += section('audit action parses that came back empty (update this script)', emptyParses);
+	failures += section(
+		'recorded but undocumented',
+		[...recorded]
+			.filter(([action]) => !documentedRead.has(action) && !documentedWrite.has(action))
+			.map(([action, file]) => `${action}  (${file})`)
+			.sort(),
+	);
+	failures += section(
+		'documented but never recorded',
+		[...documentedRead, ...documentedWrite].filter((action) => !recorded.has(action)).sort(),
+	);
+	failures += section(
+		'documented under the wrong access',
+		[
+			...[...documentedRead].filter((action) => !readActions.has(action)).map((action) => `${action}: listed as read`),
+			...[...documentedWrite].filter((action) => readActions.has(action)).map((action) => `${action}: listed as write`),
+		].sort(),
+	);
+}
+
 console.log('permission bits');
 {
 	const constants = await readFile(path.join(REPO_ROOT, 'packages/constants/src/ChannelConstants.ts'), 'utf8');
 	const block = constants.match(/export const Permissions = \{([\s\S]*?)\} as const;/u);
 	const livePermissions = new Map<string, number>();
-	if (block != null) {
-		for (const entry of block[1].matchAll(/([A-Z][A-Z0-9_]*):\s*1n\s*<<\s*(\d+)n/gu)) {
+	const threadConstants = await readFile(
+		path.join(REPO_ROOT, 'packages/constants/src/ThreadPermissionUtils.ts'),
+		'utf8',
+	);
+	const threadBlock = threadConstants.match(/export const ThreadPermissionFlags = \{([\s\S]*?)\} as const;/u);
+	for (const source of [block, threadBlock]) {
+		if (source == null) {
+			continue;
+		}
+		for (const entry of source[1].matchAll(/([A-Z][A-Z0-9_]*):\s*1n\s*<<\s*(\d+)n/gu)) {
 			livePermissions.set(entry[1], Number.parseInt(entry[2], 10));
 		}
+	}
+	if (threadBlock == null) {
+		failures += section('ThreadPermissionFlags block not found in ThreadPermissionUtils.ts', ['parser drift']);
 	}
 	const page = (await readFile(path.join(DOCS_ROOT, 'http-api/permissions.mdx'), 'utf8'))
 		.replace(/&lt;/gu, '<')
@@ -1124,11 +1148,11 @@ console.log('media proxy image constants');
 	const ladderBlock = constants.match(/pub const IMAGE_SIZES: &\[u32\] = &\[([\s\S]*?)\];/u);
 	const ladder = ladderBlock == null ? [] : [...ladderBlock[1].matchAll(/\d+/gu)].map((m) => Number.parseInt(m[0], 10));
 	const defaultSize = constants.match(/pub const DEFAULT_IMAGE_SIZE: u32 = (\d+);/u);
-	const dimsBlock = constants.match(/pub fn dims_for\(kind: AssetKind\) -> Option<Dims> \{([\s\S]*?)\n\}/u);
+	const dimsBlock = constants.match(/pub fn dims_for\(kind: AssetKind\) -> Dims \{([\s\S]*?)\n\}/u);
 	const dims: Array<[string, number, number]> = [];
 	if (dimsBlock != null) {
 		for (const entry of dimsBlock[1].matchAll(
-			/((?:AssetKind::\w+\s*\|?\s*)+)=> Some\(Dims \{\s*min:\s*(\d+),\s*max:\s*(\d+),?\s*\}\)/gu,
+			/((?:AssetKind::\w+\s*\|?\s*)+)=> Dims \{\s*min:\s*(\d+),\s*max:\s*(\d+),?\s*\}/gu,
 		)) {
 			dims.push([entry[1].trim(), Number.parseInt(entry[2], 10), Number.parseInt(entry[3], 10)]);
 		}
@@ -1149,6 +1173,10 @@ console.log('media proxy image constants');
 		if (listed.join(',') !== ladder.join(',')) {
 			problems.push(`size ladder differs. documented [${listed.join(', ')}] vs IMAGE_SIZES [${ladder.join(', ')}]`);
 		}
+	}
+
+	if (dims.length === 0) {
+		problems.push('no asset class clamps parsed from dims_for in fluxer_media_proxy/src/constants.rs');
 	}
 
 	if (defaultSize != null && !ladderPage.includes(`resolves to ${defaultSize[1]} before clamping`)) {
@@ -1607,7 +1635,7 @@ console.log('self-hosting guide against deploy/self-hosting');
 		}
 	}
 
-	const ENV_VALUE_FLOOR = 17;
+	const ENV_VALUE_FLOOR = 16;
 	const ENV_VALUE_UNSET = 'unset';
 	let inEnvValueTable = false;
 	let envEntry: string | null = null;
@@ -1821,19 +1849,17 @@ console.log('error registry');
 	}
 	const problems: Array<string> = [];
 	for (const code of registryCodes) {
-		if (!documentedCodes.has(code) && !CHANNEL_THREADS_UNTIL_GA.errorCodes.has(code)) {
+		if (!documentedCodes.has(code)) {
 			problems.push(`APIErrorCodes.${code} is not listed in the errors page registry`);
 		}
 	}
 
 	const documentedRegistryCodes = [...registryCodes].filter((c) => documentedCodes.has(c)).length;
-	const withheldRegistryCodes = [...registryCodes].filter((c) => CHANNEL_THREADS_UNTIL_GA.errorCodes.has(c)).length;
 	const UNDOCUMENTED_VALIDATION_CODES = new Set(['EMAIL_DOMAIN_CANNOT_RECEIVE_MAIL']);
-	const expectedEntries =
-		registryCodes.size + validationCodes.size - UNDOCUMENTED_VALIDATION_CODES.size - withheldRegistryCodes;
+	const expectedEntries = registryCodes.size + validationCodes.size - UNDOCUMENTED_VALIDATION_CODES.size;
 	if (documentedEntries < expectedEntries) {
 		problems.push(
-			`errors.md code entries parsed fell to ${documentedEntries.toString()}, expected ${expectedEntries.toString()}, the ${registryCodes.size.toString()} API codes plus the ${validationCodes.size.toString()} validation codes less the ${UNDOCUMENTED_VALIDATION_CODES.size.toString()} named as undocumented and the ${withheldRegistryCodes.toString()} withheld until channel_threads general availability. Either a code lost its entry, or the registry parser stopped matching one of the \`| CODE |\` table row and \`### \`CODE\`\` or \`#### \`CODE\`\` heading shapes it reads`,
+			`errors.md code entries parsed fell to ${documentedEntries.toString()}, expected ${expectedEntries.toString()}, the ${registryCodes.size.toString()} API codes plus the ${validationCodes.size.toString()} validation codes less the ${UNDOCUMENTED_VALIDATION_CODES.size.toString()} named as undocumented. Either a code lost its entry, or the registry parser stopped matching one of the \`| CODE |\` table row and \`### \`CODE\`\` or \`#### \`CODE\`\` heading shapes it reads`,
 		);
 	}
 	for (const code of documentedCodes) {
@@ -1841,19 +1867,12 @@ console.log('error registry');
 			problems.push(`errors.md documents ${code}, which is in neither code registry`);
 		}
 	}
-	if (documentedRegistryCodes < registryCodes.size - withheldRegistryCodes) {
+	if (documentedRegistryCodes < registryCodes.size) {
 		problems.push(
-			`errors.md documents ${documentedRegistryCodes.toString()} of the ${registryCodes.size.toString()} registry codes, floor is every one of them less the ${withheldRegistryCodes.toString()} withheld until channel_threads general availability`,
+			`errors.md documents ${documentedRegistryCodes.toString()} of the ${registryCodes.size.toString()} registry codes, floor is every one of them`,
 		);
 	}
-	for (const code of CHANNEL_THREADS_UNTIL_GA.errorCodes) {
-		if (!registryCodes.has(code)) {
-			problems.push(`CHANNEL_THREADS_UNTIL_GA withholds ${code}, which is not in the API code registry`);
-		}
-		if (documentedCodes.has(code)) {
-			problems.push(`errors.md publishes ${code}, which is withheld until channel_threads general availability`);
-		}
-	}
+
 	console.log(`  registry codes: ${registryCodes.size.toString()}, documented: ${documentedRegistryCodes.toString()}`);
 	failures += section('error registry disagreements', problems);
 }
@@ -2231,7 +2250,7 @@ const adminTargetOnly = [...documentedAdmin.entries()]
 const adminLiveOnly = admin
 	.filter((operation) => {
 		const shape = routeShape(operation.method, operation.path);
-		return !documentedAdmin.has(shape) && !CHANNEL_THREADS_UNTIL_GA.routes.has(shape);
+		return !documentedAdmin.has(shape);
 	})
 	.map((operation) => `${operation.method} ${operation.path}`)
 	.sort();

@@ -26,6 +26,7 @@ import GatewayConnection from '@app/features/gateway/transport/GatewayConnection
 import GatewaySessions from '@app/features/gateway/transport/GatewaySessionPool';
 import {AppI18nProvider} from '@app/features/i18n/components/AppI18nProvider';
 import MemberSidebar from '@app/features/member/state/MemberSidebar';
+import {attachExternalLinkInterceptor} from '@app/features/messaging/utils/ExternalLinkUtils';
 import {startDeepLinkHandling} from '@app/features/navigation/utils/DeepLinkUtils';
 import {Outlet, RouterProvider} from '@app/features/platform/components/router/RouterReact';
 import SessionManager from '@app/features/platform/state/AuthSession';
@@ -50,7 +51,7 @@ import MobileLayout from '@app/features/ui/state/MobileLayout';
 import Modal from '@app/features/ui/state/Modal';
 import Popout from '@app/features/ui/state/Popout';
 import {getDesktopWindowBehaviorSettings} from '@app/features/ui/utils/DesktopWindowBehaviorUtils';
-import {attachExternalLinkInterceptor, isDesktop} from '@app/features/ui/utils/NativeUtils';
+import {isDesktop} from '@app/features/ui/utils/NativeUtils';
 import {UNFOCUSED_FULLY_INTERACTIVE_CLASS} from '@app/features/ui/utils/WindowFocusInteractionGuard';
 import UserSettings from '@app/features/user/state/UserSettings';
 import {IncomingCallManager} from '@app/features/voice/components/IncomingCallManager';
@@ -93,9 +94,7 @@ export const AppWrapper = observer(({children}: AppWrapperProps) => {
 		() => ({variant: layoutVariant, setVariant: setLayoutVariant}),
 		[layoutVariant],
 	);
-	const popouts = Popout.getPopouts();
-	const topPopout = popouts.length ? popouts[popouts.length - 1] : null;
-	const topPopoutRequiresBackdrop = Boolean(topPopout && !topPopout.disableBackdrop);
+	const topPopoutRequiresBackdrop = Popout.requiresBackdrop();
 	const hasBlockingModal = Modal.hasModalOpen();
 	const room = MediaEngine.room;
 	const ringsContainerRef = useRef<HTMLDivElement>(null);

@@ -152,10 +152,10 @@ The 400 shape has no `retry_after` member, no `X-RateLimit-*` header, and no `Re
 | [Start password change](/http-api/users/email-and-password/#start-password-change) | 3 sends per 15 minutes, keyed by the authenticated account | `RATE_LIMITED` |
 | [Resend password change code](/http-api/users/email-and-password/#resend-password-change-code) | 3 sends per 15 minutes, keyed by the authenticated account | `RATE_LIMITED` |
 | Every code resend and every new-address request on an email or password change ticket | 1 send per 30 seconds, keyed by the ticket and counted from its previous send | `RATE_LIMITED` |
-| [Report message](/http-api/reports/#report-message), [Report user](/http-api/reports/#report-user), [Report guild](/http-api/reports/#report-guild), and [Create DSA report](/http-api/reports/#create-dsa-report) | 5 per hour, keyed by the reporter, an account or a verified email address | `RATE_LIMITED` |
-| [Report message](/http-api/reports/#report-message) | 3 per hour, keyed by the reporter and the channel together | `RATE_LIMITED` |
-| [Report message](/http-api/reports/#report-message) | 20 per hour, keyed by the reported message, across all reporters | `RATE_LIMITED` |
-| [Report message](/http-api/reports/#report-message) | 4 per hour, keyed by the reporter and the guild together, for a guild message | `RATE_LIMITED` |
+| [Submit message report flow](/http-api/reports/#submit-message-report-flow), [Submit user report flow](/http-api/reports/#submit-user-report-flow), and [Create DSA report](/http-api/reports/#create-dsa-report) | 5 per hour, keyed by the reporter, an account or a verified email address | `RATE_LIMITED` |
+| [Submit message report flow](/http-api/reports/#submit-message-report-flow) | 3 per hour, keyed by the reporter and the channel together | `RATE_LIMITED` |
+| [Submit message report flow](/http-api/reports/#submit-message-report-flow) | 20 per hour, keyed by the reported message, across all reporters | `RATE_LIMITED` |
+| [Submit message report flow](/http-api/reports/#submit-message-report-flow) | 4 per hour, keyed by the reporter and the guild together, for a guild message | `RATE_LIMITED` |
 | [Resend IP authorisation](/http-api/authentication/#resend-ip-authorisation) | Nothing in the first 30 seconds after the ticket was issued, keyed by the authorisation ticket | `IP_AUTHORIZATION_RESEND_COOLDOWN` |
 
 The Resend IP authorisation cooldown has no `X-RateLimit-*` header. It has a `Retry-After` header in whole seconds, and the body reports that delay again as a top-level `resend_available_in` and `retry_after`. A second resend on one ticket returns 400 `IP_AUTHORIZATION_RESEND_LIMIT_EXCEEDED`. The allowance never refills, and the ticket expires 15 minutes after it was issued.
@@ -208,7 +208,9 @@ Fluxer consumes every multi-factor allowance before it checks the code, so a cor
 
 Slowmode limits how often one account sends a message in one channel. Fluxer reports a denial as an ordinary request failure. A denied send returns 400 `SLOWMODE_RATE_LIMITED` with a top-level `retry_after` in fractional seconds and a `Retry-After` header in whole seconds. The response has no `X-RateLimit-*` header, so a client tells it apart from a bucket denial by the status and the code.
 
-The allowance is one message for each interval the channel configures in `rate_limit_per_user`, counted separately for each account and channel pair. Fluxer counts it only for a non-bot account sending in a guild channel whose configured interval is above zero. A caller holding [BYPASS_SLOWMODE](/http-api/permissions/) is exempt. [Get channel slowmode state](/http-api/channels/#get-channel-slowmode-state) reports the caller's remaining delay before a send is attempted.
+The allowance is one message for each interval the channel configures in `rate_limit_per_user`, counted separately for each account and channel pair. Fluxer counts it for a non-bot account in a guild channel whose configured interval is above zero. A caller holding [BYPASS_SLOWMODE](/http-api/permissions/) is exempt. [Get channel slowmode state](/http-api/channels/#get-channel-slowmode-state) reports the caller's remaining delay before a send is attempted.
+
+Starting a thread uses the parent slowmode on its own counter, as [Start thread from message](/http-api/threads/#start-thread-from-message) states. The same applies to a post in a forum or media channel, as [Forum channel fields](/http-api/forums/#forum-channel-fields) states. For a guild text or announcement channel, [Get channel slowmode state](/http-api/channels/#get-channel-slowmode-state) reports the message counter alone. [Indicate typing](/http-api/messages/#indicate-typing) returns the remaining delay of both counters to a user session that declares the [`channel_threads` client capability](/http-api/threads/#client-capability).
 
 ## Other surfaces
 

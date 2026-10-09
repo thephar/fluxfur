@@ -37,6 +37,24 @@ const ENTRY_STYLESHEET_LINK_PATTERN = /<link href="([^"]+\.css)" rel="stylesheet
 const CSS_URL_PATTERN = /url\(\s*['"]?([^'")]+)/gu;
 const DESKTOP_MODULE_ASSET_QUERY = /[?&]m=([a-z][a-z0-9_]{0,63})(?:&|$)/u;
 const RESERVED_DESKTOP_MODULE_NAMES = new Set(['assets', 'fluxer_renderer']);
+const DESKTOP_MODULE_ASSET_SOURCES = [
+	{
+		test: /[\\/]fonts[\\/]files[\\/]FluxerSans(JP|KR|SC|TC)[\\/][^\\/]+\.woff2$/u,
+		moduleName: (match) => `fluxer_fonts_${match[1].toLowerCase()}`,
+	},
+	{
+		test: /[\\/]@arborium[\\/]([a-z0-9-]+)[\\/]grammar_bg\.wasm$/u,
+		moduleName: (match) => `fluxer_grammar_${match[1].replace(/-/gu, '_')}`,
+	},
+	{
+		test: /[\\/]deepfilternet3[\\/](df_bg\.wasm|[^\\/]+\.tar\.gz)$/u,
+		moduleName: () => 'fluxer_deepfilter',
+	},
+	{
+		test: /[\\/]onnxruntime-web[\\/]dist[\\/][^\\/]+\.wasm$|[\\/]camera-effects[\\/]models[\\/][^\\/]+\.onnx$/u,
+		moduleName: () => 'fluxer_camera_effects',
+	},
+];
 
 class UnusableDesktopModuleQueryError extends Error {
 	constructor(resource) {
@@ -55,6 +73,26 @@ function desktopModuleAssetName(resource) {
 	return match[1];
 }
 
+function desktopModuleAssetRules(isProduction) {
+	return DESKTOP_MODULE_ASSET_SOURCES.map((source) => ({
+		test: source.test,
+		type: 'asset/resource',
+		generator: {
+			filename: (pathData) => {
+				const match = source.test.exec(pathData.filename ?? '');
+				if (match == null) {
+					throw new UnusableDesktopModuleQueryError(pathData.filename ?? '');
+				}
+				const moduleName = source.moduleName(match);
+				const extension = pathData.filename.endsWith('.tar.gz') ? '.tar.gz' : '[ext]';
+				return isProduction
+					? `assets/${moduleName}/[contenthash:16]${extension}`
+					: `assets/${moduleName}/[name].[hash]${extension}`;
+			},
+		},
+	}));
+}
+
 function resolveMode() {
 	const modeIndex = process.argv.indexOf('--mode');
 	if (modeIndex >= 0) {
@@ -64,6 +102,29 @@ function resolveMode() {
 		}
 	}
 	return 'production';
+}
+
+const ACCEPTED_CSS_ORDER_CONFLICTS = [
+	['app/components/dialogs/ConfirmModal', 'ui/button/Button'],
+	['app/components/dialogs/Modal', 'ui/button/Button'],
+	['app/components/dialogs/components/SettingsModalHeader', 'ui/button/Button'],
+	['app/components/dialogs/shared/SettingsHeadingLinkButton', 'ui/button/Button'],
+	['ui/tooltip/Tooltip', 'ui/button/Button'],
+];
+
+function isAcceptedCssOrderConflict(warning) {
+	const message = warning.message ?? '';
+	if (!message.includes('Conflicting order between')) {
+		return false;
+	}
+	return ACCEPTED_CSS_ORDER_CONFLICTS.some(([first, second]) => {
+		const firstPath = `./src/features/${first}.module.css`;
+		const secondPath = `./src/features/${second}.module.css`;
+		return (
+			message.includes(`between ${firstPath} and ${secondPath}`) ||
+			message.includes(`between ${secondPath} and ${firstPath}`)
+		);
+	});
 }
 
 function isMainRuntimeChunk(chunk) {
@@ -401,6 +462,7 @@ export default () => {
 		target: ['web', 'browserslist'],
 		lazyCompilation: false,
 		performance: false,
+		ignoreWarnings: [isAcceptedCssOrderConflict],
 		resolve: {
 			alias: {
 				...resolveArboriumWasmAliases(),
@@ -608,6 +670,7 @@ export default () => {
 						filename: isProduction ? 'assets/[contenthash:16][ext]' : 'assets/[name].[hash][ext]',
 					},
 				},
+				...(isDesktopRenderer ? desktopModuleAssetRules(isProduction) : []),
 				{
 					resourceQuery: DESKTOP_MODULE_ASSET_QUERY,
 					type: 'asset/resource',
@@ -671,6 +734,7 @@ export default () => {
 				wasmCratesDir: path.join(ROOT_DIR, 'rust'),
 			}),
 			new DefinePlugin({
+				define: 'undefined',
 				__FLUXER_PRECACHE_MANIFEST__: JSON.stringify([]),
 				__FLUXER_SW_VERSION__: JSON.stringify(publicValues.PUBLIC_BUILD_VERSION || 'dev'),
 				'process.env.NODE_ENV': JSON.stringify(mode),

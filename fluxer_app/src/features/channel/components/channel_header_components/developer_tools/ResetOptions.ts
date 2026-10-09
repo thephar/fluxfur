@@ -4,7 +4,7 @@ import * as DeveloperOptionsCommands from '@app/features/devtools/commands/Devel
 import type {DeveloperOptionsState} from '@app/features/devtools/state/DeveloperOptions';
 import DeveloperOptions from '@app/features/devtools/state/DeveloperOptions';
 
-export const DEFAULT_DEVELOPER_OPTIONS = {
+const DEFAULT_DEVELOPER_OPTIONS = {
 	bypassLoadingSkeleton: false,
 	forceLoadingSkeleton: false,
 	forceFailMessageSends: false,
@@ -12,11 +12,6 @@ export const DEFAULT_DEVELOPER_OPTIONS = {
 	forceRenderPlaceholders: false,
 	forceEmbedSkeletons: false,
 	forceMediaLoading: false,
-	forceUpdateReady: false,
-	forceNativeUpdateReady: false,
-	mockNativeUpdateProgress: null,
-	forceWebUpdateReady: false,
-	mockUpdaterState: 'none',
 	showMyselfTyping: false,
 	slowAttachmentUpload: false,
 	slowMessageLoad: false,

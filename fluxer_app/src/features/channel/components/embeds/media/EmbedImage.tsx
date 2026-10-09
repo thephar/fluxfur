@@ -68,7 +68,7 @@ interface EmbedImageWarmInput {
 	mediaAttachments: ReadonlyArray<MessageAttachment>;
 }
 
-export function resolveEmbedImageWarmItem(input: EmbedImageWarmInput): MediaViewerItem | null {
+function resolveEmbedImageWarmItem(input: EmbedImageWarmInput): MediaViewerItem | null {
 	if (input.mediaAttachments.length > 0) {
 		const items = attachmentsToViewerItems(input.mediaAttachments);
 		return items[findViewerItemIndex(items, input.attachmentId)] ?? null;
@@ -233,7 +233,6 @@ const ImagePreviewHandler: FC<ImagePreviewHandlerProps> = observer(
 					className={styles.imagePreviewHandler}
 					aria-label={i18n._(OPEN_IMAGE_IN_FULL_VIEW_DESCRIPTOR)}
 					onClick={openImagePreview}
-					onMouseDown={openInBrowser.onMouseDown}
 					onAuxClick={openInBrowser.onAuxClick}
 					onKeyDown={openImagePreview}
 					onMouseEnter={onViewerWarmEnter}

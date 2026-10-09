@@ -31,7 +31,7 @@ export enum MatureContentGateReason {
 
 export type AgreementScope = 'channel' | 'category' | 'guild';
 
-export interface MatureContentGateContext {
+interface MatureContentGateContext {
 	channelId?: string | null;
 	guildId?: string | null;
 }
@@ -126,13 +126,6 @@ class GuildMatureContentAgree {
 		if (!this.agreedGuildIds.includes(guildId)) {
 			this.agreedGuildIds.push(guildId);
 		}
-	}
-
-	reset(): void {
-		this.localAgreedChannelIds = [];
-		this.agreedChannelIds = [];
-		this.agreedCategoryIds = [];
-		this.agreedGuildIds = [];
 	}
 
 	revokeChannel(channelId: string): void {

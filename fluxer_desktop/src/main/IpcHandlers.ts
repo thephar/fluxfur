@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {DESKTOP_APP_ORIGIN, DESKTOP_PREBOOT_THEME_CHANNEL} from '@electron/common/Constants';
+import {APP_PROTOCOL, DESKTOP_APP_ORIGIN, DESKTOP_PREBOOT_THEME_CHANNEL} from '@electron/common/Constants';
 import {
 	type DesktopTroubleshootingSettings,
 	type DesktopWindowBehaviorSettings,
@@ -16,6 +16,7 @@ import type {
 } from '@electron/common/Types';
 import {DesktopBrowserHandoff} from '@electron/main/BrowserHandoff';
 import {hasEnabledBlinkFeature, MIDDLE_CLICK_AUTOSCROLL_BLINK_FEATURE} from '@electron/main/ChromiumRuntime';
+import {setHandoffReturnLinkSink} from '@electron/main/DeepLinks';
 import {getDesktopAppStorage} from '@electron/main/DesktopAppStorage';
 import {createDesktopAppStorageIpcRoutes} from '@electron/main/DesktopAppStorageIpc';
 import {getLaunchDesktopTroubleshootingSettings} from '@electron/main/DesktopDebugInfo';
@@ -26,6 +27,7 @@ import {
 	hasActiveDesktopTray,
 	updateTrayRuntimeState,
 } from '@electron/main/DesktopTray';
+import {getDesktopUpdateState, observeDesktopUpdateState, startDesktopUpdate} from '@electron/main/DesktopUpdateGate';
 import {DownloadChecksumError, downloadFile} from '@electron/main/FileDownloads';
 import {getGatewayOriginRegistry} from '@electron/main/GatewayOriginRegistry';
 import {retryBlockedGlobalShortcutHooks} from '@electron/main/GlobalShortcutsIpc';
@@ -40,11 +42,6 @@ import {setNativeStrings} from '@electron/main/MainI18n';
 import {copyRemoteFileToClipboard, parseClipboardWriteFileOptions} from '@electron/main/MediaClipboard';
 import {signalRendererLaunchConfirmed} from '@electron/main/ModuleBootHandoff';
 import {ensureDesktopModule} from '@electron/main/ModuleOnDemand';
-import {
-	applyPendingModuleUpdate,
-	getPendingModuleUpdate,
-	observePendingModuleUpdate,
-} from '@electron/main/ModuleUpdateGate';
 import {
 	createDesktopNativeGatewayTransport,
 	type DesktopNativeGatewayTransport,
@@ -63,15 +60,11 @@ import {
 	acquireStreamingPriority,
 	getStreamingPriorityDiagnostics,
 	releaseStreamingPriority,
-	resetStreamingPriority,
 } from '@electron/main/StreamingPriority';
 import {setTaskbarProgress, type TaskbarProgressMode} from '@electron/main/TaskbarProgress';
 import {registerThemeLocalFileHandlers} from '@electron/main/ThemeLocalFiles';
 import {
-	popupHelpMenu,
 	relaunchAndExit,
-	reloadMainWindow,
-	resetAppDataAndRestart,
 	setHardwareAccelerationDisabled,
 	setHardwareAccelerationDisabledAndRestart,
 } from '@electron/main/Troubleshooting';
@@ -96,12 +89,14 @@ import {
 	setVoicePopoutAlwaysOnTop,
 	showWindow,
 	THEME_STUDIO_POPOUT_KEY,
-	toggleWindowDevTools,
 } from '@electron/main/Window';
 import {flashWindowForAttention, stopFlashingWindow} from '@electron/main/WindowFlash';
 import {setWindowsBadgeOverlay} from '@electron/main/WindowsBadge';
-import {registerWindowsToastIpcHandlers} from '@electron/main/WindowsToast';
-import {DESKTOP_MODULE_CHANNELS, DESKTOP_MODULE_EVENTS} from '@fluxer/desktop_ipc/src/ModuleContract';
+import {
+	DESKTOP_MODULE_CHANNELS,
+	DESKTOP_UPDATE_CHANNELS,
+	DESKTOP_UPDATE_EVENTS,
+} from '@fluxer/desktop_ipc/src/ModuleContract';
 import {app, BrowserWindow, clipboard, dialog, ipcMain, powerMonitor, shell, systemPreferences} from 'electron';
 import log from 'electron-log';
 
@@ -168,13 +163,13 @@ export function registerIpcHandlers(): void {
 		requirePrivilegedRendererDocumentSender(event, DESKTOP_MODULE_CHANNELS.ensure);
 		return ensureDesktopModule(moduleName);
 	});
-	ipcMain.handle(DESKTOP_MODULE_CHANNELS.pendingUpdate, (event) => {
-		requirePrivilegedRendererDocumentSender(event, DESKTOP_MODULE_CHANNELS.pendingUpdate);
-		return getPendingModuleUpdate();
+	ipcMain.handle(DESKTOP_UPDATE_CHANNELS.state, (event) => {
+		requirePrivilegedRendererDocumentSender(event, DESKTOP_UPDATE_CHANNELS.state);
+		return getDesktopUpdateState();
 	});
-	ipcMain.handle(DESKTOP_MODULE_CHANNELS.applyPendingUpdate, (event) => {
-		requirePrivilegedRendererDocumentSender(event, DESKTOP_MODULE_CHANNELS.applyPendingUpdate);
-		return applyPendingModuleUpdate();
+	ipcMain.handle(DESKTOP_UPDATE_CHANNELS.start, (event) => {
+		requirePrivilegedRendererDocumentSender(event, DESKTOP_UPDATE_CHANNELS.start);
+		startDesktopUpdate();
 	});
 	ipcMain.handle(DESKTOP_MODULE_CHANNELS.confirmLaunch, (event) => {
 		requirePrivilegedRendererDocumentSender(event, DESKTOP_MODULE_CHANNELS.confirmLaunch);
@@ -189,12 +184,12 @@ export function registerIpcHandlers(): void {
 		}
 		signalRendererLaunchConfirmed();
 	});
-	observePendingModuleUpdate((pending) => {
+	observeDesktopUpdateState((state) => {
 		const mainWindow = getMainWindow();
 		if (mainWindow == null || mainWindow.isDestroyed()) {
 			return;
 		}
-		mainWindow.webContents.send(DESKTOP_MODULE_EVENTS.pendingUpdateChanged, pending);
+		mainWindow.webContents.send(DESKTOP_UPDATE_EVENTS.stateChanged, state);
 	});
 	ipcMain.handle('get-desktop-info', () => getDesktopInfo());
 	ipcMain.handle('get-gpu-info', () => getGpuInfo());
@@ -233,31 +228,11 @@ export function registerIpcHandlers(): void {
 			return getLaunchDesktopTroubleshootingSettings();
 		},
 	);
-	ipcMain.handle('desktop-troubleshooting-reload', (): void => {
-		reloadMainWindow();
-	});
-	ipcMain.handle(
-		'desktop-troubleshooting-reset-app-data',
-		async (
-			_event,
-			options?: {
-				confirm?: boolean;
-			},
-		): Promise<void> => {
-			await resetAppDataAndRestart(options);
-		},
-	);
-	ipcMain.handle('desktop-troubleshooting-popup-help-menu', (event): void => {
-		popupHelpMenu(BrowserWindow.fromWebContents(event.sender));
-	});
 	ipcMain.on('streaming-priority-acquire', (event) => {
 		acquireStreamingPriority(event.sender);
 	});
 	ipcMain.on('streaming-priority-release', () => {
 		releaseStreamingPriority();
-	});
-	ipcMain.on('streaming-priority-reset', () => {
-		resetStreamingPriority();
 	});
 	ipcMain.handle('streaming-priority-get-diagnostics', () => getStreamingPriorityDiagnostics());
 	ipcMain.on('tray-runtime-state-update', (event, state: unknown) => {
@@ -417,26 +392,6 @@ export function registerIpcHandlers(): void {
 		event.sender.paste();
 	});
 	ipcMain.handle(
-		'app-set-badge',
-		(
-			_event,
-			payload: {
-				count: number;
-				text?: string;
-			},
-		) => {
-			const count = Math.max(0, Math.floor(payload?.count ?? 0));
-			const label = payload?.text ?? String(count);
-			app.setBadgeCount(count);
-			if (process.platform === 'darwin' && app.dock) {
-				app.dock.setBadge(count > 0 ? label : '');
-			}
-			if (process.platform === 'win32') {
-				setWindowsBadgeOverlay(getMainWindow(), count);
-			}
-		},
-	);
-	ipcMain.handle(
 		'download-file',
 		async (
 			event,
@@ -468,12 +423,6 @@ export function registerIpcHandlers(): void {
 			}
 		},
 	);
-	ipcMain.on('toggle-devtools', (event) => {
-		const win = BrowserWindow.fromWebContents(event.sender);
-		if (win) {
-			toggleWindowDevTools(win);
-		}
-	});
 	ipcMain.handle('check-media-access', async (_event, type: MediaAccessType): Promise<string> => {
 		if (process.platform !== 'darwin') {
 			return 'granted';
@@ -517,7 +466,6 @@ export function registerIpcHandlers(): void {
 		await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent');
 	});
 	registerNotificationIpcHandlers(getMainWindow);
-	registerWindowsToastIpcHandlers();
 	registerMacTccIpcHandlers({
 		onStatus: (surface, status) => {
 			if (surface === 'input-monitoring' && status === 'granted') retryBlockedGlobalShortcutHooks();
@@ -532,31 +480,11 @@ export function registerIpcHandlers(): void {
 			app.setBadgeCount(count);
 		}
 	});
-	ipcMain.handle('get-badge-count', (): number => {
-		return app.getBadgeCount();
-	});
-	ipcMain.on('bounce-dock', (event, type: 'critical' | 'informational') => {
-		if (process.platform === 'darwin' && app.dock) {
-			const id = app.dock.bounce(type);
-			event.returnValue = id;
-		} else {
-			event.returnValue = -1;
-		}
-	});
-	ipcMain.on('cancel-bounce-dock', (_event, id: number) => {
-		if (process.platform === 'darwin' && app.dock && id >= 0) {
-			app.dock.cancelBounce(id);
-		}
-	});
 	ipcMain.on('set-zoom-factor', (event, factor: number) => {
 		const win = BrowserWindow.fromWebContents(event.sender);
 		if (win && factor > 0) {
 			win.webContents.setZoomFactor(factor);
 		}
-	});
-	ipcMain.handle('get-zoom-factor', (event): number => {
-		const win = BrowserWindow.fromWebContents(event.sender);
-		return win?.webContents.getZoomFactor() ?? 1;
 	});
 	ipcMain.handle('get-accessibility-support-enabled', (): boolean => app.accessibilitySupportEnabled);
 	app.on('accessibility-support-changed', (_event, accessibilitySupportEnabled) => {
@@ -611,12 +539,15 @@ function registerBrowserHandoffHandlers(): void {
 	if (browserHandoff !== null) {
 		return;
 	}
-	browserHandoff = new DesktopBrowserHandoff({
+	const handoff = new DesktopBrowserHandoff({
 		logger: log,
 		rendererDocumentOwners: createPrivilegedRendererDocumentOwners('BrowserHandoff'),
 		selectedInstanceClient: getDesktopSelectedInstanceClient(),
+		returnUri: () => (app.isDefaultProtocolClient(APP_PROTOCOL) ? `${APP_PROTOCOL}://handoff` : null),
 	});
-	for (const [channel, handler] of Object.entries(browserHandoff.ipcRoutes())) {
+	browserHandoff = handoff;
+	setHandoffReturnLinkSink((url) => handoff.acceptReturnLink(url));
+	for (const [channel, handler] of Object.entries(handoff.ipcRoutes())) {
 		ipcMain.handle(channel, handler);
 	}
 }
@@ -646,6 +577,7 @@ export function cleanupIpcHandlers(_options: {quitting?: boolean} = {}): void {
 	cleanupDesktopRuntimeConfigHandlers();
 	browserHandoff?.cleanup();
 	browserHandoff = null;
+	setHandoffReturnLinkSink(null);
 	if (linuxAppearanceSubscription) {
 		try {
 			linuxAppearanceSubscription.close();

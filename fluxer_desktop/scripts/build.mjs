@@ -22,6 +22,8 @@ const SPLASH_SRC_DIR = path.join(SRC_DIR, 'splash');
 const SPLASH_DIST_DIR = path.join(DIST_DIR, 'splash');
 const SPLASH_PRELOAD_FILE_NAME = 'splash.cjs';
 const REQUIRED_RENDERER_ENTRIES = Object.freeze(['index.html', 'assets']);
+const BUNDLED_RENDERER_ENTRIES = Object.freeze([...REQUIRED_RENDERER_ENTRIES, 'version.json']);
+const BUNDLED_RENDERER_VERSION_PATTERN = /^\d+\.\d+\.\d+$/u;
 const FORBIDDEN_RENDERER_ENTRIES = Object.freeze(['sw.js', 'sw.js.map']);
 const SUPPORTED_BUILD_ARGUMENTS = Object.freeze(['--shared-assets', '--use-shared-renderer']);
 const MAIN_BOOTSTRAP_ENTRY_NAME = 'index';
@@ -52,7 +54,6 @@ const publicBuildDefines = {
 const electronExternals = [
 	'electron',
 	'electron-log',
-	'update-electron-app',
 	'velopack',
 	'@fluxer/app-store',
 	'@fluxer/gateway-socket',
@@ -90,10 +91,28 @@ class RendererOutputIncompleteError extends Error {
 	}
 }
 
-class PackedRendererNotPrunedError extends Error {
-	constructor(location) {
-		super(`The renderer is a required module, so ${location} must be empty after the prune step.`);
-		this.name = 'PackedRendererNotPrunedError';
+class BundledRendererMissingError extends Error {
+	constructor(location, missing) {
+		super(`The shell bundles its renderer, so ${location} must still hold ${missing.join(', ')} after the prune step.`);
+		this.name = 'BundledRendererMissingError';
+	}
+}
+
+class BundledRendererVersionError extends Error {
+	constructor(bundledVersion, buildVersion) {
+		super(
+			`The bundled renderer reports version ${JSON.stringify(bundledVersion)} and this shell is ${JSON.stringify(buildVersion)}. A shell that loads modules must bundle the renderer built for the same numeric version, because it serves whichever of the two is newer.`,
+		);
+		this.name = 'BundledRendererVersionError';
+	}
+}
+
+function readBundledRendererVersion() {
+	try {
+		const parsed = JSON.parse(fs.readFileSync(path.join(RENDERER_DIST_DIR, 'version.json'), 'utf8'));
+		return typeof parsed?.version === 'string' ? parsed.version : '';
+	} catch {
+		return '';
 	}
 }
 
@@ -355,10 +374,6 @@ function expectedNativeRuntimeArtifactsForArch(platform, arch) {
 			relativePath: `win-shell.${tag}.node`,
 		});
 		artifacts.push({
-			label: '@fluxer/win-toast',
-			relativePath: `win-toast.${tag}.node`,
-		});
-		artifacts.push({
 			label: '@fluxer/windows-input-hook',
 			relativePath: `windows-input-hook.${tag}.node`,
 		});
@@ -566,12 +581,6 @@ function buildNativeAddons() {
 		buildNativeAddon({
 			label: '@fluxer/win-shell',
 			dirName: 'win-shell',
-			commands: [['pnpm', 'build']],
-			jsEntry: 'index.js',
-		});
-		buildNativeAddon({
-			label: '@fluxer/win-toast',
-			dirName: 'win-toast',
 			commands: [['pnpm', 'build']],
 			jsEntry: 'index.js',
 		});
@@ -850,14 +859,18 @@ function ensureBuildChannelFile() {
 }
 
 function prunePackedRendererModules() {
-	console.log('Pruning module-owned assets from the packed renderer...');
+	console.log('Pruning on-demand module assets from the bundled renderer...');
 	const startedAt = Date.now();
-	runDesktopBuildStep('strip_shell_renderer');
-	const survivors = findMissingEntries(REQUIRED_RENDERER_ENTRIES, RENDERER_DIST_DIR);
-	if (survivors.length !== REQUIRED_RENDERER_ENTRIES.length) {
-		throw new PackedRendererNotPrunedError(RENDERER_DIST_DIR);
+	runDesktopBuildStep('prune_shell_renderer');
+	const missing = findMissingEntries(BUNDLED_RENDERER_ENTRIES, RENDERER_DIST_DIR);
+	if (missing.length > 0) {
+		throw new BundledRendererMissingError(RENDERER_DIST_DIR, missing);
 	}
-	console.log(`  Packed renderer pruned in ${Date.now() - startedAt}ms`);
+	const bundledVersion = readBundledRendererVersion();
+	if (!BUNDLED_RENDERER_VERSION_PATTERN.test(bundledVersion) || bundledVersion !== embeddedBuildVersion) {
+		throw new BundledRendererVersionError(bundledVersion, embeddedBuildVersion);
+	}
+	console.log(`  Bundled renderer pruned in ${Date.now() - startedAt}ms`);
 }
 
 async function build() {

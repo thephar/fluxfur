@@ -145,7 +145,6 @@ const fluxerNativePackages = [
 	'@fluxer/win-game-capture',
 	'@fluxer/win-clipboard',
 	'@fluxer/win-shell',
-	'@fluxer/win-toast',
 	'@fluxer/windows-input-hook',
 	'@fluxer/linux-audio-capture',
 	'@fluxer/linux-portals',
@@ -177,7 +176,6 @@ const fluxerNativePackagesByPlatform = {
 		'@fluxer/win-game-capture',
 		'@fluxer/win-clipboard',
 		'@fluxer/win-shell',
-		'@fluxer/win-toast',
 		'@fluxer/windows-input-hook',
 		'@fluxer/platform-info',
 		'@fluxer/webauthn',
@@ -248,10 +246,6 @@ const nativeRuntimeFilePatterns = [
 	'node_modules/@fluxer/win-shell/index.js',
 	'node_modules/@fluxer/win-shell/loader-diagnostics.cjs',
 	'node_modules/@fluxer/win-shell/*.node',
-	'node_modules/@fluxer/win-toast/package.json',
-	'node_modules/@fluxer/win-toast/index.js',
-	'node_modules/@fluxer/win-toast/loader-diagnostics.cjs',
-	'node_modules/@fluxer/win-toast/*.node',
 	'node_modules/@fluxer/linux-audio-capture/package.json',
 	'node_modules/@fluxer/linux-audio-capture/index.js',
 	'node_modules/@fluxer/linux-audio-capture/loader-diagnostics.cjs',
@@ -325,7 +319,6 @@ const nativeRuntimeFilePatterns = [
 	),
 	'node_modules/.pnpm/@fluxer+win-clipboard@*/node_modules/@fluxer/win-clipboard/*.node',
 	'node_modules/.pnpm/@fluxer+win-shell@*/node_modules/@fluxer/win-shell/*.node',
-	'node_modules/.pnpm/@fluxer+win-toast@*/node_modules/@fluxer/win-toast/*.node',
 	'node_modules/.pnpm/@fluxer+windows-input-hook@*/node_modules/@fluxer/windows-input-hook/*.node',
 	'node_modules/.pnpm/@fluxer+linux-audio-capture@*/node_modules/@fluxer/linux-audio-capture/*.node',
 	'node_modules/.pnpm/@fluxer+linux-portals@*/node_modules/@fluxer/linux-portals/*.node',
@@ -405,10 +398,6 @@ const bundledDependencyExcludes = [
 	'!node_modules/xmlbuilder/**/*',
 ];
 const platformNativeRuntimeExcludes = platformNativeExcludes(targetPlatform, targetNativeArch);
-const platformRuntimeDependencyExcludes =
-	targetPlatform === 'darwin'
-		? []
-		: ['!node_modules/github-url-to-object/**/*', '!node_modules/ms/**/*', '!node_modules/update-electron-app/**/*'];
 const linuxDesktopEntry = {
 	Name: productName,
 	GenericName: 'Instant Messenger',
@@ -592,10 +581,6 @@ function expectedNativeRuntimeArtifactsForArch(platform, arch) {
 		artifacts.push({
 			packageName: '@fluxer/win-shell',
 			relativePath: `win-shell.${tag}.node`,
-		});
-		artifacts.push({
-			packageName: '@fluxer/win-toast',
-			relativePath: `win-toast.${tag}.node`,
 		});
 		artifacts.push({
 			packageName: '@fluxer/windows-input-hook',
@@ -1089,11 +1074,91 @@ async function verifyLinuxGlibcCompatibility(context) {
 	);
 }
 
+const NATIVE_MODULE_PREFLIGHT_MODULES = require('./src/main/NativeModulePreflightModules.json');
+
+function packagedResourcesDir(context) {
+	if (context.electronPlatformName === 'darwin' || context.electronPlatformName === 'mas') {
+		return path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, 'Contents', 'Resources');
+	}
+	return path.join(context.appOutDir, 'resources');
+}
+
+async function readAsarFileList(asarPath) {
+	const handle = await fs.open(asarPath, 'r');
+	try {
+		const prefix = Buffer.alloc(16);
+		await handle.read(prefix, 0, 16, 0);
+		const header = Buffer.alloc(prefix.readUInt32LE(12));
+		await handle.read(header, 0, header.length, 16);
+		const files = new Set();
+		const walk = (node, prefixPath) => {
+			for (const [name, child] of Object.entries(node.files ?? {})) {
+				const childPath = prefixPath ? `${prefixPath}/${name}` : name;
+				if (child.files) walk(child, childPath);
+				else files.add(childPath);
+			}
+		};
+		walk(JSON.parse(header.toString('utf8')), '');
+		return files;
+	} finally {
+		await handle.close();
+	}
+}
+
+async function verifyPreflightModulesPackaged(context) {
+	const platform = context.electronPlatformName === 'mas' ? 'darwin' : context.electronPlatformName;
+	const asarPath = path.join(packagedResourcesDir(context), 'app.asar');
+	const files = await readAsarFileList(asarPath);
+	const missing = [];
+	for (const spec of NATIVE_MODULE_PREFLIGHT_MODULES) {
+		if (!spec.platforms.includes(platform)) continue;
+		const manifestPath = `node_modules/${spec.name}/package.json`;
+		if (!files.has(manifestPath)) {
+			missing.push(spec.name);
+			continue;
+		}
+		const manifest = JSON.parse((await readAsarEntry(asarPath, manifestPath)).toString('utf8'));
+		const entry = path.posix.normalize(`node_modules/${spec.name}/${manifest.main ?? 'index.js'}`);
+		if (!files.has(entry)) {
+			missing.push(`${spec.name} (${entry})`);
+		}
+	}
+	if (missing.length > 0) {
+		throw new Error(
+			[
+				`The packaged app for ${platform} is missing native module(s) that the startup preflight requires:`,
+				...missing.map((entry) => `  - ${entry}`),
+				'Package them or remove them from src/main/NativeModulePreflightModules.json.',
+			].join('\n'),
+		);
+	}
+}
+
+async function readAsarEntry(asarPath, entryPath) {
+	const handle = await fs.open(asarPath, 'r');
+	try {
+		const prefix = Buffer.alloc(16);
+		await handle.read(prefix, 0, 16, 0);
+		const headerSize = prefix.readUInt32LE(4);
+		const header = Buffer.alloc(prefix.readUInt32LE(12));
+		await handle.read(header, 0, header.length, 16);
+		let node = JSON.parse(header.toString('utf8'));
+		for (const part of entryPath.split('/')) node = node.files[part];
+		if (node.unpacked) return await fs.readFile(path.join(`${asarPath}.unpacked`, ...entryPath.split('/')));
+		const data = Buffer.alloc(node.size);
+		await handle.read(data, 0, node.size, 8 + headerSize + Number(node.offset));
+		return data;
+	} finally {
+		await handle.close();
+	}
+}
+
 async function afterPack(context) {
 	await copyMissingPackagedNativeArtifacts(context);
 	await cleanupNativeBuildIntermediates(context);
 	await addLinuxLegacyBinarySymlink(context);
 	await verifyPackagedNativeArtifacts(context);
+	await verifyPreflightModulesPackaged(context);
 	await verifyLinuxGlibcCompatibility(context);
 }
 
@@ -1572,7 +1637,6 @@ module.exports = {
 		...packagedRuntimeArtifactExcludes,
 		...bundledDependencyExcludes,
 		...platformNativeRuntimeExcludes,
-		...platformRuntimeDependencyExcludes,
 	],
 	extraMetadata: {
 		main: 'dist/main/index.js',
@@ -1612,13 +1676,13 @@ module.exports = {
 		smartUnpack: false,
 		unpack: [
 			'**/*.node',
+			'dist/renderer/**/*',
 			'node_modules/@fluxer/win-process-loopback/*.node',
 			...winGameCaptureTargetArchs.map(
 				(arch) => `node_modules/@fluxer/win-game-capture/win-game-capture.win32-${arch}-msvc.node`,
 			),
 			'node_modules/@fluxer/win-clipboard/*.node',
 			'node_modules/@fluxer/win-shell/*.node',
-			'node_modules/@fluxer/win-toast/*.node',
 			'node_modules/@fluxer/linux-audio-capture/*.node',
 			'node_modules/@fluxer/linux-portals/*.node',
 			'node_modules/@fluxer/linux-screen-capture/*.node',
@@ -1646,7 +1710,6 @@ module.exports = {
 			),
 			'node_modules/.pnpm/@fluxer+win-clipboard@*/node_modules/@fluxer/win-clipboard/*.node',
 			'node_modules/.pnpm/@fluxer+win-shell@*/node_modules/@fluxer/win-shell/*.node',
-			'node_modules/.pnpm/@fluxer+win-toast@*/node_modules/@fluxer/win-toast/*.node',
 			'node_modules/.pnpm/@fluxer+windows-input-hook@*/node_modules/@fluxer/windows-input-hook/*.node',
 			'node_modules/.pnpm/@fluxer+linux-audio-capture@*/node_modules/@fluxer/linux-audio-capture/*.node',
 			'node_modules/.pnpm/@fluxer+linux-portals@*/node_modules/@fluxer/linux-portals/*.node',
@@ -1739,9 +1802,6 @@ module.exports = {
 	win: {
 		icon: `build_resources/${iconDir}/icon.ico`,
 		target: winTargets,
-	},
-	portable: {
-		artifactName: `${artifactProductName}-\${version}-portable-\${os}-\${arch}.\${ext}`,
 	},
 	linux: {
 		icon: `build_resources/${iconDir}/1024x1024.png`,

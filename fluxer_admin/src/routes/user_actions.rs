@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use crate::utils::plural::count_noun;
 use crate::{
     admin_flags,
     api::client::{AdminApiClient, ApiError},
@@ -178,6 +179,22 @@ pub async fn dispatch(
                 "Failed to clear user fields",
             )
         }
+        "set_bot_status" => {
+            let val = form.bool_value("bot");
+            DispatchOutcome::from_result(
+                client.set_bot_status(user_id, val).await,
+                "Bot status updated successfully",
+                "Failed to update bot status",
+            )
+        }
+        "set_system_status" => {
+            let val = form.bool_value("system");
+            DispatchOutcome::from_result(
+                client.set_system_status(user_id, val).await,
+                "System status updated successfully",
+                "Failed to update system status",
+            )
+        }
         "change_username" => {
             let Some(username) = get("username") else {
                 return DispatchOutcome::error("Username is required");
@@ -295,7 +312,7 @@ pub async fn dispatch(
             };
             if !form.bool_value("confirm") {
                 return DispatchOutcome::error(
-                    "Confirm whose deletion you are cancelling before submitting",
+                    "Confirm whose deletion you are canceling before submitting",
                 );
             }
             let Some(private_reason) = get("private_reason") else {
@@ -306,7 +323,7 @@ pub async fn dispatch(
                 .cancel_deletion(user_id, &expected, notify_user, Some(&private_reason))
                 .await
             {
-                Ok(_) => DispatchOutcome::success("User deletion cancelled successfully"),
+                Ok(_) => DispatchOutcome::success("User deletion canceled successfully"),
                 Err(ApiError::Http { status: 409, .. }) => DispatchOutcome::error(
                     "The pending deletion changed since this page loaded. Reload and review.",
                 ),
@@ -419,8 +436,9 @@ pub async fn dispatch(
             match client.delete_all_user_messages(user_id, dry_run).await {
                 Ok(response) if dry_run => DispatchOutcome {
                     flash: FlashData::success(format!(
-                        "Dry run found {} messages across {} channels. Confirm to delete them permanently.",
-                        response.message_count, response.channel_count
+                        "Dry run found {} across {}. Confirm to delete them permanently.",
+                        count_noun(response.message_count, "message", "messages"),
+                        count_noun(response.channel_count, "channel", "channels")
                     )),
                     redirect_params: vec![
                         ("delete_all_messages_dry_run".to_owned(), "true".to_owned()),
@@ -454,7 +472,7 @@ pub async fn dispatch(
         }
         "cancel_bulk_message_deletion" => DispatchOutcome::from_result(
             client.cancel_bulk_message_deletion(user_id).await,
-            "Bulk message deletion cancelled successfully",
+            "Bulk message deletion canceled successfully",
             "Failed to cancel bulk message deletion",
         ),
         "message_shred" => {

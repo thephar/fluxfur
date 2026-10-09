@@ -12,7 +12,6 @@ import DomainMovedNotice from '@app/features/app/domain_migration/DomainMovedNot
 import {isClientReconnecting} from '@app/features/app/state/ClientReadiness';
 import Initialization from '@app/features/app/state/Initialization';
 import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
-import Updater from '@app/features/app/state/Updater';
 import Accounts from '@app/features/auth/state/Accounts';
 import Authentication from '@app/features/auth/state/Authentication';
 import Channels from '@app/features/channel/state/Channels';
@@ -31,7 +30,9 @@ import StreamerMode from '@app/features/streamer_mode/state/StreamerMode';
 import Nagbar from '@app/features/ui/state/Nagbar';
 import {hasUnavailableElectronNativeContext, isDesktop} from '@app/features/ui/utils/NativeUtils';
 import {isStandalonePwa} from '@app/features/ui/utils/PwaUtils';
+import {PRIVACY_SETUP_VERSION} from '@app/features/user/constants/PrivacySetupConstants';
 import StatusPage from '@app/features/user/state/StatusPage';
+import UserSettings from '@app/features/user/state/UserSettings';
 import Users from '@app/features/user/state/Users';
 import MediaEngine, {useVoiceEngineV2Model} from '@app/features/voice/engine/MediaEngineFacade';
 import {selectVoiceEngineV2AppConnectionWithFallback} from '@app/features/voice/engine/v2/VoiceEngineV2AppSelectors';
@@ -52,7 +53,7 @@ function sortNagbarsByPriority(a: NagbarState, b: NagbarState): number {
 	return a.priority - b.priority;
 }
 
-export function selectVisibleNagbars(nagbars: Array<NagbarState>): Array<NagbarState> {
+function selectVisibleNagbars(nagbars: Array<NagbarState>): Array<NagbarState> {
 	const visibleNagbars = nagbars.filter((nagbar) => nagbar.visible).sort(sortNagbarsByPriority);
 	const pinned = visibleNagbars.filter((nagbar) => nagbar.type === NagbarType.BUILD_ENVIRONMENT);
 	const selectable = visibleNagbars.filter((nagbar) => nagbar.type !== NagbarType.BUILD_ENVIRONMENT);
@@ -259,7 +260,6 @@ export const useNagbarConditions = (): NagbarConditions => {
 	})();
 	const canShowSoftwareEncoder = SoftwareEncoderWarning.showWarning;
 	const canShowStreamerMode = StreamerMode.shouldShowNagbar;
-	const canShowDesktopUpdateReady = Updater.shouldShowUpdateReadyNagbar;
 	const canShowDomainMoved = nagbarState.forceHideDomainMoved
 		? false
 		: nagbarState.forceDomainMoved
@@ -286,6 +286,13 @@ export const useNagbarConditions = (): NagbarConditions => {
 			PRIVACY_POLICY_LAST_UPDATED != null &&
 			(!user.privacyAgreedAt || user.privacyAgreedAt.toISOString() < PRIVACY_POLICY_LAST_UPDATED);
 		return termsOutdated || privacyOutdated;
+	})();
+	const needsPrivacySetup = (() => {
+		if (nagbarState.forceHidePrivacySetup) return false;
+		if (nagbarState.forcePrivacySetup) return true;
+		if (!user || !UserSettings.isHydrated()) return false;
+		const privacySetupVersion = UserSettings.getPrivacySetupVersion();
+		return privacySetupVersion !== null && privacySetupVersion < PRIVACY_SETUP_VERSION;
 	})();
 	return {
 		canShowBuildEnvironment,
@@ -327,9 +334,9 @@ export const useNagbarConditions = (): NagbarConditions => {
 		canShowVisionaryMfa,
 		canShowVoiceSessionRestore,
 		needsTermsAcceptance,
+		needsPrivacySetup,
 		canShowSoftwareEncoder,
 		canShowStreamerMode,
-		canShowDesktopUpdateReady,
 		canShowDomainMoved,
 	};
 };
@@ -358,6 +365,12 @@ export const useActiveNagbars = (conditions: NagbarConditions): Array<NagbarStat
 				type: NagbarType.TERMS_ACCEPTANCE,
 				priority: -5,
 				visible: conditions.needsTermsAcceptance,
+				dismissible: false,
+			},
+			{
+				type: NagbarType.PRIVACY_SETUP,
+				priority: -2.75,
+				visible: conditions.needsPrivacySetup,
 				dismissible: false,
 			},
 			{
@@ -460,12 +473,6 @@ export const useActiveNagbars = (conditions: NagbarConditions): Array<NagbarStat
 				type: NagbarType.STREAMER_MODE,
 				priority: -2.5,
 				visible: conditions.canShowStreamerMode,
-				dismissible: true,
-			},
-			{
-				type: NagbarType.DESKTOP_UPDATE_READY,
-				priority: -1.5,
-				visible: conditions.canShowDesktopUpdateReady,
 				dismissible: true,
 			},
 			{

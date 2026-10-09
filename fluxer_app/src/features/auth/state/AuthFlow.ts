@@ -330,7 +330,7 @@ export async function resetPassword(
 	};
 }
 
-export interface IssuedRecoveryKit {
+interface IssuedRecoveryKit {
 	recoveryKey: string;
 	createdAt: string;
 }
@@ -379,27 +379,4 @@ export async function pollIpAuthorization(
 	runtimeSnapshot: RuntimeConfigSnapshot,
 ): Promise<AuthenticationCommands.IpAuthorizationPollResult> {
 	return AuthenticationCommands.pollIpAuthorization({ticket, target: authCommandTarget(runtimeSnapshot)});
-}
-
-export async function initiateDesktopHandoff(runtimeSnapshot: RuntimeConfigSnapshot) {
-	return AuthenticationCommands.initiateDesktopHandoff(authCommandTarget(runtimeSnapshot));
-}
-
-export async function completeDesktopHandoff({
-	code,
-	token,
-	userId,
-	runtimeSnapshot,
-}: {
-	code: string;
-	token: string;
-	userId: string;
-	runtimeSnapshot: RuntimeConfigSnapshot;
-}) {
-	return AuthenticationCommands.completeDesktopHandoff({
-		code,
-		token,
-		userId,
-		target: authCommandTarget(runtimeSnapshot),
-	});
 }

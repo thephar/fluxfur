@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {BLUESKY_PROVIDER_NAME, PRODUCT_NAME} from '@app/features/app/config/I18nDisplayConstants';
+import {BLUESKY_PROVIDER_NAME} from '@app/features/app/config/I18nDisplayConstants';
+import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
 import {GuildIcon} from '@app/features/guild/components/popouts/GuildIcon';
 import {AddRoleButton, RoleList} from '@app/features/guild/components/RoleManagement';
 import type {GuildRole} from '@app/features/guild/models/GuildRole';
@@ -12,7 +13,7 @@ import {
 import {getCachedDateTimeFormat} from '@app/features/i18n/utils/IntlCache';
 import {SafeMarkdown} from '@app/features/messaging/components/markdown';
 import {MarkdownContext} from '@app/features/messaging/components/markdown/renderers/RendererTypes';
-import {openExternalUrlWithWarning} from '@app/features/messaging/utils/ExternalLinkUtils';
+import {handleExternalLinkAuxClick, openExternalUrlWithWarning} from '@app/features/messaging/utils/ExternalLinkUtils';
 import StreamerMode from '@app/features/streamer_mode/state/StreamerMode';
 import {remFromPx} from '@app/features/theme/layout/RemFromPx';
 import markupStyles from '@app/features/theme/styles/Markup.module.css';
@@ -290,7 +291,10 @@ export const UserProfileMembershipInfo: React.FC<{profile: Profile; user: User}>
 						className={styles.membershipDate}
 						data-flx="user.user-profile-shared.user-profile-membership-info.membership-date"
 					>
-						<Tooltip text={PRODUCT_NAME} data-flx="user.user-profile-shared.user-profile-membership-info.tooltip">
+						<Tooltip
+							text={RuntimeConfig.productName}
+							data-flx="user.user-profile-shared.user-profile-membership-info.tooltip"
+						>
 							<div
 								className={styles.membershipIcon}
 								data-flx="user.user-profile-shared.user-profile-membership-info.membership-icon"
@@ -350,7 +354,7 @@ export const UserProfileMembershipInfo: React.FC<{profile: Profile; user: User}>
 				className={styles.membershipTitle}
 				data-flx="user.user-profile-shared.user-profile-membership-info.membership-title--2"
 			>
-				{i18n._(PRODUCT_MEMBER_SINCE_DESCRIPTOR, {productName: PRODUCT_NAME})}
+				{i18n._(PRODUCT_MEMBER_SINCE_DESCRIPTOR, {productName: RuntimeConfig.productName})}
 			</span>
 			<span
 				className={styles.membershipDateText}
@@ -469,6 +473,7 @@ const ConnectionCard: React.FC<{
 				rel="noopener noreferrer"
 				className={styles.connectionCard}
 				onClick={(e) => onLinkClick(e, url)}
+				onAuxClick={(e) => handleExternalLinkAuxClick(e, url)}
 				data-flx="user.user-profile-shared.connection-card.connection-card.link-click"
 			>
 				{icon}
@@ -494,6 +499,7 @@ const ConnectionCard: React.FC<{
 						rel="noopener noreferrer"
 						className={styles.connectionExternalLink}
 						onClick={(e) => onLinkClick(e, url)}
+						onAuxClick={(e) => handleExternalLinkAuxClick(e, url)}
 						data-flx="user.user-profile-shared.connection-card.connection-external-link.link-click"
 					>
 						<ArrowSquareOutIcon
@@ -577,6 +583,7 @@ export const UserProfileConnections: React.FC<{
 										rel="noopener noreferrer"
 										className={styles.connectionCompactIcon}
 										onClick={(e) => handleConnectionClick(e, url)}
+										onAuxClick={(e) => handleExternalLinkAuxClick(e, url)}
 										data-flx="user.user-profile-shared.user-profile-connections.connection-compact-icon.connection-click"
 									>
 										{connection.type === ConnectionTypes.BLUESKY ? (
