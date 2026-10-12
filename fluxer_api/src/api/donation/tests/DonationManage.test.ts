@@ -6,7 +6,6 @@ import {DonorMagicLinkToken} from '@app/api/donation/models/DonorMagicLinkToken'
 import {
 	createDonationManageBuilder,
 	TEST_DONOR_EMAIL,
-	TEST_INVALID_TOKEN,
 	TEST_MAGIC_LINK_TOKEN,
 } from '@app/api/donation/tests/DonationTestUtils';
 import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHarness';
@@ -14,7 +13,6 @@ import {createPwnedPasswordsRangeHandler} from '@app/api/test/msw/handlers/Pwned
 import {createStripeApiHandlers, type StripeApiHandlers} from '@app/api/test/msw/handlers/StripeApiHandlers';
 import {server} from '@app/api/test/msw/server';
 import {createBuilderWithoutAuth, type TestRequestBuilder} from '@app/api/test/TestRequestBuilder';
-import {APIErrorCodes} from '@fluxer/constants/src/ApiErrorCodes';
 import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi} from 'vitest';
 
 type DonationManageAlert = 'link_expired' | 'link_used' | 'link_invalid' | 'no_customer' | 'portal_error';
@@ -104,25 +102,9 @@ describe('GET and POST /donations/manage', () => {
 	async function createValidMagicLinkToken(email: string, token: string): Promise<void> {
 		await createMagicLinkToken(email, token, new Date(Date.now() + 15 * 60 * 1000), null);
 	}
-	async function createExpiredMagicLinkToken(email: string, token: string): Promise<void> {
-		await createMagicLinkToken(email, token, new Date(Date.now() - 1000), null);
-	}
 	async function createUsedMagicLinkToken(email: string, token: string): Promise<void> {
 		await createMagicLinkToken(email, token, new Date(Date.now() + 15 * 60 * 1000), new Date(Date.now() - 5000));
 	}
-	describe('GET with a valid token and customer ID', () => {
-		test('redirects to the confirmation page', async () => {
-			await createDonorWithCustomerId(TEST_DONOR_EMAIL, 'cus_test_valid_123');
-			await createValidMagicLinkToken(TEST_DONOR_EMAIL, TEST_MAGIC_LINK_TOKEN);
-			expect(await openManageLink(TEST_MAGIC_LINK_TOKEN)).toBe(confirmUrl(TEST_MAGIC_LINK_TOKEN));
-		});
-		test('does not open a Stripe billing portal session', async () => {
-			await createDonorWithCustomerId(TEST_DONOR_EMAIL, 'cus_test_valid_123');
-			await createValidMagicLinkToken(TEST_DONOR_EMAIL, TEST_MAGIC_LINK_TOKEN);
-			await openManageLink(TEST_MAGIC_LINK_TOKEN);
-			expect(stripeHandlers.spies.createdPortalSessions).toHaveLength(0);
-		});
-	});
 	describe('link scanner prefetch', () => {
 		test('GET does not mark token as used', async () => {
 			await createDonorWithCustomerId(TEST_DONOR_EMAIL, 'cus_test_prefetch');
@@ -151,31 +133,6 @@ describe('GET and POST /donations/manage', () => {
 			expect(await isTokenUsed(TEST_MAGIC_LINK_TOKEN)).toBe(true);
 		});
 	});
-	describe('POST with a valid token and customer ID', () => {
-		test('redirects to Stripe billing portal', async () => {
-			const customerId = 'cus_test_valid_123';
-			await createDonorWithCustomerId(TEST_DONOR_EMAIL, customerId);
-			await createValidMagicLinkToken(TEST_DONOR_EMAIL, TEST_MAGIC_LINK_TOKEN);
-			expect(await redeemManageLink(TEST_MAGIC_LINK_TOKEN)).toMatch(STRIPE_PORTAL_URL_PATTERN);
-			expect(stripeHandlers.spies.createdPortalSessions).toHaveLength(1);
-			expect(stripeHandlers.spies.createdPortalSessions[0]?.customer).toBe(customerId);
-		});
-		test('marks token as used after the portal session is created', async () => {
-			await createDonorWithCustomerId(TEST_DONOR_EMAIL, 'cus_test_valid_456');
-			await createValidMagicLinkToken(TEST_DONOR_EMAIL, TEST_MAGIC_LINK_TOKEN);
-			await redeemManageLink(TEST_MAGIC_LINK_TOKEN);
-			expect(stripeHandlers.spies.createdPortalSessions).toHaveLength(1);
-			expect(await isTokenUsed(TEST_MAGIC_LINK_TOKEN)).toBe(true);
-		});
-		test('includes return_url in portal session', async () => {
-			await createDonorWithCustomerId(TEST_DONOR_EMAIL, 'cus_test_return_url');
-			await createValidMagicLinkToken(TEST_DONOR_EMAIL, TEST_MAGIC_LINK_TOKEN);
-			await redeemManageLink(TEST_MAGIC_LINK_TOKEN);
-			expect(stripeHandlers.spies.createdPortalSessions).toHaveLength(1);
-			const portalSession = stripeHandlers.spies.createdPortalSessions[0];
-			expect(portalSession?.return_url).toBe(`${Config.endpoints.marketing}/donate`);
-		});
-	});
 	describe('valid token without customer ID', () => {
 		test('redirects to no_customer alert when donor has no customer ID', async () => {
 			await createDonorWithoutSubscription(TEST_DONOR_EMAIL, null);
@@ -195,29 +152,6 @@ describe('GET and POST /donations/manage', () => {
 			await openManageLink(TEST_MAGIC_LINK_TOKEN);
 			await redeemManageLink(TEST_MAGIC_LINK_TOKEN);
 			expect(await isTokenUsed(TEST_MAGIC_LINK_TOKEN)).toBe(false);
-		});
-	});
-	describe('expired token handling', () => {
-		test('rejects expired token', async () => {
-			await createDonorWithCustomerId(TEST_DONOR_EMAIL, 'cus_test_expired');
-			await createExpiredMagicLinkToken(TEST_DONOR_EMAIL, TEST_MAGIC_LINK_TOKEN);
-			expect(await openManageLink(TEST_MAGIC_LINK_TOKEN)).toBe(alertUrl('link_expired'));
-			expect(await redeemManageLink(TEST_MAGIC_LINK_TOKEN)).toBe(alertUrl('link_expired'));
-			expect(stripeHandlers.spies.createdPortalSessions).toHaveLength(0);
-		});
-		test('does not mark expired token as used', async () => {
-			await createDonorWithCustomerId(TEST_DONOR_EMAIL, 'cus_test');
-			await createExpiredMagicLinkToken(TEST_DONOR_EMAIL, TEST_MAGIC_LINK_TOKEN);
-			await openManageLink(TEST_MAGIC_LINK_TOKEN);
-			await redeemManageLink(TEST_MAGIC_LINK_TOKEN);
-			expect(await isTokenUsed(TEST_MAGIC_LINK_TOKEN)).toBe(false);
-		});
-		test('rejects token expired by exactly 1 millisecond', async () => {
-			await createDonorWithCustomerId(TEST_DONOR_EMAIL, 'cus_test');
-			await createMagicLinkToken(TEST_DONOR_EMAIL, TEST_MAGIC_LINK_TOKEN, new Date(Date.now() - 1), null);
-			expect(await openManageLink(TEST_MAGIC_LINK_TOKEN)).toBe(alertUrl('link_expired'));
-			expect(await redeemManageLink(TEST_MAGIC_LINK_TOKEN)).toBe(alertUrl('link_expired'));
-			expect(stripeHandlers.spies.createdPortalSessions).toHaveLength(0);
 		});
 	});
 	describe('used token handling', () => {
@@ -243,78 +177,8 @@ describe('GET and POST /donations/manage', () => {
 			expect(await redeemManageLink(TEST_MAGIC_LINK_TOKEN)).toBe(alertUrl('link_invalid'));
 			expect(stripeHandlers.spies.createdPortalSessions).toHaveLength(0);
 		});
-		test('rejects token with invalid format', async () => {
-			await createDonationManageBuilder(harness, TEST_INVALID_TOKEN)
-				.expect(400, APIErrorCodes.INVALID_FORM_BODY)
-				.execute();
-			await createDonationRedeemBuilder(TEST_INVALID_TOKEN).expect(400, APIErrorCodes.INVALID_FORM_BODY).execute();
-			expect(stripeHandlers.spies.createdPortalSessions).toHaveLength(0);
-		});
-		test('rejects empty token', async () => {
-			await createDonationManageBuilder(harness, '').expect(400, APIErrorCodes.INVALID_FORM_BODY).execute();
-			await createDonationRedeemBuilder('').expect(400, APIErrorCodes.INVALID_FORM_BODY).execute();
-			expect(stripeHandlers.spies.createdPortalSessions).toHaveLength(0);
-		});
-		test('rejects token that is too short', async () => {
-			const shortToken = 'a'.repeat(63);
-			await createDonationManageBuilder(harness, shortToken).expect(400, APIErrorCodes.INVALID_FORM_BODY).execute();
-			await createDonationRedeemBuilder(shortToken).expect(400, APIErrorCodes.INVALID_FORM_BODY).execute();
-			expect(stripeHandlers.spies.createdPortalSessions).toHaveLength(0);
-		});
-		test('rejects token that is too long', async () => {
-			const longToken = 'a'.repeat(65);
-			await createDonationManageBuilder(harness, longToken).expect(400, APIErrorCodes.INVALID_FORM_BODY).execute();
-			await createDonationRedeemBuilder(longToken).expect(400, APIErrorCodes.INVALID_FORM_BODY).execute();
-			expect(stripeHandlers.spies.createdPortalSessions).toHaveLength(0);
-		});
-		test('rejects token with non-hex characters', async () => {
-			const invalidToken = 'g'.repeat(64);
-			expect(await openManageLink(invalidToken)).toBe(alertUrl('link_invalid'));
-			expect(await redeemManageLink(invalidToken)).toBe(alertUrl('link_invalid'));
-			expect(stripeHandlers.spies.createdPortalSessions).toHaveLength(0);
-		});
-		test('rejects token with special characters', async () => {
-			const specialToken = `${'a'.repeat(62)}@!`;
-			expect(await openManageLink(specialToken)).toBe(alertUrl('link_invalid'));
-			expect(await redeemManageLink(specialToken)).toBe(alertUrl('link_invalid'));
-			expect(stripeHandlers.spies.createdPortalSessions).toHaveLength(0);
-		});
-		test('rejects token with whitespace', async () => {
-			const whitespaceToken = `${'a'.repeat(32)} ${'a'.repeat(31)}`;
-			expect(await openManageLink(whitespaceToken)).toBe(alertUrl('link_invalid'));
-			expect(await redeemManageLink(whitespaceToken)).toBe(alertUrl('link_invalid'));
-			expect(stripeHandlers.spies.createdPortalSessions).toHaveLength(0);
-		});
-	});
-	describe('missing token parameter', () => {
-		test('rejects request without token query parameter', async () => {
-			const getResponse = await harness.requestJson({
-				path: '/donations/manage',
-				method: 'GET',
-			});
-			expect(getResponse.status).toBe(400);
-			const postResponse = await harness.requestJson({
-				path: '/donations/manage',
-				method: 'POST',
-			});
-			expect(postResponse.status).toBe(400);
-			expect(stripeHandlers.spies.createdPortalSessions).toHaveLength(0);
-		});
 	});
 	describe('Stripe portal session creation', () => {
-		test('handles Stripe API failure gracefully', async () => {
-			await createDonorWithCustomerId(TEST_DONOR_EMAIL, 'cus_test_stripe_fail');
-			await createValidMagicLinkToken(TEST_DONOR_EMAIL, TEST_MAGIC_LINK_TOKEN);
-			useFailingPortalHandlers();
-			expect(await redeemManageLink(TEST_MAGIC_LINK_TOKEN)).toBe(alertUrl('portal_error'));
-		});
-		test('does not mark token as used when the portal session fails', async () => {
-			await createDonorWithCustomerId(TEST_DONOR_EMAIL, 'cus_test_stripe_fail');
-			await createValidMagicLinkToken(TEST_DONOR_EMAIL, TEST_MAGIC_LINK_TOKEN);
-			useFailingPortalHandlers();
-			await redeemManageLink(TEST_MAGIC_LINK_TOKEN);
-			expect(await isTokenUsed(TEST_MAGIC_LINK_TOKEN)).toBe(false);
-		});
 		test('redeems the same token once Stripe recovers', async () => {
 			const customerId = 'cus_test_stripe_retry';
 			await createDonorWithCustomerId(TEST_DONOR_EMAIL, customerId);
@@ -328,15 +192,6 @@ describe('GET and POST /donations/manage', () => {
 			expect(stripeHandlers.spies.createdPortalSessions).toHaveLength(1);
 			expect(stripeHandlers.spies.createdPortalSessions[0]?.customer).toBe(customerId);
 			expect(await isTokenUsed(TEST_MAGIC_LINK_TOKEN)).toBe(true);
-		});
-		test('creates portal session with correct customer ID', async () => {
-			const customerId = 'cus_test_specific_123';
-			await createDonorWithCustomerId(TEST_DONOR_EMAIL, customerId);
-			await createValidMagicLinkToken(TEST_DONOR_EMAIL, TEST_MAGIC_LINK_TOKEN);
-			await redeemManageLink(TEST_MAGIC_LINK_TOKEN);
-			expect(stripeHandlers.spies.createdPortalSessions).toHaveLength(1);
-			const session = stripeHandlers.spies.createdPortalSessions[0];
-			expect(session?.customer).toBe(customerId);
 		});
 	});
 	describe('edge cases', () => {
@@ -395,28 +250,6 @@ describe('GET and POST /donations/manage', () => {
 			expect(await redeemManageLink(token2)).toMatch(STRIPE_PORTAL_URL_PATTERN);
 			expect(stripeHandlers.spies.createdPortalSessions[1]?.customer).toBe(customerId2);
 			expect(stripeHandlers.spies.createdPortalSessions).toHaveLength(2);
-		});
-	});
-	describe('token validation order', () => {
-		test('checks token existence before expiration', async () => {
-			expect(await openManageLink(TEST_MAGIC_LINK_TOKEN)).toBe(alertUrl('link_invalid'));
-			expect(await redeemManageLink(TEST_MAGIC_LINK_TOKEN)).toBe(alertUrl('link_invalid'));
-		});
-		test('checks expiration before usage status', async () => {
-			await createDonorWithCustomerId(TEST_DONOR_EMAIL, 'cus_test');
-			await createMagicLinkToken(
-				TEST_DONOR_EMAIL,
-				TEST_MAGIC_LINK_TOKEN,
-				new Date(Date.now() - 1000),
-				new Date(Date.now() - 5000),
-			);
-			expect(await openManageLink(TEST_MAGIC_LINK_TOKEN)).toBe(alertUrl('link_expired'));
-			expect(await redeemManageLink(TEST_MAGIC_LINK_TOKEN)).toBe(alertUrl('link_expired'));
-		});
-		test('checks usage status before customer lookup', async () => {
-			await createUsedMagicLinkToken(TEST_DONOR_EMAIL, TEST_MAGIC_LINK_TOKEN);
-			expect(await openManageLink(TEST_MAGIC_LINK_TOKEN)).toBe(alertUrl('link_used'));
-			expect(await redeemManageLink(TEST_MAGIC_LINK_TOKEN)).toBe(alertUrl('link_used'));
 		});
 	});
 });

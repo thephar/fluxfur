@@ -10,7 +10,7 @@ fn coalescer() -> Arc<ByteCoalescer> {
         ByteBudget::new(1 << 20),
         8,
         64,
-        Arc::new(CoalescerMetrics::new()),
+        Arc::new(CoalescerMetrics::default()),
     ))
 }
 
@@ -47,6 +47,78 @@ async fn failure_propagates() {
         .await
         .unwrap_err();
     assert_eq!(CoalescerError::WorkFailed, err);
+}
+
+#[tokio::test]
+async fn work_that_ran_out_its_deadline_answers_retries_without_running_again() {
+    let coalescer = coalescer();
+    let runs = AtomicU32::new(0);
+    for _ in 0..2 {
+        let err = coalescer
+            .run_once_until(
+                "slow-gif",
+                None,
+                || async {
+                    runs.fetch_add(1, Ordering::SeqCst);
+                    Err::<MediaBytes, _>(MediaError::RequestTimeout.into())
+                },
+                |_| {},
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(CoalescerError::RequestTimeout, err);
+    }
+    assert_eq!(1, runs.load(Ordering::SeqCst));
+    coalescer
+        .run_once_until(
+            "another-gif",
+            None,
+            || async { Ok(MediaBytes::from(b"fresh".to_vec())) },
+            |_| {},
+        )
+        .await
+        .expect("other keys still run");
+}
+
+#[tokio::test]
+async fn shed_admissions_and_other_failures_are_not_remembered() {
+    let coalescer = coalescer();
+    let runs = AtomicU32::new(0);
+    for error in [
+        CoalescerError::RequestTimeout,
+        CoalescerError::RequestTimeout,
+        CoalescerError::AllocationFailed,
+    ] {
+        assert_eq!(
+            error,
+            coalescer
+                .run_once_until(
+                    "shed",
+                    None,
+                    || async {
+                        runs.fetch_add(1, Ordering::SeqCst);
+                        Err::<MediaBytes, _>(error.into())
+                    },
+                    |_| {},
+                )
+                .await
+                .unwrap_err()
+        );
+    }
+    for _ in 0..2 {
+        let _ = coalescer
+            .run_once_until(
+                "broken",
+                None,
+                || async {
+                    runs.fetch_add(1, Ordering::SeqCst);
+                    Err::<MediaBytes, _>(MediaError::MediaDecodeFailed.into())
+                },
+                |_| {},
+            )
+            .await;
+    }
+    assert_eq!(5, runs.load(Ordering::SeqCst));
 }
 
 #[tokio::test]

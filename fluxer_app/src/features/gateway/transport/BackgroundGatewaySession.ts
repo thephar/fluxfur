@@ -9,7 +9,6 @@ import {
 import {SNAPSHOT_SCHEMA_EPOCH} from '@app/features/gateway/snapshot/SnapshotEntities';
 import SnapshotSync from '@app/features/gateway/snapshot/SnapshotSync';
 import type {StateSnapshotCapture, StateSnapshotEntries} from '@app/features/gateway/snapshot/SnapshotTypes';
-import BackgroundAccountPresence from '@app/features/gateway/transport/BackgroundAccountPresence';
 import {sumMentionCounts} from '@app/features/gateway/transport/BackgroundGatewayAccounts';
 import {
 	type BackgroundDispatchHandoverEnd,
@@ -39,6 +38,7 @@ import {
 } from '@app/features/gateway/transport/GatewaySocket';
 import SessionManager, {type Account} from '@app/features/platform/state/AuthSession';
 import {Logger} from '@app/features/platform/utils/AppLogger';
+import Idle from '@app/features/ui/state/Idle';
 import {DEFAULT_API_VERSION} from '@fluxer/constants/src/AppConstants';
 import {GatewayCloseCodes, GatewayIdentifyFlags} from '@fluxer/constants/src/GatewayConstants';
 import {StatusTypes} from '@fluxer/constants/src/StatusConstants';
@@ -299,7 +299,8 @@ export class BackgroundGatewaySession {
 	}
 
 	refreshPresence(): void {
-		this.socket?.updatePresence(this.identifyPresence().status, false, false);
+		const presence = this.identifyPresence();
+		this.socket?.updatePresence(presence.status, presence.afk, presence.mobile);
 	}
 
 	probeAfterResume(): void {
@@ -308,8 +309,8 @@ export class BackgroundGatewaySession {
 
 	private identifyPresence(): GatewayPresence {
 		return {
-			status: BackgroundAccountPresence.appearOffline ? StatusTypes.INVISIBLE : StatusTypes.ONLINE,
-			afk: false,
+			status: StatusTypes.INVISIBLE,
+			afk: Idle.isAfk(),
 			mobile: false,
 		};
 	}

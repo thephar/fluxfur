@@ -7,8 +7,6 @@ import {
 	StorageChangeFeed,
 	type StorageChangeSink,
 } from '@app/api/infrastructure/StorageChangeFeed';
-import {StorageService} from '@app/api/infrastructure/StorageService';
-import {createStorageService, shutdownStorageChangeFeed} from '@app/api/infrastructure/StorageServiceFactory';
 import {MockStorageService} from '@app/api/test/mocks/MockStorageService';
 import {describe, expect, it} from 'vitest';
 
@@ -68,11 +66,10 @@ describe('ChangeFeedStorageService', () => {
 		]);
 	});
 
-	it('emits delete events for single and batch deletes', async () => {
+	it('emits delete events for objects and avatars', async () => {
 		const {service, feed, sink} = createHarness();
 
 		await service.deleteObject(Config.s3.buckets.cdn, 'icons/1/a.webp');
-		await service.deleteObjects({bucket: Config.s3.buckets.reports, objects: [{Key: 'r/1'}, {Key: 'r/2'}]});
 		await service.deleteAvatar({prefix: 'avatars/9', key: 'hash'});
 		await feed.idle();
 
@@ -84,41 +81,11 @@ describe('ChangeFeedStorageService', () => {
 				op: 'delete',
 			},
 			{
-				subject: `storage.${Config.s3.buckets.reports}.delete`,
-				bucket: Config.s3.buckets.reports,
-				key: 'r/1',
-				op: 'delete',
-			},
-			{
-				subject: `storage.${Config.s3.buckets.reports}.delete`,
-				bucket: Config.s3.buckets.reports,
-				key: 'r/2',
-				op: 'delete',
-			},
-			{
 				subject: `storage.${Config.s3.buckets.cdn}.delete`,
 				bucket: Config.s3.buckets.cdn,
 				key: 'avatars/9/hash',
 				op: 'delete',
 			},
-		]);
-	});
-
-	it('emits a put and a delete for a move between durable buckets', async () => {
-		const {service, inner, feed, sink} = createHarness();
-		await inner.uploadObject({bucket: Config.s3.buckets.cdn, key: 'from', body: bytes(3)});
-
-		await service.moveObject({
-			sourceBucket: Config.s3.buckets.cdn,
-			sourceKey: 'from',
-			destinationBucket: Config.s3.buckets.reports,
-			destinationKey: 'to',
-		});
-		await feed.idle();
-
-		expect(sink.events.map(({bucket, key, op}) => ({bucket, key, op}))).toEqual([
-			{bucket: Config.s3.buckets.reports, key: 'to', op: 'put'},
-			{bucket: Config.s3.buckets.cdn, key: 'from', op: 'delete'},
 		]);
 	});
 
@@ -172,20 +139,6 @@ describe('ChangeFeedStorageService', () => {
 		expect(feed.stats()).toEqual({queued: 0, published: 0, dropped: 0, failed: 2});
 	});
 
-	it('does not wait for a publish that never answers', async () => {
-		const sink: StorageChangeSink = {
-			publish: () => new Promise<void>(() => undefined),
-			close: async () => undefined,
-		};
-		const {service, feed} = createHarness({sink});
-
-		await service.uploadObject({bucket: Config.s3.buckets.cdn, key: 'first', body: bytes(1)});
-		await new Promise((resolve) => setImmediate(resolve));
-		await service.uploadObject({bucket: Config.s3.buckets.cdn, key: 'second', body: bytes(1)});
-
-		expect(feed.stats()).toEqual({queued: 1, published: 0, dropped: 0, failed: 0});
-	});
-
 	it('drops and counts events when the queue is full without failing the storage call', async () => {
 		const sink: StorageChangeSink = {
 			publish: () => new Promise<void>(() => undefined),
@@ -199,24 +152,5 @@ describe('ChangeFeedStorageService', () => {
 
 		expect(inner.uploadObjectSpy).toHaveBeenCalledTimes(3);
 		expect(feed.stats()).toEqual({queued: 1, published: 0, dropped: 2, failed: 0});
-	});
-});
-
-describe('createStorageService', () => {
-	it('returns the plain storage service while the change feed is disabled', () => {
-		expect(Config.storageChangeFeed.enabled).toBe(false);
-		expect(Config.storageChangeFeed.skipBuckets).toEqual([Config.s3.buckets.uploads]);
-		expect(createStorageService()).toBeInstanceOf(StorageService);
-	});
-
-	it('wraps the storage service once the change feed is enabled', async () => {
-		const original = Config.storageChangeFeed.enabled;
-		Config.storageChangeFeed.enabled = true;
-		try {
-			expect(createStorageService()).toBeInstanceOf(ChangeFeedStorageService);
-		} finally {
-			Config.storageChangeFeed.enabled = original;
-			await shutdownStorageChangeFeed();
-		}
 	});
 });

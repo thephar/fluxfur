@@ -1,19 +1,25 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type {ApiContext} from '@app/api/ApiContext';
-import type {ChannelID, GuildID, InviteCode, UserID} from '@app/api/BrandedTypes';
-import {createInviteCode, vanityCodeToInviteCode} from '@app/api/BrandedTypes';
+import {
+	type ChannelID,
+	createInviteCode,
+	type GuildID,
+	type InviteCode,
+	type UserID,
+	vanityCodeToInviteCode,
+} from '@app/api/BrandedTypes';
 import type {ChannelService} from '@app/api/channel/services/ChannelService';
 import {THREAD_FEATURE_CHANNEL_TYPES, type ThreadViewer} from '@app/api/experiment/ChannelThreadsGate';
 import type {GuildAuditLogService} from '@app/api/guild/GuildAuditLogService';
 import type {GuildService} from '@app/api/guild/services/GuildService';
-import type {IInviteRepository} from '@app/api/invite/IInviteRepository';
+import {emitGuildJoinRefused, emitInviteCreated, emitInviteDeleted} from '@app/api/infrastructure/activity/GuildEvents';
+import type {InviteRepository} from '@app/api/invite/InviteRepository';
 import {Logger} from '@app/api/Logger';
 import type {LimitConfigService} from '@app/api/limits/LimitConfigService';
 import {resolveLimitSafe} from '@app/api/limits/LimitConfigUtils';
 import {createLimitMatchContext} from '@app/api/limits/LimitMatchContextBuilder';
 import type {RequestCache} from '@app/api/middleware/RequestCacheMiddleware';
-import type {Channel} from '@app/api/models/Channel';
 import {Invite} from '@app/api/models/Invite';
 import {assertAccountNotLimited} from '@app/api/user/AccountLimit';
 import * as RandomUtils from '@app/api/utils/RandomUtils';
@@ -70,17 +76,6 @@ interface DeleteInviteParams {
 	inviteCode: InviteCode;
 }
 
-interface GetChannelInvitesSortedParams {
-	userId: UserID;
-	viewer: ThreadViewer;
-	channelId: ChannelID;
-}
-
-interface GetGuildInvitesSortedParams {
-	userId: UserID;
-	guildId: GuildID;
-}
-
 interface SerializedInviteForAudit {
 	[key: string]: string | number | boolean | null;
 	code: string;
@@ -106,7 +101,7 @@ interface ReusableInviteCriteria {
 export class InviteService {
 	constructor(
 		private readonly apiContext: ApiContext,
-		private inviteRepository: IInviteRepository,
+		private inviteRepository: InviteRepository,
 		private guildService: GuildService,
 		private channelService: ChannelService,
 		private readonly guildAuditLogService: GuildAuditLogService,
@@ -128,7 +123,9 @@ export class InviteService {
 			if (channel.ownerId !== userId) {
 				throw new MissingPermissionsError();
 			}
-			return await this.inviteRepository.listChannelInvites(channelId);
+			return (await this.inviteRepository.listChannelInvites(channelId)).sort(
+				(a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
+			);
 		}
 		const {checkPermission, guildData} = await this.guildService.getGuildAuthenticated({
 			userId,
@@ -136,7 +133,9 @@ export class InviteService {
 		});
 		await checkPermission(Permissions.MANAGE_CHANNELS);
 		const invites = await this.inviteRepository.listChannelInvites(channelId);
-		return invites.filter((invite) => invite.code !== guildData.vanity_url_code);
+		return invites
+			.filter((invite) => invite.code !== guildData.vanity_url_code)
+			.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 	}
 
 	async getGuildInvites({userId, guildId}: GetGuildInvitesParams): Promise<Array<Invite>> {
@@ -146,7 +145,9 @@ export class InviteService {
 		});
 		await checkPermission(Permissions.MANAGE_GUILD);
 		const invites = await this.inviteRepository.listGuildInvites(guildId);
-		return invites.filter((invite) => invite.code !== guildData.vanity_url_code);
+		return invites
+			.filter((invite) => invite.code !== guildData.vanity_url_code)
+			.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 	}
 
 	async createInvite(
@@ -243,6 +244,7 @@ export class InviteService {
 				action: 'create',
 				auditLogReason,
 			});
+			await emitInviteCreated(newInvite);
 		}
 		return {invite: newInvite, isNew: true};
 	}
@@ -252,7 +254,7 @@ export class InviteService {
 		if (!invite) throw new UnknownInviteError();
 		if (invite.maxUses > 0 && invite.uses >= invite.maxUses) {
 			if (invite.type === InviteTypes.GUILD && invite.guildId) {
-				const guild = await this.guildService.data.getGuildSystem(invite.guildId);
+				const guild = await this.guildService.data.operations.getGuildSystem(invite.guildId);
 				const vanityCode = guild.vanityUrlCode ? vanityCodeToInviteCode(guild.vanityUrlCode) : null;
 				if (invite.code !== vanityCode) {
 					await this.inviteRepository.delete(invite.code);
@@ -287,17 +289,22 @@ export class InviteService {
 			return this.completeInviteUse(reservedInvite, {deleteWhenExhausted: true});
 		}
 		if (!invite.guildId) throw new UnknownInviteError();
-		const guild = await this.guildService.data.getGuildSystem(invite.guildId);
+		const guild = await this.guildService.data.operations.getGuildSystem(invite.guildId);
 		if ((guild.disabledOperations & GuildOperations.INSTANT_INVITES) !== 0) {
 			throw new FeatureTemporarilyDisabledError();
 		}
-		if (guild.features.has(GuildFeatures.INVITES_DISABLED)) {
-			throw new InvitesDisabledError();
-		}
+		const vanityCode = guild.vanityUrlCode ? vanityCodeToInviteCode(guild.vanityUrlCode) : null;
+		const isVanityInvite = invite.code === vanityCode;
 		const existingMember = await this.apiContext.services.gateway.hasGuildMember({
 			guildId: invite.guildId,
 			userId,
 		});
+		if (guild.features.has(GuildFeatures.INVITES_DISABLED)) {
+			if (!existingMember) {
+				await emitGuildJoinRefused({guildId: guild.id, userId, joinSource: isVanityInvite ? 'vanity' : 'invite'});
+			}
+			throw new InvitesDisabledError();
+		}
 		if (existingMember) {
 			return invite;
 		}
@@ -308,8 +315,6 @@ export class InviteService {
 				throw new TemporaryInviteRequiresPresenceError();
 			}
 		}
-		const vanityCode = guild.vanityUrlCode ? vanityCodeToInviteCode(guild.vanityUrlCode) : null;
-		const isVanityInvite = invite.code === vanityCode;
 		const guildId = invite.guildId;
 		const reservedInvite = await this.reserveInviteUse(invite);
 		await this.withReservedInviteUse(reservedInvite, () =>
@@ -459,22 +464,7 @@ export class InviteService {
 			action: 'delete',
 			auditLogReason,
 		});
-	}
-
-	async resolveVanityUrlChannel(guildId: GuildID): Promise<Channel | null> {
-		const channelId = await this.apiContext.services.gateway.getVanityUrlChannel(guildId);
-		if (!channelId) return null;
-		return await this.channelService.channelData.operations.getChannelSystem(channelId);
-	}
-
-	async getChannelInvitesSorted({userId, viewer, channelId}: GetChannelInvitesSortedParams): Promise<Array<Invite>> {
-		const invites = await this.getChannelInvites({userId, viewer, channelId});
-		return invites.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-	}
-
-	async getGuildInvitesSorted({userId, guildId}: GetGuildInvitesSortedParams): Promise<Array<Invite>> {
-		const invites = await this.getGuildInvites({userId, guildId});
-		return invites.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+		await emitInviteDeleted(invite);
 	}
 
 	async dispatchInviteCreate(

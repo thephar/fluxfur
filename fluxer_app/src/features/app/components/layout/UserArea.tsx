@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {UserSettingsModal} from '@app/features/app/components/dialogs/LoadableSettingsModals';
 import {UserAreaPopout} from '@app/features/app/components/floating/UserAreaPopout';
 import styles from '@app/features/app/components/layout/UserArea.module.css';
 import {
@@ -12,15 +11,13 @@ import {reportSkeletonVoicePresence} from '@app/features/app/components/skeleton
 import {getStatusTypeLabel} from '@app/features/app/constants/AppConstants';
 import {useContextMenuHoverState} from '@app/features/app/hooks/useContextMenuHoverState';
 import * as VoiceStateCommands from '@app/features/devtools/commands/VoiceStateCommands';
-import DeveloperOptions from '@app/features/devtools/state/DeveloperOptions';
 import Keybind from '@app/features/input/state/InputKeybind';
 import {getPushToTalkHoldLabel} from '@app/features/input/utils/PushToTalkHint';
 import Presence from '@app/features/presence/state/Presence';
 import {SettingsContextMenu} from '@app/features/ui/action_menu/SettingsContextMenu';
 import * as ContextMenuCommands from '@app/features/ui/commands/ContextMenuCommands';
-import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
-import {modal} from '@app/features/ui/commands/ModalCommands';
 import {FocusRingWrapper} from '@app/features/ui/components/FocusRingWrapper';
+import {NotificationDot} from '@app/features/ui/components/NotificationDot';
 import {StatusAwareAvatar} from '@app/features/ui/components/StatusAwareAvatar';
 import FocusRing from '@app/features/ui/focus_ring/FocusRing';
 import {usePopout} from '@app/features/ui/hooks/usePopout';
@@ -28,8 +25,13 @@ import {TooltipWithKeybind} from '@app/features/ui/keybind_hint/KeybindHint';
 import {Popout} from '@app/features/ui/popover/PopoverPopout';
 import MobileLayout from '@app/features/ui/state/MobileLayout';
 import {Tooltip} from '@app/features/ui/tooltip/Tooltip';
-import {USER_SETTINGS_LABEL_DESCRIPTOR} from '@app/features/user/components/settings_utils/SettingsConstants';
+import {openUserSettingsModal} from '@app/features/user/commands/UserSettingsModalCommands';
+import {
+	USER_SETTINGS_LABEL_DESCRIPTOR,
+	USER_SETTINGS_PRIVACY_REVIEW_NEEDED_DESCRIPTOR,
+} from '@app/features/user/components/settings_utils/SettingsConstants';
 import type {User} from '@app/features/user/models/User';
+import UserSettings from '@app/features/user/state/UserSettings';
 import * as NicknameUtils from '@app/features/user/utils/NicknameUtils';
 import {VoiceConnectionStatus} from '@app/features/voice/components/VoiceConnectionStatus';
 import {VoiceAudioSettingsMenu} from '@app/features/voice/components/VoiceSettingsMenus';
@@ -140,17 +142,12 @@ const UserAreaInner = observer(
 				/>
 			));
 		};
-		const handleSettingsClick = () => {
-			ModalCommands.push(
-				modal(
-					() => <UserSettingsModal data-flx="app.user-area.handle-settings-click.user-settings-modal" />,
-					'user-settings',
-				),
-			);
-		};
+		const privacySetupPending = UserSettings.isPrivacySetupPending();
+		const settingsLabel = privacySetupPending
+			? i18n._(USER_SETTINGS_PRIVACY_REVIEW_NEEDED_DESCRIPTOR)
+			: i18n._(USER_SETTINGS_LABEL_DESCRIPTOR);
 		const storeConnectedChannelId = MediaEngine.channelId;
-		const forceShowVoiceConnection = DeveloperOptions.forceShowVoiceConnection;
-		const hasVoiceConnection = !MobileLayout.enabled && (forceShowVoiceConnection || !!storeConnectedChannelId);
+		const hasVoiceConnection = !MobileLayout.enabled && !!storeConnectedChannelId;
 		useEffect(() => {
 			const root = document.documentElement;
 			const clearHeight = () => {
@@ -420,7 +417,7 @@ const UserAreaInner = observer(
 						<Tooltip
 							text={() => (
 								<TooltipWithKeybind
-									label={i18n._(USER_SETTINGS_LABEL_DESCRIPTOR)}
+									label={settingsLabel}
 									action="system_toggle_settings"
 									data-flx="app.user-area.user-area-inner.tooltip-with-keybind--3"
 								/>
@@ -431,9 +428,9 @@ const UserAreaInner = observer(
 								<button
 									ref={settingsButtonRef}
 									type="button"
-									aria-label={i18n._(USER_SETTINGS_LABEL_DESCRIPTOR)}
+									aria-label={settingsLabel}
 									className={clsx(styles.controlButton, settingsContextMenuOpen && styles.contextMenuHover)}
-									onClick={handleSettingsClick}
+									onClick={openUserSettingsModal}
 									onContextMenu={(event) => {
 										event.preventDefault();
 										event.stopPropagation();
@@ -446,7 +443,16 @@ const UserAreaInner = observer(
 									}}
 									data-flx="app.user-area.user-area-inner.control-button.settings-click"
 								>
-									<GearIcon className={styles.controlIcon} data-flx="app.user-area.user-area-inner.control-icon--5" />
+									<GearIcon
+										className={clsx(styles.controlIcon, privacySetupPending && styles.controlIconWithDot)}
+										data-flx="app.user-area.user-area-inner.control-icon--5"
+									/>
+									{privacySetupPending && (
+										<NotificationDot
+											className={styles.controlDot}
+											data-flx="app.user-area.user-area-inner.privacy-review-dot"
+										/>
+									)}
 								</button>
 							</FocusRing>
 						</Tooltip>

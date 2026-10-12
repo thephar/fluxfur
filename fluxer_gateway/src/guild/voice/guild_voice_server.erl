@@ -124,6 +124,7 @@ init(#{guild_id := GuildId, guild_pid := GuildPid} = Args) ->
     guild_voice_server_sync:ensure_registry(),
     ets:insert(?REGISTRY_TABLE, {GuildId, self()}),
     erlang:send_after(?SWEEP_INTERVAL_MS, self(), sweep_pending_joins),
+    erlang:send_after(?SEEDED_SESSION_CHECK_DELAY_MS, self(), check_p2p_sessions),
     InitialVoiceStates = voice_state_utils:ensure_voice_states(
         maps:get(initial_voice_states, Args, #{})
     ),
@@ -162,23 +163,23 @@ handle_voice_request_call(error, _Req, Msg, S) ->
 -spec voice_request_handler(term()) ->
     {ok, fun((map(), map()) -> {reply, term(), map()})} | error.
 voice_request_handler(voice_state_update) ->
-    {ok, fun guild_voice:voice_state_update/2};
+    {ok, fun guild_voice_connection:voice_state_update/2};
 voice_request_handler(get_voice_state) ->
-    {ok, fun guild_voice:get_voice_state/2};
+    {ok, fun guild_voice_state:get_voice_state/2};
 voice_request_handler(update_member_voice) ->
-    {ok, fun guild_voice:update_member_voice/2};
+    {ok, fun guild_voice_member:update_member_voice/2};
 voice_request_handler(disconnect_voice_user) ->
-    {ok, fun guild_voice:disconnect_voice_user/2};
+    {ok, fun guild_voice_disconnect_user:disconnect_voice_user/2};
 voice_request_handler(disconnect_voice_user_if_in_channel) ->
-    {ok, fun guild_voice:disconnect_voice_user_if_in_channel/2};
+    {ok, fun guild_voice_disconnect_user:disconnect_voice_user_if_in_channel/2};
 voice_request_handler(disconnect_all_voice_users_in_channel) ->
-    {ok, fun guild_voice:disconnect_all_voice_users_in_channel/2};
+    {ok, fun guild_voice_disconnect_channel:disconnect_all_voice_users_in_channel/2};
 voice_request_handler(confirm_voice_connection_from_livekit) ->
-    {ok, fun guild_voice:confirm_voice_connection_from_livekit/2};
+    {ok, fun guild_voice_connection_confirm:confirm_voice_connection_from_livekit/2};
 voice_request_handler(move_member) ->
-    {ok, fun guild_voice:move_member/2};
+    {ok, fun guild_voice_move:move_member/2};
 voice_request_handler(switch_voice_region) ->
-    {ok, fun guild_voice:switch_voice_region_handler/2};
+    {ok, fun guild_voice_region:switch_voice_region_handler/2};
 voice_request_handler(_) ->
     error.
 
@@ -189,37 +190,19 @@ handle_call_local({store_pending_connection, ConnectionId, Metadata}, State) ->
     {reply, ok, State#{pending_voice_connections => NewPending}};
 handle_call_local({get_voice_states_for_channel, ChIdBin}, State) ->
     {reply, channel_query(voice_states, ChIdBin, State), State};
-handle_call_local({get_pending_joins_for_channel, ChIdBin}, State) ->
-    {reply, channel_query(pending_joins, ChIdBin, State), State};
-handle_call_local({get_voice_states_list}, State) ->
-    {reply, maps:values(maps:get(voice_states, State, #{})), State};
 handle_call_local({get_voice_states_map}, State) ->
     {reply, maps:get(voice_states, State, #{}), State};
 handle_call_local(get_voice_server_pid, State) ->
     {reply, {ok, self()}, State};
-handle_call_local({set_voice_states, VoiceStates}, State) when is_map(VoiceStates) ->
-    {reply, ok, do_set_voice_states(VoiceStates, State)};
 handle_call_local(_, State) ->
     {reply, ok, State}.
 
--spec channel_query(voice_states | pending_joins, term(), server_state()) -> map().
-channel_query(Kind, ChIdBin, State) ->
+-spec channel_query(voice_states, term(), server_state()) -> map().
+channel_query(voice_states, ChIdBin, State) ->
     case guild_voice_server_state:parse_voice_channel_id(ChIdBin) of
-        {ok, _, Bin} when Kind =:= voice_states ->
-            guild_voice_server_state:local_voice_states_for_channel(Bin, State);
-        {ok, _, Bin} when Kind =:= pending_joins ->
-            guild_voice_server_state:local_pending_joins_for_channel(Bin, State);
-        error when Kind =:= voice_states -> #{voice_states => []};
-        error ->
-            #{pending_joins => []}
+        {ok, _, Bin} -> guild_voice_server_state:local_voice_states_for_channel(Bin, State);
+        _ -> #{voice_states => []}
     end.
-
--spec do_set_voice_states(map(), server_state()) -> server_state().
-do_set_voice_states(VoiceStates, State) ->
-    OldVS = maps:get(voice_states, State, #{}),
-    NewVS = voice_state_utils:ensure_voice_states(VoiceStates),
-    _ = guild_voice_server_sync:sync_replaced_voice_states(OldVS, NewVS),
-    State#{voice_states => NewVS}.
 
 -spec handle_cast(term(), server_state()) -> {noreply, server_state()}.
 handle_cast({store_pending_connection, ConnId, Meta}, State) ->
@@ -227,15 +210,20 @@ handle_cast({store_pending_connection, ConnId, Meta}, State) ->
     NewPending = bounded_put(ConnId, Meta, Pending, ?MAX_PENDING_CONNECTIONS),
     {noreply, State#{pending_voice_connections => NewPending}};
 handle_cast({disconnect_voice_user, Request}, State) when is_map(Request) ->
-    {noreply, delegate_voice_cast(fun guild_voice:disconnect_voice_user/2, Request, State)};
+    {noreply,
+        delegate_voice_cast(
+            fun guild_voice_disconnect_user:disconnect_voice_user/2, Request, State
+        )};
 handle_cast({disconnect_all_voice_users_in_channel, Request}, State) when is_map(Request) ->
     {noreply,
         delegate_voice_cast(
-            fun guild_voice:disconnect_all_voice_users_in_channel/2, Request, State
+            fun guild_voice_disconnect_channel:disconnect_all_voice_users_in_channel/2,
+            Request,
+            State
         )};
 handle_cast({cleanup_virtual_access_for_user, UserId}, State) when is_integer(UserId) ->
     GS = guild_voice_server_state:build_guild_state(State),
-    NewGS = guild_voice_disconnect:cleanup_virtual_channel_access_for_user(UserId, GS),
+    NewGS = guild_voice_disconnect_user:cleanup_virtual_channel_access_for_user(UserId, GS),
     {noreply, guild_voice_server_state:apply_guild_state(NewGS, State)};
 handle_cast(_, State) ->
     {noreply, State}.
@@ -251,9 +239,17 @@ handle_info(sweep_pending_joins, State) ->
             {noreply, State2};
         _ ->
             GuildState = guild_voice_server_state:build_guild_state(State2),
-            NewGuildState = guild_voice_connection:sweep_expired_pending_joins(GuildState),
+            NewGuildState = guild_voice_connection_pending:sweep_expired_pending_joins(
+                GuildState
+            ),
             {noreply, guild_voice_server_state:apply_guild_state(NewGuildState, State2)}
     end;
+handle_info(check_p2p_sessions, State) ->
+    erlang:send_after(?SEEDED_SESSION_CHECK_DELAY_MS, self(), check_p2p_sessions),
+    ok = spawn_seeded_session_check(
+        first, seeded_sessions(p2p_connection_ids(State), State), State
+    ),
+    {noreply, State};
 handle_info({check_seeded_sessions, Round, ConnectionIds}, State) ->
     ok = spawn_seeded_session_check(Round, seeded_sessions(ConnectionIds, State), State),
     {noreply, State};
@@ -313,6 +309,15 @@ schedule_seeded_session_check(Round, ConnectionIds) ->
     ),
     ok.
 
+-spec p2p_connection_ids(server_state()) -> [binary()].
+p2p_connection_ids(State) ->
+    maps:keys(
+        maps:filter(
+            fun(_ConnectionId, VoiceState) -> voice_p2p:is_p2p(VoiceState) end,
+            maps:get(voice_states, State, #{})
+        )
+    ).
+
 -spec seeded_sessions([binary()], server_state()) -> #{binary() => {integer(), binary()}}.
 seeded_sessions(ConnectionIds, State) ->
     VoiceStates = maps:get(voice_states, State, #{}),
@@ -324,7 +329,7 @@ seeded_sessions(ConnectionIds, State) ->
         UserId <- [voice_state_utils:voice_state_user_id(VoiceState)],
         is_integer(UserId),
         SessionId <- [
-            voice_state_utils:normalize_session_id(
+            guild_voice_connection_normalize:normalize_session_id(
                 maps:get(<<"session_id">>, VoiceState, undefined)
             )
         ],
@@ -394,7 +399,7 @@ remove_gone_seeded_connection(ConnectionId, UserId, SessionId, State) ->
                 [maps:get(guild_id, State, undefined), ConnectionId, UserId, SessionId]
             ),
             delegate_voice_cast(
-                fun guild_voice:disconnect_voice_user/2,
+                fun guild_voice_disconnect_user:disconnect_voice_user/2,
                 #{user_id => UserId, connection_id => ConnectionId},
                 State
             );
@@ -575,6 +580,24 @@ seeded_session_check_reports_only_gone_sessions_test() ->
     after 1000 -> ?assert(false)
     end.
 
+p2p_session_check_reports_only_gone_p2p_sessions_test() ->
+    State0 = seeded_test_state(self()),
+    #{<<"ghost">> := Ghost, <<"live">> := Live} = VoiceStates = maps:get(voice_states, State0),
+    State = State0#{
+        voice_states => VoiceStates#{
+            <<"ghost">> => Ghost#{<<"p2p">> => true},
+            <<"live">> => Live#{<<"p2p">> => true},
+            <<"sfu-ghost">> => Ghost#{<<"connection_id">> => <<"sfu-ghost">>}
+        },
+        test_session_gone_fun => fun(SessionId) -> SessionId =:= <<"dead">> end
+    },
+    {noreply, State} = handle_info(check_p2p_sessions, State),
+    receive
+        {seeded_sessions_gone, first, Gone} ->
+            ?assertEqual(#{<<"ghost">> => {5, <<"dead">>}}, Gone)
+    after 1000 -> ?assert(false)
+    end.
+
 gone_seeded_connection_is_removed_test() ->
     TestFun = fun(_, _, _, _) -> {ok, #{success => true}} end,
     GuildPid = spawn(fun() -> guild_state_reply_loop(TestFun) end),
@@ -720,47 +743,6 @@ resolve_rejects_dead_voice_pid_test() ->
     after
         exit(GuildPid, kill)
     end.
-
-parse_voice_channel_id_test() ->
-    ?assertEqual({ok, 9, <<"9">>}, guild_voice_server_state:parse_voice_channel_id(<<"9">>)),
-    ?assertEqual({ok, 9, <<"9">>}, guild_voice_server_state:parse_voice_channel_id(9)),
-    ?assertEqual(error, guild_voice_server_state:parse_voice_channel_id(null)).
-
-rpc_entry_formatters_test() ->
-    VSEntries = guild_voice_server_state:voice_state_rpc_entries([
-        not_a_map,
-        #{
-            <<"connection_id">> => <<"conn-a">>,
-            <<"user_id">> => 42,
-            <<"channel_id">> => 9,
-            <<"region_id">> => <<"local">>,
-            <<"server_id">> => <<"dev-1">>
-        },
-        #{<<"connection_id">> => null, <<"user_id">> => 43, <<"channel_id">> => 9}
-    ]),
-    ?assertEqual(
-        [
-            #{
-                connection_id => <<"conn-a">>,
-                user_id => <<"42">>,
-                channel_id => <<"9">>,
-                region_id => <<"local">>,
-                server_id => <<"dev-1">>
-            }
-        ],
-        VSEntries
-    ),
-    PJEntries = guild_voice_server_state:pending_join_rpc_entries([
-        not_a_map,
-        #{
-            connection_id => <<"conn-a">>,
-            user_id => 42,
-            token_nonce => <<"nonce">>,
-            expires_at => 123
-        },
-        #{connection_id => <<"missing-user">>, token_nonce => <<"nonce">>}
-    ]),
-    ?assertEqual(1, length(PJEntries)).
 
 bounded_put_under_limit_test() ->
     Map = #{a => 1, b => 2},

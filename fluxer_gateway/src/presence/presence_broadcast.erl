@@ -7,12 +7,7 @@
     publish_global_presence/2,
     force_publish_global_presence/1,
     dispatch_global_presence/3,
-    dispatch_initial_presences/2,
     dispatch_to_all_sessions/3,
-    ensure_initial_global_subscriptions/1,
-    sync_friend_subscriptions/3,
-    sync_group_dm_subscriptions/2,
-    send_cached_presences_to_session/2,
     publish_user_update_to_bus/3,
     is_last_published_visible/1,
     cache_if_visible/2,
@@ -81,14 +76,6 @@ dispatch_global_presence(TargetId, Payload, State) ->
         false -> dispatch_foreign_presence(TargetId, Payload, State)
     end.
 
--spec dispatch_initial_presences([map()], state()) -> ok.
-dispatch_initial_presences(Presences, State) ->
-    SessionPids = presence_connect:collect_session_pids(State),
-    lists:foreach(
-        fun(Pid) -> gen_server:cast(Pid, {initial_global_presences, Presences}) end,
-        SessionPids
-    ).
-
 -spec dispatch_to_all_sessions(atom(), map() | list(), state()) -> ok.
 dispatch_to_all_sessions(EventAtom, Data, State) ->
     SessionPids = presence_connect:collect_session_pids(State),
@@ -110,22 +97,6 @@ safe_cast_or_shed(Pid, Msg) ->
         {error, overloaded} ->
             ok
     end.
-
--spec ensure_initial_global_subscriptions(state()) -> state().
-ensure_initial_global_subscriptions(State) ->
-    presence_broadcast_subscriptions:ensure_initial_global_subscriptions(State).
-
--spec sync_friend_subscriptions([user_id()], [user_id()], state()) -> state().
-sync_friend_subscriptions(FriendIds, FlushedIds, State) ->
-    presence_broadcast_subscriptions:sync_friend_subscriptions(FriendIds, FlushedIds, State).
-
--spec sync_group_dm_subscriptions(map(), state()) -> state().
-sync_group_dm_subscriptions(RecipientsByChannel, State) ->
-    presence_broadcast_subscriptions:sync_group_dm_subscriptions(RecipientsByChannel, State).
-
--spec send_cached_presences_to_session(pid(), state()) -> ok.
-send_cached_presences_to_session(SessionPid, State) ->
-    presence_broadcast_subscriptions:send_cached_presences_to_session(SessionPid, State).
 
 -spec publish_user_update_to_bus(user_id(), map(), state()) -> ok.
 publish_user_update_to_bus(UserId, UserData, State) ->
@@ -297,10 +268,6 @@ expiry_timer_delivers_a_reconcile_cast_test() ->
         Expected -> ok
     after 1000 -> ?assert(false)
     end.
-
-cancel_expiry_timer_ignores_non_references_test() ->
-    ?assertEqual(ok, cancel_expiry_timer(undefined)),
-    ?assertEqual(ok, cancel_expiry_timer(not_a_ref)).
 
 future_custom_status() ->
     ExpiresAt = calendar:system_time_to_rfc3339(

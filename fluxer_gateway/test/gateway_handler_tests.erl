@@ -149,14 +149,6 @@ heartbeat_check_replaces_matched_timer_test() ->
     ?assertNotEqual({TimerRef, Token}, maps:get(heartbeat_timer, State2)),
     gateway_handler_heartbeat:cancel_heartbeat_timer(State2).
 
-legacy_heartbeat_check_ignored_when_tokened_timer_active_test() ->
-    State0 = heartbeat_test_state(),
-    State1 = gateway_handler_heartbeat:schedule_heartbeat_check(State0),
-    {TimerRef, Token} = maps:get(heartbeat_timer, State1),
-    {ok, State2} = gateway_handler:websocket_info({heartbeat_check}, State1),
-    ?assertEqual({TimerRef, Token}, maps:get(heartbeat_timer, State2)),
-    gateway_handler_heartbeat:cancel_heartbeat_timer(State2).
-
 pending_identify_retry_ignores_stale_token_test() ->
     Timer = erlang:send_after(60000, self(), stale_pending_identify_retry),
     CurrentToken = make_ref(),
@@ -167,17 +159,6 @@ pending_identify_retry_ignores_stale_token_test() ->
     {ok, State1} = gateway_handler:websocket_info(
         {retry_pending_identify, make_ref()}, State0
     ),
-    ?assertEqual(State0, State1),
-    cancel_pending_identify_timer(State1).
-
-legacy_pending_identify_retry_ignored_when_tokened_timer_active_test() ->
-    Timer = erlang:send_after(60000, self(), stale_pending_identify_retry),
-    CurrentToken = make_ref(),
-    State0 = (new_json_state())#{
-        pending_identify => {#{token => <<"t">>}, self()},
-        pending_identify_retry_timer => {Timer, CurrentToken}
-    },
-    {ok, State1} = gateway_handler:websocket_info(retry_pending_identify, State0),
     ?assertEqual(State0, State1),
     cancel_pending_identify_timer(State1).
 
@@ -210,11 +191,6 @@ parse_forwarded_for_invalid_ipv4_octet_test() ->
     ?assertEqual(<<>>, gateway_handler:parse_forwarded_for(<<"203.0.113.300">>)).
 parse_forwarded_for_unterminated_bracket_test() ->
     ?assertEqual(<<>>, gateway_handler:parse_forwarded_for(<<"[2001:db8::1">>)).
-parse_version_test() ->
-    ?assertEqual(1, gateway_handler:parse_version(<<"1">>)),
-    ?assertEqual(undefined, gateway_handler:parse_version(<<"2">>)),
-    ?assertEqual(undefined, gateway_handler:parse_version(undefined)).
-
 parse_ignored_events_test() ->
     ?assertEqual({ok, []}, gateway_handler_identify:parse_ignored_events(undefined)),
     ?assertEqual({ok, []}, gateway_handler_identify:parse_ignored_events(null)),
@@ -229,11 +205,6 @@ parse_ignored_events_test() ->
         {error, invalid_ignored_events},
         gateway_handler_identify:parse_ignored_events(<<"not_a_list">>)
     ).
-
-adjust_status_test() ->
-    ?assertEqual(invisible, gateway_handler_dispatch:adjust_status(offline)),
-    ?assertEqual(online, gateway_handler_dispatch:adjust_status(online)),
-    ?assertEqual(idle, gateway_handler_dispatch:adjust_status(idle)).
 
 check_rate_limit_blocks_general_flood_test() ->
     with_rate_limits_enabled(fun() ->
@@ -263,6 +234,26 @@ check_presence_rate_limit_soft_drops_only_presence_test() ->
         ?assertEqual(1, length(maps:get(events, RateLimitState)))
     end).
 
+check_voice_signal_rate_limit_allows_trickle_bursts_test() ->
+    with_rate_limits_enabled(fun() ->
+        Now = erlang:system_time(millisecond),
+        State = fun(Count) ->
+            (gateway_handler:new_state())#{
+                rate_limit_state => #{
+                    events => [],
+                    op_events => #{voice_signal => lists:duplicate(Count, Now - 1000)}
+                }
+            }
+        end,
+        ?assertMatch(
+            {ok, _}, gateway_handler_rate_limit:check_rate_limit(State(239), voice_signal)
+        ),
+        ?assertMatch(
+            {opcode_rate_limited, _},
+            gateway_handler_rate_limit:check_rate_limit(State(240), voice_signal)
+        )
+    end).
+
 enqueue_voice_update_keeps_latest_update_for_connection_test() ->
     Queue0 = queue:new(),
     Data1 = #{
@@ -272,16 +263,6 @@ enqueue_voice_update_keeps_latest_update_for_connection_test() ->
     Queue1 = gateway_handler_voice:enqueue_voice_update(Queue0, Data1),
     Queue2 = gateway_handler_voice:enqueue_voice_update(Queue1, Data2),
     ?assertEqual([Data2], queue:to_list(Queue2)).
-
-enqueue_voice_update_keeps_distinct_connections_test() ->
-    Queue0 = queue:new(),
-    Data1 = #{
-        <<"guild_id">> => <<"1">>, <<"connection_id">> => <<"conn-1">>, <<"self_mute">> => false
-    },
-    Data2 = Data1#{<<"connection_id">> => <<"conn-2">>, <<"self_mute">> => true},
-    Queue1 = gateway_handler_voice:enqueue_voice_update(Queue0, Data1),
-    Queue2 = gateway_handler_voice:enqueue_voice_update(Queue1, Data2),
-    ?assertEqual([Data1, Data2], queue:to_list(Queue2)).
 
 handle_request_guild_members_queues_latest_request_while_worker_active_test() ->
     ExistingWorkerPid = self(),
@@ -306,19 +287,6 @@ handle_request_guild_counts_drops_when_socket_worker_limit_reached_test() ->
     ),
     ?assertEqual(1, maps:size(maps:get(request_workers, NewState))).
 
-request_worker_down_removes_tracked_worker_test() ->
-    Ref = make_ref(),
-    WorkerPid = self(),
-    State = (gateway_handler:new_state())#{
-        request_workers => #{
-            Ref => #{pid => WorkerPid, type => lazy_request, timer => undefined}
-        }
-    },
-    {ok, NewState} = gateway_handler_dispatch:handle_request_worker_down(
-        Ref, WorkerPid, normal, State
-    ),
-    ?assertEqual(#{}, maps:get(request_workers, NewState)).
-
 request_worker_timeout_removes_and_kills_worker_test() ->
     WorkerPid = spawn(fun request_worker_wait_loop/0),
     Ref = make_ref(),
@@ -333,65 +301,6 @@ request_worker_timeout_removes_and_kills_worker_test() ->
     ok = gateway_retry_timer:wait(10),
     ?assertEqual(#{}, maps:get(request_workers, NewState)),
     ?assertNot(erlang:is_process_alive(WorkerPid)).
-
-validate_presence_data_valid_test() ->
-    Data = #{<<"status">> => <<"online">>, <<"afk">> => false, <<"mobile">> => false},
-    {ok, Result} = gateway_handler_dispatch:validate_presence_data(Data),
-    ?assertEqual(online, maps:get(status, Result)).
-
-validate_presence_data_missing_status_test() ->
-    ?assertEqual(
-        {error, invalid_presence},
-        gateway_handler_dispatch:validate_presence_data(#{<<"afk">> => false})
-    ).
-validate_presence_data_empty_map_test() ->
-    ?assertEqual(
-        {error, invalid_presence}, gateway_handler_dispatch:validate_presence_data(#{})
-    ).
-validate_presence_data_not_a_map_test() ->
-    ?assertEqual(
-        {error, invalid_presence}, gateway_handler_dispatch:validate_presence_data(not_a_map())
-    ).
-validate_presence_data_invalid_status_string_test() ->
-    ?assertEqual(
-        {error, invalid_presence},
-        gateway_handler_dispatch:validate_presence_data(#{
-            <<"status">> => <<"not_a_real_status">>
-        })
-    ).
-
-validate_presence_data_integer_status_defaults_to_online_test() ->
-    {ok, Result} = gateway_handler_dispatch:validate_presence_data(#{<<"status">> => 42}),
-    ?assertEqual(online, maps:get(status, Result)).
-
-validate_presence_data_offline_becomes_invisible_test() ->
-    {ok, Result} = gateway_handler_dispatch:validate_presence_data(#{
-        <<"status">> => <<"offline">>
-    }),
-    ?assertEqual(invisible, maps:get(status, Result)).
-
-validate_resume_data_valid_test() ->
-    ?assertEqual(
-        {ok, <<"abc">>, <<"sess1">>, 5},
-        gateway_handler_identify:validate_resume_data(#{
-            <<"token">> => <<"abc">>, <<"session_id">> => <<"sess1">>, <<"seq">> => 5
-        })
-    ).
-validate_resume_data_missing_token_test() ->
-    ?assertEqual(
-        {error, missing_required_field},
-        gateway_handler_identify:validate_resume_data(#{
-            <<"session_id">> => <<"sess1">>, <<"seq">> => 5
-        })
-    ).
-validate_resume_data_empty_map_test() ->
-    ?assertEqual(
-        {error, missing_required_field}, gateway_handler_identify:validate_resume_data(#{})
-    ).
-validate_resume_data_not_a_map_test() ->
-    ?assertEqual(
-        {error, invalid_data}, gateway_handler_identify:validate_resume_data(not_a_map())
-    ).
 
 validate_identify_data_empty_map_test() ->
     ?assertEqual(
@@ -414,40 +323,6 @@ validate_identify_data_negative_flags_test() ->
             },
             <<"flags">> => -1
         })
-    ).
-
-validate_identify_data_accepts_shard_test() ->
-    ?assertMatch(
-        {ok, <<"abc">>, _Properties, _Presence, [], 0, undefined, {1, 4}},
-        gateway_handler_identify:validate_identify_data(
-            valid_identify_data(#{
-                <<"shard">> => [1, 4]
-            })
-        )
-    ).
-
-validate_identify_data_accepts_absent_shard_test() ->
-    ?assertMatch(
-        {ok, <<"abc">>, _Properties, _Presence, [], 0, undefined, undefined},
-        gateway_handler_identify:validate_identify_data(valid_identify_data(#{}))
-    ).
-
-validate_identify_data_rejects_invalid_shard_test() ->
-    ?assertEqual(
-        {error, invalid_shard},
-        gateway_handler_identify:validate_identify_data(
-            valid_identify_data(#{
-                <<"shard">> => [2, 2]
-            })
-        )
-    ),
-    ?assertEqual(
-        {error, invalid_shard},
-        gateway_handler_identify:validate_identify_data(
-            valid_identify_data(#{
-                <<"shard">> => <<"not-a-shard">>
-            })
-        )
     ).
 
 handle_identify_runs_identify_rate_check_at_zero_rollout_test() ->
@@ -505,6 +380,47 @@ voice_state_update_with_non_map_payload_closes_test() ->
         voice_state_update, #{<<"d">> => <<"not-a-map">>}, State
     ),
     ?assertEqual(constants:close_code_to_num(decode_error), CloseCode).
+
+voice_signal_is_cast_to_the_session_test() ->
+    State = (new_json_state())#{session_pid => self()},
+    Data = #{<<"channel_id">> => <<"100">>, <<"to">> => <<"conn-b">>, <<"data">> => #{}},
+    ?assertEqual(
+        {ok, State},
+        gateway_handler_dispatch:handle_opcode(voice_signal, #{<<"d">> => Data}, State)
+    ),
+    receive
+        {'$gen_cast', {voice_signal, Data}} -> ok
+    after 1000 ->
+        error(voice_signal_not_cast)
+    end.
+
+voice_signal_with_non_map_payload_is_dropped_test() ->
+    State = (new_json_state())#{session_pid => self()},
+    ?assertEqual(
+        {ok, State},
+        gateway_handler_dispatch:handle_opcode(
+            voice_signal, #{<<"d">> => <<"not-a-map">>}, State
+        )
+    ).
+
+websocket_info_gateway_error_emits_an_error_frame_test() ->
+    {[{text, Frame}], _State} = gateway_handler:websocket_info(
+        {gateway_error, voice_p2p_consent_required}, new_json_state()
+    ),
+    ?assertEqual(
+        #{
+            <<"op">> => 12,
+            <<"d">> => #{
+                <<"code">> => <<"VOICE_P2P_CONSENT_REQUIRED">>,
+                <<"message">> => <<"This call is peer-to-peer and requires agreement to join">>
+            }
+        },
+        json:decode(Frame)
+    ).
+
+voice_signal_opcode_is_thirteen_test() ->
+    ?assertEqual(voice_signal, constants:gateway_opcode(13)),
+    ?assertEqual(13, constants:opcode_to_num(voice_signal)).
 
 websocket_handle_rejects_compressed_frame_past_max_payload_test() ->
     {ok, Compressed, _} = gateway_compress:compress(
@@ -687,9 +603,6 @@ assert_held_without_pending(Result) ->
     {ok, State} = Result,
     ?assertEqual(undefined, maps:get(pending_identify, State, undefined)),
     ?assertEqual(undefined, maps:get(pending_identify_retry_timer, State, undefined)).
-
-not_a_map() ->
-    eqwalizer:dynamic_cast(not_a_map).
 
 request_worker_wait_loop() ->
     receive

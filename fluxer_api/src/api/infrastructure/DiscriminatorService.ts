@@ -8,7 +8,7 @@ import {resolveLimitSafe} from '@app/api/limits/LimitConfigUtils';
 import {createLimitMatchContext} from '@app/api/limits/LimitMatchContextBuilder';
 import type {User} from '@app/api/models/User';
 import {isPremiumTieringActive} from '@app/api/stripe/BillingConfigCache';
-import type {IUserRepository} from '@app/api/user/IUserRepository';
+import type {UserRepository} from '@app/api/user/repositories/UserRepository';
 import {APIErrorCodes} from '@fluxer/constants/src/ApiErrorCodes';
 import {NON_SELF_HOSTED_RESERVED_DISCRIMINATORS} from '@fluxer/constants/src/DiscriminatorConstants';
 import {BadRequestError} from '@fluxer/errors/src/domains/core/BadRequestError';
@@ -46,20 +46,14 @@ export class UsernameNotAvailableError extends BadRequestError {
 	}
 }
 
-export interface IDiscriminatorService {
-	generateDiscriminator(params: GenerateDiscriminatorParams): Promise<GenerateDiscriminatorResult>;
-	isDiscriminatorAvailableForUsername(username: string, discriminator: number): Promise<boolean>;
-	resolveUsernameChange(params: ResolveUsernameChangeParams): Promise<ResolveUsernameChangeResult>;
-}
-
-export class DiscriminatorService implements IDiscriminatorService {
+export class DiscriminatorService {
 	private static readonly LOCK_TTL_MS = ms('5 seconds');
 	private static readonly LOCK_RETRY_DELAY_MS = 50;
 	private static readonly LOCK_MAX_WAIT_MS = ms('10 seconds');
 	private static readonly DISCRIM_CACHE_TTL_S = seconds('30 seconds');
 
 	constructor(
-		private userRepository: IUserRepository,
+		private userRepository: UserRepository,
 		private cacheService: ICacheService,
 		private limitConfigService: LimitConfigService,
 	) {}

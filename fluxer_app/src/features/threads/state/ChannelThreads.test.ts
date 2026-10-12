@@ -18,6 +18,10 @@ const selectedGuild = observable({selectedGuildId: null as string | null});
 const updateGuildSubscriptions = vi.fn();
 const gateway = observable({isReady: false, socket: {isConnected: () => true, updateGuildSubscriptions}});
 
+vi.mock('@lingui/core/macro', () => ({
+	msg: (descriptor: unknown) => descriptor,
+	t: (descriptor: unknown) => descriptor,
+}));
 vi.mock('@app/features/app/state/RuntimeConfig', () => ({default: {localInstanceDomain: 'fluxer.test'}}));
 vi.mock('@app/features/user/state/Users', () => ({
 	default: {getUser: () => undefined, cacheUsers: () => {}, getCurrentUser: () => ({id: 'me', mfaEnabled: true})},
@@ -49,7 +53,7 @@ vi.mock('@app/features/ui/commands/ContextMenuCommands', () => ({close: vi.fn()}
 vi.mock('@app/features/ui/commands/PopoutCommands', () => ({closeAll: vi.fn()}));
 vi.mock('@app/features/guild/state/Guilds', () => ({default: {getGuild: () => ({ownerId: 'owner', mfaLevel: 0})}}));
 vi.mock('@app/features/member/state/GuildMembers', () => ({
-	default: {getMember: () => null, hydrateIfMissing: () => {}},
+	default: {getMember: () => null, hydrateOrRefresh: () => {}},
 }));
 vi.mock('@app/features/permissions/state/Permission', () => ({
 	default: {
@@ -65,7 +69,7 @@ vi.mock('@app/features/permissions/state/Permission', () => ({
 vi.mock('@app/features/navigation/state/Navigation', () => ({default: navigation}));
 vi.mock('@app/features/navigation/state/SelectedGuild', () => ({default: selectedGuild}));
 vi.mock('@app/features/navigation/utils/RouterUtils', () => ({replaceWith: vi.fn(), transitionTo: vi.fn()}));
-vi.mock('@app/features/gateway/transport/GatewayConnection', () => ({default: gateway}));
+vi.mock('@app/features/gateway/transport/GatewaySessionPool', () => ({default: {foregroundConnection: gateway}}));
 vi.mock('@app/features/user/utils/DateFormatting', () => ({getFormattedFullDate: () => ''}));
 vi.mock('@app/features/moderation/state/LocalUserSpamOverride', () => ({
 	default: {isUserMarkedAsSpammer: () => false},
@@ -83,7 +87,6 @@ const {isSyncExcludedChannelId} = await import('@app/features/threads/utils/Sync
 const {cleanupChannelLocalState} = await import('@app/features/channel/events/ChannelDelete');
 const RouterUtils = await import('@app/features/navigation/utils/RouterUtils');
 const {http} = await import('@app/features/platform/transport/RestTransport');
-const {isNewMessageGroup} = await import('@app/features/messaging/utils/MessageGroupingUtils');
 
 const GUILD = '1500000000000000000';
 const PARENT = '1500000000000000001';
@@ -416,12 +419,13 @@ describe('control arm', () => {
 		expect(vi.mocked(http.get)).not.toHaveBeenCalled();
 		expect(vi.mocked(http.post)).not.toHaveBeenCalled();
 		ThreadGuilds.handleGuild(guildObject([]));
+		await Promise.resolve();
 		expect(updateGuildSubscriptions).toHaveBeenCalledWith({
 			subscriptions: {[GUILD]: {threads: true, thread_member_lists: []}},
 		});
 	});
 
-	it('sends thread member lists only for subscribed threads of the active guild', () => {
+	it('sends thread member lists only for subscribed threads of the active guild', async () => {
 		ThreadGuilds.handleGuild(guildObject([]));
 		runInAction(() => {
 			selectedGuild.selectedGuildId = GUILD;
@@ -429,10 +433,59 @@ describe('control arm', () => {
 		});
 		ThreadSubscriptions.handleConnectionReady();
 		const release = ThreadRoster.subscribe(GUILD, THREAD_A);
+		await Promise.resolve();
 		expect(updateGuildSubscriptions).toHaveBeenLastCalledWith({
 			subscriptions: {[GUILD]: {threads: true, thread_member_lists: [THREAD_A]}},
 		});
 		release();
+		await Promise.resolve();
+	});
+
+	it('switches thread member lists in a single request', async () => {
+		ThreadGuilds.handleGuild(guildObject([]));
+		runInAction(() => {
+			selectedGuild.selectedGuildId = GUILD;
+			gateway.isReady = true;
+		});
+		ThreadSubscriptions.handleConnectionReady();
+		const releaseA = ThreadRoster.subscribe(GUILD, THREAD_A);
+		await Promise.resolve();
+		updateGuildSubscriptions.mockClear();
+		releaseA();
+		const releaseB = ThreadRoster.subscribe(GUILD, THREAD_B);
+		await Promise.resolve();
+		expect(updateGuildSubscriptions).toHaveBeenCalledTimes(1);
+		expect(updateGuildSubscriptions).toHaveBeenCalledWith({
+			subscriptions: {[GUILD]: {threads: true, thread_member_lists: [THREAD_B]}},
+		});
+		releaseB();
+		await Promise.resolve();
+	});
+
+	it('clears the previous guild thread member lists when the selected guild changes', async () => {
+		const otherGuild = '1500000000000000099';
+		ThreadGuilds.handleGuild(guildObject([]));
+		ThreadGuilds.handleGuild({...guildObject([]), id: otherGuild});
+		runInAction(() => {
+			selectedGuild.selectedGuildId = GUILD;
+			gateway.isReady = true;
+		});
+		ThreadSubscriptions.handleConnectionReady();
+		const release = ThreadRoster.subscribe(GUILD, THREAD_A);
+		await Promise.resolve();
+		updateGuildSubscriptions.mockClear();
+		runInAction(() => {
+			selectedGuild.selectedGuildId = otherGuild;
+		});
+		await Promise.resolve();
+		expect(updateGuildSubscriptions).toHaveBeenCalledWith({
+			subscriptions: {
+				[GUILD]: {thread_member_lists: []},
+				[otherGuild]: {threads: true, thread_member_lists: []},
+			},
+		});
+		release();
+		await Promise.resolve();
 	});
 
 	it('serializes a control channel without any new keys', () => {
@@ -470,6 +523,7 @@ describe('control arm', () => {
 				'position',
 				'rate_limit_per_user',
 				'recipients',
+				'rtc_p2p',
 				'rtc_region',
 				'topic',
 				'type',
@@ -508,38 +562,38 @@ describe('control arm', () => {
 		expect(isSyncExcludedChannelId(PARENT)).toBe(false);
 		expect(isSyncExcludedChannelId('1500000000000000999')).toBe(false);
 	});
-});
 
-describe('control arm message grouping', () => {
-	const SYSTEM_TYPES = [1, 2, 3, 4, 5, 6, 7, MessageTypes.THREAD_CREATED, MessageTypes.CLIENT_SYSTEM];
-
-	function fakeMessage(type: number, offsetMs: number) {
-		return {
-			type,
-			author: {id: 'author', username: 'author'},
-			webhookId: undefined,
-			timestamp: new Date(Date.UTC(2026, 8, 28, 12, 0, 0) + offsetMs),
-			mentions: [],
-			mentionRoles: [],
-			mentionEveryone: false,
-			hasFlag: () => false,
-			isUserMessage: () =>
-				type === MessageTypes.DEFAULT || type === MessageTypes.REPLY || type === MessageTypes.CLIENT_SYSTEM,
-		} as unknown as Parameters<typeof isNewMessageGroup>[2];
-	}
-
-	it("keeps today's grouping for system, reply and client messages while inactive", () => {
-		expect(ThreadGuilds.anyActive).toBe(false);
-		for (const type of SYSTEM_TYPES) {
-			expect(isNewMessageGroup(undefined, fakeMessage(MessageTypes.DEFAULT, 0), fakeMessage(type, 1000))).toBe(true);
-			expect(isNewMessageGroup(undefined, fakeMessage(type, 0), fakeMessage(MessageTypes.DEFAULT, 1000))).toBe(true);
-			expect(isNewMessageGroup(undefined, fakeMessage(type, 0), fakeMessage(type, 1000))).toBe(false);
-		}
-		expect(
-			isNewMessageGroup(undefined, fakeMessage(MessageTypes.DEFAULT, 0), fakeMessage(MessageTypes.REPLY, 1000)),
-		).toBe(true);
-		expect(
-			isNewMessageGroup(undefined, fakeMessage(MessageTypes.DEFAULT, 0), fakeMessage(MessageTypes.DEFAULT, 1000)),
-		).toBe(false);
+	it('clears the previous guild thread member lists after a guild switch during a reconnect', async () => {
+		const otherGuild = '1500000000000000099';
+		ThreadGuilds.handleGuild(guildObject([]));
+		ThreadGuilds.handleGuild({...guildObject([]), id: otherGuild});
+		runInAction(() => {
+			selectedGuild.selectedGuildId = GUILD;
+			gateway.isReady = true;
+		});
+		ThreadSubscriptions.handleConnectionReady();
+		const release = ThreadRoster.subscribe(GUILD, THREAD_A);
+		await Promise.resolve();
+		runInAction(() => {
+			gateway.isReady = false;
+		});
+		release();
+		runInAction(() => {
+			selectedGuild.selectedGuildId = otherGuild;
+		});
+		await Promise.resolve();
+		updateGuildSubscriptions.mockClear();
+		runInAction(() => {
+			gateway.isReady = true;
+		});
+		ThreadSubscriptions.handleConnectionReady();
+		await Promise.resolve();
+		expect(updateGuildSubscriptions).toHaveBeenCalledTimes(1);
+		expect(updateGuildSubscriptions).toHaveBeenCalledWith({
+			subscriptions: {
+				[GUILD]: {thread_member_lists: []},
+				[otherGuild]: {threads: true, thread_member_lists: []},
+			},
+		});
 	});
 });

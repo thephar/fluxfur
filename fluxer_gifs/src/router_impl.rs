@@ -47,10 +47,6 @@ impl RouterService for GifsRouter {
             self.l1.insert(key, resp.clone());
         }
     }
-
-    fn l1_invalidate(&self, key: &str) {
-        self.l1.invalidate(key);
-    }
 }
 
 fn request_l1_key(req: &GifRequest) -> Option<String> {
@@ -59,9 +55,7 @@ fn request_l1_key(req: &GifRequest) -> Option<String> {
         | GifRequest::GetFeatured { .. }
         | GifRequest::GetTrendingGifs { .. }
         | GifRequest::Suggest { .. }
-        | GifRequest::ResolveByUrl { .. }
-        | GifRequest::BuildShareUrl { .. }
-        | GifRequest::ExtractSlugFromUrl { .. } => request_key(req),
+        | GifRequest::ResolveByUrl { .. } => request_key(req),
         GifRequest::IsAvailable { .. } | GifRequest::RegisterShare { .. } => None,
     }
 }
@@ -83,8 +77,6 @@ fn request_key(req: &GifRequest) -> Option<String> {
         GifRequest::ResolveByUrl { url, .. } => {
             Some(format!("resolve:{}", crate::klipy::resolve_cache_key(url)))
         }
-        GifRequest::BuildShareUrl { slug } => Some(format!("share-url:{slug}")),
-        GifRequest::ExtractSlugFromUrl { url } => Some(format!("extract-slug:{url}")),
     }
 }
 

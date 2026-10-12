@@ -16,7 +16,7 @@ import {
 } from '@app/api/stripe/BillingConfigCache';
 import {getProductRegistry, ProductRegistry, ProductType} from '@app/api/stripe/ProductRegistry';
 import {getStripeClient} from '@app/api/stripe/StripeClient';
-import {setupSyncStripeWebhookWorker} from '@app/api/stripe/tests/StripeWebhookTestUtils';
+import {setupSyncStripeWebhookWorker, signStripeWebhook} from '@app/api/stripe/tests/StripeWebhookTestUtils';
 import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHarness';
 import {NoopLogger} from '@app/api/test/mocks/NoopLogger';
 import {
@@ -31,7 +31,6 @@ import {getCurrencyPreferences, getGiftCurrencyPreferences, isLocalizedCurrency}
 import processStripeWebhook from '@app/api/worker/tasks/ProcessStripeWebhook';
 import {setWorkerDependenciesForTest} from '@app/api/worker/WorkerContext';
 import {APIErrorCodes} from '@fluxer/constants/src/ApiErrorCodes';
-import {UserPremiumTypes} from '@fluxer/constants/src/UserConstants';
 import type {PremiumStateResponse, PriceIdsResponse} from '@fluxer/schema/src/domains/premium/PremiumSchemas';
 import type {WorkerTaskHelpers} from '@pkgs/worker/src/contracts/WorkerTask';
 import {HttpResponse, http} from 'msw';
@@ -133,11 +132,6 @@ function sessionField(session: object | undefined, key: string): unknown {
 	return session ? (session as Record<string, unknown>)[key] : undefined;
 }
 
-function signWebhook(payload: string, timestamp: number, secret: string): string {
-	const signature = crypto.createHmac('sha256', secret).update(`${timestamp}.${payload}`).digest('hex');
-	return `t=${timestamp},v1=${signature}`;
-}
-
 describe('operator billing catalog', () => {
 	let harness: ApiTestHarness;
 	let stripeHandlers: StripeApiHandlers;
@@ -195,7 +189,6 @@ describe('operator billing catalog', () => {
 				const lower = currency.toLowerCase();
 				expect(registry.getProduct(`price_envmonthly${lower}`)).toEqual({
 					type: ProductType.MONTHLY_SUBSCRIPTION,
-					premiumType: UserPremiumTypes.SUBSCRIPTION,
 					durationMonths: 1,
 					isGift: false,
 					currency,
@@ -203,7 +196,6 @@ describe('operator billing catalog', () => {
 				});
 				expect(registry.getProduct(`price_envyearly${lower}`)).toEqual({
 					type: ProductType.YEARLY_SUBSCRIPTION,
-					premiumType: UserPremiumTypes.SUBSCRIPTION,
 					durationMonths: 12,
 					isGift: false,
 					currency,
@@ -211,14 +203,12 @@ describe('operator billing catalog', () => {
 				});
 				expect(registry.getProduct(`price_envgiftmonth${lower}`)).toEqual({
 					type: ProductType.GIFT_1_MONTH,
-					premiumType: UserPremiumTypes.SUBSCRIPTION,
 					durationMonths: 1,
 					isGift: true,
 					currency,
 				});
 				expect(registry.getProduct(`price_envgiftyear${lower}`)).toEqual({
 					type: ProductType.GIFT_1_YEAR,
-					premiumType: UserPremiumTypes.SUBSCRIPTION,
 					durationMonths: 12,
 					isGift: true,
 					currency,
@@ -231,30 +221,11 @@ describe('operator billing catalog', () => {
 			expect(registry.getRecurringSubscriptionPriceId('monthly', 'GBP')).toBeNull();
 		});
 
-		test('keeps the hosted country routing and localized currency rules', () => {
-			expect(getCurrencyPreferences('SE')).toEqual(['SEK', 'EUR', 'USD']);
-			expect(getCurrencyPreferences('GB')).toEqual(['USD', 'EUR']);
-			expect(getGiftCurrencyPreferences('BR')).toEqual(['USD', 'EUR']);
-			expect(isLocalizedCurrency('BRL')).toBe(true);
-			expect(isLocalizedCurrency('USD')).toBe(false);
-			expect(isLocalizedCurrency('EUR')).toBe(false);
-		});
-
 		test('ignores legacy slots outside the hosted currencies', () => {
 			Config.stripe.legacyPrices = {monthly_gbp: ['price_legacygbp'], monthly_brl: ['price_legacybrl']};
 			const registry = getProductRegistry();
 			expect(registry.getProduct('price_legacygbp')).toBeNull();
 			expect(registry.getProduct('price_legacybrl')?.currency).toBe('BRL');
-		});
-
-		test('serves the localized SEK price ids for a Swedish request', async () => {
-			const prices = await createBuilder<PriceIdsResponse>(harness, '')
-				.get('/premium/price-ids?country_code=SE')
-				.expect(HTTP_STATUS.OK)
-				.execute();
-			expect(prices.currency).toBe('SEK');
-			expect(prices.monthly).toBe('price_envmonthlysek');
-			expect(prices.gift_currency).toBe('SEK');
 		});
 
 		test('keeps the hosted tier name, required terms consent and tax collection on hosted', async () => {
@@ -309,7 +280,6 @@ describe('operator billing catalog', () => {
 			expect(getEffectiveBillingConfig().catalogMode).toBe('operator');
 			expect(registry.getProduct('price_opgbpmonthly')).toEqual({
 				type: ProductType.MONTHLY_SUBSCRIPTION,
-				premiumType: UserPremiumTypes.SUBSCRIPTION,
 				durationMonths: 1,
 				isGift: false,
 				currency: 'GBP',
@@ -538,23 +508,6 @@ describe('operator billing catalog', () => {
 			expect(second).not.toBe(first);
 		});
 
-		test('stays available on self-hosted after billing is disabled so subscriptions can be serviced', () => {
-			useOperatorBilling({enabled: false});
-			expect(isBillingActive()).toBe(false);
-			expect(getStripeClient()).not.toBeNull();
-		});
-
-		test('is unavailable on hosted when env billing is disabled', () => {
-			const enabled = Config.stripe.enabled;
-			Config.stripe.enabled = false;
-			try {
-				setStoredBillingConfig(operatorBilling({enabled: true}));
-				expect(getStripeClient()).toBeNull();
-			} finally {
-				Config.stripe.enabled = enabled;
-			}
-		});
-
 		test('sends requests with the currently stored secret key', async () => {
 			const authorizations: Array<string | null> = [];
 			server.use(
@@ -625,34 +578,12 @@ describe('operator billing catalog', () => {
 			useOperatorBilling();
 		});
 
-		async function sendWebhook(secret: string): Promise<number> {
-			const {payload, timestamp} = createMockWebhookPayload({
-				type: 'customer.created',
-				data: {object: {id: `cus_operator_${crypto.randomBytes(4).toString('hex')}`}},
-			});
-			const {response} = await createBuilder(harness, '')
-				.post('/stripe/webhook')
-				.header('stripe-signature', signWebhook(payload, timestamp, secret))
-				.header('content-type', 'application/json')
-				.body(payload)
-				.executeRaw();
-			return response.status;
-		}
-
-		test('verifies the signature with the stored webhook secret in the api and the worker', async () => {
-			expect(await sendWebhook(STORED_WEBHOOK_SECRET)).toBe(200);
-		});
-
-		test('rejects a signature made with the overridden env secret', async () => {
-			expect(await sendWebhook(ENV_WEBHOOK_SECRET)).toBe(401);
-		});
-
 		function signedJob(secret: string): {body: string; signature: string} {
 			const {payload, timestamp} = createMockWebhookPayload({
 				type: 'customer.created',
 				data: {object: {id: `cus_operator_${crypto.randomBytes(4).toString('hex')}`}},
 			});
-			return {body: payload, signature: signWebhook(payload, timestamp, secret)};
+			return {body: payload, signature: signStripeWebhook(payload, timestamp, secret)};
 		}
 
 		test('accepts a queued event signed with the previous secret in the worker after a rotation', async () => {

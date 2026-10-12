@@ -5,11 +5,12 @@ use crate::{
         AccountIdentityConfigResponse, AccountIdentityMode, AppPublicConfigResponse,
         CAPTCHA_COST_RANGE, CAPTCHA_MAX_COUNTER_RANGE, CaptchaConfigResponse,
         DOMAIN_MIGRATION_DEFAULT_SALT, DomainMigrationConfigResponse,
-        EXPERIMENT_MAX_TARGETED_USERS, ExperimentDeliveryConfigResponse,
-        GatewayRolloutConfigResponse, InstanceConfigResponse, InstanceIntegrationsResponse,
-        InstanceMediaResponse, InstancePolicyResponse, InstanceRegistrationResponse,
-        LimitConfigResponse, PendingRegistrationResponse, PushRelayConfigResponse,
-        RegistrationUrlResponse, SsoConfigResponse, TagStyle,
+        EXPERIMENT_MAX_ROLLOUT_COUNTRY_CODES, EXPERIMENT_MAX_TARGETED_USERS,
+        ExperimentDeliveryConfigResponse, GatewayRolloutConfigResponse, InstanceConfigResponse,
+        InstanceIntegrationsResponse, InstanceMediaResponse, InstancePolicyResponse,
+        InstanceRegistrationResponse, LimitConfigResponse, PendingRegistrationResponse,
+        PremiumMode, PushRelayConfigResponse, RegistrationUrlResponse, SsoConfigResponse, TagStyle,
+        VOICE_P2P_DEFAULT_SALT, VOICE_P2P_MAX_PARTICIPANTS_RANGE, VoiceP2pConfigResponse,
     },
     config::AdminConfig,
     middleware::auth::AuthContext,
@@ -53,6 +54,22 @@ fn entry_count_hint(count: usize, cap: usize) -> Markup {
             (count) " of " (cap) " stored"
             @if count >= cap {
                 " (at the cap; remove an entry before adding another)"
+            }
+        }
+    }
+}
+
+fn experiment_rollout_country_codes_field(name: &str, country_codes: &[String]) -> Markup {
+    html! {
+        div class="flex flex-col gap-2" {
+            (text_input(name, "Rollout Countries", &country_codes.join(", "), "SE, NO, FI"))
+            (entry_count_hint(country_codes.len(), EXPERIMENT_MAX_ROLLOUT_COUNTRY_CODES))
+            p class="text-xs text-neutral-500" {
+                "Two-letter ISO 3166-1 country codes, separated by commas or spaces. When set, \
+                 the user rollout percentage only applies to requests from these countries, and \
+                 a request with an unknown country is left out. Leave empty to apply the \
+                 percentage everywhere. The always-on lists, the premium switch and the \
+                 never-on list ignore the country. Invalid entries prevent the save."
             }
         }
     }
@@ -141,6 +158,7 @@ pub fn instance_config_page(
                                 csrf_token,
                                 &instance_config.policy,
                                 &instance_config.app_public.branding.premium_product_name,
+                                instance_config.billing.enabled == Some(true),
                             ))
                         },
                     ))
@@ -182,7 +200,12 @@ pub fn instance_config_page(
                     "Media & retention",
                     "Attachment expiry rules that can be changed without editing environment variables.",
                     html! {
-                        (media_config_section(base, csrf_token, &instance_config.media))
+                        (media_config_section(
+                            base,
+                            csrf_token,
+                            &instance_config.media,
+                            instance_config.self_hosted,
+                        ))
                     },
                 ))
                 (config_group(
@@ -193,6 +216,7 @@ pub fn instance_config_page(
                         @if !instance_config.self_hosted {
                             (domain_migration_section(base, csrf_token, &instance_config.domain_migration))
                         }
+                        (voice_p2p_section(base, csrf_token, &instance_config.voice_p2p))
                         (experiment_delivery_section(base, csrf_token, &instance_config.experiment_delivery))
                         @if let Some(limit_config) = limit_config {
                             (limit_config_section(base, limit_config))
@@ -246,6 +270,7 @@ fn policy_config_section(
     csrf_token: &str,
     policy: &InstancePolicyResponse,
     premium_name: &str,
+    billing_enabled: bool,
 ) -> Markup {
     section_card_with_description(
         "Community & Policy",
@@ -256,7 +281,7 @@ fn policy_config_section(
             div class="space-y-8" {
                 (single_community_form(base, csrf_token, policy))
                 (direct_messages_form(base, csrf_token, policy))
-                (premium_mode_form(base, csrf_token, policy, premium_name))
+                (premium_mode_form(base, csrf_token, policy, premium_name, billing_enabled))
                 (community_creation_form(base, csrf_token, policy))
                 (services_form(base, csrf_token, policy))
             }
@@ -355,6 +380,7 @@ fn premium_mode_form(
     csrf_token: &str,
     policy: &InstancePolicyResponse,
     premium_name: &str,
+    billing_enabled: bool,
 ) -> Markup {
     let mirror_label = format!("Mirror (Free and {premium_name} tiers)");
     let everyone_label = format!("Everyone (every member gets {premium_name} limits)");
@@ -368,6 +394,16 @@ fn premium_mode_form(
                         ("mirror", mirror_label.as_str()),
                         ("everyone", everyone_label.as_str()),
                     ], policy.premium_mode.as_str()))
+                    p class="text-xs text-neutral-500" {
+                        "Limits you have not edited follow the model. Limits you changed under Limit \
+                         Config keep your values in both models."
+                    }
+                    @if billing_enabled && matches!(policy.premium_mode, PremiumMode::Mirror) {
+                        p class="text-sm text-amber-700" {
+                            "Billing is enabled. Disable it under Premium & billing before switching \
+                             the premium model to Everyone."
+                        }
+                    }
                     (form_actions(html! {
                         (submit_button("Save premium model"))
                     }))
@@ -508,6 +544,16 @@ fn password_input(name: &str, label: &str, helper: Option<&str>) -> Markup {
                 autocomplete="new-password";
         },
     )
+}
+
+fn smtp_tls_mode_summary(mode: &str) -> &str {
+    match mode {
+        "implicit" => "implicit TLS",
+        "starttls" => "required STARTTLS",
+        "opportunistic" => "STARTTLS when the server offers it",
+        "none" => "no encryption",
+        other => other,
+    }
 }
 
 fn account_identity_section(account_identity: &AccountIdentityConfigResponse) -> Markup {
@@ -653,14 +699,33 @@ fn integrations_config_section(
                                 ))
                                 (password_input("integration_smtp_password", "SMTP password", Some("Leave blank to keep the current password.")))
                             }
-                            (checkbox("integration_smtp_secure", "true", "Use TLS", integrations.email.smtp.secure.unwrap_or(true), true))
+                            (select_input("integration_smtp_tls_mode", "SMTP encryption", &[
+                                ("", "Automatic"),
+                                ("implicit", "Implicit TLS"),
+                                ("starttls", "STARTTLS, required"),
+                                ("opportunistic", "STARTTLS, when the server offers it"),
+                                ("none", "None"),
+                            ], integrations.email.smtp.tls_mode.as_deref().unwrap_or("")))
+                            p class="text-xs text-neutral-500" {
+                                "Automatic follows FLUXER_EMAIL_SMTP_TLS_MODE when it is set, then the older FLUXER_EMAIL_SMTP_SECURE, where true means implicit TLS on any port. With neither set it uses implicit TLS on port 465 and requires STARTTLS on every other port."
+                            }
+                            @if let Some(mode) = integrations.email.smtp.effective_tls_mode.as_deref() {
+                                p class="text-xs text-neutral-500" {
+                                    "Outgoing email currently uses " (smtp_tls_mode_summary(mode))
+                                    @if let Some(port) = integrations.email.smtp.port { " on port " (port) }
+                                    "."
+                                }
+                            }
                             (checkbox("integration_email_disable_new_ip_authorization", "true", "Disable new IP login authorization", integrations.email.disable_new_ip_authorization, true))
                             div class="flex flex-wrap gap-2" {
                                 button type="submit"
                                     formaction={(base) "/instance-config?action=test_smtp"}
                                     class="inline-flex w-fit items-center justify-center gap-2 rounded-lg border border-neutral-300 bg-neutral-50 px-4 py-2 font-medium text-base text-neutral-700 transition-all duration-150 hover:border-neutral-400 hover:text-neutral-900 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-white" {
-                                    span { "Test SMTP connection" }
+                                    span { "Save and test SMTP" }
                                 }
+                            }
+                            p class="text-xs text-neutral-500" {
+                                "The test saves this form first, then connects with the saved settings, the same ones outgoing email uses."
                             }
                         }
                     }
@@ -721,7 +786,12 @@ fn integrations_config_section(
     )
 }
 
-fn media_config_section(base: &str, csrf_token: &str, media: &InstanceMediaResponse) -> Markup {
+fn media_config_section(
+    base: &str,
+    csrf_token: &str,
+    media: &InstanceMediaResponse,
+    self_hosted: bool,
+) -> Markup {
     let decay = &media.attachment_decay;
     let effective = &decay.effective;
     let enabled = decay.enabled.unwrap_or(effective.enabled);
@@ -749,9 +819,14 @@ fn media_config_section(base: &str, csrf_token: &str, media: &InstanceMediaRespo
         .renew_window_days
         .unwrap_or(effective.renew_window_days)
         .to_string();
+    let description = if self_hosted {
+        "Expire eligible attachments using size-based lifetimes. This is enabled by default and applies at runtime. On a self-hosted instance, changes also apply to attachments uploaded earlier, which are kept for at least the renew window before a new or shorter expiry deletes them."
+    } else {
+        "Expire eligible attachments using size-based lifetimes. This is enabled by default and applies at runtime. Changes apply to attachments uploaded from then on."
+    };
     section_card_with_description(
         "Media Expiry",
-        "Expire eligible attachments using size-based lifetimes. This is disabled by default and applies at runtime.",
+        description,
         html! {
             form method="post" action={(base) "/instance-config?action=update_media"} {
                 (csrf_input(csrf_token))
@@ -875,9 +950,9 @@ fn app_public_config_section(
                             ))
                             (text_input(
                                 "app_theme_color",
-                                "Theme Color",
+                                "Theme Color (hex)",
                                 app_public.branding.theme_color.as_deref().unwrap_or(""),
-                                "#5865f2",
+                                "#4641d9",
                             ))
                         }
                         div class="grid grid-cols-1 gap-4 sm:grid-cols-2" {
@@ -1193,6 +1268,10 @@ fn domain_migration_section(
                         Some(0), Some(10000), "1",
                         Some("Share of logged-out devices sent to the new origin, in basis points. Each device is bucketed on its own random ID."),
                     ))
+                    (experiment_rollout_country_codes_field(
+                        "domain_migration_rollout_country_codes",
+                        &domain_migration.rollout_country_codes,
+                    ))
                     div class="flex flex-col gap-2" {
                         (text_input(
                             "domain_migration_rollout_salt",
@@ -1280,6 +1359,162 @@ fn domain_migration_section(
 
                     (form_actions(html! {
                         (submit_button("Save Domain Migration Configuration"))
+                    }))
+                }
+            }
+        },
+    )
+}
+
+fn voice_p2p_section(base: &str, csrf_token: &str, voice_p2p: &VoiceP2pConfigResponse) -> Markup {
+    let status = if voice_p2p.enabled {
+        ("Live", BadgeVariant::Success)
+    } else {
+        ("Inert", BadgeVariant::Default)
+    };
+    let included_user_ids = voice_p2p.included_user_ids.join("\n");
+    let excluded_user_ids = voice_p2p.excluded_user_ids.join("\n");
+    section_card_with_description(
+        "Peer-to-peer voice",
+        "Lets selected users start small voice calls that connect the participants directly \
+         instead of through the voice servers. A peer-to-peer call only moves to the voice \
+         servers when a participant switches it or its region changes.",
+        html! {
+            form method="post" action={(base) "/instance-config?action=update_voice_p2p"} {
+                (csrf_input(csrf_token))
+                div class="space-y-6" {
+                    div class="flex flex-wrap items-center gap-2" {
+                        h3 class="text-sm font-semibold text-neutral-900" { "Master switch" }
+                        (badge(status.0, status.1))
+                        span class="text-xs text-neutral-500" {
+                            "Config version " (voice_p2p.config_version)
+                        }
+                    }
+                    (checkbox(
+                        "voice_p2p_enabled",
+                        "true",
+                        "Let the selected users start peer-to-peer calls",
+                        voice_p2p.enabled,
+                        true,
+                    ))
+                    p class="text-xs text-neutral-500" {
+                        "Off is the safe state and the kill switch. With this unchecked every new \
+                         call uses the voice servers and a running peer-to-peer call accepts no \
+                         new joins, so the rollout and targeting fields below have no effect at \
+                         all. While it is on, the fields below select who can start a \
+                         peer-to-peer call, and anyone who agrees to a direct connection can \
+                         join one."
+                    }
+
+                    h3 class="text-sm font-semibold text-neutral-900" { "Call size" }
+                    (number_field(
+                        "voice_p2p_max_participants",
+                        "Maximum participants",
+                        &voice_p2p.max_participants.to_string(),
+                        Some(*VOICE_P2P_MAX_PARTICIPANTS_RANGE.start()),
+                        Some(*VOICE_P2P_MAX_PARTICIPANTS_RANGE.end()),
+                        "1",
+                        Some("Most participants a peer-to-peer call can hold, 2 through 4. Clients only offer a peer-to-peer call in a direct message or group with at most this many members, and a join past it is refused as full. Lowering it never removes anyone from a running call."),
+                    ))
+
+                    h3 class="text-sm font-semibold text-neutral-900" { "Rollout" }
+                    (number_field(
+                        "voice_p2p_rollout_basis_points",
+                        "Rollout (basis points)",
+                        &voice_p2p.rollout_basis_points.to_string(),
+                        Some(0), Some(10000), "1",
+                        Some("Share of users who can start peer-to-peer calls, in basis points: 0 is nobody, 100 is 1%, 10000 is everybody."),
+                    ))
+                    (experiment_rollout_country_codes_field(
+                        "voice_p2p_rollout_country_codes",
+                        &voice_p2p.rollout_country_codes,
+                    ))
+                    div class="flex flex-col gap-2" {
+                        (text_input(
+                            "voice_p2p_rollout_salt",
+                            "Rollout Salt",
+                            &voice_p2p.rollout_salt,
+                            VOICE_P2P_DEFAULT_SALT,
+                        ))
+                        p class="text-xs text-neutral-500" {
+                            "Seeds the bucketing hash. Changing it reshuffles which users fall \
+                             inside the percentage above. Leave it alone to keep the current \
+                             cohort stable."
+                        }
+                    }
+                    div class="flex flex-col gap-2" {
+                        (textarea_input(
+                            "voice_p2p_included_user_ids",
+                            "Always-on User IDs",
+                            "1500000000000000001\n1500000000000000002",
+                            &included_user_ids,
+                            4,
+                            false,
+                        ))
+                        (entry_count_hint(
+                            voice_p2p.included_user_ids.len(),
+                            EXPERIMENT_MAX_TARGETED_USERS,
+                        ))
+                        p class="text-xs text-neutral-500" {
+                            "One snowflake per line, or comma separated. These users are targeted \
+                             regardless of the percentage above. IDs must contain 1 to 20 decimal \
+                             digits. Invalid entries prevent the save. Blank entries and duplicate \
+                             IDs are ignored."
+                        }
+                    }
+                    div class="flex flex-col gap-2" {
+                        (checkbox(
+                            "voice_p2p_include_premium_users",
+                            "true",
+                            "Include premium users",
+                            voice_p2p.include_premium_users,
+                            true,
+                        ))
+                        p class="text-xs text-neutral-500" {
+                            "Includes every account with active premium perks, regardless of the \
+                             percentage above. The never-on list still wins."
+                        }
+                    }
+                    div class="flex flex-col gap-2" {
+                        (textarea_input(
+                            "voice_p2p_included_guild_ids",
+                            "Always-on Guild IDs",
+                            "1500000000000000005\n1500000000000000006",
+                            &voice_p2p.included_guild_ids.join("\n"),
+                            4,
+                            false,
+                        ))
+                        (entry_count_hint(
+                            voice_p2p.included_guild_ids.len(),
+                            EXPERIMENT_MAX_TARGETED_USERS,
+                        ))
+                        p class="text-xs text-neutral-500" {
+                            "Same format, with guild IDs. Every member of a listed guild is \
+                             included regardless of the percentage above, unless the user is \
+                             in the never-on list."
+                        }
+                    }
+                    div class="flex flex-col gap-2" {
+                        (textarea_input(
+                            "voice_p2p_excluded_user_ids",
+                            "Never-on User IDs",
+                            "1500000000000000003\n1500000000000000004",
+                            &excluded_user_ids,
+                            4,
+                            false,
+                        ))
+                        (entry_count_hint(
+                            voice_p2p.excluded_user_ids.len(),
+                            EXPERIMENT_MAX_TARGETED_USERS,
+                        ))
+                        p class="text-xs text-neutral-500" {
+                            "Same format. Exclusion wins over both the always-on list and the \
+                             percentage."
+                        }
+                    }
+
+                    (form_actions(html! {
+                        (submit_button("Save Peer-to-Peer Voice Configuration"))
                     }))
                 }
             }
@@ -1963,187 +2198,4 @@ fn limit_config_section(base: &str, limit_config: &LimitConfigResponse) -> Marku
             }
         },
     )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn username_instances_hide_email_delivery_and_the_smtp_test() {
-        let integrations = InstanceIntegrationsResponse::default();
-        let username = integrations_config_section(
-            "/admin",
-            "csrf",
-            &integrations,
-            AccountIdentityMode::Username,
-            "Fluxer",
-        )
-        .into_string();
-        assert!(!username.contains("Email delivery"));
-        assert!(!username.contains("test_smtp"));
-        assert!(!username.contains("integration_email_present"));
-        assert!(username.contains("Bluesky OAuth"));
-
-        let email = integrations_config_section(
-            "/admin",
-            "csrf",
-            &integrations,
-            AccountIdentityMode::Email,
-            "Fluxer",
-        )
-        .into_string();
-        assert!(email.contains("Email delivery"));
-        assert!(email.contains("test_smtp"));
-        assert!(email.contains(r#"name="integration_email_present" value="1""#));
-    }
-
-    #[test]
-    fn account_identity_section_has_no_tag_choice_in_username_mode() {
-        let markup = account_identity_section(&AccountIdentityConfigResponse {
-            mode: AccountIdentityMode::Username,
-            locked: Some(true),
-            tag_style: TagStyle::None,
-        })
-        .into_string();
-        assert!(markup.contains("Sign-in Method"));
-        assert!(markup.contains("Username"));
-        assert!(markup.contains("Fixed"));
-        assert!(!markup.contains("No tags"));
-        assert!(!markup.contains("Random tags"));
-        assert!(!markup.contains("username tags"));
-        assert!(!markup.contains("<form"));
-        assert!(!markup.contains("<input"));
-    }
-
-    #[test]
-    fn account_identity_section_shows_random_tags_in_email_mode() {
-        let markup = account_identity_section(&AccountIdentityConfigResponse {
-            mode: AccountIdentityMode::Email,
-            locked: Some(true),
-            tag_style: TagStyle::Random,
-        })
-        .into_string();
-        assert!(markup.contains("Random tags"));
-        assert!(!markup.contains("No tags"));
-        assert!(markup.contains("username tags"));
-    }
-
-    #[test]
-    fn account_identity_section_shows_no_tags_in_email_mode() {
-        let markup = account_identity_section(&AccountIdentityConfigResponse {
-            mode: AccountIdentityMode::Email,
-            locked: Some(true),
-            tag_style: TagStyle::None,
-        })
-        .into_string();
-        assert!(markup.contains("No tags"));
-        assert!(!markup.contains("Random tags"));
-        assert!(!markup.contains("<input"));
-    }
-
-    #[test]
-    fn account_identity_section_shows_the_lock_state_only_when_known() {
-        let render = |locked| {
-            account_identity_section(&AccountIdentityConfigResponse {
-                mode: AccountIdentityMode::Email,
-                locked,
-                tag_style: TagStyle::Random,
-            })
-            .into_string()
-        };
-        let unlocked = render(Some(false));
-        assert!(unlocked.contains("Not fixed yet"));
-        let unknown = render(None);
-        assert!(!unknown.contains("Fixed"));
-        assert!(!unknown.contains("Not fixed yet"));
-        assert!(unknown.contains("Random tags"));
-    }
-
-    #[test]
-    fn captcha_section_posts_the_switch_and_difficulty_fields() {
-        let markup =
-            captcha_section("/admin", "csrf", &CaptchaConfigResponse::default()).into_string();
-        assert!(markup.contains("/admin/instance-config?action=update_captcha"));
-        assert!(markup.contains(r#"name="captcha_enabled""#));
-        assert!(markup.contains(r#"name="captcha_cost""#));
-        assert!(markup.contains(r#"name="captcha_max_counter""#));
-        assert!(markup.contains("about 3.6 s"));
-    }
-
-    #[test]
-    fn low_end_solve_estimate_at_the_defaults_is_about_three_and_a_half_seconds() {
-        let seconds = estimate_low_end_solve_seconds(5_000, 1_000);
-        assert!((seconds - 3.57).abs() < 0.01, "{seconds}");
-    }
-
-    #[test]
-    fn domain_migration_section_shows_both_rollouts_and_list_counts() {
-        let domain_migration = DomainMigrationConfigResponse {
-            anonymous_rollout_basis_points: 250,
-            included_user_ids: vec!["1500000000000000001".to_owned()],
-            excluded_user_ids: vec![
-                "1500000000000000002".to_owned(),
-                "1500000000000000003".to_owned(),
-            ],
-            ..DomainMigrationConfigResponse::default()
-        };
-        let markup = domain_migration_section("/admin", "csrf", &domain_migration).into_string();
-        assert!(markup.contains("action=update_domain_migration"));
-        assert!(markup.contains("domain_migration_enabled"));
-        assert!(markup.contains("name=\"domain_migration_anonymous_rollout_basis_points\""));
-        assert!(markup.contains("value=\"250\""));
-        assert!(markup.contains("name=\"domain_migration_standalone_forwarding\""));
-        assert!(markup.contains("1 of 1000 stored"));
-        assert!(markup.contains("2 of 1000 stored"));
-        assert!(!markup.contains("at the cap"));
-    }
-
-    #[test]
-    fn push_relay_section_shows_the_consent_toggle() {
-        let accepted = PushRelayConfigResponse {
-            relay_consent_accepted: true,
-            relay_consent_accepted_at: Some("2026-09-27T10:11:12.000Z".to_owned()),
-            relay_consent_accepted_by: Some("1130650140672000000".to_owned()),
-        };
-        let markup = push_relay_section("/admin", "csrf", &accepted).into_string();
-        assert!(markup.contains("action=update_push_relay"));
-        assert!(markup.contains("name=\"push_relay_consent_accepted\""));
-        assert!(markup.contains("https://fluxer.com/push-relay"));
-        assert!(markup.contains("value=\"Sep 27, 2026, 10:11 AM UTC\""));
-        assert!(markup.contains("value=\"1130650140672000000\""));
-        assert!(!markup.contains("name=\"push_relay_consent_accepted_at\""));
-        assert!(!markup.contains("name=\"push_relay_consent_accepted_by\""));
-        assert!(!markup.to_lowercase().contains("rollout"));
-
-        let unaccepted =
-            push_relay_section("/admin", "csrf", &PushRelayConfigResponse::default()).into_string();
-        assert!(unaccepted.contains("name=\"push_relay_consent_accepted\""));
-        assert!(unaccepted.contains("Not accepted"));
-        assert!(unaccepted.contains("value=\"Never\""));
-        assert!(unaccepted.contains("value=\"Nobody\""));
-    }
-
-    #[test]
-    fn premium_mode_options_use_the_configured_premium_name() {
-        let markup =
-            premium_mode_form("/admin", "csrf", &InstancePolicyResponse::default(), "Gold")
-                .into_string();
-        assert!(markup.contains("Mirror (Free and Gold tiers)"));
-        assert!(markup.contains("Everyone (every member gets Gold limits)"));
-        assert!(!markup.contains("Plutonium"));
-    }
-
-    #[test]
-    fn domain_migration_section_flags_a_list_at_its_cap() {
-        let domain_migration = DomainMigrationConfigResponse {
-            included_user_ids: (0..EXPERIMENT_MAX_TARGETED_USERS)
-                .map(|index| index.to_string())
-                .collect(),
-            ..DomainMigrationConfigResponse::default()
-        };
-        let markup = domain_migration_section("/admin", "csrf", &domain_migration).into_string();
-        assert!(markup.contains("1000 of 1000 stored"));
-        assert!(markup.contains("at the cap"));
-    }
 }

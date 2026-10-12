@@ -346,8 +346,8 @@ Each key names one limit. A key whose name begins with `feature_` is a feature g
 
 | Value | Description |
 | --- | --- |
-| avatar_max_size | Maximum file size for avatar uploads in bytes, in user scope |
-| emoji_max_size | Maximum file size for emoji uploads in bytes, in guild scope |
+| avatar_max_size | Maximum file size for avatar uploads in bytes, effective up to 104857600, in user scope |
+| emoji_max_size | Maximum file size for emoji uploads in bytes, effective up to 104857600, in guild scope |
 | feature_animated_avatar | Allow animated avatar uploads, in user scope |
 | feature_animated_banner | Allow animated banner uploads, in user scope |
 | feature_custom_discriminator | Allow custom discriminator selection, in user scope. Ignored for people on an instance with the `none` tag style |
@@ -360,7 +360,7 @@ Each key names one limit. A key whose name begins with `feature_` is a feature g
 | feature_voice_entrance_sounds | Play a sound when joining voice, in user scope |
 | max_attachment_file_size | Maximum size of each attachment file in bytes, in user and guild scope |
 | max_attachments_per_message | Maximum number of file attachments per message, in user and guild scope |
-| max_bio_length | Maximum characters in a user biography, in user scope |
+| max_bio_length | Maximum characters in a user biography, in user scope. At most 320 |
 | max_bookmarks | Maximum bookmarked messages, in user scope |
 | max_channels_per_category | Maximum channels per category, in guild scope |
 | max_custom_backgrounds | Maximum custom profile backgrounds, in user scope |
@@ -385,11 +385,12 @@ Each key names one limit. A key whose name begins with `feature_` is a feature g
 | max_private_channels_per_user | Maximum direct message channels per user, in user scope |
 | max_reactions_per_message | Maximum distinct reactions per message, in guild scope |
 | max_relationships | Maximum friend and blocked relationships, in user scope |
+| max_screen_share_bitrate | Highest screen share video bitrate in bits per second, from 1000000 to 50000000, in user scope |
 | max_users_per_message_reaction | Maximum users who can use the same reaction on a message, in guild scope |
 | max_voice_message_duration | Maximum voice message duration in seconds, in user and guild scope |
 | max_webhooks_per_channel | Maximum webhooks per channel, in guild scope |
 | max_webhooks_per_guild | Maximum webhooks per guild, in guild scope |
-| sticker_max_size | Maximum file size for sticker uploads in bytes, in guild scope |
+| sticker_max_size | Maximum file size for sticker uploads in bytes, effective up to 104857600, in guild scope |
 
 <sup>1</sup> Emoji limits are enforced as one shared total against `max_guild_emojis`, and the aliases exist only for older clients. The default of each alias equals the `max_guild_emojis` default
 
@@ -426,7 +427,7 @@ The instance identity a client renders: its name, its images, its theme colour, 
 | logo_url | ?string | Application logo URL, or null |
 | wordmark_url | ?string | Application wordmark URL, or null |
 | favicon_url | ?string | Browser favicon URL, or null |
-| theme_color | ?string | Browser theme colour, or null |
+| theme_color | ?string | Brand and browser theme colour as lowercase `#rrggbb`, or null |
 | status_page_url | ?string | Public status page URL, or null |
 | status_page_incident_history_url | ?string | Status page incident history URL, or null |
 | premium_product_name | string | Name of the premium tier a client displays. A self-hosted deployment reports `Premium` until the operator sets a name |

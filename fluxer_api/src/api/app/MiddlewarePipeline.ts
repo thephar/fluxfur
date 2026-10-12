@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type {ILogger} from '@app/api/ILogger';
 import {ActivityContextMiddleware} from '@app/api/infrastructure/activity/ActivityMeta';
 import {AuditLogMiddleware} from '@app/api/middleware/AuditLogMiddleware';
 import {ClientFeaturesMiddleware} from '@app/api/middleware/ClientFeaturesMiddleware';
@@ -16,15 +15,17 @@ import {ServiceMiddleware} from '@app/api/middleware/ServiceMiddleware';
 import {TrustedClientIpHeaderMiddleware} from '@app/api/middleware/TrustedClientIpHeaderMiddleware';
 import {UserMiddleware} from '@app/api/middleware/UserMiddleware';
 import type {HonoApp} from '@app/api/types/HonoEnv';
+import {PeerAddressMiddleware} from '@app/api/utils/RequestClientIp';
 import {Headers as HttpHeaders} from '@fluxer/constants/src/Headers';
 import {InvalidApiOriginError} from '@fluxer/errors/src/domains/core/InvalidApiOriginError';
 import {cors} from '@fluxer/hono/src/middleware/Cors';
 import {applyMiddlewareStack} from '@fluxer/hono/src/middleware/MiddlewareStack';
 import {createInfoRequestLogger, requestLogger} from '@fluxer/hono/src/middleware/RequestLogger';
 import {resolveClientIpHeaderName} from '@fluxer/ip_utils/src/ClientIp';
+import type {LoggerInterface} from '@fluxer/logger/src/LoggerInterface';
 
 interface MiddlewarePipelineOptions {
-	logger: ILogger;
+	logger: LoggerInterface;
 	nodeEnv: string;
 	corsOrigins: Array<string>;
 	trustClientIpHeader: boolean;
@@ -35,6 +36,7 @@ interface MiddlewarePipelineOptions {
 export function configureMiddleware(routes: HonoApp, options: MiddlewarePipelineOptions): void {
 	const {logger, nodeEnv, corsOrigins, trustClientIpHeader, clientIpHeaderName, maxInflightRequests} = options;
 	const resolvedHeader = resolveClientIpHeaderName(clientIpHeaderName);
+	routes.use(PeerAddressMiddleware);
 	routes.use('/webhooks/:webhook_id/:token', cors({origins: '*'}));
 	routes.use('/webhooks/:webhook_id/:token/messages/:message_id', cors({origins: '*'}));
 	routes.use(
@@ -72,8 +74,6 @@ export function configureMiddleware(routes: HonoApp, options: MiddlewarePipeline
 			],
 			exposedHeaders: [HttpHeaders.X_FLUXER_VERSION, HttpHeaders.ETAG],
 		},
-		skipLogger: true,
-		skipErrorHandler: true,
 	});
 	routes.use(ConcurrencyLimitMiddleware({maxInflightRequests}));
 	routes.get('/_health', async (ctx) => ctx.text('OK'));

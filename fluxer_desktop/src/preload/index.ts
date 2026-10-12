@@ -1,3 +1,4 @@
+import {isRecord} from '@fluxer/record_utils/src/RecordGuards';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {BUILD_CHANNEL} from '@electron/common/BuildChannel';
@@ -35,18 +36,11 @@ import type {
 	NativeAudioAvailability,
 	NativeAudioEndMessage,
 	NativeAudioFrameMessage,
-	NativeAudioRoutingGraphResult,
 	NativeAudioStartOptions,
 	NativeAudioStartResult,
-	NativeScreenCaptureAvailability,
-	NativeScreenCaptureDiagnostics,
-	NativeScreenCaptureEndMessage,
 	NativeScreenCaptureLifecycleEventKind,
 	NativeScreenCaptureLifecycleMessage,
 	NativeScreenCaptureLifecycleSource,
-	NativeScreenCaptureSource,
-	NativeScreenCaptureStartOptions,
-	NativeScreenCaptureStartResult,
 	NotificationOptions,
 	NotificationResult,
 	SetDesktopTroubleshootingDisableHardwareAccelerationOptions,
@@ -63,7 +57,6 @@ import type {
 	UpdaterEvent,
 	VirtmicAvailability,
 	VirtmicNode,
-	VirtmicRoutingGraphResult,
 } from '@electron/common/Types';
 import {createBrowserHandoffPreloadAPI} from '@electron/preload/BrowserHandoffPreload';
 import {createDesktopStoragePreloadAPI} from '@electron/preload/DesktopStoragePreload';
@@ -113,10 +106,6 @@ class DesktopCapabilityManifestContractError extends TypeError {
 interface AccessibilityStartupSettings {
 	syncReducedMotionWithSystem: boolean;
 	reducedMotionOverride: boolean | null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 const NATIVE_SCREEN_CAPTURE_LIFECYCLE_KINDS: ReadonlySet<NativeScreenCaptureLifecycleEventKind> = new Set([
@@ -468,7 +457,7 @@ const api: ElectronAPI = {
 	},
 	windowIsMaximized: (): Promise<boolean> => ipcRenderer.invoke('window-is-maximized'),
 	focusThemeStudioPopout: (): Promise<boolean> => ipcRenderer.invoke('theme-studio-popout-focus'),
-	closeThemeStudioPopout: (): Promise<boolean> => ipcRenderer.invoke('theme-studio-popout-close'),
+
 	popoutSetAlwaysOnTop: (key: string, flag: boolean): Promise<boolean> =>
 		ipcRenderer.invoke('popout:set-always-on-top', key, flag),
 	popoutFocus: (key: string): Promise<boolean> => ipcRenderer.invoke('popout:focus', key),
@@ -671,7 +660,7 @@ const api: ElectronAPI = {
 	globalKeyHookUnregister: (id: string): Promise<void> => ipcRenderer.invoke('global-key-hook-unregister', id),
 	globalKeyHookUnregisterAll: (): Promise<void> => ipcRenderer.invoke('global-key-hook-unregister-all'),
 	linuxEvdevStatus: () => ipcRenderer.invoke('linux-evdev-status'),
-	linuxEvdevGrantAccess: () => ipcRenderer.invoke('linux-evdev-grant-access'),
+
 	onGlobalKeyEvent: (callback: (event: GlobalKeyEvent) => void): (() => void) => {
 		const handler = (_event: Electron.IpcRendererEvent, data: GlobalKeyEvent): void => {
 			callback(data);
@@ -778,7 +767,6 @@ const api: ElectronAPI = {
 			targets?: Array<VirtmicNode>;
 			availability: VirtmicAvailability;
 		}> => ipcRenderer.invoke('virtmic:list', options),
-		getRoutingGraph: (): Promise<VirtmicRoutingGraphResult> => ipcRenderer.invoke('virtmic:get-routing-graph'),
 		stop: (): Promise<void> => ipcRenderer.invoke('virtmic:stop'),
 	},
 	nativeAudio: {
@@ -792,8 +780,6 @@ const api: ElectronAPI = {
 		setRule: (captureId: string, linuxRule: NonNullable<NativeAudioStartOptions['linuxRule']>): Promise<boolean> =>
 			ipcRenderer.invoke('native-audio:set-rule', captureId, linuxRule),
 		stop: (captureId: string): Promise<void> => ipcRenderer.invoke('native-audio:stop', captureId),
-		getRoutingGraph: (captureId?: string): Promise<NativeAudioRoutingGraphResult> =>
-			ipcRenderer.invoke('native-audio:get-routing-graph', captureId),
 		onFrame: (callback: (message: NativeAudioFrameMessage) => void): (() => void) => {
 			const handler = (_event: Electron.IpcRendererEvent, message: NativeAudioFrameMessage): void => {
 				callback(message);
@@ -810,22 +796,6 @@ const api: ElectronAPI = {
 		},
 	},
 	nativeScreenCapture: {
-		getAvailability: (): Promise<NativeScreenCaptureAvailability> =>
-			ipcRenderer.invoke('native-screen-capture:get-availability'),
-		listSources: (): Promise<Array<NativeScreenCaptureSource>> =>
-			ipcRenderer.invoke('native-screen-capture:list-sources'),
-		start: (options: NativeScreenCaptureStartOptions): Promise<NativeScreenCaptureStartResult> =>
-			ipcRenderer.invoke('native-screen-capture:start', options),
-		getDiagnostics: (captureId: string): Promise<NativeScreenCaptureDiagnostics | null> =>
-			ipcRenderer.invoke('native-screen-capture:get-diagnostics', captureId),
-		stop: (captureId: string): Promise<void> => ipcRenderer.invoke('native-screen-capture:stop', captureId),
-		onEnd: (callback: (message: NativeScreenCaptureEndMessage) => void): (() => void) => {
-			const handler = (_event: Electron.IpcRendererEvent, message: NativeScreenCaptureEndMessage): void => {
-				callback(message);
-			};
-			ipcRenderer.on('native-screen-capture:end', handler);
-			return () => ipcRenderer.removeListener('native-screen-capture:end', handler);
-		},
 		onLifecycleEvent: (callback: (message: NativeScreenCaptureLifecycleMessage) => void): (() => void) => {
 			const handler = (_event: Electron.IpcRendererEvent, message: unknown): void => {
 				const validated = validateNativeScreenCaptureLifecycleMessage(message);

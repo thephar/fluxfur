@@ -175,7 +175,7 @@ flush_push_buffer(#{push_buffer := Buffer} = State) ->
 entry_buffered_at(#{buffered_at := BufferedAt}) ->
     BufferedAt;
 entry_buffered_at(#{message_id := MessageId}) ->
-    snowflake_util:extract_timestamp(MessageId).
+    snowflake_id:extract_timestamp(MessageId).
 
 -spec maybe_update_push_eligibility(state()) -> state().
 maybe_update_push_eligibility(State) ->
@@ -269,7 +269,7 @@ push_eligible(State) ->
 -spec build_push_create_params(user_id(), map()) -> map() | undefined.
 build_push_create_params(UserId, Data) ->
     AuthorIdBin = maps:get(<<"id">>, maps:get(<<"author">>, Data, #{}), undefined),
-    case parse_snowflake(<<"author_id">>, AuthorIdBin) of
+    case guild_dispatch_decorate:parse_snowflake(<<"author_id">>, AuthorIdBin) of
         undefined ->
             undefined;
         AuthorId ->
@@ -439,14 +439,7 @@ session_holds_push(Session) ->
 
 -spec extract_snowflake(binary(), map()) -> integer() | undefined.
 extract_snowflake(FieldName, Data) ->
-    parse_snowflake(FieldName, maps:get(FieldName, Data, undefined)).
-
--spec parse_snowflake(binary(), term()) -> integer() | undefined.
-parse_snowflake(FieldName, Value) ->
-    case validation:validate_snowflake(FieldName, Value) of
-        {ok, Id} -> Id;
-        {error, _, _} -> undefined
-    end.
+    guild_dispatch_decorate:parse_snowflake(FieldName, maps:get(FieldName, Data, undefined)).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -467,23 +460,6 @@ no_session_holds_push_test() ->
             <<"s2">> => #{afk => false, status => online}
         })
     ).
-
-custom_status_comparator_test() ->
-    Expected = #{
-        <<"text">> => <<"hello">>,
-        <<"expires_at">> => null,
-        <<"emoji_id">> => null,
-        <<"emoji_name">> => null
-    },
-    ?assertEqual(null, custom_status_comparator(null)),
-    ?assertEqual(Expected, custom_status_comparator(#{<<"text">> => <<"hello">>})).
-
-normalize_state_custom_status_test() ->
-    ?assertEqual(null, normalize_state_custom_status(null)),
-    ?assertEqual(
-        #{<<"text">> => <<"hi">>}, normalize_state_custom_status(#{<<"text">> => <<"hi">>})
-    ),
-    ?assertEqual(null, normalize_state_custom_status(<<"invalid">>)).
 
 handle_user_settings_update_forces_invisible_status_test() ->
     State = #{

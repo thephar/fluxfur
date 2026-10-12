@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::env;
-use std::fs;
+pub use fluxer_common::config::env_value as optional_env;
+
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
@@ -53,7 +53,7 @@ pub enum DatabaseBackend {
 
 impl ServiceConfig {
     pub fn from_env() -> anyhow::Result<Self> {
-        Self::from_env_reader(env_var)
+        Self::from_env_reader(fluxer_common::config::env_value)
     }
 
     fn from_env_reader<F>(get: F) -> anyhow::Result<Self>
@@ -203,66 +203,6 @@ fn default_max_concurrent_requests(service_name: &str) -> usize {
     }
 }
 
-pub fn optional_env(name: &str) -> Option<String> {
-    env_var(name)
-}
-
-fn env_var(name: &str) -> Option<String> {
-    resolve_env_value(name, |key| env::var(key).ok()).unwrap_or_else(|error| panic!("{error}"))
-}
-
-fn resolve_env_value<F>(name: &str, get: F) -> Result<Option<String>, String>
-where
-    F: Fn(&str) -> Option<String>,
-{
-    let non_blank = |value: Option<String>| value.filter(|value| !value.trim().is_empty());
-    let value = non_blank(get(name));
-    let Some(path) = non_blank(get(&format!("{name}_FILE"))) else {
-        return Ok(value);
-    };
-    if value.is_some() {
-        return Err(format!("{name} and {name}_FILE are both set, set only one"));
-    }
-    let contents = fs::read_to_string(&path)
-        .map_err(|error| format!("{name}_FILE could not read {path} ({error})"))?;
-    let contents = contents
-        .strip_suffix('\n')
-        .map_or(contents.as_str(), |rest| {
-            rest.strip_suffix('\r').unwrap_or(rest)
-        });
-    Ok(non_blank(Some(contents.to_owned())))
-}
-
-pub fn resolve_env_files<I>(vars: I) -> Result<Vec<(String, String)>, String>
-where
-    I: IntoIterator<Item = (String, String)>,
-{
-    let vars: Vec<(String, String)> = vars.into_iter().collect();
-    let get = |key: &str| {
-        vars.iter()
-            .find_map(|(name, value)| (name == key).then(|| value.clone()))
-    };
-    let mut resolved = Vec::new();
-    for (key, _) in &vars {
-        let Some(name) = key
-            .strip_suffix("_FILE")
-            .filter(|name| name.starts_with("FLUXER_"))
-        else {
-            continue;
-        };
-        if let Some(value) = resolve_env_value(name, get)? {
-            resolved.push((name.to_owned(), value));
-        }
-    }
-    let rest: Vec<(String, String)> = vars
-        .iter()
-        .filter(|(key, _)| !resolved.iter().any(|(name, _)| name == key))
-        .cloned()
-        .collect();
-    resolved.extend(rest);
-    Ok(resolved)
-}
-
 fn optional_from<F>(get: &F, name: &str) -> Option<String>
 where
     F: Fn(&str) -> Option<String>,
@@ -334,76 +274,10 @@ mod tests {
     }
 
     #[test]
-    fn resolves_name_file_entries() {
-        let dir = env::temp_dir().join(format!("fluxer-svc-env-file-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("token");
-        fs::write(&path, "from-file\r\n").unwrap();
-        let path = path.to_string_lossy().into_owned();
-        let missing = dir.join("missing").to_string_lossy().into_owned();
-        let resolved = resolve_env_files(vec![
-            ("FLUXER_NATS_AUTH_TOKEN".to_owned(), String::new()),
-            ("FLUXER_NATS_AUTH_TOKEN_FILE".to_owned(), path.clone()),
-        ])
-        .unwrap();
-        let both = resolve_env_files(vec![
-            ("FLUXER_X".to_owned(), "direct".to_owned()),
-            ("FLUXER_X_FILE".to_owned(), path),
-        ]);
-        let unreadable = resolve_env_files(vec![("FLUXER_X_FILE".to_owned(), missing.clone())]);
-        let unrelated = resolve_env_files(vec![("SSL_CERT_FILE".to_owned(), missing.clone())]);
-        fs::remove_dir_all(&dir).unwrap();
-        assert_eq!(
-            vec!["from-file"],
-            resolved
-                .iter()
-                .filter(|(name, _)| name == "FLUXER_NATS_AUTH_TOKEN")
-                .map(|(_, value)| value.as_str())
-                .collect::<Vec<_>>()
-        );
-        assert_eq!(
-            Err("FLUXER_X and FLUXER_X_FILE are both set, set only one".to_owned()),
-            both
-        );
-        assert!(
-            unreadable
-                .unwrap_err()
-                .starts_with(&format!("FLUXER_X_FILE could not read {missing} ("))
-        );
-        assert_eq!(Ok(vec![("SSL_CERT_FILE".to_owned(), missing)]), unrelated);
-    }
-
-    #[test]
     fn extracts_statefulset_ordinal() {
         assert_eq!(shard_id_from_pod_name("my-service-0"), Some(0));
         assert_eq!(shard_id_from_pod_name("fluxer-user-svc-12"), Some(12));
         assert_eq!(shard_id_from_pod_name("api"), None);
-    }
-
-    #[test]
-    fn appends_port_when_missing() {
-        assert_eq!(normalize_host("scylla", 9042), "scylla:9042");
-        assert_eq!(normalize_host("scylla:9041", 9042), "scylla:9041");
-        assert_eq!(normalize_host("127.0.0.1", 9042), "127.0.0.1:9042");
-    }
-
-    #[test]
-    fn normalizes_ipv6_hosts() {
-        assert_eq!(normalize_host("::1", 9042), "[::1]:9042");
-        assert_eq!(normalize_host("[::1]", 9042), "[::1]:9042");
-        assert_eq!(normalize_host("[::1]:9041", 9042), "[::1]:9041");
-    }
-
-    #[test]
-    fn parses_comma_separated_hosts() {
-        let hosts = parse_hosts("a:9042, b:9042, c:9042");
-        assert_eq!(hosts, vec!["a:9042", "b:9042", "c:9042"]);
-    }
-
-    #[test]
-    fn skips_empty_host_segments() {
-        let hosts = parse_hosts(",a,,b,");
-        assert_eq!(hosts, vec!["a", "b"]);
     }
 
     #[test]
@@ -431,24 +305,6 @@ mod tests {
     }
 
     #[test]
-    fn defaults_database_backend_to_postgres() {
-        let cfg = config_from_pairs(&[]);
-
-        assert_eq!(DatabaseBackend::Postgres, cfg.database_backend);
-        assert_eq!(None, cfg.postgres_url);
-        assert_eq!("127.0.0.1", cfg.postgres_host);
-        assert_eq!(5432, cfg.postgres_port);
-        assert_eq!("fluxer", cfg.postgres_database);
-        assert_eq!("fluxer", cfg.postgres_username);
-        assert_eq!(Some("fluxer".to_owned()), cfg.postgres_password);
-        assert!(!cfg.postgres_ssl);
-        assert_eq!(None, cfg.postgres_ssl_ca);
-        assert_eq!(20, cfg.postgres_max_connections);
-        assert_eq!("fluxer_kv", cfg.postgres_kv_table);
-        assert!(cfg.postgres_prepared_statements);
-    }
-
-    #[test]
     fn blank_values_fall_back_to_the_defaults() {
         let cfg = config_from_pairs(&[
             ("FLUXER_SVC_NAME", "messages"),
@@ -473,40 +329,6 @@ mod tests {
         assert_eq!(Some("fluxer".to_owned()), cfg.postgres_password);
         assert_eq!(20, cfg.postgres_max_connections);
         assert!(cfg.postgres_prepared_statements);
-    }
-
-    #[test]
-    fn reads_postgres_database_env() {
-        let cfg = config_from_pairs(&[
-            ("FLUXER_DATABASE_BACKEND", "postgresql"),
-            ("FLUXER_POSTGRES_URL", "postgres://user:pass@db/fluxer"),
-            ("FLUXER_POSTGRES_HOST", "db"),
-            ("FLUXER_POSTGRES_PORT", "6432"),
-            ("FLUXER_POSTGRES_DATABASE", "fluxer_dev"),
-            ("FLUXER_POSTGRES_USERNAME", "app"),
-            ("FLUXER_POSTGRES_PASSWORD", "secret"),
-            ("FLUXER_POSTGRES_SSL", "true"),
-            ("FLUXER_POSTGRES_SSL_CA", "ca-pem"),
-            ("FLUXER_POSTGRES_MAX_CONNECTIONS", "7"),
-            ("FLUXER_POSTGRES_KV_TABLE", "fluxer_kv_dev"),
-            ("FLUXER_POSTGRES_PREPARED_STATEMENTS", "false"),
-        ]);
-
-        assert_eq!(DatabaseBackend::Postgres, cfg.database_backend);
-        assert_eq!(
-            Some("postgres://user:pass@db/fluxer".to_owned()),
-            cfg.postgres_url
-        );
-        assert_eq!("db", cfg.postgres_host);
-        assert_eq!(6432, cfg.postgres_port);
-        assert_eq!("fluxer_dev", cfg.postgres_database);
-        assert_eq!("app", cfg.postgres_username);
-        assert_eq!(Some("secret".to_owned()), cfg.postgres_password);
-        assert!(cfg.postgres_ssl);
-        assert_eq!(Some("ca-pem".to_owned()), cfg.postgres_ssl_ca);
-        assert_eq!(7, cfg.postgres_max_connections);
-        assert_eq!("fluxer_kv_dev", cfg.postgres_kv_table);
-        assert!(!cfg.postgres_prepared_statements);
     }
 
     #[test]

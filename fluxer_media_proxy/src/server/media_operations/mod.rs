@@ -4,10 +4,13 @@ mod failure;
 mod input;
 
 pub(in crate::server) use failure::MediaFailure;
-pub(in crate::server) use input::{MediaInput, MediaInputLimit, load_media_input};
+pub(in crate::server) use input::{
+    MediaInput, MediaInputLimit, STORED_SNIFF_PREFIX_BYTES, load_media_input, read_sniff_prefix,
+    spool_stored_media,
+};
 
 use crate::{
-    constants::AssetExtension,
+    constants::{self, AssetExtension},
     image_quality::ImageQuality,
     image_transform::AnimationMode,
     media_process, mime,
@@ -16,7 +19,7 @@ use crate::{
     server::{
         format_policy::image_extension_from_filename,
         state::AppState,
-        transform::execution::{run_transform, transform_error_is_timeout},
+        transform::execution::{deadline_instant, run_transform, transform_error_is_timeout},
     },
 };
 use bytes::Bytes;
@@ -34,6 +37,9 @@ pub(in crate::server) async fn resolve_metadata(
     include_data: bool,
 ) -> Result<MetadataOutput, MediaFailure> {
     let mut input = load_media_input(app, input, MediaInputLimit::INTERNAL_REQUEST).await?;
+    if include_data && input.data.len() > constants::MAX_MEDIA_PROXY_BYTES {
+        return Err(MediaFailure::MetadataDecodedTooLarge);
+    }
     if include_data && metadata_input_is_svg(&input) {
         input = rasterize_metadata_svg(app, input).await?;
     }
@@ -43,21 +49,39 @@ pub(in crate::server) async fn resolve_metadata(
         app.media.nsfw().record_declined_scan();
         NSFWPolicy::Disabled
     };
-    let json = media_process::metadata_json_with_options(
-        &input.data,
-        &input.filename,
-        media_process::MetadataOptions {
-            placeholder: true,
-            nsfw,
-        },
-        &app.media.limits(),
-        app.media.nsfw(),
-        &app.metrics.transform(),
-    )
-    .await
-    .map_err(|err| MediaFailure::MetadataExtractionFailed {
+    let runtime = app.media.transforms();
+    let options = media_process::MetadataOptions {
+        placeholder: true,
+        nsfw,
+        deadline_ms: runtime.transform_deadline_ms(),
+    };
+    let deadline = deadline_instant(options.deadline_ms);
+    let media_limits = app.media.limits();
+    let transform_metrics = app.metrics.transform();
+    let data = input.data.clone();
+    let cost_data = input.data.clone();
+    let extraction_failed = |err: &dyn std::fmt::Debug| MediaFailure::MetadataExtractionFailed {
         detail: format!("filename={} err={err:?}", input.filename),
-    })?;
+    };
+    let prepared = runtime
+        .tasks()
+        .run_native(
+            deadline,
+            move || Ok(media_process::metadata_cost(&cost_data, &media_limits)?),
+            move || {
+                Ok(media_process::prepare_metadata(
+                    &data,
+                    &options,
+                    &media_limits,
+                    &transform_metrics,
+                )?)
+            },
+        )
+        .await
+        .map_err(|err| extraction_failed(&err))?;
+    let json = media_process::finish_metadata(prepared, app.media.nsfw())
+        .await
+        .map_err(|err| extraction_failed(&err))?;
     Ok(MetadataOutput {
         metadata: serde_json::from_str(&json).unwrap_or_else(|_| serde_json::json!({})),
         data: include_data.then_some(input.data),
@@ -74,6 +98,8 @@ async fn rasterize_metadata_svg(
     input: LoadedMediaInput,
 ) -> Result<LoadedMediaInput, MediaFailure> {
     let options = media_process::ImageOptions {
+        width: Some(constants::SVG_RASTER_MAX_DIMENSION),
+        height: Some(constants::SVG_RASTER_MAX_DIMENSION),
         format: OutputFormat::WebP,
         quality: ImageQuality::Lossless,
         animation: AnimationMode::Static,

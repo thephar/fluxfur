@@ -8,18 +8,19 @@ use crate::{
             AppPublicConfigUpdateRequest, AppRegistrationConfigUpdateRequest,
             AppSetupConfigUpdateRequest, CAPTCHA_COST_RANGE, CAPTCHA_MAX_COUNTER_RANGE,
             CaptchaConfigUpdateRequest, CreateRegistrationUrlRequest,
-            DomainMigrationConfigUpdateRequest, EXPERIMENT_MAX_TARGETED_USERS,
-            ExperimentDeliveryConfigUpdateRequest, GatewayRolloutConfigUpdateRequest,
-            GatewayRolloutMode, InstanceAttachmentDecayUpdateRequest,
-            InstanceBlueskyIntegrationUpdateRequest, InstanceBlueskyKeyIntegrationUpdateRequest,
-            InstanceConfigUpdateRequest, InstanceEmailIntegrationUpdateRequest,
-            InstanceEmailSmtpIntegrationUpdateRequest, InstanceEmailSmtpTestRequest,
-            InstanceGifIntegrationUpdateRequest, InstanceIntegrationsUpdateRequest,
-            InstanceMediaUpdateRequest, InstancePolicyUpdateRequest,
-            InstanceRegistrationConfigUpdateRequest, InstanceServicesUpdateRequest,
-            InstanceYoutubeIntegrationUpdateRequest, LimitConfigUpdateRequest, LimitRule,
-            LimitRuleFilters, PremiumMode, PushRelayConfigUpdateRequest, RegistrationMode,
-            SsoConfigUpdateRequest, VoiceE2eeScope,
+            DomainMigrationConfigUpdateRequest, EXPERIMENT_MAX_ROLLOUT_COUNTRY_CODES,
+            EXPERIMENT_MAX_TARGETED_USERS, ExperimentDeliveryConfigUpdateRequest,
+            GatewayRolloutConfigUpdateRequest, GatewayRolloutMode,
+            InstanceAttachmentDecayUpdateRequest, InstanceBlueskyIntegrationUpdateRequest,
+            InstanceBlueskyKeyIntegrationUpdateRequest, InstanceConfigUpdateRequest,
+            InstanceEmailIntegrationUpdateRequest, InstanceEmailSmtpIntegrationUpdateRequest,
+            InstanceEmailSmtpTestResponse, InstanceGifIntegrationUpdateRequest,
+            InstanceIntegrationsUpdateRequest, InstanceMediaUpdateRequest,
+            InstancePolicyUpdateRequest, InstanceRegistrationConfigUpdateRequest,
+            InstanceServicesUpdateRequest, InstanceYoutubeIntegrationUpdateRequest,
+            LimitConfigUpdateRequest, LimitKeyMetadata, LimitRule, LimitRuleFilters, PremiumMode,
+            PushRelayConfigUpdateRequest, RegistrationMode, SsoConfigUpdateRequest,
+            VOICE_P2P_MAX_PARTICIPANTS_RANGE, VoiceE2eeScope, VoiceP2pConfigUpdateRequest,
         },
     },
     config::AdminConfig,
@@ -220,6 +221,10 @@ pub async fn instance_config_post(
             Ok(update) => instance_config_result(client.update_instance_config(&update).await),
             Err(message) => FlashData::error(message),
         },
+        "update_voice_p2p" => match build_voice_p2p_update(&form) {
+            Ok(update) => instance_config_result(client.update_instance_config(&update).await),
+            Err(message) => FlashData::error(message),
+        },
         "update_captcha" => match build_captcha_update(&form) {
             Ok(update) => instance_config_result(client.update_instance_config(&update).await),
             Err(message) => FlashData::error(message),
@@ -228,21 +233,19 @@ pub async fn instance_config_post(
             Ok(update) => instance_config_result(client.update_instance_config(&update).await),
             Err(message) => FlashData::error(message),
         },
-        "test_smtp" => match build_smtp_test_request(&form) {
-            Ok(request) => match client.test_instance_smtp_config(&request).await {
-                Ok(response) if response.ok => FlashData::success("SMTP connection verified"),
-                Ok(response) => FlashData::error(
-                    response
-                        .error
-                        .unwrap_or_else(|| "SMTP validation failed".to_owned()),
-                ),
-                Err(error) => {
-                    tracing::warn!(%error, "admin API request failed: test SMTP config");
-                    FlashData::error("Failed to validate SMTP configuration")
-                }
-            },
-            Err(message) => FlashData::error(message),
-        },
+        "test_smtp" => {
+            let update = build_integrations_update(&form);
+            match client.update_instance_config(&update).await {
+                Ok(_) => match client.test_saved_instance_smtp_config().await {
+                    Ok(response) => smtp_test_flash(response),
+                    Err(error) => {
+                        tracing::warn!(%error, "admin API request failed: test SMTP config");
+                        FlashData::error("Settings saved, but the SMTP test could not run")
+                    }
+                },
+                Err(error) => instance_config_result(Err::<(), _>(error)),
+            }
+        }
         "disable_single_community" => {
             let update = build_single_community_update(false);
             instance_config_result(client.update_instance_config(&update).await)
@@ -400,14 +403,31 @@ fn render_fragment_with_toast(markup: Markup, flash: &FlashData) -> Response {
     response
 }
 
-fn instance_config_result<T, E: std::fmt::Display>(result: Result<T, E>) -> FlashData {
+fn instance_config_result<T>(result: Result<T, crate::api::client::ApiError>) -> FlashData {
     match result {
         Ok(_) => FlashData::success("Instance config updated"),
         Err(error) => {
             tracing::warn!(%error, "admin API request failed: update instance config");
-            FlashData::error("Failed to update instance config")
+            match super::billing_actions::validation_message(&error) {
+                Some(message) => {
+                    FlashData::error(format!("Failed to update instance config: {message}"))
+                }
+                None => FlashData::error("Failed to update instance config"),
+            }
         }
     }
+}
+
+fn smtp_test_flash(response: InstanceEmailSmtpTestResponse) -> FlashData {
+    if response.ok {
+        return FlashData::success("Settings saved and SMTP connection verified");
+    }
+    let reason = response
+        .error
+        .unwrap_or_else(|| "the server gave no reason".to_owned());
+    FlashData::error(format!(
+        "Settings saved, but the SMTP test failed: {reason}"
+    ))
 }
 
 fn build_sso_update(form: &MultiValueForm) -> InstanceConfigUpdateRequest {
@@ -557,6 +577,32 @@ fn parse_experiment_user_ids(value: &str, label: &str) -> Result<Vec<String>, St
     Ok(ids)
 }
 
+fn parse_experiment_country_codes(value: &str) -> Result<Vec<String>, String> {
+    let mut codes: Vec<String> = Vec::new();
+    let candidates = value
+        .split(|character: char| character == ',' || character.is_whitespace())
+        .filter(|candidate| !candidate.is_empty());
+    for (index, candidate) in candidates.enumerate() {
+        if candidate.len() != 2 || !candidate.bytes().all(|byte| byte.is_ascii_alphabetic()) {
+            return Err(format!(
+                "Rollout countries entry {} must be a two-letter country code",
+                index + 1
+            ));
+        }
+        let code = candidate.to_ascii_uppercase();
+        if codes.contains(&code) {
+            continue;
+        }
+        if codes.len() == EXPERIMENT_MAX_ROLLOUT_COUNTRY_CODES {
+            return Err(format!(
+                "Rollout countries must contain at most {EXPERIMENT_MAX_ROLLOUT_COUNTRY_CODES} unique codes"
+            ));
+        }
+        codes.push(code);
+    }
+    Ok(codes)
+}
+
 fn build_push_relay_update(form: &MultiValueForm) -> InstanceConfigUpdateRequest {
     InstanceConfigUpdateRequest {
         push_relay: Some(PushRelayConfigUpdateRequest {
@@ -579,6 +625,10 @@ fn build_domain_migration_update(
                 0,
                 EXPERIMENT_ROLLOUT_BASIS_POINTS_MAX,
             )?,
+            rollout_country_codes: Some(parse_experiment_country_codes(
+                form.first("domain_migration_rollout_country_codes")
+                    .unwrap_or_default(),
+            )?),
             rollout_salt: parse_experiment_rollout_salt(form, "domain_migration_rollout_salt")?,
             included_user_ids: Some(parse_experiment_user_ids(
                 form.first("domain_migration_included_user_ids")
@@ -604,6 +654,50 @@ fn build_domain_migration_update(
                 EXPERIMENT_ROLLOUT_BASIS_POINTS_MAX,
             )?,
             standalone_forwarding: Some(form.bool_value("domain_migration_standalone_forwarding")),
+        }),
+        ..Default::default()
+    })
+}
+
+fn build_voice_p2p_update(form: &MultiValueForm) -> Result<InstanceConfigUpdateRequest, String> {
+    Ok(InstanceConfigUpdateRequest {
+        voice_p2p: Some(VoiceP2pConfigUpdateRequest {
+            enabled: Some(form.bool_value("voice_p2p_enabled")),
+            rollout_basis_points: parse_form_number(
+                form,
+                "voice_p2p_rollout_basis_points",
+                "Rollout basis points",
+                0,
+                EXPERIMENT_ROLLOUT_BASIS_POINTS_MAX,
+            )?,
+            rollout_country_codes: Some(parse_experiment_country_codes(
+                form.first("voice_p2p_rollout_country_codes")
+                    .unwrap_or_default(),
+            )?),
+            rollout_salt: parse_experiment_rollout_salt(form, "voice_p2p_rollout_salt")?,
+            included_user_ids: Some(parse_experiment_user_ids(
+                form.first("voice_p2p_included_user_ids")
+                    .unwrap_or_default(),
+                "Included user IDs",
+            )?),
+            included_guild_ids: Some(parse_experiment_user_ids(
+                form.first("voice_p2p_included_guild_ids")
+                    .unwrap_or_default(),
+                "Included guild IDs",
+            )?),
+            include_premium_users: Some(form.bool_value("voice_p2p_include_premium_users")),
+            excluded_user_ids: Some(parse_experiment_user_ids(
+                form.first("voice_p2p_excluded_user_ids")
+                    .unwrap_or_default(),
+                "Excluded user IDs",
+            )?),
+            max_participants: parse_form_number(
+                form,
+                "voice_p2p_max_participants",
+                "Maximum participants",
+                *VOICE_P2P_MAX_PARTICIPANTS_RANGE.start(),
+                *VOICE_P2P_MAX_PARTICIPANTS_RANGE.end(),
+            )?,
         }),
         ..Default::default()
     })
@@ -812,7 +906,9 @@ fn build_integrations_update(form: &MultiValueForm) -> InstanceConfigUpdateReque
                     port: smtp_port,
                     username: clean("integration_smtp_username"),
                     password: clean("integration_smtp_password"),
-                    secure: Some(form.bool_value("integration_smtp_secure")),
+                    tls_mode: form
+                        .first("integration_smtp_tls_mode")
+                        .map(|value| Some(value.trim().to_owned()).filter(|mode| !mode.is_empty())),
                 }),
                 disable_new_ip_authorization: Some(
                     form.bool_value("integration_email_disable_new_ip_authorization"),
@@ -853,29 +949,6 @@ fn build_media_update(form: &MultiValueForm) -> InstanceConfigUpdateRequest {
         }),
         ..Default::default()
     }
-}
-
-fn build_smtp_test_request(form: &MultiValueForm) -> Result<InstanceEmailSmtpTestRequest, String> {
-    let host = form
-        .clean("integration_smtp_host")
-        .ok_or_else(|| "SMTP host is required".to_owned())?;
-    let port = form
-        .first("integration_smtp_port")
-        .and_then(|value| value.trim().parse::<u16>().ok())
-        .ok_or_else(|| "SMTP port must be between 1 and 65535".to_owned())?;
-    let username = form
-        .clean("integration_smtp_username")
-        .ok_or_else(|| "SMTP username is required".to_owned())?;
-    let password = form
-        .clean("integration_smtp_password")
-        .ok_or_else(|| "SMTP password is required for validation".to_owned())?;
-    Ok(InstanceEmailSmtpTestRequest {
-        host,
-        port,
-        username,
-        password,
-        secure: form.bool_value("integration_smtp_secure"),
-    })
 }
 
 fn build_single_community_update(enabled: bool) -> InstanceConfigUpdateRequest {
@@ -963,6 +1036,7 @@ fn update_limit_rule_values(
     rule: &mut LimitRule,
     form: &MultiValueForm,
     limit_keys: &[String],
+    metadata: &std::collections::BTreeMap<String, LimitKeyMetadata>,
     fallback_limits: Option<&std::collections::BTreeMap<String, u64>>,
 ) {
     let mut limits = std::collections::BTreeMap::new();
@@ -976,12 +1050,19 @@ fn update_limit_rule_values(
     {
         limits.extend(defaults.clone());
     }
+    for key in limit_keys {
+        if metadata.get(key).is_some_and(|metadata| metadata.is_toggle)
+            && rule.limits.contains_key(key)
+        {
+            limits.entry(key.clone()).or_insert(0);
+        }
+    }
     rule.limits = limits;
     rule.filters = build_limit_filters(form);
 }
 
-fn limit_config_result<T, E: std::fmt::Display>(
-    result: Result<T, E>,
+fn limit_config_result<T>(
+    result: Result<T, crate::api::client::ApiError>,
     success_message: &'static str,
     error_message: &'static str,
 ) -> FlashData {
@@ -989,7 +1070,10 @@ fn limit_config_result<T, E: std::fmt::Display>(
         Ok(_) => FlashData::success(success_message),
         Err(error) => {
             tracing::warn!(%error, "admin API request failed: update limit config");
-            FlashData::error(error_message)
+            match super::billing_actions::validation_message(&error) {
+                Some(message) => FlashData::error(format!("{error_message}: {message}")),
+                None => FlashData::error(error_message),
+            }
         }
     }
 }
@@ -1058,13 +1142,56 @@ pub async fn limit_config_post(
                 .defaults
                 .get(&rule_id)
                 .or_else(|| current.defaults.get("default"));
-            update_limit_rule_values(rule, &form, &current.limit_keys, fallback);
+            update_limit_rule_values(
+                rule,
+                &form,
+                &current.limit_keys,
+                &current.metadata,
+                fallback,
+            );
             let request = LimitConfigUpdateRequest { limit_config };
             let result = client.update_limit_config(&request).await;
             let flash = limit_config_result(
                 result,
                 "Limit configuration updated",
                 "Failed to update limit configuration",
+            );
+            return redirect_back_with_flash(base, "/limit-config", flash, secure_cookies);
+        }
+        "reset" => {
+            let rule = aq
+                .rule
+                .as_deref()
+                .and_then(clean_string)
+                .and_then(|rule_id| {
+                    limit_config
+                        .rules
+                        .iter_mut()
+                        .find(|rule| rule.id == rule_id)
+                });
+            let Some(rule) = rule else {
+                return redirect_back_with_flash(
+                    base,
+                    "/limit-config",
+                    FlashData::error("Rule not found"),
+                    secure_cookies,
+                );
+            };
+            let Some(defaults) = current.defaults.get(&rule.id) else {
+                return redirect_back_with_flash(
+                    base,
+                    "/limit-config",
+                    FlashData::error("This rule has no defaults to reset to"),
+                    secure_cookies,
+                );
+            };
+            rule.limits = defaults.clone();
+            let request = LimitConfigUpdateRequest { limit_config };
+            let result = client.update_limit_config(&request).await;
+            let flash = limit_config_result(
+                result,
+                "Limit rule reset to defaults",
+                "Failed to reset limit rule",
             );
             return redirect_back_with_flash(base, "/limit-config", flash, secure_cookies);
         }
@@ -1232,6 +1359,28 @@ mod tests {
     }
 
     #[test]
+    fn build_integrations_update_sends_the_smtp_tls_mode_only_when_the_form_has_it() {
+        let smtp_update = |body: &[u8]| {
+            build_integrations_update(&MultiValueForm::parse(body))
+                .integrations
+                .and_then(|integrations| integrations.email)
+                .and_then(|email| email.smtp)
+                .expect("smtp update")
+        };
+        let body = |update| serde_json::to_value(update).expect("serialize smtp update");
+
+        let chosen = smtp_update(b"integration_email_present=1&integration_smtp_tls_mode=none");
+        assert_eq!(body(chosen), serde_json::json!({"tls_mode": "none"}));
+
+        let automatic = smtp_update(b"integration_email_present=1&integration_smtp_tls_mode=");
+        assert_eq!(body(automatic), serde_json::json!({"tls_mode": null}));
+
+        let from_an_older_page =
+            smtp_update(b"integration_email_present=1&integration_smtp_secure=true");
+        assert_eq!(body(from_an_older_page), serde_json::json!({}));
+    }
+
+    #[test]
     fn build_sso_update_keeps_repeated_allowed_domains() {
         let form = MultiValueForm::parse(
             b"sso_enabled=true&sso_auto_provision=on&sso_allowed_domains%5B%5D=example.com&sso_allowed_domains%5B%5D=example.org&sso_display_name= Fluxer ",
@@ -1266,84 +1415,69 @@ mod tests {
     }
 
     #[test]
-    fn build_limit_filters_accepts_repeated_and_delimited_values() {
-        let form = MultiValueForm::parse(
-            b"traits%5B%5D=staff&traits%5B%5D=partner%2Cvip&guild_features=COMMUNITY%0ANEWS",
-        );
-        let filters = build_limit_filters(&form).expect("filters");
+    fn update_limit_rule_values_saves_unchecked_toggles_as_off() {
+        let toggle = |key: &str, is_toggle: bool| {
+            (
+                key.to_owned(),
+                LimitKeyMetadata {
+                    key: key.to_owned(),
+                    label: key.to_owned(),
+                    description: String::new(),
+                    category: "features".to_owned(),
+                    scope: "user".to_owned(),
+                    is_toggle,
+                    unit: None,
+                    min: None,
+                    max: None,
+                },
+            )
+        };
+        let metadata = std::collections::BTreeMap::from([
+            toggle("feature_animated_avatar", true),
+            toggle("feature_animated_banner", true),
+            toggle("max_guilds", false),
+        ]);
+        let limit_keys = metadata.keys().cloned().collect::<Vec<_>>();
+        let mut rule = LimitRule {
+            id: "premium".to_owned(),
+            filters: None,
+            limits: std::collections::BTreeMap::from([
+                ("feature_animated_avatar".to_owned(), 1),
+                ("feature_animated_banner".to_owned(), 1),
+                ("max_guilds".to_owned(), 200),
+            ]),
+            modified_fields: None,
+        };
+        let form =
+            MultiValueForm::parse(b"traits=premium&feature_animated_banner=1&max_guilds=250");
+        update_limit_rule_values(&mut rule, &form, &limit_keys, &metadata, None);
         assert_eq!(
-            filters.traits,
-            vec!["staff".to_owned(), "partner".to_owned(), "vip".to_owned()]
+            rule.limits,
+            std::collections::BTreeMap::from([
+                ("feature_animated_avatar".to_owned(), 0),
+                ("feature_animated_banner".to_owned(), 1),
+                ("max_guilds".to_owned(), 250),
+            ])
         );
-        assert_eq!(
-            filters.guild_features,
-            vec!["COMMUNITY".to_owned(), "NEWS".to_owned()]
-        );
-    }
 
-    #[test]
-    fn parse_experiment_user_ids_splits_newlines_and_commas() {
+        let mut custom = LimitRule {
+            id: "vip".to_owned(),
+            filters: None,
+            limits: std::collections::BTreeMap::from([("max_guilds".to_owned(), 300)]),
+            modified_fields: None,
+        };
+        let form = MultiValueForm::parse(b"traits=vip&max_guilds=300");
+        update_limit_rule_values(&mut custom, &form, &limit_keys, &metadata, None);
         assert_eq!(
-            parse_experiment_user_ids("  1 ,2\n3\r\n 4 ,, 5 ", "Included user IDs")
-                .expect("valid IDs"),
-            vec![
-                "1".to_owned(),
-                "2".to_owned(),
-                "3".to_owned(),
-                "4".to_owned(),
-                "5".to_owned()
-            ]
-        );
-    }
-
-    #[test]
-    fn parse_experiment_user_ids_dedupes_preserving_order() {
-        assert_eq!(
-            parse_experiment_user_ids("20,10,20,10,30", "Included user IDs").expect("valid IDs"),
-            vec!["20".to_owned(), "10".to_owned(), "30".to_owned()]
-        );
-    }
-
-    #[test]
-    fn parse_experiment_user_ids_rejects_non_digit_and_overlong_values() {
-        for value in [
-            "abc",
-            "12a",
-            "-1",
-            "1.0",
-            "999999999999999999999",
-            "<script>",
-        ] {
-            assert_eq!(
-                parse_experiment_user_ids(&format!("123,{value}"), "Included user IDs")
-                    .expect_err("invalid ID"),
-                "Included user IDs entry 2 must contain 1 to 20 decimal digits",
-                "{value}"
-            );
-        }
-    }
-
-    #[test]
-    fn parse_experiment_user_ids_rejects_exceeding_the_cap() {
-        let value = (0..EXPERIMENT_MAX_TARGETED_USERS)
-            .map(|index| index.to_string())
-            .collect::<Vec<_>>()
-            .join("\n");
-        let ids = parse_experiment_user_ids(&format!("{value}\n999"), "Included user IDs")
-            .expect("valid IDs at cap");
-        assert_eq!(ids.len(), EXPERIMENT_MAX_TARGETED_USERS);
-        assert_eq!(ids.last(), Some(&"999".to_owned()));
-        assert_eq!(
-            parse_experiment_user_ids(&format!("{value}\n1000"), "Included user IDs")
-                .expect_err("too many IDs"),
-            "Included user IDs must contain at most 1000 unique IDs"
+            custom.limits,
+            std::collections::BTreeMap::from([("max_guilds".to_owned(), 300)])
         );
     }
 
     #[test]
     fn build_domain_migration_update_reads_the_rollout_fields() {
         let form = MultiValueForm::parse(
-            b"domain_migration_enabled=true&domain_migration_rollout_basis_points=%20250%20&domain_migration_rollout_salt=%20domain-migration-v2%20&domain_migration_included_user_ids=1500000000000000001%0A1500000000000000002&domain_migration_excluded_user_ids=1500000000000000003%2C%201500000000000000004&domain_migration_anonymous_rollout_basis_points=%20100%20&domain_migration_standalone_forwarding=true&domain_migration_included_guild_ids=1500000000000000005%0A1500000000000000006%2C1500000000000000005&domain_migration_include_premium_users=true",
+            b"domain_migration_enabled=true&domain_migration_rollout_basis_points=%20250%20&domain_migration_rollout_salt=%20domain-migration-v2%20&domain_migration_included_user_ids=1500000000000000001%0A1500000000000000002&domain_migration_excluded_user_ids=1500000000000000003%2C%201500000000000000004&domain_migration_anonymous_rollout_basis_points=%20100%20&domain_migration_standalone_forwarding=true&domain_migration_included_guild_ids=1500000000000000005%0A1500000000000000006%2C1500000000000000005&domain_migration_include_premium_users=true&domain_migration_rollout_country_codes=se%2C%20NO%0Ase",
         );
         let update = build_domain_migration_update(&form)
             .expect("valid form")
@@ -1370,6 +1504,10 @@ mod tests {
         assert_eq!(update.standalone_forwarding, Some(true));
         assert_eq!(update.include_premium_users, Some(true));
         assert_eq!(
+            update.rollout_country_codes,
+            Some(vec!["SE".to_owned(), "NO".to_owned()])
+        );
+        assert_eq!(
             update.included_guild_ids,
             Some(vec![
                 "1500000000000000005".to_owned(),
@@ -1386,6 +1524,7 @@ mod tests {
             serde_json::to_value(request).expect("serializable update"),
             serde_json::json!({"domain_migration": {
                 "enabled": false,
+                "rollout_country_codes": [],
                 "included_user_ids": [],
                 "included_guild_ids": [],
                 "include_premium_users": false,
@@ -1393,50 +1532,6 @@ mod tests {
                 "standalone_forwarding": false,
             }})
         );
-    }
-
-    #[test]
-    fn build_domain_migration_update_rejects_invalid_rollout_fields() {
-        for (form, message) in [
-            (
-                "domain_migration_rollout_basis_points=10001",
-                "Rollout basis points must be a whole number between 0 and 10000",
-            ),
-            (
-                "domain_migration_anonymous_rollout_basis_points=10001",
-                "Anonymous rollout basis points must be a whole number between 0 and 10000",
-            ),
-            (
-                "domain_migration_anonymous_rollout_basis_points=abc",
-                "Anonymous rollout basis points must be a whole number between 0 and 10000",
-            ),
-            (
-                "domain_migration_rollout_salt=%20%20",
-                "Rollout salt must be between 1 and 64 characters",
-            ),
-            (
-                format!("domain_migration_rollout_salt={}", "x".repeat(65)).as_str(),
-                "Rollout salt must be between 1 and 64 characters",
-            ),
-            (
-                "domain_migration_rollout_salt=caf%C3%A9",
-                "Rollout salt must use printable ASCII",
-            ),
-            (
-                "domain_migration_included_user_ids=123%2Cinvalid",
-                "Included user IDs entry 2 must contain 1 to 20 decimal digits",
-            ),
-            (
-                "domain_migration_excluded_user_ids=123%2Cinvalid",
-                "Excluded user IDs entry 2 must contain 1 to 20 decimal digits",
-            ),
-        ] {
-            let form = MultiValueForm::parse(form.as_bytes());
-            assert_eq!(
-                build_domain_migration_update(&form).expect_err("invalid rollout field"),
-                message
-            );
-        }
     }
 
     #[test]
@@ -1481,41 +1576,54 @@ mod tests {
     }
 
     #[test]
-    fn build_captcha_update_rejects_difficulty_outside_the_supported_range() {
-        for (form, message) in [
-            (
-                "captcha_cost=999",
-                "Cost must be a whole number between 1000 and 20000",
-            ),
-            (
-                "captcha_cost=20001",
-                "Cost must be a whole number between 1000 and 20000",
-            ),
-            (
-                "captcha_max_counter=99",
-                "Maximum counter must be a whole number between 100 and 20000",
-            ),
-            (
-                "captcha_max_counter=20001",
-                "Maximum counter must be a whole number between 100 and 20000",
-            ),
-        ] {
-            let form = MultiValueForm::parse(form.as_bytes());
-            assert_eq!(
-                build_captcha_update(&form).expect_err("invalid field"),
-                message
-            );
-        }
+    fn build_voice_p2p_update_reads_the_rollout_fields() {
+        let form = MultiValueForm::parse(
+            b"voice_p2p_enabled=true&voice_p2p_rollout_basis_points=%20500%20&voice_p2p_rollout_salt=%20voice-p2p-v2%20&voice_p2p_included_user_ids=1500000000000000001&voice_p2p_excluded_user_ids=1500000000000000002&voice_p2p_included_guild_ids=1500000000000000005%0A1500000000000000006%2C1500000000000000005&voice_p2p_include_premium_users=true&voice_p2p_rollout_country_codes=se%2C%20NO%0Ase&voice_p2p_max_participants=%203%20",
+        );
+        let update = build_voice_p2p_update(&form)
+            .expect("valid form")
+            .voice_p2p
+            .expect("voice p2p update");
+        assert_eq!(update.enabled, Some(true));
+        assert_eq!(update.rollout_basis_points, Some(500));
+        assert_eq!(update.rollout_salt, Some("voice-p2p-v2".to_owned()));
+        assert_eq!(update.include_premium_users, Some(true));
+        assert_eq!(update.max_participants, Some(3));
+        assert_eq!(
+            update.rollout_country_codes,
+            Some(vec!["SE".to_owned(), "NO".to_owned()])
+        );
+        assert_eq!(
+            update.included_guild_ids,
+            Some(vec![
+                "1500000000000000005".to_owned(),
+                "1500000000000000006".to_owned()
+            ])
+        );
+        assert_eq!(
+            update.included_user_ids,
+            Some(vec!["1500000000000000001".to_owned()])
+        );
+        assert_eq!(
+            update.excluded_user_ids,
+            Some(vec!["1500000000000000002".to_owned()])
+        );
     }
 
     #[test]
-    fn domain_migration_update_rejects_an_invalid_included_guild_id() {
-        let form = MultiValueForm::parse(
-            b"domain_migration_included_guild_ids=1500000000000000005%0Anot-a-guild",
-        );
+    fn build_voice_p2p_update_leaves_the_feature_inert_when_nothing_is_submitted() {
+        let form = MultiValueForm::parse(b"_csrf=token");
+        let request = build_voice_p2p_update(&form).expect("valid form");
         assert_eq!(
-            build_domain_migration_update(&form).expect_err("invalid guild id"),
-            "Included guild IDs entry 2 must contain 1 to 20 decimal digits"
+            serde_json::to_value(request).expect("serializable update"),
+            serde_json::json!({"voice_p2p": {
+                "enabled": false,
+                "rollout_country_codes": [],
+                "included_user_ids": [],
+                "included_guild_ids": [],
+                "include_premium_users": false,
+                "excluded_user_ids": [],
+            }})
         );
     }
 
@@ -1530,67 +1638,6 @@ mod tests {
     }
 
     #[test]
-    fn build_experiment_delivery_update_rejects_invalid_numbers() {
-        for (key, message, below_min, above_max) in [
-            (
-                "experiment_delivery_poll_interval_seconds",
-                "Poll interval must be a whole number between 60 and 86400",
-                "59",
-                "86401",
-            ),
-            (
-                "experiment_delivery_poll_jitter_percent",
-                "Poll jitter must be a whole number between 0 and 50",
-                "-1",
-                "51",
-            ),
-        ] {
-            for value in [
-                "",
-                "%20%20",
-                "abc",
-                "-1",
-                "1.5",
-                "9999999999999999999999999",
-                below_min,
-                above_max,
-            ] {
-                let form = MultiValueForm::parse(format!("{key}={value}").as_bytes());
-                assert_eq!(
-                    build_experiment_delivery_update(&form).expect_err("invalid number"),
-                    message,
-                    "{key}={value}"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn build_experiment_delivery_update_accepts_inclusive_bounds() {
-        for (interval, jitter) in [(60, 0), (86_400, 50)] {
-            let form = MultiValueForm::parse(format!("experiment_delivery_poll_interval_seconds={interval}&experiment_delivery_poll_jitter_percent={jitter}").as_bytes());
-            let request = build_experiment_delivery_update(&form).expect("valid form");
-            assert_eq!(
-                serde_json::to_value(request).expect("serializable update"),
-                serde_json::json!({"experiment_delivery": {"poll_interval_seconds": interval, "poll_jitter_percent": jitter}})
-            );
-        }
-    }
-
-    #[test]
-    fn build_experiment_delivery_update_accepts_padded_numbers() {
-        let form = MultiValueForm::parse(
-            b"experiment_delivery_poll_interval_seconds=%20900%20&experiment_delivery_poll_jitter_percent=%2025%20",
-        );
-        let update = build_experiment_delivery_update(&form)
-            .expect("valid form")
-            .experiment_delivery
-            .expect("experiment delivery update");
-        assert_eq!(update.poll_interval_seconds, Some(900));
-        assert_eq!(update.poll_jitter_percent, Some(25));
-    }
-
-    #[test]
     fn update_limit_rule_values_reads_checked_limit_keys() {
         let form = MultiValueForm::parse(b"message_send=1&traits%5B%5D=trial");
         let mut rule = LimitRule {
@@ -1599,7 +1646,13 @@ mod tests {
             limits: std::collections::BTreeMap::new(),
             modified_fields: None,
         };
-        update_limit_rule_values(&mut rule, &form, &["message_send".to_owned()], None);
+        update_limit_rule_values(
+            &mut rule,
+            &form,
+            &["message_send".to_owned()],
+            &std::collections::BTreeMap::new(),
+            None,
+        );
         assert_eq!(rule.limits.get("message_send"), Some(&1));
         assert_eq!(
             rule.filters.expect("filters").traits,

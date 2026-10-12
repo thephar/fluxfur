@@ -55,7 +55,6 @@ import {
 	resolveBlueskyOAuthService,
 } from '@app/api/middleware/ServiceRegistry';
 import {
-	ensureVirusScanInitialized,
 	getAdminApiKeyService,
 	getAdminArchiveService,
 	getAdminRepository,
@@ -250,7 +249,7 @@ class RequestServices implements RequestScopedServices {
 
 	constructor(
 		private readonly context: ApiContext,
-		private readonly bluesky: IBlueskyOAuthService,
+		private readonly bluesky: IBlueskyOAuthService | null,
 		private readonly entityCache: RequestCache | undefined,
 	) {}
 
@@ -298,6 +297,7 @@ class RequestServices implements RequestScopedServices {
 							getChannelRepository(),
 							voiceRoomStore,
 							voiceAvailabilityService,
+							getInstanceConfigRepository(),
 						)
 					: null;
 		}
@@ -344,7 +344,7 @@ class RequestServices implements RequestScopedServices {
 		return this.guildStack.inviteService;
 	}
 
-	get blueskyOAuthService(): IBlueskyOAuthService {
+	get blueskyOAuthService(): IBlueskyOAuthService | null {
 		return this.bluesky;
 	}
 
@@ -354,10 +354,6 @@ class RequestServices implements RequestScopedServices {
 
 	get adminArchiveService() {
 		return getAdminArchiveService();
-	}
-
-	get applicationRepository() {
-		return getApplicationRepository();
 	}
 
 	get botAuthService() {
@@ -381,10 +377,6 @@ class RequestServices implements RequestScopedServices {
 
 	get emailService() {
 		return getEmailService();
-	}
-
-	get embedService() {
-		return getEmbedService();
 	}
 
 	get entityAssetService() {
@@ -443,24 +435,12 @@ class RequestServices implements RequestScopedServices {
 		return getReadStateRequestService();
 	}
 
-	get reportService() {
-		return getReportServiceInstance();
-	}
-
 	get snowflakeService() {
 		return getSnowflakeService();
 	}
 
 	get storageService() {
 		return getStorageService();
-	}
-
-	get streamPreviewService() {
-		return getStreamPreviewService();
-	}
-
-	get sweegoWebhookService() {
-		return getSweegoWebhookService();
 	}
 
 	get themeService() {
@@ -526,7 +506,6 @@ class RequestServices implements RequestScopedServices {
 	get applicationService(): ApplicationService {
 		this.cachedApplicationService ??= new ApplicationService(this.context, {
 			applicationRepository: getApplicationRepository(),
-			channelRepository: getChannelRepository(),
 			userCacheService: getUserCacheService(),
 			entityAssetService: getEntityAssetService(),
 			discriminatorService: getDiscriminatorService(),
@@ -576,7 +555,7 @@ class RequestServices implements RequestScopedServices {
 	get singleCommunityService(): SingleCommunityService {
 		this.cachedSingleCommunityService ??= new SingleCommunityService(
 			getInstanceConfigRepository(),
-			this.guildService.data,
+			this.guildService.data.operations,
 			this.guildService.members,
 		);
 		return this.cachedSingleCommunityService;
@@ -920,6 +899,7 @@ class RequestServices implements RequestScopedServices {
 			getAvatarService(),
 			getCacheService(),
 			getSnowflakeService(),
+			this.gatewayService,
 		);
 		return this.cachedChannelFollowService;
 	}
@@ -945,7 +925,7 @@ export const ServiceMiddleware = createMiddleware<HonoEnv>(async (ctx, next) => 
 	});
 	ctx.set('apiContext', apiContext);
 	ctx.set('sudoModeValid', false);
-	await ensureVirusScanInitialized();
+	getVirusScanServiceInstance();
 	await ensureVoiceResourcesInitialized();
 	const blueskyOAuthService = await resolveBlueskyOAuthService(getInstanceConfigRepository());
 	installLazyServices(ctx, new RequestServices(apiContext, blueskyOAuthService, ctx.get('requestCache')));

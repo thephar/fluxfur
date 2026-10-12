@@ -14,7 +14,10 @@ import {
 	type VoiceRemoteSpeakingEvent,
 	type VoiceRemoteSpeakingSnapshot,
 } from '@app/features/voice/engine/VoiceParticipantStateMachine';
-import {getSharedVoiceAudioContext} from '@app/features/voice/engine/VoiceSharedAudioContext';
+import {
+	getSharedVoiceAudioContext,
+	resolveAudioContextConstructor,
+} from '@app/features/voice/engine/VoiceSharedAudioContext';
 import {getRemoteSpeakingThresholdRms} from '@app/features/voice/engine/VoiceSpeakingThreshold';
 import {VoiceTrackKind, VoiceTrackSource} from '@app/features/voice/engine/VoiceTrackSource';
 import {
@@ -34,7 +37,7 @@ const logger = new Logger('VoiceEngineV2AppRemoteSpeakingAdapter');
 const REMOTE_SPEAKING_ANALYSER_INTERVAL_MS = 50;
 const REMOTE_SPEAKING_ANALYSER_HANDLES_CAP = 256;
 
-function computeTimeDomainRms(samples: Float32Array): number {
+export function computeTimeDomainRms(samples: Float32Array): number {
 	if (samples.length === 0) return 0;
 	let sumSquares = 0;
 	for (let i = 0; i < samples.length; i++) {
@@ -137,13 +140,7 @@ class VoiceEngineV2AppRemoteSpeakingAdapter {
 			assert.notEqual(shared.state, 'closed', 'shared voice AudioContext for analyser must not be closed');
 			return shared;
 		}
-		const AudioContextCtor =
-			window.AudioContext ||
-			(
-				window as typeof window & {
-					webkitAudioContext?: typeof AudioContext;
-				}
-			).webkitAudioContext;
+		const AudioContextCtor = resolveAudioContextConstructor();
 		if (!AudioContextCtor) return null;
 		try {
 			this.audioContext = new AudioContextCtor({latencyHint: 'interactive'});

@@ -2,9 +2,11 @@
 
 import {AdminAuditReadActions} from '@app/api/admin/AdminAuditActions';
 import {recordAdminRead, recordAdminWrite} from '@app/api/admin/AdminAuditRecorder';
+import {startAttachmentDecayReconcile} from '@app/api/attachment/AttachmentDecayReconcileRun';
 import {createUserID} from '@app/api/BrandedTypes';
 import {Config} from '@app/api/Config';
 import {
+	type InstanceAttachmentDecayEffectiveConfig,
 	type InstancePolicyConfig,
 	REGISTRATION_PENDING_APPROVAL_TRAIT,
 	REGISTRATION_REJECTED_TRAIT,
@@ -13,15 +15,13 @@ import {deriveSsoRedirectUri, normalizeAndValidateSsoConfig} from '@app/api/inst
 import {requireAdminACL} from '@app/api/middleware/AdminMiddleware';
 import {RateLimitMiddleware} from '@app/api/middleware/RateLimitMiddleware';
 import {OpenAPI} from '@app/api/middleware/ResponseTypeMiddleware';
-import {
-	getGatewayRolloutConfigPublisher,
-	getInstanceConfigRepository,
-	getPushRelayConfigPublisher,
-} from '@app/api/middleware/ServiceSingletons';
+import {getKVClient, getWorkerService} from '@app/api/middleware/ServiceRegistry';
+import {getInstanceConfigRepository, getNatsConfigPublisher} from '@app/api/middleware/ServiceSingletons';
 import {RateLimitConfigs} from '@app/api/RateLimitConfig';
 import type {HonoApp, HonoEnv} from '@app/api/types/HonoEnv';
 import {Validator} from '@app/api/Validator';
 import {AdminACLs} from '@fluxer/constants/src/AdminACLs';
+import {resolveSmtpTlsMode, type SmtpTlsMode, smtpTlsModeFromSecure} from '@fluxer/constants/src/SmtpConstants';
 import {InputValidationError} from '@fluxer/errors/src/domains/core/InputValidationError';
 import {InstancePolicyTransitionNotAllowedError} from '@fluxer/errors/src/domains/core/InstancePolicyTransitionNotAllowedError';
 import {
@@ -38,6 +38,7 @@ import {
 import {DomainMigrationConfigSchema} from '@fluxer/schema/src/domains/admin/DomainMigrationSchemas';
 import {GatewayRolloutConfigSchema} from '@fluxer/schema/src/domains/admin/GatewayRolloutSchemas';
 import type {PushRelayConfig, PushRelayConfigUpdateRequest} from '@fluxer/schema/src/domains/admin/PushRelaySchemas';
+import {VoiceP2pConfigSchema} from '@fluxer/schema/src/domains/admin/VoiceP2pSchemas';
 import {UserIdParam} from '@fluxer/schema/src/domains/common/CommonParamSchemas';
 import {ExperimentDeliveryConfigSchema} from '@fluxer/schema/src/domains/experiment/ExperimentSchemas';
 import type {InstanceBranding} from '@fluxer/schema/src/domains/instance/InstanceSchemas';
@@ -46,9 +47,35 @@ import type {Context} from 'hono';
 import {createMiddleware} from 'hono/factory';
 
 const INSTANCE_BRANDING_ENTITY_ID = 0n;
+const ATTACHMENT_EXPIRY_RULE_FIELDS = [
+	'enabled',
+	'min_size_mb',
+	'max_size_mb',
+	'max_eligible_size_mb',
+	'min_lifetime_days',
+	'max_lifetime_days',
+	'curve',
+] as const satisfies ReadonlyArray<keyof InstanceAttachmentDecayEffectiveConfig>;
+
+function attachmentExpiryRulesChanged(
+	previous: InstanceAttachmentDecayEffectiveConfig,
+	next: InstanceAttachmentDecayEffectiveConfig,
+): boolean {
+	return ATTACHMENT_EXPIRY_RULE_FIELDS.some((field) => previous[field] !== next[field]);
+}
 
 function readOptionalField<T extends object, K extends keyof T>(value: T, key: K): T[K] | undefined {
 	return Object.hasOwn(value, key) ? value[key] : undefined;
+}
+
+function readSmtpTlsModeUpdate(smtp: {
+	tls_mode?: SmtpTlsMode | null;
+	secure?: boolean | null;
+}): SmtpTlsMode | null | undefined {
+	const tlsMode = readOptionalField(smtp, 'tls_mode');
+	if (tlsMode !== undefined) return tlsMode;
+	const secure = readOptionalField(smtp, 'secure');
+	return secure === undefined ? undefined : smtpTlsModeFromSecure(secure);
 }
 
 function mergeOptionalField<T>(currentValue: T, nextValue: T | undefined): T {
@@ -66,6 +93,7 @@ async function buildInstanceConfigResponse(): Promise<InstanceConfigResponse> {
 		gatewayRollout,
 		pushRelay,
 		domainMigration,
+		voiceP2p,
 		captcha,
 		experimentDelivery,
 		registrationConfig,
@@ -76,6 +104,7 @@ async function buildInstanceConfigResponse(): Promise<InstanceConfigResponse> {
 		instanceConfigRepository.getGatewayRolloutConfig(),
 		instanceConfigRepository.getPushRelayConfig(),
 		instanceConfigRepository.getDomainMigrationConfig(),
+		instanceConfigRepository.getVoiceP2pConfig(),
 		instanceConfigRepository.getCaptchaConfig(),
 		instanceConfigRepository.getExperimentDeliveryConfig(),
 		instanceConfigRepository.getRegistrationConfig(),
@@ -113,6 +142,7 @@ async function buildInstanceConfigResponse(): Promise<InstanceConfigResponse> {
 		gateway_rollout: gatewayRollout,
 		push_relay: pushRelay,
 		domain_migration: domainMigration,
+		voice_p2p: voiceP2p,
 		captcha,
 		experiment_delivery: experimentDelivery,
 		registration: {
@@ -370,7 +400,7 @@ export function InstanceConfigAdminController(app: HonoApp) {
 				const landed = await instanceConfigRepository.updateGatewayRolloutConfig((current) =>
 					GatewayRolloutConfigSchema.parse({...current, ...patch}),
 				);
-				await getGatewayRolloutConfigPublisher().publish(landed);
+				await getNatsConfigPublisher().publish('config.gateway.rollout', 'gateway_rollout_config', landed);
 			}
 			if (data.push_relay) {
 				const patch = omitUndefinedFields(data.push_relay);
@@ -381,7 +411,7 @@ export function InstanceConfigAdminController(app: HonoApp) {
 						...patch,
 						...relayConsentStamp(current, patch, adminUserId),
 					}));
-					await getPushRelayConfigPublisher().publish(landed);
+					await getNatsConfigPublisher().publish('config.push.delivery', 'push_service_delivery_config', landed);
 				}
 			}
 			if (data.domain_migration) {
@@ -389,6 +419,18 @@ export function InstanceConfigAdminController(app: HonoApp) {
 				if (Object.keys(patch).length > 0) {
 					await instanceConfigRepository.updateDomainMigrationConfig((current) =>
 						DomainMigrationConfigSchema.parse({
+							...current,
+							...patch,
+							config_version: current.config_version + 1,
+						}),
+					);
+				}
+			}
+			if (data.voice_p2p) {
+				const patch = omitUndefinedFields(data.voice_p2p);
+				if (Object.keys(patch).length > 0) {
+					await instanceConfigRepository.updateVoiceP2pConfig((current) =>
+						VoiceP2pConfigSchema.parse({
 							...current,
 							...patch,
 							config_version: current.config_version + 1,
@@ -519,7 +561,7 @@ export function InstanceConfigAdminController(app: HonoApp) {
 											port: readOptionalField(data.integrations.email.smtp, 'port'),
 											username: readOptionalField(data.integrations.email.smtp, 'username'),
 											password: readOptionalField(data.integrations.email.smtp, 'password'),
-											secure: readOptionalField(data.integrations.email.smtp, 'secure'),
+											tls_mode: readSmtpTlsModeUpdate(data.integrations.email.smtp),
 										})
 									: undefined,
 							}
@@ -540,6 +582,7 @@ export function InstanceConfigAdminController(app: HonoApp) {
 				});
 			}
 			if (data.media) {
+				const previousAttachmentDecay = await instanceConfigRepository.getEffectiveAttachmentDecayConfig();
 				await instanceConfigRepository.setInstanceMediaConfig({
 					attachment_decay: data.media.attachment_decay
 						? omitUndefinedFields({
@@ -555,6 +598,10 @@ export function InstanceConfigAdminController(app: HonoApp) {
 							})
 						: undefined,
 				});
+				const attachmentDecay = await instanceConfigRepository.getEffectiveAttachmentDecayConfig();
+				if (attachmentDecay.enabled && attachmentExpiryRulesChanged(previousAttachmentDecay, attachmentDecay)) {
+					await startAttachmentDecayReconcile(getKVClient(), getWorkerService());
+				}
 			}
 			if (data.policy) {
 				await applyInstancePolicyUpdate(
@@ -649,22 +696,19 @@ export function InstanceConfigAdminController(app: HonoApp) {
 			operationId: 'create_admin_instance_smtp_test',
 			summary: 'Run an SMTP configuration test',
 			description:
-				'Validates that an SMTP configuration can authenticate and accept a connection. Requires INSTANCE_CONFIG_UPDATE permission.',
+				'Validates that an SMTP configuration can authenticate and accept a connection. Fields left out of the body come from the saved configuration, and the saved password is reused only for the saved host and username. An empty body tests what outgoing email uses and fails when email is off or incomplete. Requires INSTANCE_CONFIG_UPDATE permission.',
 			responseSchema: InstanceEmailSmtpTestResponse,
 			statusCode: 200,
 			security: 'adminApiKey',
 			tags: 'Admin',
 		}),
 		async (ctx) => {
-			const data = ctx.req.valid('json');
+			const {smtp, problem} = await instanceConfigRepository.getSmtpTestConfig(ctx.req.valid('json'));
 			let result: InstanceEmailSmtpTestResponse;
 			try {
+				if (problem) throw new Error(problem);
 				const provider = new SmtpEmailProvider({
-					host: data.host,
-					port: data.port,
-					username: data.username,
-					password: data.password,
-					secure: data.secure,
+					...smtp,
 					connectionTimeoutMs: 10000,
 					greetingTimeoutMs: 10000,
 					socketTimeoutMs: 10000,
@@ -678,7 +722,7 @@ export function InstanceConfigAdminController(app: HonoApp) {
 				targetType: 'instance_config',
 				targetId: 0n,
 				action: 'test_smtp_connection',
-				metadata: {port: data.port, secure: data.secure, ok: result.ok},
+				metadata: {port: smtp.port, tls_mode: resolveSmtpTlsMode(smtp.tlsMode, smtp.port), ok: result.ok},
 			});
 			return ctx.json(result);
 		},
@@ -885,11 +929,9 @@ async function updatePendingRegistrationUser(
 	if (decision === 'approve' && wasPendingApproval) {
 		await ctx.get('singleCommunityService').joinStockCommunity(user.id, ctx.get('requestCache'));
 	}
-	await ctx.get('adminService').auditService.createAuditLog({
-		adminUserId: ctx.get('adminUserId'),
+	await recordAdminWrite(ctx, {
 		targetType: 'user',
 		targetId: user.id,
 		action: decision === 'approve' ? 'approve_registration' : 'reject_registration',
-		auditLogReason: ctx.get('auditLogReason'),
 	});
 }

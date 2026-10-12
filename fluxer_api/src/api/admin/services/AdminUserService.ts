@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type {ApiContext} from '@app/api/ApiContext';
-import {mapUserToAdminResponse} from '@app/api/admin/models/UserTypes';
+import {mapUserToAdminResponse, resolveAdminUsers} from '@app/api/admin/models/UserTypes';
 import type {AdminAuditService} from '@app/api/admin/services/AdminAuditService';
 import type {AdminBanManagementService} from '@app/api/admin/services/AdminBanManagementService';
 import {AdminUserBanService} from '@app/api/admin/services/AdminUserBanService';
@@ -9,12 +9,11 @@ import {AdminUserDeletionService} from '@app/api/admin/services/AdminUserDeletio
 import {AdminUserLookupService} from '@app/api/admin/services/AdminUserLookupService';
 import {AdminUserProfileService} from '@app/api/admin/services/AdminUserProfileService';
 import {AdminUserSecurityService} from '@app/api/admin/services/AdminUserSecurityService';
-import {AdminUserUpdatePropagator} from '@app/api/admin/services/AdminUserUpdatePropagator';
 import {ReporterResolutionNotifier} from '@app/api/admin/services/ReporterResolutionNotifier';
 import {createChannelID, createUserID, type UserID} from '@app/api/BrandedTypes';
-import type {IChannelRepository} from '@app/api/channel/IChannelRepository';
-import type {IGuildRepositoryAggregate} from '@app/api/guild/repositories/IGuildRepositoryAggregate';
-import type {IDiscriminatorService} from '@app/api/infrastructure/DiscriminatorService';
+import type {ChannelRepository} from '@app/api/channel/ChannelRepository';
+import type {GuildRepository} from '@app/api/guild/repositories/GuildRepository';
+import type {DiscriminatorService} from '@app/api/infrastructure/DiscriminatorService';
 import type {EntityAssetService} from '@app/api/infrastructure/EntityAssetService';
 import type {KVAccountDeletionQueueService} from '@app/api/infrastructure/KVAccountDeletionQueueService';
 import type {KVBulkMessageDeletionQueueService} from '@app/api/infrastructure/KVBulkMessageDeletionQueueService';
@@ -23,7 +22,8 @@ import {getBillingRepository} from '@app/api/middleware/ServiceRegistry';
 import {OAuth2TokenRepository} from '@app/api/oauth/repositories/OAuth2TokenRepository';
 import type {ReportService} from '@app/api/report/ReportService';
 import type {StoreEntitlementService} from '@app/api/store_billing/StoreEntitlementService';
-import type {IUserRepository} from '@app/api/user/IUserRepository';
+import type {UserRepository} from '@app/api/user/repositories/UserRepository';
+import type {PartialUserChangePropagationDeps} from '@app/api/user/services/PartialUserChangePropagation';
 import type {UserContactChangeLogService} from '@app/api/user/services/UserContactChangeLogService';
 import {AdminACLs} from '@fluxer/constants/src/AdminACLs';
 import {UnknownUserError} from '@fluxer/errors/src/domains/user/UnknownUserError';
@@ -38,9 +38,9 @@ import type Stripe from 'stripe';
 
 interface AdminUserServiceDeps {
 	apiContext: ApiContext;
-	guildRepository: IGuildRepositoryAggregate;
-	channelRepository: IChannelRepository;
-	discriminatorService: IDiscriminatorService;
+	guildRepository: GuildRepository;
+	channelRepository: ChannelRepository;
+	discriminatorService: DiscriminatorService;
 	entityAssetService: EntityAssetService;
 	auditService: AdminAuditService;
 	userCacheService: UserCacheService;
@@ -59,23 +59,23 @@ export class AdminUserService {
 	readonly securityService: AdminUserSecurityService;
 	readonly banService: AdminUserBanService;
 	readonly deletionService: AdminUserDeletionService;
-	private readonly updatePropagator: AdminUserUpdatePropagator;
+	private readonly userUpdateDeps: PartialUserChangePropagationDeps;
 	private readonly contactChangeLogService: UserContactChangeLogService;
 	private readonly auditService: AdminAuditService;
-	private readonly userRepository: IUserRepository;
-	private readonly guildRepository: IGuildRepositoryAggregate;
-	private readonly channelRepository: IChannelRepository;
+	private readonly userRepository: UserRepository;
+	private readonly guildRepository: GuildRepository;
+	private readonly channelRepository: ChannelRepository;
 	private readonly bulkMessageDeletionQueue: KVBulkMessageDeletionQueueService;
 	private readonly cacheService: ICacheService;
 
 	constructor(deps: AdminUserServiceDeps) {
 		const {users, cache, gateway, contactChangeLog} = deps.apiContext.services;
-		this.updatePropagator = new AdminUserUpdatePropagator({
+		this.userUpdateDeps = {
 			userCacheService: deps.userCacheService,
 			userRepository: users,
 			guildRepository: deps.guildRepository,
 			gatewayService: gateway,
-		});
+		};
 		this.userRepository = users;
 		this.guildRepository = deps.guildRepository;
 		this.channelRepository = deps.channelRepository;
@@ -90,25 +90,25 @@ export class AdminUserService {
 			discriminatorService: deps.discriminatorService,
 			entityAssetService: deps.entityAssetService,
 			auditService: deps.auditService,
-			updatePropagator: this.updatePropagator,
+			userUpdateDeps: this.userUpdateDeps,
 			guildRepository: deps.guildRepository,
 		});
 		this.securityService = new AdminUserSecurityService({
 			apiContext: deps.apiContext,
 			auditService: deps.auditService,
-			updatePropagator: this.updatePropagator,
+			userUpdateDeps: this.userUpdateDeps,
 		});
 		this.banService = new AdminUserBanService({
 			apiContext: deps.apiContext,
 			auditService: deps.auditService,
-			updatePropagator: this.updatePropagator,
+			userUpdateDeps: this.userUpdateDeps,
 		});
 		this.deletionService = new AdminUserDeletionService({
 			apiContext: deps.apiContext,
 			auditService: deps.auditService,
 			banManagementService: deps.banManagementService,
 			reportService: deps.reportService,
-			updatePropagator: this.updatePropagator,
+			userUpdateDeps: this.userUpdateDeps,
 			kvDeletionQueue: deps.kvDeletionQueue,
 			stripe: deps.stripe,
 			billingRepository: getBillingRepository(),
@@ -132,7 +132,9 @@ export class AdminUserService {
 			beforeChannelId: data.before ? createChannelID(data.before) : undefined,
 			afterChannelId: data.after ? createChannelID(data.after) : undefined,
 		});
-		const channelModels = await this.channelRepository.listChannels(channels.map((channel) => channel.channelId));
+		const channelModels = await this.channelRepository.channelData.listChannels(
+			channels.map((channel) => channel.channelId),
+		);
 		const channelModelById = new Map(
 			channelModels.filter((c): c is NonNullable<typeof c> => c != null).map((c) => [c.id, c]),
 		);
@@ -156,7 +158,7 @@ export class AdminUserService {
 				allRecipientIds.add(model.ownerId);
 			}
 		}
-		const resolvedUsers = await this.resolveUsers([...allRecipientIds]);
+		const resolvedUsers = await resolveAdminUsers(this.userRepository, [...allRecipientIds]);
 		return {
 			channels: channels.map((channel) => {
 				const model = channelModelById.get(channel.channelId);
@@ -185,44 +187,6 @@ export class AdminUserService {
 		};
 	}
 
-	private async resolveUsers(userIds: Array<UserID>): Promise<
-		Map<
-			UserID,
-			{
-				id: string;
-				username: string;
-				discriminator: string;
-				global_name: string | null;
-				avatar: string | null;
-			}
-		>
-	> {
-		const results = new Map<
-			UserID,
-			{
-				id: string;
-				username: string;
-				discriminator: string;
-				global_name: string | null;
-				avatar: string | null;
-			}
-		>();
-		const users = await Promise.all(userIds.map((id) => this.userRepository.findUnique(id)));
-		for (let i = 0; i < userIds.length; i++) {
-			const user = users[i];
-			if (user) {
-				results.set(userIds[i], {
-					id: user.id.toString(),
-					username: user.username,
-					discriminator: String(user.discriminator).padStart(4, '0'),
-					global_name: user.globalName,
-					avatar: user.avatarHash,
-				});
-			}
-		}
-		return results;
-	}
-
 	async listUserGroupDmChannels(data: ListUserGroupDmChannelsRequest) {
 		const userId = createUserID(data.user_id);
 		const user = await this.userRepository.findUnique(userId);
@@ -234,7 +198,9 @@ export class AdminUserService {
 		if (groupDmSummaries.length === 0) {
 			return {channels: []};
 		}
-		const channelModels = await this.channelRepository.listChannels(groupDmSummaries.map((s) => s.channelId));
+		const channelModels = await this.channelRepository.channelData.listChannels(
+			groupDmSummaries.map((s) => s.channelId),
+		);
 		const allUserIds = new Set<UserID>();
 		for (const model of channelModels) {
 			if (model) {
@@ -246,7 +212,7 @@ export class AdminUserService {
 				}
 			}
 		}
-		const resolvedUsers = await this.resolveUsers([...allUserIds]);
+		const resolvedUsers = await resolveAdminUsers(this.userRepository, [...allUserIds]);
 		return {
 			channels: groupDmSummaries.map((summary, i) => {
 				const model = channelModels[i];

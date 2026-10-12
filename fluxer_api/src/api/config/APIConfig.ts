@@ -3,16 +3,10 @@
 import type {WorkerTaskName} from '@app/api/worker/WorkerLaneConfig';
 import type {CachePurgeAdapterName, StoreProductSlotName} from '@fluxer/config/src/MasterConfig';
 import type {AccountIdentityMode, TagStyle} from '@fluxer/constants/src/AccountIdentityConstants';
+import type {SmtpTlsMode} from '@fluxer/constants/src/SmtpConstants';
 
 export type APIWorkerMode = 'all_lanes' | 'single_lane' | 'single_task';
 export type APIWorkerLaneName = 'realtime' | 'unfurl' | 'lifecycle' | 'batch' | 'crosspost';
-export type PushProviderEnvironment = 'production' | 'development';
-
-interface PushProviderAppConfig {
-	appId: string;
-	topic?: string;
-	environment?: PushProviderEnvironment;
-}
 
 export interface AppStoreAppConfig {
 	bundleId: string;
@@ -170,7 +164,7 @@ export interface APIConfig {
 			port: number;
 			username: string;
 			password: string;
-			secure: boolean;
+			tlsMode: SmtpTlsMode | null;
 		};
 	};
 	blocklistFeeds: {
@@ -192,6 +186,7 @@ export interface APIConfig {
 			latitude: number;
 			longitude: number;
 		};
+		p2pStunUrls?: Array<string>;
 	};
 	stripe: {
 		enabled: boolean;
@@ -261,11 +256,6 @@ export interface APIConfig {
 			rpId: string;
 			allowedOrigins: Array<string>;
 		};
-		vapid: {
-			publicKey: string;
-			privateKey: string;
-			email?: string;
-		};
 		bluesky: BlueskyOAuthConfig;
 	};
 	klipy: {
@@ -320,14 +310,6 @@ export interface APIConfig {
 	inactivityDeletionThresholdDays?: number;
 	push: {
 		publicVapidKey?: string;
-		apns: {
-			enabled: boolean;
-			teamId?: string;
-			keyId?: string;
-			privateKey?: string;
-			privateKeyPath?: string;
-			apps: Array<PushProviderAppConfig>;
-		};
 	};
 	appStore: {
 		enabled: boolean;

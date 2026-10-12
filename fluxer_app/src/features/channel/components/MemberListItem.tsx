@@ -7,9 +7,10 @@ import styles from '@app/features/channel/components/MemberListItem.module.css';
 import {PreloadableUserPopout} from '@app/features/channel/components/PreloadableUserPopout';
 import Guilds from '@app/features/guild/state/Guilds';
 import {useMemberListCustomStatus} from '@app/features/member/hooks/useMemberListCustomStatus';
+import {useMemberListMobile} from '@app/features/member/hooks/useMemberListMobile';
 import {useMemberListPresence} from '@app/features/member/hooks/useMemberListPresence';
 import type {GuildMember} from '@app/features/member/models/GuildMember';
-import TypingIndicator from '@app/features/typing/state/TypingIndicator';
+import RollingTypingStore from '@app/features/typing/rolling/RollingTypingStore';
 import {GroupDMMemberContextMenu} from '@app/features/ui/action_menu/GroupDMContextMenu';
 import {GuildMemberContextMenu} from '@app/features/ui/action_menu/GuildMemberContextMenu';
 import * as ContextMenuCommands from '@app/features/ui/commands/ContextMenuCommands';
@@ -51,6 +52,7 @@ interface MemberListItemProps {
 	guildMember?: GuildMember;
 	status?: StatusType;
 	customStatus?: CustomStatus | null;
+	isMobile?: boolean;
 	isOwner?: boolean;
 	roleColor?: string;
 	displayName?: string;
@@ -67,6 +69,7 @@ export const MemberListItem: React.FC<MemberListItemProps> = observer((props) =>
 		guildMember,
 		status: providedStatus,
 		customStatus: providedCustomStatus,
+		isMobile: providedIsMobile,
 		isOwner = false,
 		roleColor,
 		displayName,
@@ -91,7 +94,14 @@ export const MemberListItem: React.FC<MemberListItemProps> = observer((props) =>
 	const [contextMenuOpen, setContextMenuOpen] = useState(false);
 	const contextMenuTicketRef = useRef(0);
 	const isCurrentUser = user.id === Authentication.currentUserId;
-	const isTyping = TypingIndicator.isMemberListTyping(channelId, user.id, Authentication.currentUserId);
+	const hookIsMobile = useMemberListMobile({
+		guildId: guildId ?? '',
+		channelId,
+		userId: user.id,
+		enabled: guildId !== undefined && providedIsMobile === undefined && !isCurrentUser,
+	});
+	const isMobile = isCurrentUser ? undefined : (providedIsMobile ?? hookIsMobile);
+	const isTyping = RollingTypingStore.isMemberListTyping(channelId, user.id, Authentication.currentUserId);
 	const handleContextMenu = useCallback(
 		(event: React.MouseEvent) => {
 			event.preventDefault();
@@ -205,6 +215,7 @@ export const MemberListItem: React.FC<MemberListItemProps> = observer((props) =>
 								showOffline={isCurrentUser || isTyping}
 								guildId={guildId}
 								status={status}
+								isMobile={isMobile}
 								avatarUrl={memberAvatarUrl}
 								hoverAvatarUrl={memberHoverAvatarUrl}
 								mediaSize={avatarMediaSize}

@@ -3,7 +3,7 @@
 import {type ChannelID, createChannelID, createGuildID, createMessageID, createUserID} from '@app/api/BrandedTypes';
 import type {MessageRequest} from '@app/api/channel/MessageTypes';
 import {normalizeMessageRequestPayload} from '@app/api/channel/services/message/MessageRequestCompatibility';
-import {parseMultipartMessageData} from '@app/api/channel/services/message/MessageRequestParser';
+import {parseMultipartMessageData, readMessageJsonBody} from '@app/api/channel/services/message/MessageRequestParser';
 import type {ForumPostInput} from '@app/api/channel/services/thread/ThreadCreationService';
 import {ChannelThreadsRouteGuard} from '@app/api/channel/threads/ChannelThreadsRouteGuard';
 import {viewerFromCtx} from '@app/api/experiment/ChannelThreadsGate';
@@ -33,7 +33,6 @@ import {
 	StartThreadFromMessageRequest,
 	StartThreadRequest,
 	ThreadChannelResponse,
-	ThreadLocationQuery,
 	ThreadMemberGetQuery,
 	ThreadMemberListResponse,
 	ThreadMembersListQuery,
@@ -73,12 +72,7 @@ async function readPayloadJson(ctx: Context<HonoEnv>): Promise<unknown> {
 
 async function readJsonBody(ctx: Context<HonoEnv>): Promise<unknown> {
 	if (isMultipart(ctx)) return readPayloadJson(ctx);
-	try {
-		const raw = await ctx.req.text();
-		return raw.trim().length === 0 ? {} : parseJsonPreservingLargeIntegers(raw);
-	} catch {
-		throw InputValidationError.fromCode('message_data', ValidationErrorCodes.INVALID_MESSAGE_DATA);
-	}
+	return readMessageJsonBody(ctx);
 }
 
 function parseWithSchema<T extends z.ZodType>(schema: T, value: unknown): z.output<T> {
@@ -389,7 +383,6 @@ export function ThreadController(app: HonoApp) {
 		RateLimitMiddleware(RateLimitConfigs.CHANNEL_THREAD_MEMBER_PUT),
 		LoginRequired,
 		Validator('param', ChannelIdParam),
-		Validator('query', ThreadLocationQuery),
 		OpenAPI({
 			operationId: 'join_thread',
 			summary: 'Join a thread',
@@ -415,7 +408,6 @@ export function ThreadController(app: HonoApp) {
 		RateLimitMiddleware(RateLimitConfigs.CHANNEL_THREAD_MEMBER_DELETE),
 		LoginRequired,
 		Validator('param', ChannelIdParam),
-		Validator('query', ThreadLocationQuery),
 		OpenAPI({
 			operationId: 'leave_thread',
 			summary: 'Leave a thread',
@@ -474,7 +466,6 @@ export function ThreadController(app: HonoApp) {
 		LoginRequired,
 		SelfThreadMemberAlias('join'),
 		Validator('param', ChannelIdUserIdParam),
-		Validator('query', ThreadLocationQuery),
 		OpenAPI({
 			operationId: 'add_thread_member',
 			summary: 'Add a thread member',
@@ -504,7 +495,6 @@ export function ThreadController(app: HonoApp) {
 		LoginRequired,
 		SelfThreadMemberAlias('leave'),
 		Validator('param', ChannelIdUserIdParam),
-		Validator('query', ThreadLocationQuery),
 		OpenAPI({
 			operationId: 'remove_thread_member',
 			summary: 'Remove a thread member',

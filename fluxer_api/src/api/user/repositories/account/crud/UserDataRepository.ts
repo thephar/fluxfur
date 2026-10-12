@@ -8,6 +8,7 @@ import {applyPatchToRow, buildPatchFromData, executeVersionedUpdate} from '@app/
 import type {UserRow} from '@app/api/database/types/UserTypes';
 import {EMPTY_USER_ROW, USER_COLUMNS} from '@app/api/database/types/UserTypes';
 import {emitAccountChangedIfRelevant} from '@app/api/infrastructure/activity/AccountChangeEvents';
+import {getInstanceProductName} from '@app/api/instance/ProductName';
 import {User} from '@app/api/models/User';
 import {Users} from '@app/api/Tables';
 import {shiftGiftExtensionPastPremiumUntil} from '@app/api/user/GiftExtensionShift';
@@ -33,16 +34,6 @@ const FETCH_ACTIVITY_TRACKING_CQL = Users.selectCql({
 	limit: 1,
 });
 
-function createFetchAllUsersFirstPageQuery(limit: number) {
-	return Users.select({limit});
-}
-
-const createFetchAllUsersPaginatedQuery = (limit: number) =>
-	Users.select({
-		where: Users.where.tokenGt('user_id', 'last_user_id'),
-		limit,
-	});
-
 type UserPatch = Partial<{
 	[K in Exclude<keyof UserRow, 'user_id'> & string]: DbOp<UserRow[K]>;
 }>;
@@ -67,7 +58,7 @@ export class UserDataRepository {
 			return new User({
 				...EMPTY_USER_ROW,
 				user_id: createUserID(FLUXER_BOT_USER_ID),
-				username: 'FluxFur',
+				username: getInstanceProductName(),
 				discriminator: 0,
 				bot: true,
 				system: true,
@@ -94,18 +85,6 @@ export class UserDataRepository {
 			throw new UnknownUserError();
 		}
 		return user;
-	}
-
-	async listAllUsersPaginated(limit: number, lastUserId?: UserID): Promise<Array<User>> {
-		let users: Array<UserRow>;
-		if (lastUserId) {
-			const query = createFetchAllUsersPaginatedQuery(limit);
-			users = await fetchMany<UserRow>(query.bind({last_user_id: lastUserId}));
-		} else {
-			const query = createFetchAllUsersFirstPageQuery(limit);
-			users = await fetchMany<UserRow>(query.bind({}));
-		}
-		return users.map((user) => new User(user));
 	}
 
 	async scanAllUsersPage(

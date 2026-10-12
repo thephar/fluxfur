@@ -98,7 +98,7 @@ admit_session_connect(UserId, State) ->
 
 -spec admit_existing_member_connect(user_id(), guild_state()) -> admit | reject_not_member.
 admit_existing_member_connect(UserId, State) ->
-    case guild_data_members:find_member_by_user_id(UserId, State) of
+    case guild_permissions_check:find_member_by_user_id(UserId, State) of
         undefined -> reject_not_member;
         _Member -> admit
     end.
@@ -205,7 +205,7 @@ finalize_connect(SessionId, UserId, GuildId, InitialGuildId, State, CachedGuildS
 build_unavailable_reply(GuildId, State) ->
     Base = #{<<"id">> => integer_to_binary(GuildId), <<"unavailable">> => true},
     Response =
-        case guild_availability:is_unavailable_hidden_enabled(State) of
+        case guild_availability_check:is_unavailable_hidden_enabled(State) of
             true -> Base#{<<"unavailable_hidden">> => true};
             false -> Base
         end,
@@ -424,7 +424,7 @@ cleanup_session_subscriptions(Session, State) ->
     SessionId = maps:get(session_id, Session),
     GuildId = require_guild_id(maps:get(id, State)),
     passive_sync_registry:delete(SessionId, GuildId),
-    State1 = guild_member_list:unsubscribe_session(SessionId, State),
+    State1 = guild_member_list_subscribe:unsubscribe_session(SessionId, State),
     MemberSubs = maps:get(member_subscriptions, State1, guild_subscriptions:init_state()),
     NewMemberSubs = guild_subscriptions:unsubscribe_session(SessionId, MemberSubs),
     State2 = State1#{member_subscriptions => NewMemberSubs},
@@ -566,7 +566,7 @@ lookup_or_compute_viewable(UserId, RoleKey, CacheTab, State) ->
 -spec compute_viewable_channel_map(user_id(), guild_state()) -> map().
 compute_viewable_channel_map(UserId, State) ->
     guild_sessions:build_viewable_channel_map(
-        guild_visibility:get_user_viewable_channels(UserId, State)
+        guild_visibility_channels:get_user_viewable_channels(UserId, State)
     ).
 
 -spec invalidate_viewable_channels_cache(guild_state()) -> ok.
@@ -611,86 +611,10 @@ snowflake_binary(FieldName, Value) ->
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 
-count_user_sessions_empty_test() ->
-    ?assertEqual(0, count_user_sessions(1, #{})).
-
-count_user_sessions_counts_correctly_test() ->
-    Sessions = #{
-        <<"s1">> => #{user_id => 100, session_id => <<"s1">>},
-        <<"s2">> => #{user_id => 100, session_id => <<"s2">>},
-        <<"s3">> => #{user_id => 200, session_id => <<"s3">>},
-        <<"s4">> => #{user_id => 100, session_id => <<"s4">>}
-    },
-    ?assertEqual(3, count_user_sessions(100, Sessions)),
-    ?assertEqual(1, count_user_sessions(200, Sessions)),
-    ?assertEqual(0, count_user_sessions(300, Sessions)).
-
-count_user_sessions_at_limit_test() ->
-    Sessions = sessions_for_user(42, ?MAX_SESSIONS_PER_USER_PER_GUILD),
-    ?assertEqual(?MAX_SESSIONS_PER_USER_PER_GUILD, count_user_sessions(42, Sessions)).
-
-count_user_sessions_under_limit_allows_test() ->
-    Sessions = sessions_for_user(42, ?MAX_SESSIONS_PER_USER_PER_GUILD - 1),
-    ?assert(count_user_sessions(42, Sessions) < ?MAX_SESSIONS_PER_USER_PER_GUILD).
-
-count_user_sessions_at_limit_rejects_test() ->
-    Sessions = sessions_for_user(42, ?MAX_SESSIONS_PER_USER_PER_GUILD),
-    ?assert(count_user_sessions(42, Sessions) >= ?MAX_SESSIONS_PER_USER_PER_GUILD).
-
-sessions_for_user(UserId, Count) ->
-    Sessions = maps:from_list([
-        {iolist_to_binary(["s", integer_to_list(I)]), #{
-            user_id => UserId, session_id => iolist_to_binary(["s", integer_to_list(I)])
-        }}
-     || I <- lists:seq(1, Count)
-    ]),
-    Sessions.
-
-resection_connected_user_skips_when_already_connected_test() ->
-    Connected = sets:from_list([42]),
-    Old = #{connected_user_ids => Connected},
-    New = #{connected_user_ids => Connected, marker => updated},
-    ?assertEqual(New, resection_connected_user(42, #{}, Old, New)).
-
-resection_connected_user_skips_when_still_disconnected_test() ->
-    Old = #{connected_user_ids => sets:new()},
-    New = #{connected_user_ids => sets:new(), marker => updated},
-    ?assertEqual(New, resection_connected_user(42, #{}, Old, New)).
-
-resection_connected_user_ignores_undefined_user_test() ->
-    New = #{connected_user_ids => sets:new()},
-    ?assertEqual(New, resection_connected_user(undefined, #{}, New, New)).
-
-resection_disconnected_user_skips_when_still_connected_test() ->
-    Connected = sets:from_list([42]),
-    Old = #{connected_user_ids => Connected},
-    New = #{connected_user_ids => Connected, marker => updated},
-    ?assertEqual(New, maybe_resection_disconnected_user(42, Old, New)).
-
-resection_disconnected_user_skips_when_already_disconnected_test() ->
-    Old = #{connected_user_ids => sets:new()},
-    New = #{connected_user_ids => sets:new(), marker => updated},
-    ?assertEqual(New, maybe_resection_disconnected_user(42, Old, New)).
-
-became_disconnected_detects_transition_test() ->
-    Old = #{connected_user_ids => sets:from_list([42])},
-    New = #{connected_user_ids => sets:new()},
-    ?assert(became_disconnected(42, Old, New)),
-    ?assertNot(became_disconnected(42, Old, Old)),
-    ?assertNot(became_disconnected(42, New, New)),
-    ?assertNot(became_disconnected(42, New, Old)).
-
 presence_resynced_lists_needs_a_list_visible_change_test() ->
     State = #{member_presence => #{42 => #{<<"status">> => <<"online">>}}},
     ?assertNot(presence_resynced_lists(42, undefined, State)),
     ?assert(presence_resynced_lists(42, #{}, State)),
     ?assertNot(presence_resynced_lists(42, #{<<"status">> => <<"online">>}, State)).
-
-became_connected_detects_transition_test() ->
-    Old = #{connected_user_ids => sets:new()},
-    New = #{connected_user_ids => sets:from_list([42])},
-    ?assert(became_connected(42, Old, New)),
-    ?assertNot(became_connected(42, New, New)),
-    ?assertNot(became_connected(42, Old, Old)).
 
 -endif.

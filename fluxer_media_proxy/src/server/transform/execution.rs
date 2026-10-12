@@ -35,17 +35,32 @@ pub(in crate::server) async fn run_transform(
     let deadline = deadline_instant(options.deadline_ms);
     let media_limits = runtime.limits();
     let transform_metrics = runtime.metrics();
+    let cost_data = data.clone();
     let timed = runtime
         .tasks()
-        .run_native(deadline, move || {
-            let started = Instant::now();
-            let media =
-                media_process::transform_image(&data, &options, &media_limits, &transform_metrics)?;
-            Ok(TimedMedia {
-                media,
-                elapsed_ms: metrics::duration_millis(started.elapsed()),
-            })
-        })
+        .run_native(
+            deadline,
+            move || {
+                Ok(media_process::image_transform_cost(
+                    &cost_data,
+                    &options,
+                    &media_limits,
+                )?)
+            },
+            move || {
+                let started = Instant::now();
+                let media = media_process::transform_image(
+                    &data,
+                    &options,
+                    &media_limits,
+                    &transform_metrics,
+                )?;
+                Ok(TimedMedia {
+                    media,
+                    elapsed_ms: metrics::duration_millis(started.elapsed()),
+                })
+            },
+        )
         .await?;
     runtime.metrics().observe_image_duration(timed.elapsed_ms);
     request_log::record_stage(Stage::Transform, timed.elapsed_ms);
@@ -67,34 +82,40 @@ pub(in crate::server) async fn run_video_transform(
     let deadline = deadline_instant(deadline_ms);
     let media_limits = runtime.limits();
     let transform_metrics = runtime.metrics();
+    let cost_bytes = media_process::av_native_cost(data.len());
     let timed = runtime
         .tasks()
-        .run_native(deadline, move || {
-            let started = Instant::now();
-            let thumbnail = media_process::extract_video_thumbnail(&data, format, &media_limits)?;
-            let media = if width.is_none() && height.is_none() {
-                thumbnail
-            } else {
-                media_process::transform_image(
-                    &thumbnail.bytes,
-                    &ImageOptions {
-                        width,
-                        height,
-                        format,
-                        quality,
-                        animation: AnimationMode::Static,
-                        deadline_ms,
-                        ..Default::default()
-                    },
-                    &media_limits,
-                    &transform_metrics,
-                )?
-            };
-            Ok(TimedMedia {
-                media,
-                elapsed_ms: metrics::duration_millis(started.elapsed()),
-            })
-        })
+        .run_native(
+            deadline,
+            move || Ok(cost_bytes),
+            move || {
+                let started = Instant::now();
+                let thumbnail =
+                    media_process::extract_video_thumbnail(&data, format, &media_limits)?;
+                let media = if width.is_none() && height.is_none() {
+                    thumbnail
+                } else {
+                    media_process::transform_image(
+                        &thumbnail.bytes,
+                        &ImageOptions {
+                            width,
+                            height,
+                            format,
+                            quality,
+                            animation: AnimationMode::Static,
+                            deadline_ms,
+                            ..Default::default()
+                        },
+                        &media_limits,
+                        &transform_metrics,
+                    )?
+                };
+                Ok(TimedMedia {
+                    media,
+                    elapsed_ms: metrics::duration_millis(started.elapsed()),
+                })
+            },
+        )
         .await?;
     runtime.metrics().observe_video_duration(timed.elapsed_ms);
     request_log::record_stage(Stage::Transform, timed.elapsed_ms);
@@ -102,19 +123,17 @@ pub(in crate::server) async fn run_video_transform(
 }
 
 pub(in crate::server) fn coalesced_work_result<T>(result: anyhow::Result<T>) -> anyhow::Result<T> {
-    match result {
-        Ok(value) => Ok(value),
-        Err(error) if transform_error_is_timeout(&error) => {
-            Err(anyhow::Error::new(CoalescerError::RequestTimeout))
+    let Err(error) = result else {
+        return result;
+    };
+    let retyped = match error.downcast_ref::<TimedSemaphoreError>() {
+        Some(TimedSemaphoreError::QueueFull | TimedSemaphoreError::RequestTimeout) => {
+            CoalescerError::RequestTimeout
         }
-        Err(error)
-            if error.downcast_ref::<TimedSemaphoreError>()
-                == Some(&TimedSemaphoreError::Closed) =>
-        {
-            Err(anyhow::Error::new(CoalescerError::Unavailable))
-        }
-        Err(error) => Err(error),
-    }
+        Some(TimedSemaphoreError::Closed) => CoalescerError::Unavailable,
+        None => return Err(error),
+    };
+    Err(anyhow::Error::new(retyped))
 }
 
 pub(in crate::server) fn transform_error_is_timeout(error: &anyhow::Error) -> bool {
@@ -165,6 +184,12 @@ mod tests {
         assert_eq!(
             Some(&MediaError::MediaDecodeFailed),
             failed.downcast_ref::<MediaError>()
+        );
+        let ran_out = coalesced_work_result::<()>(Err(MediaError::RequestTimeout.into()))
+            .expect_err("work that ran out its deadline passes through");
+        assert_eq!(
+            Some(&MediaError::RequestTimeout),
+            ran_out.downcast_ref::<MediaError>()
         );
     }
 

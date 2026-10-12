@@ -29,10 +29,6 @@ impl RouterService for MessagesRouter {
 
     fn route_key(req: &MessageRequest) -> String {
         match req {
-            MessageRequest::GetById { channel_id, .. } => channel_id.to_string(),
-            MessageRequest::GetLatest { channel_id, .. } => channel_id.to_string(),
-            MessageRequest::GetBefore { channel_id, .. } => channel_id.to_string(),
-            MessageRequest::GetAfter { channel_id, .. } => channel_id.to_string(),
             MessageRequest::GetResponseById { channel_id, .. } => channel_id.to_string(),
             MessageRequest::BuildResponse { message, .. } => message.channel_id.to_string(),
             MessageRequest::BuildResponses { messages, .. } => messages
@@ -46,23 +42,6 @@ impl RouterService for MessagesRouter {
 
     fn coalesce_key(req: &MessageRequest) -> Option<String> {
         match req {
-            MessageRequest::GetById {
-                channel_id,
-                message_id,
-            } => Some(format!("get:{channel_id}:{message_id}")),
-            MessageRequest::GetLatest { channel_id, limit } => {
-                Some(format!("latest:{channel_id}:{limit}"))
-            }
-            MessageRequest::GetBefore {
-                channel_id,
-                before_id,
-                limit,
-            } => Some(format!("before:{channel_id}:{before_id}:{limit}")),
-            MessageRequest::GetAfter {
-                channel_id,
-                after_id,
-                limit,
-            } => Some(format!("after:{channel_id}:{after_id}:{limit}")),
             MessageRequest::GetResponseById {
                 channel_id,
                 message_id,
@@ -72,13 +51,14 @@ impl RouterService for MessagesRouter {
                 can_read_message_history,
                 media_endpoint,
                 include_reactions,
+                attachment_decay,
                 nonce,
                 tts,
                 include_hidden,
                 threads_mask,
                 ..
             } => Some(format!(
-                "api-get:{channel_id}:{message_id}:{viewer_user_id}:{source_guild_id:?}:{message_history_cutoff_ms:?}:{can_read_message_history}:{media_endpoint}:{include_reactions:?}:{nonce:?}:{tts:?}:{include_hidden}:{threads_mask}"
+                "api-get:{channel_id}:{message_id}:{viewer_user_id}:{source_guild_id:?}:{message_history_cutoff_ms:?}:{can_read_message_history}:{media_endpoint}:{include_reactions:?}:{attachment_decay:?}:{nonce:?}:{tts:?}:{include_hidden}:{threads_mask}"
             )),
             MessageRequest::BuildResponse { .. } => None,
             MessageRequest::BuildResponses { .. } => None,
@@ -94,12 +74,13 @@ impl RouterService for MessagesRouter {
                 can_read_message_history,
                 media_endpoint,
                 include_reactions,
+                attachment_decay,
                 include_hidden,
                 threads_mask,
                 exclude_types,
                 ..
             } => Some(format!(
-                "api-list:{channel_id}:{viewer_user_id}:{limit}:{before_id:?}:{after_id:?}:{around_id:?}:{source_guild_id:?}:{message_history_cutoff_ms:?}:{can_read_message_history}:{media_endpoint}:{include_reactions:?}:{include_hidden}:{threads_mask}:{exclude_types:?}"
+                "api-list:{channel_id}:{viewer_user_id}:{limit}:{before_id:?}:{after_id:?}:{around_id:?}:{source_guild_id:?}:{message_history_cutoff_ms:?}:{can_read_message_history}:{media_endpoint}:{include_reactions:?}:{attachment_decay:?}:{include_hidden}:{threads_mask}:{exclude_types:?}"
             )),
             MessageRequest::ExtractMentions { .. } => None,
         }
@@ -109,23 +90,6 @@ impl RouterService for MessagesRouter {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn coalesce_key_includes_message_query_shape() {
-        let latest = MessageRequest::GetLatest {
-            channel_id: 42,
-            limit: 50,
-        };
-        let before = MessageRequest::GetBefore {
-            channel_id: 42,
-            before_id: 100,
-            limit: 50,
-        };
-        assert_ne!(
-            MessagesRouter::coalesce_key(&latest),
-            MessagesRouter::coalesce_key(&before)
-        );
-    }
 
     fn list_request(threads_mask: bool, exclude_types: Vec<i32>) -> MessageRequest {
         MessageRequest::ListResponses {
@@ -142,6 +106,7 @@ mod tests {
             media_proxy_secret_key: "secret".to_owned(),
             attachment_url_secret_base64: None,
             include_reactions: None,
+            attachment_decay: None,
             include_hidden: false,
             threads_mask,
             exclude_types,
@@ -160,6 +125,7 @@ mod tests {
             media_proxy_secret_key: "secret".to_owned(),
             attachment_url_secret_base64: None,
             include_reactions: None,
+            attachment_decay: None,
             nonce: None,
             tts: None,
             include_hidden: false,
@@ -178,6 +144,32 @@ mod tests {
         assert_ne!(
             MessagesRouter::coalesce_key(&get_request(false)),
             MessagesRouter::coalesce_key(&get_request(true))
+        );
+    }
+
+    #[test]
+    fn coalesce_key_separates_attachment_decay_states() {
+        let mut list = list_request(false, Vec::new());
+        if let MessageRequest::ListResponses {
+            attachment_decay, ..
+        } = &mut list
+        {
+            *attachment_decay = Some(false);
+        }
+        let mut get = get_request(false);
+        if let MessageRequest::GetResponseById {
+            attachment_decay, ..
+        } = &mut get
+        {
+            *attachment_decay = Some(false);
+        }
+        assert_ne!(
+            MessagesRouter::coalesce_key(&list_request(false, Vec::new())),
+            MessagesRouter::coalesce_key(&list)
+        );
+        assert_ne!(
+            MessagesRouter::coalesce_key(&get_request(false)),
+            MessagesRouter::coalesce_key(&get)
         );
     }
 }

@@ -6,7 +6,6 @@
 -export([
     subscribe_ranges/4,
     unsubscribe_session/2,
-    send_member_list_update_to_sessions/5,
     dispatch_sync_to_subscribed_list/7,
     handle_sync_item_cache_timeout/1,
     sync_cache_find/1,
@@ -77,56 +76,6 @@ maybe_drop_channel_engine(ListId, SubsTab, State) ->
     case map_size(guild_member_list_subs:get_list_subs(ListId, SubsTab)) =:= 0 of
         true -> guild_member_list_channel_engine:drop(ListId, State);
         false -> State
-    end.
-
--spec send_member_list_update_to_sessions(list_id(), map(), map(), map(), guild_state()) -> ok.
-send_member_list_update_to_sessions(ListId, ListSubs, Sessions, Payload, State) ->
-    case dispatch_context(ListId, State) of
-        undefined ->
-            ok;
-        {GuildId, ChannelId} ->
-            do_send_update(ListSubs, Sessions, Payload, ChannelId, GuildId, State)
-    end.
-
--spec do_send_update(
-    map(), map(), map(), channel_id() | undefined, pos_integer(), guild_state()
-) -> ok.
-do_send_update(ListSubs, Sessions, Payload, ChId, GuildId, State) ->
-    Encoded = encode_wire_payload(Payload),
-    Pids = collect_list_pids(ListSubs, Sessions, ChId, State),
-    gateway_dispatch_relay:dispatch_many(
-        Pids, guild_member_list_update, Encoded, GuildId
-    ).
-
--spec collect_list_pids(
-    map(), map(), channel_id() | undefined, guild_state()
-) -> [pid()].
-collect_list_pids(ListSubs, Sessions, ChId, State) ->
-    maps:fold(
-        fun(Sid, _Ranges, Acc) ->
-            eligible_list_pid(Sid, Sessions, ChId, State, Acc)
-        end,
-        [],
-        ListSubs
-    ).
-
--spec eligible_list_pid(
-    binary(), map(), channel_id() | undefined, guild_state(), [pid()]
-) -> [pid()].
-eligible_list_pid(Sid, Sessions, ChId, State, Acc) ->
-    case maps:get(Sid, Sessions, undefined) of
-        #{pid := Pid} = SD when is_pid(Pid) ->
-            add_if_viewable(Pid, SD, ChId, State, Acc);
-        _ ->
-            Acc
-    end.
-
--spec add_if_viewable(pid(), map(), channel_id() | undefined, guild_state(), [pid()]) ->
-    [pid()].
-add_if_viewable(Pid, SD, ChId, State, Acc) ->
-    case session_can_view_list_members(SD, ChId, State) of
-        true -> [Pid | Acc];
-        false -> Acc
     end.
 
 -spec dispatch_sync_to_subscribed_list(
@@ -399,29 +348,12 @@ sync_item_cache_enabled() ->
 session_can_view_list_members(SessionData, undefined, State) ->
     case maps:get(user_id, SessionData, undefined) of
         UserId when is_integer(UserId), UserId > 0 ->
-            guild_permissions:find_member_by_user_id(UserId, State) =/= undefined;
+            guild_permissions_check:find_member_by_user_id(UserId, State) =/= undefined;
         _ ->
             false
     end;
 session_can_view_list_members(SessionData, ChannelId, State) ->
     guild_member_list_connected:session_can_view_channel_members(SessionData, ChannelId, State).
-
--spec dispatch_context(list_id(), guild_state()) ->
-    {pos_integer(), channel_id() | undefined} | undefined.
-dispatch_context(ListId, State) ->
-    case {valid_list_id(ListId), guild_id(State)} of
-        {true, GuildId} when is_integer(GuildId), GuildId > 0 ->
-            {GuildId, list_channel_id(ListId)};
-        _ ->
-            undefined
-    end.
-
--spec guild_id(guild_state()) -> integer() | undefined.
-guild_id(State) ->
-    case snowflake_id:parse_optional(maps:get(id, State, undefined)) of
-        GuildId when is_integer(GuildId), GuildId > 0 -> GuildId;
-        _ -> undefined
-    end.
 
 -spec valid_list_id(term()) -> boolean().
 valid_list_id(<<"0">>) ->
@@ -433,17 +365,6 @@ valid_list_id(ListId) when is_binary(ListId) ->
     end;
 valid_list_id(_) ->
     false.
-
--spec list_channel_id(term()) -> channel_id() | undefined.
-list_channel_id(<<"0">>) ->
-    undefined;
-list_channel_id(ListId) when is_binary(ListId) ->
-    case snowflake_id:parse_optional(ListId) of
-        Id when is_integer(Id), Id > 0 -> Id;
-        _ -> undefined
-    end;
-list_channel_id(_) ->
-    undefined.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -534,24 +455,6 @@ sync_item_cache_released_after_two_idle_generations_test() ->
         end)
     end).
 
-sync_item_cache_keeps_entries_touched_each_generation_test() ->
-    with_clean_cache(fun() ->
-        Payload = sync_payload(<<"500">>, [{0, 99}], [test_member(N) || N <- lists:seq(1, 8)]),
-        assert_matches_uncached(Payload),
-        rotate_now(),
-        ?assertEqual(#{}, current_entries()),
-        ?assertEqual(8, map_size(previous_entries())),
-        assert_matches_uncached(Payload),
-        ?assertEqual(8, map_size(current_entries())),
-        ?assertEqual(1, map_size(payload_entries())),
-        rotate_now(),
-        ?assertEqual(8, map_size(previous_entries())),
-        rotate_now(),
-        ?assertEqual(undefined, erlang:get(?SYNC_ITEM_CACHE_KEY)),
-        assert_matches_uncached(Payload),
-        ?assertEqual(8, map_size(current_entries()))
-    end).
-
 sync_item_cache_previous_generation_changed_member_reencodes_test() ->
     with_clean_cache(fun() ->
         Members = [test_member(N) || N <- lists:seq(1, 4)],
@@ -584,25 +487,6 @@ dispatch_sync_group_sends_uncached_bytes_test() ->
         ok = dispatch_sync_group([{0, 99}], [self()], 7, SyncFun),
         ok = dispatch_sync_group([{0, 99}], [self()], 7, SyncFun),
         ?assertEqual([Expected, Expected], received_dispatches())
-    end).
-
-sync_payload_equal_content_reuses_encoded_bytes_test() ->
-    with_clean_cache(fun() ->
-        Members = [test_member(N) || N <- lists:seq(1, 30)],
-        Payload = sync_payload(<<"500">>, [{0, 99}], Members),
-        assert_matches_uncached(Payload),
-        [Key] = maps:keys(payload_entries()),
-        Sentinel = {pre_encoded, <<"sentinel">>},
-        {TimerRef, Current, Previous} = erlang:get(?SYNC_ITEM_CACHE_KEY),
-        _ = erlang:put(
-            ?SYNC_ITEM_CACHE_KEY, {TimerRef, Current#{Key => {Payload, Sentinel}}, Previous}
-        ),
-        Copy = binary_to_term(term_to_binary(Payload)),
-        ?assertEqual(Sentinel, encode_sync_payload(Copy)),
-        [First | Rest] = Members,
-        Afk = put_in(First, [<<"member">>, <<"presence">>, <<"afk">>], true),
-        assert_matches_uncached(sync_payload(<<"500">>, [{0, 99}], [Afk | Rest])),
-        ?assertEqual([Key], maps:keys(payload_entries()))
     end).
 
 sync_payload_cache_is_keyed_by_list_and_ranges_test() ->

@@ -15,7 +15,6 @@
     cleanup_identify_worker/2,
     resolve_identify_result/4,
     reply_to_waiters/2,
-    build_and_start_session/7,
     build_and_start_session/8
 ]).
 
@@ -27,7 +26,6 @@
 -type session_ref() :: {pid(), reference()}.
 -type state() :: #{
     sessions := #{session_id() => session_ref()},
-    identify_attempts := [integer()],
     pending_identifies := #{session_id() => pending_identify()},
     identify_workers := #{reference() => {session_id(), pid()}},
     shard_index := non_neg_integer(),
@@ -151,14 +149,7 @@ handle_existing_pending(
 -spec try_start_identify(map(), pid(), gen_server:from(), state(), session_id()) ->
     {reply, start_reply(), state()} | {noreply, state()}.
 try_start_identify(Request, SocketPid, From, State, SessionId) ->
-    Attempts = maps:get(identify_attempts, State),
-    case session_manager_shard_drain:check_identify_rate_limit(Attempts) of
-        {ok, NewAttempts} ->
-            NewState = State#{identify_attempts := NewAttempts},
-            start_identify_fetch(Request, SocketPid, SessionId, From, NewState);
-        {error, rate_limited} ->
-            {reply, {error, identify_rate_limited}, State}
-    end.
+    start_identify_fetch(Request, SocketPid, SessionId, From, State).
 
 -spec start_session_process(map(), session_id(), #{session_id() => session_ref()}, state()) ->
     {reply, start_reply(), state()}.
@@ -563,21 +554,6 @@ cancel_identify_timeout(PendingIdentify) ->
 reply_to_waiters(Waiters, Reply) ->
     lists:foreach(fun(From) -> gen_server:reply(From, Reply) end, Waiters),
     ok.
-
--spec build_and_start_session(
-    map(),
-    map(),
-    non_neg_integer(),
-    pid(),
-    session_id(),
-    #{session_id() => session_ref()},
-    state()
-) ->
-    {reply, start_reply(), state()}.
-build_and_start_session(Data, IdentifyData, Version, SocketPid, SessionId, Sessions, State) ->
-    session_manager_shard_start:build_and_start_session(
-        Data, IdentifyData, Version, SocketPid, SessionId, Sessions, State
-    ).
 
 -spec build_and_start_session(
     map(),

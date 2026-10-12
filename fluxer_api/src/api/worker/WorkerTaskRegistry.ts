@@ -10,7 +10,6 @@ import bulkUpdateUserFlags from '@app/api/worker/tasks/admin_bulk/BulkUpdateUser
 import batchGuildAuditLogMessageDeletes from '@app/api/worker/tasks/BatchGuildAuditLogMessageDeletes';
 import bulkDeleteSelfMessagesImmediate from '@app/api/worker/tasks/BulkDeleteSelfMessagesImmediate';
 import bulkDeleteUserMessages from '@app/api/worker/tasks/BulkDeleteUserMessages';
-import bulkDeleteUserMessagesScoped from '@app/api/worker/tasks/BulkDeleteUserMessagesScoped';
 import clearAuthenticatedReporterEmails from '@app/api/worker/tasks/ClearAuthenticatedReporterEmails';
 import crosspostMessage from '@app/api/worker/tasks/CrosspostMessage';
 import crosspostMessageChunk from '@app/api/worker/tasks/CrosspostMessageChunk';
@@ -21,12 +20,14 @@ import expireReportSnapshots from '@app/api/worker/tasks/ExpireReportSnapshots';
 import expireStaleJobs from '@app/api/worker/tasks/ExpireStaleJobs';
 import extractEmbeds from '@app/api/worker/tasks/ExtractEmbeds';
 import flushUserActivityBuffer from '@app/api/worker/tasks/FlushUserActivityBuffer';
+import guildProcessDeletion from '@app/api/worker/tasks/GuildProcessDeletion';
 import handleMentionChunk from '@app/api/worker/tasks/HandleMentionChunk';
 import handleMentions from '@app/api/worker/tasks/HandleMentions';
 import harvestGuildData from '@app/api/worker/tasks/HarvestGuildData';
 import harvestUserData from '@app/api/worker/tasks/HarvestUserData';
 import indexChannelMessages from '@app/api/worker/tasks/IndexChannelMessages';
 import indexGuildMembers from '@app/api/worker/tasks/IndexGuildMembers';
+import liftExpiredGuildInvitePauses from '@app/api/worker/tasks/LiftExpiredGuildInvitePauses';
 import messageShred from '@app/api/worker/tasks/MessageShred';
 import pollAppStoreNotificationHistory from '@app/api/worker/tasks/PollAppStoreNotificationHistory';
 import pollGooglePlayVoidedPurchases from '@app/api/worker/tasks/PollGooglePlayVoidedPurchases';
@@ -41,6 +42,7 @@ import processPremiumStateReconciliationQueue from '@app/api/worker/tasks/Proces
 import processStorePurchaseRefreshQueue from '@app/api/worker/tasks/ProcessStorePurchaseRefreshQueue';
 import processStripeWebhook from '@app/api/worker/tasks/ProcessStripeWebhook';
 import prunePostgresKvTtl from '@app/api/worker/tasks/PrunePostgresKvTtl';
+import reconcileAttachmentDecay from '@app/api/worker/tasks/ReconcileAttachmentDecay';
 import reconcileUserPayments from '@app/api/worker/tasks/ReconcileUserPayments';
 import refreshSearchIndex from '@app/api/worker/tasks/RefreshSearchIndex';
 import refreshStorePurchase from '@app/api/worker/tasks/RefreshStorePurchase';
@@ -79,7 +81,6 @@ export const workerTasks: Record<WorkerTaskName, WorkerTaskHandler> = {
 	bulkDeleteMessagesForUsers: bulkDeleteMessagesForUsers,
 	bulkDeleteSelfMessagesImmediate,
 	bulkDeleteUserMessages,
-	bulkDeleteUserMessagesScoped,
 	bulkScheduleUserDeletion: bulkScheduleUserDeletion,
 	bulkUpdateGuildFeatures: bulkUpdateGuildFeatures,
 	bulkUpdateUserFlags: bulkUpdateUserFlags,
@@ -92,12 +93,14 @@ export const workerTasks: Record<WorkerTaskName, WorkerTaskHandler> = {
 	expireReportSnapshots,
 	expireStaleJobs,
 	extractEmbeds,
+	guildProcessDeletion,
 	handleMentions,
 	handleMentionChunk,
 	harvestGuildData,
 	harvestUserData,
 	indexChannelMessages,
 	indexGuildMembers,
+	liftExpiredGuildInvitePauses,
 	messageShred,
 	processAssetDeletionQueue,
 	processCachePurgeQueue,
@@ -106,6 +109,7 @@ export const workerTasks: Record<WorkerTaskName, WorkerTaskHandler> = {
 	processInactivityDeletions,
 	processPendingBulkMessageDeletions,
 	processPremiumStateReconciliationQueue,
+	reconcileAttachmentDecay,
 	reconcileUserPayments,
 	processAppStoreNotification,
 	processGooglePlayNotification,

@@ -4,9 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {getConfig} from '@app/api/Config';
-import {CONTENT_I18N_MESSAGES} from '@app/api/content_i18n/ContentI18nMessages';
 import {setCachedConfiguredLegalUrls} from '@app/api/instance/LegalUrls';
-import {getInstanceProductName, setCachedProductName} from '@app/api/instance/ProductName';
+import {setCachedProductName} from '@app/api/instance/ProductName';
 import {
 	assertValidReportFlowLibrary,
 	buildReportFlowLedger,
@@ -21,15 +20,9 @@ import {
 	type ReportFlowStepInput,
 	type ReportFlowVariant,
 	resolveReportFlowAnswers,
-	resolveReportFlowLocale,
 } from '@app/api/report/flows/ReportFlowRegistry';
 import type {ReportFlowOptionDef, ReportFlowScreenDef} from '@app/api/report/flows/ReportFlowScreens';
-import {
-	findReportReason,
-	getLegacyCategory,
-	listReportReasons,
-	REPORT_REASONS,
-} from '@app/api/report/flows/ReportReasonCatalog';
+import {getLegacyCategory, listReportReasons, REPORT_REASONS} from '@app/api/report/flows/ReportReasonCatalog';
 import {APIErrorCodes} from '@fluxer/constants/src/ApiErrorCodes';
 import {FluxerError} from '@fluxer/errors/src/FluxerError';
 import {
@@ -137,12 +130,6 @@ function variantReasons(variant: ReportFlowVariant): Set<string> {
 	return reasons;
 }
 
-function optionIds(variant: ReportFlowVariant, screenId: string): Array<string> {
-	const screen = variant.screens.get(screenId);
-	expect(screen).toBeDefined();
-	return screen!.options.map((option) => option.id);
-}
-
 function resolve(target: ReportFlowTargetType, surface: ReportFlowSurface, steps: ReadonlyArray<ReportFlowStepInput>) {
 	return resolveReportFlowAnswers({
 		target,
@@ -248,7 +235,7 @@ describe('report flow definitions', () => {
 		expect(() => assertValidReportFlowLibrary(broken)).toThrow(/missing_screen is not defined/);
 	});
 
-	test('a no-report or DSA option that is not limited to the app throws', () => {
+	test('a no-report option that is not limited to the app throws', () => {
 		const unlimitedDislike = editScreen(REPORT_FLOW_LIBRARY, 'root_message', (screen) => ({
 			...screen,
 			options: screen.options?.map((option) =>
@@ -256,11 +243,6 @@ describe('report flow definitions', () => {
 			),
 		}));
 		expect(() => assertValidReportFlowLibrary(unlimitedDislike)).toThrow(/limited to in_app/);
-		const unlimitedDsaRow = editScreen(REPORT_FLOW_LIBRARY, 'root_user', (screen) => ({
-			...screen,
-			options: screen.options?.map((option) => (option.id === 'dsa' ? {...option, surface: undefined} : option)),
-		}));
-		expect(() => assertValidReportFlowLibrary(unlimitedDsaRow)).toThrow(/limited to in_app/);
 	});
 
 	test('other broken definitions throw', () => {
@@ -764,18 +746,6 @@ describe('report reasons and legacy categories', () => {
 		...ReportGuildRequest.shape.category.options.map((option) => option.value),
 	]);
 
-	test('there are 18 legacy categories and 56 reasons', () => {
-		expect(legacyCategories.size).toBe(18);
-		expect(listReportReasons()).toHaveLength(56);
-		expect(findReportReason('csam')).toEqual({
-			key: 'csam',
-			label: 'Child sexual abuse material',
-			highestPriority: true,
-			legacyCategories: {message: 'child_safety', user: 'child_safety', guild: 'child_safety'},
-		});
-		expect(findReportReason('retired_reason')).toBeNull();
-	});
-
 	test('message and guild categories are legacy values, user categories are user values or child_safety', () => {
 		for (const reason of listReportReasons()) {
 			expect(legacyCategories.has(reason.legacyCategories.message), reason.key).toBe(true);
@@ -862,141 +832,6 @@ describe('report flow rendering', () => {
 		expect(getReportFlowResponse('guild', 'dsa', 'en-US').start_screen_id).toBe('community_parts');
 	});
 
-	test('the rendered response is memoized per locale', () => {
-		expect(getReportFlowResponse('message', 'in_app', 'en-US')).toBe(
-			getReportFlowResponse('message', 'in_app', 'en-US'),
-		);
-		expect(getReportFlowResponse('message', 'in_app', 'de')).not.toBe(
-			getReportFlowResponse('message', 'in_app', 'en-US'),
-		);
-	});
-
-	test('screens render their kind, outcomes and urls', () => {
-		const config = getConfig();
-		const message = getReportFlowResponse('message', 'in_app', 'en-US');
-		const root = message.screens.find((screen) => screen.id === 'root_message')!;
-		expect(root.title).toBe('Report message');
-		expect(root.options.map((option) => option.id)).toEqual([
-			'abuse',
-			'private_info',
-			'violence_misinfo',
-			'spam',
-			'something_else',
-			'dislike',
-			'dsa',
-		]);
-		expect(root.options[5].outcome).toEqual({type: 'end', screen_id: null, reason: null, notice_id: null, url: null});
-		expect(root.options[3].outcome).toEqual({
-			type: 'submit',
-			screen_id: null,
-			reason: 'spam',
-			notice_id: null,
-			url: null,
-		});
-		expect(root.options[6].outcome.url).toBe(`${config.endpoints.webApp}/report`);
-		const copyright = message.screens
-			.find((screen) => screen.id === 'something_else_message')!
-			.options.find((option) => option.id === 'copyright');
-		expect(copyright?.outcome).toEqual({
-			type: 'link',
-			screen_id: null,
-			reason: null,
-			notice_id: null,
-			url: `${config.endpoints.webApp}/report?option=copyright_notice`,
-		});
-		expect(root.checklist).toBeNull();
-		expect(root.next_screen_id).toBeNull();
-		const privateInfo = message.screens.find((screen) => screen.id === 'private_info')!;
-		expect(privateInfo.options).toEqual([]);
-		expect(privateInfo.checklist?.min_checked).toBe(1);
-		expect(privateInfo.checklist?.items).toHaveLength(13);
-		expect(privateInfo.checklist?.outcome.reason).toBe('doxxing');
-		const ageNo = message.screens
-			.find((screen) => screen.id === 'age_stated_message')!
-			.options.find((option) => option.id === 'age_no');
-		expect(ageNo?.outcome.notice_id).toBe('need_more_info');
-		const sexual = message.screens.find((screen) => screen.id === 'sexual')!;
-		expect(sexual.urgent).toBe(true);
-		expect(sexual.options[0].id).toBe('minor_sexual');
-		const user = getReportFlowResponse('user', 'in_app', 'en-US');
-		expect(user.guidelines_url).toBe(`${config.endpoints.marketing}/guidelines`);
-		const intro = user.screens[0];
-		expect(intro.next_screen_id).toBe('profile_parts');
-		expect(intro.options_heading).toBe('Learn more');
-		expect(intro.options).toHaveLength(1);
-		expect(intro.options[0].outcome.url).toBe(user.guidelines_url);
-		const parts = user.screens.find((screen) => screen.id === 'profile_parts')!;
-		expect(parts.checklist?.items[0]).toEqual({
-			id: 'photo',
-			label: 'Pictures',
-			description: 'What they use as avatar and banner',
-		});
-		for (const surface of ['in_app', 'dsa'] as const) {
-			const flow = getReportFlowResponse('user', surface, 'en-US');
-			const userAgeNo = flow.screens
-				.find((screen) => screen.id === 'age_stated_profile')!
-				.options.find((option) => option.id === 'age_no');
-			expect(userAgeNo?.outcome.notice_id).toBe('need_more_info_profile');
-			const notice = flow.notices.find((entry) => entry.id === 'need_more_info_profile')!;
-			expect(notice.title).toBe("We can't act on this yet");
-			expect(notice.body).toMatch(/message or profile/);
-		}
-		const crisis = user.screens
-			.find((screen) => screen.id === 'crisis_support')!
-			.options.find((option) => option.id === 'crisis_lines');
-		expect(crisis?.outcome.url).toBe('https://befrienders.org');
-	});
-
-	test('the DSA variants drop app-only rows and add the copyright notice', () => {
-		const messageDsa = variantOf('message', 'dsa');
-		expect(optionIds(messageDsa, 'root_message')).toEqual([
-			'abuse',
-			'private_info',
-			'violence_misinfo',
-			'spam',
-			'something_else',
-		]);
-		expect(optionIds(messageDsa, 'abuse')).not.toContain('rude_language');
-		expect(optionIds(messageDsa, 'self_harm')).not.toContain('worried_self_harm');
-		expect(optionIds(messageDsa, 'self_harm')).not.toContain('worried_suicide');
-		expect(optionIds(messageDsa, 'something_else_message')).toContain('copyright_notice');
-		expect(optionIds(messageDsa, 'something_else_message')).not.toContain('copyright');
-		expect(optionIds(variantOf('message', 'in_app'), 'something_else_message')).not.toContain('copyright_notice');
-		const userDsa = variantOf('user', 'dsa');
-		expect(userDsa.screens.has('profile_intro')).toBe(false);
-		expect(optionIds(userDsa, 'root_user')).not.toContain('dsa');
-		expect(optionIds(userDsa, 'self_harm_profile')).not.toContain('worried');
-	});
-
-	test('the DSA self-harm screens drop the subtitle about being worried', () => {
-		const worried =
-			'Nobody is punished for saying they are struggling. Telling us you are worried helps us offer support.';
-		const screenOf = (target: ReportFlowTargetType, surface: ReportFlowSurface, screenId: string) =>
-			getReportFlowResponse(target, surface, 'en-US').screens.find((screen) => screen.id === screenId)!;
-		expect(screenOf('message', 'in_app', 'self_harm').subtitle).toBe(worried);
-		expect(screenOf('user', 'in_app', 'self_harm_profile').subtitle).toBe(worried);
-		expect(screenOf('message', 'dsa', 'self_harm').subtitle).toBeNull();
-		expect(screenOf('user', 'dsa', 'self_harm_profile').subtitle).toBeNull();
-		expect(variantOf('message', 'dsa').screens.get('self_harm')?.subtitle).toBeNull();
-		expect(variantOf('user', 'dsa').screens.get('self_harm_profile')?.subtitle).toBeNull();
-		expect(variantOf('message', 'in_app').screens.get('self_harm')?.subtitle).toBe(
-			'report_flow.screen.self_harm.subtitle',
-		);
-	});
-
-	test('the in-app copyright rows open the DSA form on the copyright notice', () => {
-		const url = `${getConfig().endpoints.webApp}/report?option=copyright_notice`;
-		const copyrightUrl = (target: ReportFlowTargetType, screenId: string) =>
-			getReportFlowResponse(target, 'in_app', 'en-US')
-				.screens.find((screen) => screen.id === screenId)
-				?.options.find((option) => option.id === 'copyright')?.outcome.url;
-		expect(copyrightUrl('message', 'something_else_message')).toBe(url);
-		expect(copyrightUrl('user', 'something_else_user')).toBe(url);
-		getConfig().instance.selfHosted = true;
-		expect(copyrightUrl('message', 'something_else_message')).toBeUndefined();
-		expect(copyrightUrl('user', 'something_else_user')).toBeUndefined();
-	});
-
 	test('a copyright link row that is not limited to the app throws', () => {
 		const unlimited = editScreen(REPORT_FLOW_LIBRARY, 'something_else_message', (screen) => ({
 			...screen,
@@ -1005,33 +840,7 @@ describe('report flow rendering', () => {
 		expect(() => assertValidReportFlowLibrary(unlimited)).toThrow(/limited to in_app/);
 	});
 
-	test('a self-hosted instance drops the DSA sentence from the false information subtitle', () => {
-		const dsaNames = /Digital Services Act|digitale Dienste|デジタルサービス法|الخدمات الرقمية/;
-		const subtitle = (locale: string) =>
-			getReportFlowResponse('message', 'in_app', locale).screens.find((screen) => screen.id === 'false_info')!
-				.subtitle!;
-		const hosted = Object.fromEntries(['en-US', 'de', 'ja', 'ar'].map((locale) => [locale, subtitle(locale)]));
-		const hostedHash = getReportFlowResponse('message', 'in_app', 'en-US').revision_hash;
-		for (const text of Object.values(hosted)) {
-			expect(text).toMatch(dsaNames);
-		}
-		getConfig().instance.selfHosted = true;
-		const selfHostedHash = getReportFlowResponse('message', 'in_app', 'en-US').revision_hash;
-		expect(selfHostedHash).not.toBe(hostedHash);
-		for (const locale of ['en-US', 'de', 'ja', 'ar']) {
-			const text = subtitle(locale);
-			expect(text, locale).not.toMatch(dsaNames);
-			expect(text.length, locale).toBeGreaterThan(0);
-			expect(hosted[locale].startsWith(text), locale).toBe(true);
-			expect(getReportFlowResponse('message', 'in_app', locale).revision_hash, locale).toBe(selfHostedHash);
-		}
-		expect(subtitle('en-US')).toBe('Opinions, satire and good-faith debate are allowed.');
-		expect(
-			getReportFlowResponse('message', 'dsa', 'en-US').screens.find((screen) => screen.id === 'false_info')!.subtitle,
-		).not.toMatch(dsaNames);
-	});
-
-	test('self-hosted instances get no guidelines, DSA or copyright link rows', () => {
+	test('self-hosted instances get no guidelines or copyright link rows', () => {
 		const hostedUser = getReportFlowResponse('user', 'in_app', 'en-US');
 		getConfig().instance.selfHosted = true;
 		const user = getReportFlowResponse('user', 'in_app', 'en-US');
@@ -1042,7 +851,6 @@ describe('report flow rendering', () => {
 		expect(intro.options_heading).toBeNull();
 		expect(intro.next_screen_id).toBe('profile_parts');
 		const userScreens = new Map(user.screens.map((screen) => [screen.id, screen]));
-		expect(userScreens.get('root_user')?.options.map((option) => option.id)).not.toContain('dsa');
 		expect(userScreens.get('something_else_user')?.options.map((option) => option.id)).not.toContain('copyright');
 		const message = getReportFlowResponse('message', 'in_app', 'en-US');
 		for (const screen of message.screens) {
@@ -1051,7 +859,6 @@ describe('report flow rendering', () => {
 			}
 		}
 		const messageScreens = new Map(message.screens.map((screen) => [screen.id, screen]));
-		expect(messageScreens.get('root_message')?.options.map((option) => option.id)).not.toContain('dsa');
 		expect(messageScreens.get('something_else_message')?.options.map((option) => option.id)).not.toContain('copyright');
 		const messageDsa = getReportFlowResponse('message', 'dsa', 'en-US');
 		expect(
@@ -1109,53 +916,6 @@ describe('report flow rendering', () => {
 		expect(getReportFlowResponse('user', 'in_app', 'en-US')).toBe(unconfigured);
 	});
 
-	test('a configured guidelines URL replaces the hosted default', () => {
-		const hostedUser = getReportFlowResponse('user', 'in_app', 'en-US');
-		setCachedConfiguredLegalUrls({terms_url: null, guidelines_url: 'https://rules.example.org/community'});
-		const user = getReportFlowResponse('user', 'in_app', 'en-US');
-		expect(user.guidelines_url).toBe('https://rules.example.org/community');
-		expect(user.screens[0].options[0].outcome.url).toBe('https://rules.example.org/community');
-		expect(user.revision_hash).toBe(hostedUser.revision_hash);
-		setCachedConfiguredLegalUrls({terms_url: null, guidelines_url: null});
-		expect(getReportFlowResponse('user', 'in_app', 'en-US')).toBe(hostedUser);
-	});
-
-	test('the hosted default names Fluxer', () => {
-		getConfig().instance.branding.productName = '';
-		const rendered = JSON.stringify(getReportFlowResponse('user', 'in_app', 'en-US'));
-		expect(rendered).toContain("They're under the minimum age to use Fluxer");
-		expect(rendered).toContain('Fluxer staff or support');
-	});
-
-	test('a self-hosted instance names the configured product in every locale', () => {
-		getConfig().instance.selfHosted = true;
-		getConfig().instance.branding.productName = 'Configured Chat';
-		for (const locale of ['en-US', 'de', 'ja', 'sv-SE']) {
-			for (const [target, surface] of VARIANTS) {
-				const rendered = JSON.stringify(getReportFlowResponse(target, surface, locale));
-				expect(rendered, `${target} ${surface} ${locale}`).not.toContain('Fluxer');
-				expect(rendered, `${target} ${surface} ${locale}`).not.toContain('{product_name}');
-			}
-		}
-		expect(JSON.stringify(getReportFlowResponse('user', 'in_app', 'en-US'))).toContain(
-			"They're under the minimum age to use Configured Chat",
-		);
-	});
-
-	test('a name saved in the dashboard replaces the configured name without a restart', () => {
-		getConfig().instance.branding.productName = 'Configured Chat';
-		const configured = getReportFlowResponse('user', 'in_app', 'en-US');
-		expect(JSON.stringify(configured)).toContain("They're under the minimum age to use Configured Chat");
-		setCachedProductName('Renamed Chat');
-		const renamed = getReportFlowResponse('user', 'in_app', 'en-US');
-		expect(renamed).not.toBe(configured);
-		expect(JSON.stringify(renamed)).toContain("They're under the minimum age to use Renamed Chat");
-		expect(JSON.stringify(renamed)).not.toContain('Configured Chat');
-		expect(getReportFlowResponse('user', 'in_app', 'en-US')).toBe(renamed);
-		setCachedProductName('Configured Chat');
-		expect(getReportFlowResponse('user', 'in_app', 'en-US')).toBe(configured);
-	});
-
 	test('the revision hash does not depend on the product name or the locale', () => {
 		for (const [target, surface] of VARIANTS) {
 			setCachedProductName(null);
@@ -1166,105 +926,9 @@ describe('report flow rendering', () => {
 			expect(getReportFlowVariant(target, surface).revisionHash).toBe(hosted);
 		}
 	});
-
-	test('English copy names the product, uses US spelling and never names another product', () => {
-		const productName = getInstanceProductName();
-		const rendered = VARIANTS.map(([target, surface]) =>
-			JSON.stringify(getReportFlowResponse(target, surface, 'en-US')),
-		).join('\n');
-		expect(rendered).not.toMatch(/discord/i);
-		expect(rendered).not.toContain('{product_name}');
-		expect(rendered).toContain(`They're under the minimum age to use ${productName}`);
-		expect(rendered).toContain(`Read the ${productName} Community Guidelines`);
-		expect(rendered).toContain(`${productName} staff or support`);
-		expect(rendered).toContain('Sexualizing');
-		expect(rendered).toContain('organization');
-		expect(rendered).not.toMatch(/behaviour|organisation|colour|sexualis|labelled/);
-		for (const [key, value] of Object.entries(CONTENT_I18N_MESSAGES)) {
-			if (key.startsWith('report_flow.')) {
-				expect(value, key).not.toMatch(/[—;]/);
-				expect(value, key).not.toMatch(/discord/i);
-			}
-		}
-	});
-
-	test('locale tags resolve to a supported locale', () => {
-		expect(resolveReportFlowLocale('nb')).toBe('no');
-		expect(resolveReportFlowLocale('nb_NO')).toBe('no');
-		expect(resolveReportFlowLocale('nn')).toBe('no');
-		expect(resolveReportFlowLocale('nn-NO')).toBe('no');
-		expect(resolveReportFlowLocale('zh-Hant')).toBe('zh-TW');
-		expect(resolveReportFlowLocale('zh_Hant_TW')).toBe('zh-TW');
-		expect(resolveReportFlowLocale('zh-HK')).toBe('zh-TW');
-		expect(resolveReportFlowLocale('zh-Hans')).toBe('zh-CN');
-		expect(resolveReportFlowLocale('zh')).toBe('zh-CN');
-		expect(resolveReportFlowLocale('fr-CA')).toBe('fr');
-		expect(resolveReportFlowLocale('de-DE')).toBe('de');
-		expect(resolveReportFlowLocale(' de ')).toBe('de');
-		expect(resolveReportFlowLocale('sv')).toBe('sv-SE');
-		expect(resolveReportFlowLocale('pt')).toBe('pt-BR');
-		expect(resolveReportFlowLocale('pt_BR')).toBe('pt-BR');
-		expect(resolveReportFlowLocale('de')).toBe('de');
-		expect(resolveReportFlowLocale('xx-YY')).toBe('en-US');
-		expect(resolveReportFlowLocale(undefined)).toBe('en-US');
-		expect(getReportFlowResponse('message', 'in_app', 'nb').locale).toBe('no');
-		expect(getReportFlowResponse('message', 'in_app', 'zh-Hant').locale).toBe('zh-TW');
-		expect(getReportFlowResponse('message', 'in_app', 'xx-YY').locale).toBe('en-US');
-	});
 });
 
 describe('report flow answers for staff', () => {
-	test('describes a stored walk in English', () => {
-		const resolved = resolve('user', 'in_app', [
-			{screen_id: 'profile_intro'},
-			{screen_id: 'profile_parts', item_ids: ['profile_text', 'photo']},
-			{screen_id: 'root_user', option_id: 'abuse'},
-			{screen_id: 'profile_abuse', option_id: 'harassment'},
-		]);
-		const steps = parseReportFlowSteps(resolved.stepsJson);
-		expect(steps).toEqual(resolved.steps);
-		expect(
-			describeReportFlowAnswers({revisionHash: 'abc', surface: 'in_app', locale: 'de', steps: steps ?? []}),
-		).toEqual({
-			revision_hash: 'abc',
-			surface: 'in_app',
-			locale: 'de',
-			steps: [
-				{
-					screen_id: 'profile_intro',
-					screen_title: 'Report profile',
-					option_id: null,
-					option_label: null,
-					items: [],
-				},
-				{
-					screen_id: 'profile_parts',
-					screen_title: 'Which parts of their profile are a problem?',
-					option_id: null,
-					option_label: null,
-					items: [
-						{id: 'photo', label: 'Pictures'},
-						{id: 'profile_text', label: 'Profile text'},
-					],
-				},
-				{
-					screen_id: 'root_user',
-					screen_title: "What's wrong with their profile?",
-					option_id: 'abuse',
-					option_label: 'Abusive or harmful content',
-					items: [],
-				},
-				{
-					screen_id: 'profile_abuse',
-					screen_title: "What's harmful about their profile?",
-					option_id: 'harassment',
-					option_label: 'Their profile harasses or targets me or someone else',
-					items: [],
-				},
-			],
-		});
-	});
-
 	test('unknown ids are described by their raw id', () => {
 		expect(
 			describeReportFlowAnswers({

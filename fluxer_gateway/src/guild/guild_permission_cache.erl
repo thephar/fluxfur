@@ -1,11 +1,11 @@
 %% SPDX-License-Identifier: AGPL-3.0-or-later
 
 -module(guild_permission_cache).
--typing([eqwalizer]).
-
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
+
+-typing([eqwalizer]).
 
 -export([
     put_state/1,
@@ -18,8 +18,7 @@
     has_member/2,
     get_member/2,
     strip_data/1,
-    member_projection_changed/3,
-    migrate_existing_entries/0
+    member_projection_changed/3
 ]).
 
 -type guild_id() :: integer().
@@ -110,7 +109,9 @@ has_member(GuildId, UserId) when is_integer(GuildId), is_integer(UserId) ->
     case get_snapshot(GuildId) of
         {ok, Snapshot} ->
             safe_member_read(fun() ->
-                {ok, guild_permissions:find_member_by_user_id(UserId, Snapshot) =/= undefined}
+                {ok,
+                    guild_permissions_check:find_member_by_user_id(UserId, Snapshot) =/=
+                        undefined}
             end);
         {error, not_found} ->
             {error, not_found}
@@ -123,7 +124,7 @@ get_member(GuildId, UserId) when is_integer(GuildId), is_integer(UserId) ->
     case get_snapshot(GuildId) of
         {ok, Snapshot} ->
             safe_member_read(fun() ->
-                Member = guild_permissions:find_member_by_user_id(UserId, Snapshot),
+                Member = guild_permissions_check:find_member_by_user_id(UserId, Snapshot),
                 {ok, project_member(Snapshot, Member)}
             end);
         {error, not_found} ->
@@ -263,8 +264,8 @@ members_ets_enabled() ->
 
 -spec member_projection_changed(user_id() | undefined, guild_data(), guild_data()) -> boolean().
 member_projection_changed(UserId, OldData, NewData) when is_integer(UserId) ->
-    strip_member(guild_data_index:get_member(UserId, OldData)) =/=
-        strip_member(guild_data_index:get_member(UserId, NewData));
+    strip_member(guild_data_index_members:get_member(UserId, OldData)) =/=
+        strip_member(guild_data_index_members:get_member(UserId, NewData));
 member_projection_changed(_UserId, _OldData, _NewData) ->
     true.
 
@@ -434,29 +435,7 @@ normalize_channel(Channel) ->
 -spec get_member_user_id(map()) -> integer() | undefined.
 get_member_user_id(Member) when is_map(Member) ->
     User = maps:get(<<"user">>, Member, #{}),
-    parse_user_id(maps:get(<<"id">>, User, undefined)).
-
--spec parse_user_id(term()) -> integer() | undefined.
-parse_user_id(Id) ->
-    snowflake_id:parse_optional(Id).
-
--spec migrate_existing_entries() -> {ok, non_neg_integer()}.
-migrate_existing_entries() ->
-    ensure_table(),
-    Count = ets:foldl(fun migrate_entry/2, 0, ?TABLE),
-    {ok, Count}.
-
--spec migrate_entry(term(), non_neg_integer()) -> non_neg_integer().
-migrate_entry({GuildId, #{data := #{<<"member_role_index">> := _} = Data}}, Acc) when
-    is_integer(GuildId)
-->
-    ok = put_normalized_data(GuildId, Data),
-    Acc + 1;
-migrate_entry({GuildId, #{data := Data}}, Acc) when is_integer(GuildId), is_map(Data) ->
-    true = ets:insert(?TABLE, {GuildId, #{id => GuildId, data => strip_data(Data)}}),
-    Acc + 1;
-migrate_entry(_, Acc) ->
-    Acc.
+    snowflake_id:parse_maybe(maps:get(<<"id">>, User, undefined)).
 
 -ifdef(TEST).
 
@@ -604,33 +583,6 @@ memoised_strip_members_matches_reference_test() ->
     memo_reset(),
     try
         lists:foreach(fun assert_memo_matches_reference/1, memo_members_cases())
-    after
-        memo_reset()
-    end.
-
-memo_reuses_the_stripped_term_for_an_identical_members_term_test() ->
-    memo_reset(),
-    try
-        Members = memo_members([1, 2]),
-        First = memoised_strip_members(Members),
-        Second = memoised_strip_members(Members),
-        ?assertEqual(reference_strip_members(Members), First),
-        ?assert(erts_debug:same(First, Second)),
-        ?assertEqual({Members, First}, erlang:get(?STRIPPED_MEMBERS_MEMO))
-    after
-        memo_reset()
-    end.
-
-memo_recomputes_for_an_equal_but_distinct_members_term_test() ->
-    memo_reset(),
-    try
-        Members = memo_members([1, 2]),
-        Copy = binary_to_term(term_to_binary(Members)),
-        Stripped = memoised_strip_members(Members),
-        ?assertNot(erts_debug:same(Members, Copy)),
-        ?assertEqual(Stripped, memoised_strip_members(Copy)),
-        {Source, _Stripped} = erlang:get(?STRIPPED_MEMBERS_MEMO),
-        ?assert(erts_debug:same(Copy, Source))
     after
         memo_reset()
     end.

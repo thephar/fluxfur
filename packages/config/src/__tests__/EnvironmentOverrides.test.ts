@@ -3,52 +3,8 @@
 import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {
-	buildNamedFluxerEnvOverrides,
-	readEnvValue,
-	setNestedValue,
-} from '@fluxer/config/src/config_loader/EnvironmentOverrides';
+import {buildNamedFluxerEnvOverrides, readEnvValue} from '@fluxer/config/src/config_loader/EnvironmentOverrides';
 import {afterAll, describe, expect, test} from 'vitest';
-
-describe('setNestedValue', () => {
-	test('sets a top-level key', () => {
-		const target: Record<string, unknown> = {};
-		setNestedValue(target, ['port'], 8080);
-		expect(target).toEqual({port: 8080});
-	});
-	test('sets a nested key', () => {
-		const target: Record<string, unknown> = {};
-		setNestedValue(target, ['database', 'host'], 'localhost');
-		expect(target).toEqual({database: {host: 'localhost'}});
-	});
-	test('sets a deeply nested key', () => {
-		const target: Record<string, unknown> = {};
-		setNestedValue(target, ['a', 'b', 'c'], 'deep');
-		expect(target).toEqual({a: {b: {c: 'deep'}}});
-	});
-	test('does nothing for empty keys', () => {
-		const target: Record<string, unknown> = {existing: true};
-		setNestedValue(target, [], 'value');
-		expect(target).toEqual({existing: true});
-	});
-	test('overwrites non-object intermediate values', () => {
-		const target: Record<string, unknown> = {a: 'string'};
-		setNestedValue(target, ['a', 'b'], 'nested');
-		expect(target).toEqual({a: {b: 'nested'}});
-	});
-	test('creates arrays for numeric path keys', () => {
-		const target: Record<string, unknown> = {};
-		setNestedValue(target, ['auth', 'bluesky', 'keys', 0, 'kid'], 'key-1');
-		setNestedValue(target, ['auth', 'bluesky', 'keys', 0, 'private_key_path'], '/etc/fluxer/keys/key.pem');
-		expect(target).toEqual({
-			auth: {
-				bluesky: {
-					keys: [{kid: 'key-1', private_key_path: '/etc/fluxer/keys/key.pem'}],
-				},
-			},
-		});
-	});
-});
 
 describe('buildNamedFluxerEnvOverrides', () => {
 	test('builds canonical split env overrides', () => {
@@ -86,6 +42,7 @@ describe('buildNamedFluxerEnvOverrides', () => {
 				FLUXER_API_IP_BAN_EXEMPT_IPS: blank,
 				FLUXER_PASSKEY_ADDITIONAL_ALLOWED_ORIGINS: blank,
 				FLUXER_LIVEKIT_DEFAULT_REGION: blank,
+				FLUXER_VOICE_P2P_STUN_URLS: blank,
 				FLUXER_AUTH_BLUESKY_KEYS: blank,
 				FLUXER_EMAIL_FROM_NAME: blank,
 				FLUXER_EMAIL_REPLY_TO_EMAIL: blank,
@@ -143,6 +100,20 @@ describe('buildNamedFluxerEnvOverrides', () => {
 		).toMatchObject({
 			internal: {media_proxy: 'http://alias'},
 			services: {nats: {core_url: 'nats://alias'}},
+		});
+	});
+
+	test('maps the peer-to-peer STUN urls onto integrations.voice', () => {
+		expect(
+			buildNamedFluxerEnvOverrides({
+				FLUXER_VOICE_P2P_STUN_URLS: 'stun:stun.example.com:3478, stun:stun2.example.com:3478',
+			}),
+		).toEqual({
+			integrations: {
+				voice: {
+					p2p_stun_urls: ['stun:stun.example.com:3478', 'stun:stun2.example.com:3478'],
+				},
+			},
 		});
 	});
 

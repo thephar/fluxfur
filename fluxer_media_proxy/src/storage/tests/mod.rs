@@ -14,7 +14,6 @@ use crate::{
     },
     constants,
     metrics::{Metrics, http_client::HTTPClientMetrics, storage::StorageMetrics},
-    secret::{SecretBytes, SecretString},
     storage::Store,
 };
 use axum::response::Response;
@@ -95,11 +94,11 @@ fn test_config(root: &Path) -> Config {
 }
 
 fn store(cfg: Config) -> Store {
-    store_with_storage_metrics(cfg, Arc::new(StorageMetrics::new()))
+    store_with_storage_metrics(cfg, Arc::new(StorageMetrics::default()))
 }
 
 fn store_with_storage_metrics(cfg: Config, metrics: Arc<StorageMetrics>) -> Store {
-    Store::new(cfg, metrics, Arc::new(HTTPClientMetrics::new()))
+    Store::new(cfg, metrics, Arc::new(HTTPClientMetrics::default()))
 }
 
 fn rendered_counter(metrics: &Metrics, name: &str) -> u64 {
@@ -249,15 +248,6 @@ async fn serve_fake_s3(state: FakeS3, request: axum::extract::Request) -> Respon
     if let Some(last_modified) = object.last_modified.clone() {
         headers.push((header::LAST_MODIFIED, last_modified));
     }
-    if let Some(requested) = parts.headers.get(header::IF_MATCH)
-        && object.etag.as_deref() != requested.to_str().ok()
-    {
-        return fake_s3_response(
-            StatusCode::PRECONDITION_FAILED,
-            Vec::new(),
-            b"<Error>PreconditionFailed</Error>",
-        );
-    }
     if parts.method == Method::HEAD {
         let advertised = vec![0u8; usize::try_from(total_length).expect("fake length fits usize")];
         return fake_s3_response(StatusCode::OK, headers, &advertised);
@@ -330,3 +320,5 @@ pub(crate) async fn connection_dropping_front(
     });
     (endpoint, accepted)
 }
+
+use fluxer_common::secret::{SecretBytes, SecretString};

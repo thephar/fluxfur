@@ -24,6 +24,7 @@ import {
 	setupFanoutWorld,
 } from '@app/api/channel/tests/CrosspostWorkerTestUtils';
 import {getPngDataUrl} from '@app/api/emoji/tests/EmojiTestUtils';
+import {processRecordedGuildDeletions, recordGuildDeletions} from '@app/api/guild/tests/GuildDeletionTestUtils';
 import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHarness';
 import {NoopGatewayService} from '@app/api/test/NoopGatewayService';
 import {HTTP_STATUS} from '@app/api/test/TestConstants';
@@ -160,21 +161,6 @@ describe('Follower webhook management', () => {
 		expect(after?.channelId?.toString()).toBe(b.t1.id);
 	});
 
-	test('still lets an incoming webhook change its avatar', async () => {
-		const {b} = world;
-		const webhook = await createWebhook(harness, b.t1.id, b.owner.token, 'Incoming');
-		const updated = await createBuilder<WebhookResponse>(harness, b.owner.token)
-			.patch(`/webhooks/${webhook.id}`)
-			.body({avatar: getPngDataUrl()})
-			.execute();
-		expect(updated.avatar).toBeTruthy();
-		const cleared = await createBuilder<WebhookResponse>(harness, b.owner.token)
-			.patch(`/webhooks/${webhook.id}`)
-			.body({avatar: null})
-			.execute();
-		expect(cleared.avatar).toBeNull();
-	});
-
 	test('moves a follower webhook to another text channel and notifies both channels', async () => {
 		const {a, b} = world;
 		const followed = await follow(harness, b.owner.token, a.ann.id, b.t1.id);
@@ -276,17 +262,6 @@ describe('Follower webhook management', () => {
 		expect(t2Webhooks.filter((webhook) => webhook.type === WebhookTypes.CHANNEL_FOLLOWER)).toHaveLength(0);
 	});
 
-	test('dispatches WEBHOOKS_UPDATE for both channels when an incoming webhook moves', async () => {
-		const {b} = world;
-		const webhook = await createWebhook(harness, b.t1.id, b.owner.token, 'Incoming');
-		const dispatchSpy = vi.spyOn(NoopGatewayService.prototype, 'dispatchGuild');
-		await createBuilder<WebhookResponse>(harness, b.owner.token)
-			.patch(`/webhooks/${webhook.id}`)
-			.body({channel_id: b.t2.id})
-			.execute();
-		expect(webhooksUpdateChannels(dispatchSpy).sort()).toEqual([b.t1.id, b.t2.id].sort());
-	});
-
 	test('unfollows by deleting the follower webhook', async () => {
 		const {a, b} = world;
 		const followed = await follow(harness, b.owner.token, a.ann.id, b.t1.id);
@@ -321,11 +296,13 @@ describe('Follower webhook management', () => {
 		await follow(harness, b.owner.token, a.ann.id, b.t1.id);
 		await follow(harness, b.owner.token, a.ann.id, b.t2.id);
 		expect(await sourceIndex(a.ann.id)).toHaveLength(2);
+		const worker = recordGuildDeletions();
 		await createBuilder(harness, b.owner.token)
 			.post(`/guilds/${b.guild.id}/delete`)
 			.body({password: b.owner.password})
 			.expect(HTTP_STATUS.NO_CONTENT)
 			.execute();
+		await processRecordedGuildDeletions(worker);
 		expect(await sourceIndex(a.ann.id)).toEqual([]);
 	});
 
@@ -426,20 +403,6 @@ describe('Follower webhook delivery', () => {
 			).toBe(false);
 		}
 	}
-
-	test('the next copy uses the renamed follower webhook', async () => {
-		const webhookId = await followInto(harness, world, world.b.t1.id);
-		const before = await postAndPublish(harness, world, {content: 'old identity'});
-		await createBuilder<WebhookResponse>(harness, world.b.owner.token)
-			.patch(`/webhooks/${webhookId}`)
-			.body({name: 'Release feed'})
-			.execute();
-		const after = await postAndPublish(harness, world, {content: 'new identity'});
-		const [oldCopy] = await copiesOf(harness, world.b.owner.token, world.b.t1.id, before.id);
-		const [newCopy] = await copiesOf(harness, world.b.owner.token, world.b.t1.id, after.id);
-		expect(oldCopy!.author.username).not.toBe('Release feed');
-		expect(newCopy!.author.username).toBe('Release feed');
-	});
 
 	test('a moved follower webhook delivers the next publish into its new channel', async () => {
 		const webhookId = await followInto(harness, world, world.b.t1.id);

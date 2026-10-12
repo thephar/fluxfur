@@ -1,19 +1,23 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import assert from 'node:assert/strict';
+import Authentication from '@app/features/auth/state/Authentication';
 import {Logger} from '@app/features/platform/utils/AppLogger';
+import {
+	createVoiceMeshRoom,
+	holdVoiceMeshConversion,
+	isVoiceMeshRoom,
+} from '@app/features/voice/engine/mesh/VoiceMeshRoom';
 import {Store} from '@app/features/voice/engine/Store';
 import {sendVoiceStateDisconnect} from '@app/features/voice/engine/VoiceChannelConnector';
 import {
 	createVoiceConnectionSnapshot,
 	getVoiceConnectionFailedTarget,
-	getVoiceConnectionFailureReason,
 	isLatestVoiceConnectionAttempt,
 	isVoiceConnectionFailed,
 	selectVoiceConnectionServerUpdateDecision,
 	transitionVoiceConnectionSnapshot,
 	type VoiceConnectionEvent,
-	type VoiceConnectionFailureReason,
 	type VoiceConnectionLocalDisconnectReason,
 	type VoiceConnectionSnapshot,
 } from '@app/features/voice/engine/VoiceConnectionStateMachine';
@@ -29,7 +33,6 @@ import {selectLocalMediaPublicationsForConnectionRepublish} from '@app/features/
 import {
 	assertDisconnectReason,
 	assertNonEmptyString,
-	assertObjectLike,
 	assertOptionalNonEmptyString,
 	assertVoiceServerUpdateShape,
 	hasAnyTerminalTransport,
@@ -42,12 +45,12 @@ import {
 	getRoomVideoPublishDefaults,
 } from '@app/features/voice/utils/CodecCapabilityDetector';
 import {getH264HardwareProfilesSync} from '@app/features/voice/utils/GpuEncoderCapabilities';
-import {SCREEN_SHARE_MAX_VIDEO_BITRATE_BPS} from '@app/features/voice/utils/ScreenShareOptions';
 import {
 	clearScreenShareDecodeFailures,
 	getVideoDecoderExclusionsSync,
 	loadVideoDecoderExclusions,
 } from '@app/features/voice/utils/VideoDecoderCapabilities';
+import {getScreenShareBitrateCeilingBps} from '@app/features/voice/utils/VideoQualityEntitlement';
 import type {
 	ExternalE2EEKeyProvider,
 	LocalTrack,
@@ -56,7 +59,7 @@ import type {
 	RoomOptions,
 	TrackPublishOptions,
 } from 'livekit-client';
-import {Room as LiveKitRoom, RoomEvent, Track} from 'livekit-client';
+import {Room as LiveKitRoom, Track} from 'livekit-client';
 import {makeObservable, observableRef} from 'mobx';
 import type {Subscription} from 'rxjs';
 import {timer} from 'rxjs';
@@ -72,6 +75,7 @@ export interface VoiceServerUpdateData {
 	guild_id?: string;
 	channel_id?: string;
 	e2ee_key?: string | null;
+	ice_servers?: Array<Pick<RTCIceServer, 'urls'>>;
 }
 
 export interface VoiceConnectionState {
@@ -145,7 +149,7 @@ function createWebAudioMixOption(): RoomOptions['webAudioMix'] {
 function createRoomPublishDefaults(): RoomOptions['publishDefaults'] {
 	return {
 		screenShareEncoding: {
-			maxBitrate: SCREEN_SHARE_MAX_VIDEO_BITRATE_BPS,
+			maxBitrate: getScreenShareBitrateCeilingBps(),
 			maxFramerate: 30,
 			priority: 'high',
 		},
@@ -184,6 +188,12 @@ function createRoomOptions(
 		}
 	}
 	return {roomOptions, e2eeKeyProvider, e2eeWorker};
+}
+
+function requireCurrentUserId(): string {
+	const userId = Authentication.currentUserId;
+	assertNonEmptyString(userId, 'mesh room current user id');
+	return userId;
 }
 
 function createRoomConnectOptions(): RoomConnectOptions {
@@ -251,10 +261,6 @@ export class VoiceEngineV2AppConnectionHostAdapter extends Store {
 		return this.reconnect.shouldAutoReconnect;
 	}
 
-	get reconnectAttempts(): number {
-		return this.reconnect.reconnectAttempts;
-	}
-
 	get disconnecting(): boolean {
 		return this.isLocalDisconnecting;
 	}
@@ -267,39 +273,8 @@ export class VoiceEngineV2AppConnectionHostAdapter extends Store {
 		return isVoiceConnectionFailed(this.connectionSnapshot);
 	}
 
-	get connectFailureReason(): VoiceConnectionFailureReason {
-		return getVoiceConnectionFailureReason(this.connectionSnapshot);
-	}
-
 	get connectFailedTarget(): {guildId: string | null; channelId: string} | null {
 		return getVoiceConnectionFailedTarget(this.connectionSnapshot);
-	}
-
-	get regionHotSwapInProgress(): boolean {
-		return this.hotSwapState.inProgress;
-	}
-
-	enqueueOrRun(operation: HotSwapQueuedOperation): void {
-		assert.equal(typeof operation, 'function', 'enqueueOrRun.operation must be a function');
-		assert.ok(this.hotSwapOperationQueue.length <= 4096, 'enqueueOrRun pre-condition: queue under cap');
-		if (!this.hotSwapState.inProgress) {
-			try {
-				const result = operation();
-				if (result && typeof (result as Promise<void>).catch === 'function') {
-					void (result as Promise<void>).catch((error) => {
-						logger.error('Immediate operation failed', {error});
-					});
-				}
-			} catch (error) {
-				logger.error('Immediate operation failed', {error});
-			}
-			return;
-		}
-		logger.debug('Queueing operation during hot-swap', {queueLength: this.hotSwapOperationQueue.length + 1});
-		this.update(() => {
-			this.transitionConnection({type: 'hotSwap.queueOperation'});
-		});
-		this.hotSwapOperationQueue.push(operation);
 	}
 
 	private async drainHotSwapQueue(): Promise<void> {
@@ -518,6 +493,7 @@ export class VoiceEngineV2AppConnectionHostAdapter extends Store {
 		if (previousRoom) {
 			shouldStopPreviousRoomTracks = isChannelMove || onBeforeReconnect?.(isChannelMove, previousRoom) !== true;
 			previousRoom.removeAllListeners();
+			holdVoiceMeshConversion(previousRoom, true);
 			if (isChannelMove) {
 				this.disconnectPreviousRoom(previousRoom);
 				previousRoom = null;
@@ -546,7 +522,15 @@ export class VoiceEngineV2AppConnectionHostAdapter extends Store {
 			return;
 		}
 		const {roomOptions, e2eeKeyProvider, e2eeWorker} = createRoomOptions(e2eeKey, subscriberVideoCodecExclusions);
-		const room = new LiveKitRoom(roomOptions);
+		const room = raw.ice_servers
+			? createVoiceMeshRoom(roomOptions, {
+					iceServers: raw.ice_servers,
+					guildId,
+					channelId: resolvedChannelId,
+					connectionId: raw.connection_id,
+					userId: requireCurrentUserId(),
+				})
+			: new LiveKitRoom(roomOptions);
 		ownE2EEWorker(room, e2eeWorker);
 		let roomClosed = false;
 		const closeRoom = () => {
@@ -695,6 +679,7 @@ export class VoiceEngineV2AppConnectionHostAdapter extends Store {
 		this.update(() => {
 			this.transitionConnection({type: 'hotSwap.start', pendingRoom: newRoom, previousRoom: existingRoom});
 		});
+		holdVoiceMeshConversion(existingRoom, true);
 		this.clearHotSwapTimeout();
 		this.hotSwapTimeoutSub = timer(REGION_HOT_SWAP_TIMEOUT_MS).subscribe(() => {
 			if (this.hotSwapState.inProgress && this.hotSwapState.pendingRoom === newRoom) {
@@ -790,6 +775,7 @@ export class VoiceEngineV2AppConnectionHostAdapter extends Store {
 				this.update(() => {
 					this.transitionConnection({type: 'hotSwap.reset'});
 				});
+				holdVoiceMeshConversion(existingRoom, false);
 				this.clearHotSwapTimeout();
 				this.clearHotSwapQueue();
 				logger.info('Region hot-swap: keeping old room on previous endpoint');
@@ -803,8 +789,13 @@ export class VoiceEngineV2AppConnectionHostAdapter extends Store {
 			logger.warn('Region hot-swap: missing participant for track republishing');
 			return;
 		}
+		const isMeshConversion = isVoiceMeshRoom(oldRoom);
 		const publications = selectLocalMediaPublicationsForConnectionRepublish(
 			Array.from(oldParticipant.trackPublications.values()),
+		).filter(
+			(publication) =>
+				!isMeshConversion ||
+				(publication.source !== Track.Source.ScreenShare && publication.source !== Track.Source.ScreenShareAudio),
 		);
 		const errors: Array<{source: string; error: unknown}> = [];
 		let codecPolicyFailure: Error | null = null;
@@ -867,7 +858,7 @@ export class VoiceEngineV2AppConnectionHostAdapter extends Store {
 		assert.ok(this.hotSwapOperationQueue.length <= 4096, 'abortHotSwap pre-condition: queue under cap');
 		assert.ok(this.connectionSnapshot !== null, 'abortHotSwap pre-condition: connection snapshot present');
 		if (!this.hotSwapState.inProgress) return;
-		const {pendingRoom} = this.hotSwapState;
+		const {pendingRoom, previousRoom} = this.hotSwapState;
 		logger.info('Aborting region hot-swap');
 		if (pendingRoom) {
 			try {
@@ -880,6 +871,7 @@ export class VoiceEngineV2AppConnectionHostAdapter extends Store {
 		this.update(() => {
 			this.transitionConnection({type: 'hotSwap.abort'});
 		});
+		holdVoiceMeshConversion(previousRoom, false);
 		this.clearHotSwapTimeout();
 		this.clearHotSwapQueue();
 	}
@@ -1007,42 +999,14 @@ export class VoiceEngineV2AppConnectionHostAdapter extends Store {
 		this.invalidateThrottleAttempt();
 	}
 
-	scheduleReconnect(callback: () => void): boolean {
-		assert.equal(typeof callback, 'function', 'scheduleReconnect.callback must be a function');
-		return this.reconnect.scheduleReconnect(callback);
-	}
-
 	markReconnectionAttempted(): void {
 		assert.ok(this.reconnect !== null, 'markReconnectionAttempted pre-condition: reconnect policy present');
 		this.reconnect.markAttempted();
 	}
 
-	resetReconnectState(): void {
-		assert.ok(this.reconnect !== null, 'resetReconnectState pre-condition: reconnect policy present');
-		this.reconnect.reset();
-	}
-
 	forgetReconnectChannel(channelId: string): void {
 		assertNonEmptyString(channelId, 'forgetReconnectChannel.channelId');
 		this.reconnect.forgetChannel(channelId);
-	}
-
-	updateChannelId(channelId: string): void {
-		assertNonEmptyString(channelId, 'updateChannelId.channelId');
-		this.update(() => {
-			this.transitionConnection({type: 'connection.updateChannel', channelId});
-		});
-		logger.info('Channel updated', {channelId});
-	}
-
-	acceptServerChannelChange(channelId: string): void {
-		assertNonEmptyString(channelId, 'acceptServerChannelChange.channelId');
-		const previousChannelId = this.connectionState.channelId;
-		this.update(() => {
-			this.transitionConnection({type: 'connection.acceptServerChannelChange', channelId});
-		});
-		this.reconnect.setLastConnectedChannel(this.connectionState.guildId, channelId);
-		logger.info('Accepted server channel change', {previousChannelId, newChannelId: channelId});
 	}
 
 	createGuardedHandler<T extends ReadonlyArray<unknown>>(
@@ -1067,45 +1031,6 @@ export class VoiceEngineV2AppConnectionHostAdapter extends Store {
 				logger.error('Guarded voice handler failed', {attemptId, error});
 			}
 		};
-	}
-
-	bindConnectionEvents(
-		room: Room,
-		attemptId: number,
-		handlers: {
-			onConnected: () => void;
-			onDisconnected: (reason?: unknown) => void;
-			onReconnecting: () => void;
-			onReconnected: () => void;
-		},
-	): void {
-		assertObjectLike<Room>(room, 'bindConnectionEvents.room');
-		assert.equal(typeof attemptId, 'number', 'bindConnectionEvents.attemptId must be a number');
-		assertObjectLike<typeof handlers>(handlers, 'bindConnectionEvents.handlers');
-		assert.equal(
-			typeof handlers.onConnected,
-			'function',
-			'bindConnectionEvents.handlers.onConnected must be a function',
-		);
-		assert.equal(
-			typeof handlers.onDisconnected,
-			'function',
-			'bindConnectionEvents.handlers.onDisconnected must be a function',
-		);
-		assert.equal(
-			typeof handlers.onReconnecting,
-			'function',
-			'bindConnectionEvents.handlers.onReconnecting must be a function',
-		);
-		assert.equal(
-			typeof handlers.onReconnected,
-			'function',
-			'bindConnectionEvents.handlers.onReconnected must be a function',
-		);
-		room.on(RoomEvent.Connected, this.createGuardedHandler(attemptId, handlers.onConnected));
-		room.on(RoomEvent.Disconnected, this.createGuardedHandler(attemptId, handlers.onDisconnected));
-		room.on(RoomEvent.Reconnecting, this.createGuardedHandler(attemptId, handlers.onReconnecting));
-		room.on(RoomEvent.Reconnected, this.createGuardedHandler(attemptId, handlers.onReconnected));
 	}
 
 	resetConnectionState(): void {

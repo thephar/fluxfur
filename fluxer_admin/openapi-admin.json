@@ -3074,7 +3074,7 @@
 						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
 					}
 				},
-				"description": "Permanently deletes a guild. Deletes all channels, messages, and settings. Irreversible operation with no recovery window. Logged to audit log. Requires GUILD_DELETE permission.",
+				"description": "Permanently deletes a guild. The guild becomes unavailable at once, and a background job deletes all channels, messages, and settings. Irreversible operation with no recovery window. Logged to audit log. Requires GUILD_DELETE permission.",
 				"security": [{"adminApiKey": []}],
 				"parameters": [
 					{
@@ -4144,10 +4144,10 @@
 						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
 					}
 				},
-				"description": "Validates that an SMTP configuration can authenticate and accept a connection. Requires INSTANCE_CONFIG_UPDATE permission.",
+				"description": "Validates that an SMTP configuration can authenticate and accept a connection. Fields left out of the body come from the saved configuration, and the saved password is reused only for the saved host and username. An empty body tests what outgoing email uses and fails when email is off or incomplete. Requires INSTANCE_CONFIG_UPDATE permission.",
 				"security": [{"adminApiKey": []}],
 				"requestBody": {
-					"required": true,
+					"required": false,
 					"content": {"application/json": {"schema": {"$ref": "#/components/schemas/InstanceEmailSmtpTestRequest"}}}
 				}
 			}
@@ -11107,7 +11107,7 @@
 								"category": {"type": "string"},
 								"scope": {"type": "string"},
 								"isToggle": {"type": "boolean"},
-								"unit": {"type": "string", "enum": ["bytes", "count"]},
+								"unit": {"type": "string", "enum": ["bytes", "count", "bps"]},
 								"min": {"type": "number"},
 								"max": {"type": "number"}
 							},
@@ -11154,6 +11154,7 @@
 							"max_private_channels_per_user",
 							"max_reactions_per_message",
 							"max_relationships",
+							"max_screen_share_bitrate",
 							"max_users_per_message_reaction",
 							"max_voice_message_duration",
 							"max_webhooks_per_channel",
@@ -11268,6 +11269,7 @@
 					"gateway_rollout": {"$ref": "#/components/schemas/GatewayRolloutConfigResponse"},
 					"push_relay": {"$ref": "#/components/schemas/PushRelayConfigResponse"},
 					"domain_migration": {"$ref": "#/components/schemas/DomainMigrationConfigResponse"},
+					"voice_p2p": {"$ref": "#/components/schemas/VoiceP2pConfigResponse"},
 					"captcha": {"$ref": "#/components/schemas/CaptchaConfigResponse"},
 					"experiment_delivery": {"$ref": "#/components/schemas/ExperimentDeliveryConfigResponse"},
 					"registration": {
@@ -11522,9 +11524,34 @@
 											"port": {"nullable": true, "type": "integer", "minimum": 1, "maximum": 65535},
 											"username": {"nullable": true, "type": "string"},
 											"password_set": {"type": "boolean"},
-											"secure": {"nullable": true, "type": "boolean"}
+											"tls_mode": {
+												"nullable": true,
+												"description": "Saved TLS mode, or null to pick one from the port",
+												"x-enumNames": ["IMPLICIT", "STARTTLS", "OPPORTUNISTIC", "NONE"],
+												"x-enumDescriptions": [
+													"TLS from the first byte, usually on port 465",
+													"Plain connection that must upgrade with STARTTLS, usually on port 587",
+													"Plain connection upgraded with STARTTLS when the server offers it",
+													"No TLS, even when the server offers STARTTLS"
+												],
+												"enum": ["implicit", "starttls", "opportunistic", "none"],
+												"type": "string"
+											},
+											"effective_tls_mode": {
+												"nullable": true,
+												"description": "How the SMTP connection is encrypted",
+												"x-enumNames": ["IMPLICIT", "STARTTLS", "OPPORTUNISTIC", "NONE"],
+												"x-enumDescriptions": [
+													"TLS from the first byte, usually on port 465",
+													"Plain connection that must upgrade with STARTTLS, usually on port 587",
+													"Plain connection upgraded with STARTTLS when the server offers it",
+													"No TLS, even when the server offers STARTTLS"
+												],
+												"enum": ["implicit", "starttls", "opportunistic", "none"],
+												"type": "string"
+											}
 										},
-										"required": ["host", "port", "username", "password_set", "secure"],
+										"required": ["host", "port", "username", "password_set", "tls_mode", "effective_tls_mode"],
 										"additionalProperties": false
 									},
 									"disable_new_ip_authorization": {"type": "boolean"},
@@ -11682,6 +11709,7 @@
 					"gateway_rollout",
 					"push_relay",
 					"domain_migration",
+					"voice_p2p",
 					"captcha",
 					"experiment_delivery",
 					"registration",
@@ -11786,13 +11814,24 @@
 			"InstanceEmailSmtpTestRequest": {
 				"type": "object",
 				"properties": {
-					"host": {"type": "string", "minLength": 1, "maxLength": 255},
-					"port": {"type": "integer", "minimum": 1, "maximum": 65535},
-					"username": {"type": "string", "minLength": 1, "maxLength": 320},
-					"password": {"type": "string", "minLength": 1, "maxLength": 4096},
-					"secure": {"default": true, "type": "boolean"}
-				},
-				"required": ["host", "port", "username", "password"]
+					"host": {"nullable": true, "type": "string", "minLength": 1, "maxLength": 255},
+					"port": {"nullable": true, "type": "integer", "minimum": 1, "maximum": 65535},
+					"username": {"nullable": true, "type": "string", "minLength": 1, "maxLength": 320},
+					"password": {"nullable": true, "type": "string", "minLength": 1, "maxLength": 4096},
+					"tls_mode": {
+						"nullable": true,
+						"description": "How the SMTP connection is encrypted",
+						"x-enumNames": ["IMPLICIT", "STARTTLS", "OPPORTUNISTIC", "NONE"],
+						"x-enumDescriptions": [
+							"TLS from the first byte, usually on port 465",
+							"Plain connection that must upgrade with STARTTLS, usually on port 587",
+							"Plain connection upgraded with STARTTLS when the server offers it",
+							"No TLS, even when the server offers STARTTLS"
+						],
+						"enum": ["implicit", "starttls", "opportunistic", "none"],
+						"type": "string"
+					}
+				}
 			},
 			"InstanceEmailSmtpTestResponse": {
 				"type": "object",
@@ -11820,6 +11859,7 @@
 						"nullable": true,
 						"allOf": [{"$ref": "#/components/schemas/DomainMigrationConfigUpdateRequest"}]
 					},
+					"voice_p2p": {"nullable": true, "allOf": [{"$ref": "#/components/schemas/VoiceP2pConfigUpdateRequest"}]},
 					"captcha": {"nullable": true, "allOf": [{"$ref": "#/components/schemas/CaptchaConfigUpdateRequest"}]},
 					"experiment_delivery": {
 						"nullable": true,
@@ -11866,7 +11906,11 @@
 									"logo_url": {"nullable": true, "type": "string", "maxLength": 2048},
 									"wordmark_url": {"nullable": true, "type": "string", "maxLength": 2048},
 									"favicon_url": {"nullable": true, "type": "string", "maxLength": 2048},
-									"theme_color": {"nullable": true, "type": "string", "maxLength": 64},
+									"theme_color": {
+										"nullable": true,
+										"type": "string",
+										"pattern": "^(?:#?(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}))?$"
+									},
 									"status_page_url": {"nullable": true, "type": "string", "maxLength": 2048},
 									"status_page_incident_history_url": {"nullable": true, "type": "string", "maxLength": 2048},
 									"premium_product_name": {"nullable": true, "type": "string", "minLength": 1, "maxLength": 40},
@@ -11920,7 +11964,20 @@
 											"port": {"nullable": true, "type": "integer", "minimum": 1, "maximum": 65535},
 											"username": {"nullable": true, "type": "string", "maxLength": 320},
 											"password": {"nullable": true, "type": "string", "maxLength": 4096},
-											"secure": {"nullable": true, "type": "boolean"}
+											"tls_mode": {
+												"nullable": true,
+												"description": "How the SMTP connection is encrypted",
+												"x-enumNames": ["IMPLICIT", "STARTTLS", "OPPORTUNISTIC", "NONE"],
+												"x-enumDescriptions": [
+													"TLS from the first byte, usually on port 465",
+													"Plain connection that must upgrade with STARTTLS, usually on port 587",
+													"Plain connection upgraded with STARTTLS when the server offers it",
+													"No TLS, even when the server offers STARTTLS"
+												],
+												"enum": ["implicit", "starttls", "opportunistic", "none"],
+												"type": "string"
+											},
+											"secure": {"description": "Deprecated, use tls_mode", "nullable": true, "type": "boolean"}
 										}
 									},
 									"disable_new_ip_authorization": {"nullable": true, "type": "boolean"}
@@ -14679,6 +14736,10 @@
 						"nullable": true,
 						"type": "string"
 					},
+					"rtc_p2p": {
+						"description": "Whether calls in the voice channel connect participants directly instead of through a voice server",
+						"type": "boolean"
+					},
 					"last_message_id": {
 						"description": "The ID of the last message sent in this channel",
 						"nullable": true,
@@ -16314,11 +16375,38 @@
 					"max_counter": {"type": "integer", "minimum": 100, "maximum": 20000}
 				}
 			},
+			"VoiceP2pConfigUpdateRequest": {
+				"type": "object",
+				"properties": {
+					"enabled": {"type": "boolean"},
+					"rollout_basis_points": {"type": "integer", "minimum": 0, "maximum": 10000},
+					"rollout_country_codes": {"allOf": [{"$ref": "#/components/schemas/ExperimentRolloutCountryCodesSchema"}]},
+					"rollout_salt": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[\\x20-\\x7e]+$"},
+					"included_user_ids": {
+						"maxItems": 1000,
+						"type": "array",
+						"items": {"type": "string", "pattern": "^\\d{1,20}$"}
+					},
+					"included_guild_ids": {
+						"maxItems": 1000,
+						"type": "array",
+						"items": {"type": "string", "pattern": "^\\d{1,20}$"}
+					},
+					"include_premium_users": {"type": "boolean"},
+					"excluded_user_ids": {
+						"maxItems": 1000,
+						"type": "array",
+						"items": {"type": "string", "pattern": "^\\d{1,20}$"}
+					},
+					"max_participants": {"type": "integer", "minimum": 2, "maximum": 4}
+				}
+			},
 			"DomainMigrationConfigUpdateRequest": {
 				"type": "object",
 				"properties": {
 					"enabled": {"type": "boolean"},
 					"rollout_basis_points": {"type": "integer", "minimum": 0, "maximum": 10000},
+					"rollout_country_codes": {"allOf": [{"$ref": "#/components/schemas/ExperimentRolloutCountryCodesSchema"}]},
 					"rollout_salt": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[\\x20-\\x7e]+$"},
 					"included_user_ids": {
 						"maxItems": 1000,
@@ -16354,6 +16442,11 @@
 					"gateway_dispatch_relay_max_queue": {"type": "integer", "minimum": 0, "maximum": 1000000},
 					"voice_e2ee_scope": {"type": "string", "enum": ["guild_feature_only", "platform_wide"]}
 				}
+			},
+			"ExperimentRolloutCountryCodesSchema": {
+				"maxItems": 250,
+				"type": "array",
+				"items": {"type": "string", "pattern": "^[A-Z]{2}$"}
 			},
 			"BillingLegacyPricesSchema": {
 				"type": "object",
@@ -16470,12 +16563,68 @@
 				"required": ["enabled", "cost", "max_counter"],
 				"additionalProperties": false
 			},
+			"VoiceP2pConfigResponse": {
+				"type": "object",
+				"properties": {
+					"enabled": {"default": false, "type": "boolean"},
+					"config_version": {"default": 0, "type": "integer", "minimum": 0, "maximum": 9007199254740991},
+					"rollout_basis_points": {"default": 0, "type": "integer", "minimum": 0, "maximum": 10000},
+					"rollout_country_codes": {
+						"default": [],
+						"allOf": [{"$ref": "#/components/schemas/ExperimentRolloutCountryCodesSchema"}]
+					},
+					"rollout_salt": {
+						"default": "voice-p2p-v1",
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 64,
+						"pattern": "^[\\x20-\\x7e]+$"
+					},
+					"included_user_ids": {
+						"default": [],
+						"maxItems": 1000,
+						"type": "array",
+						"items": {"type": "string", "pattern": "^\\d{1,20}$"}
+					},
+					"included_guild_ids": {
+						"default": [],
+						"maxItems": 1000,
+						"type": "array",
+						"items": {"type": "string", "pattern": "^\\d{1,20}$"}
+					},
+					"include_premium_users": {"default": false, "type": "boolean"},
+					"excluded_user_ids": {
+						"default": [],
+						"maxItems": 1000,
+						"type": "array",
+						"items": {"type": "string", "pattern": "^\\d{1,20}$"}
+					},
+					"max_participants": {"default": 2, "type": "integer", "minimum": 2, "maximum": 4}
+				},
+				"required": [
+					"enabled",
+					"config_version",
+					"rollout_basis_points",
+					"rollout_country_codes",
+					"rollout_salt",
+					"included_user_ids",
+					"included_guild_ids",
+					"include_premium_users",
+					"excluded_user_ids",
+					"max_participants"
+				],
+				"additionalProperties": false
+			},
 			"DomainMigrationConfigResponse": {
 				"type": "object",
 				"properties": {
 					"enabled": {"default": false, "type": "boolean"},
 					"config_version": {"default": 0, "type": "integer", "minimum": 0, "maximum": 9007199254740991},
 					"rollout_basis_points": {"default": 0, "type": "integer", "minimum": 0, "maximum": 10000},
+					"rollout_country_codes": {
+						"default": [],
+						"allOf": [{"$ref": "#/components/schemas/ExperimentRolloutCountryCodesSchema"}]
+					},
 					"rollout_salt": {
 						"default": "domain-migration-v1",
 						"type": "string",
@@ -16509,6 +16658,7 @@
 					"enabled",
 					"config_version",
 					"rollout_basis_points",
+					"rollout_country_codes",
 					"rollout_salt",
 					"included_user_ids",
 					"included_guild_ids",
@@ -17122,7 +17272,6 @@
 					"ACCOUNT_TOO_NEW_FOR_GUILD",
 					"ACLS_MUST_BE_NON_EMPTY",
 					"ADMIN_API_KEY_NOT_FOUND",
-					"APPLICATION_NOT_OWNED",
 					"ALREADY_FRIENDS",
 					"BOTS_CANNOT_CREATE_GUILDS",
 					"BOTS_CANNOT_SEND_FRIEND_REQUESTS",
@@ -17148,7 +17297,6 @@
 					"CANNOT_SEND_MESSAGES_IN_NON_TEXT_CHANNEL",
 					"CANNOT_SEND_MESSAGES_TO_USER",
 					"CANNOT_TRANSFER_OWNERSHIP_TO_BOT",
-					"CANNOT_SHRINK_RESERVED_SLOTS",
 					"CAPTCHA_REQUIRED",
 					"CHANNEL_ALREADY_FOLLOWED",
 					"CHANNEL_HAS_FOLLOWED_CHANNELS",
@@ -17419,7 +17567,6 @@
 					"Your account is too new to send messages in this community.",
 					"ACLs must be non-empty.",
 					"Admin API key wasn't found.",
-					"You don't own this application.",
 					"You're already friends with this user.",
 					"Bots can't create communities.",
 					"Bots can't send friend requests.",
@@ -17445,7 +17592,6 @@
 					"You can't send messages in a non-text channel.",
 					"You can't send messages to this user.",
 					"Community ownership can't be transferred to a bot.",
-					"You can't shrink reserved slots.",
 					"Verification required. Try again.",
 					"This channel already receives updates from that announcement channel.",
 					"Remove the followed channels posting here before converting it to an announcement channel.",

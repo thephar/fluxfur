@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {defineStaticLocaleMessages} from '@fluxer/i18n/src/runtime/MessageCatalogTypes';
-
 export const ERROR_I18N_MESSAGES = {
 	'account.communication_disabled': 'Communication is disabled.',
 	'account.email_verification_required': 'Email verification is required for this action.',
@@ -46,10 +44,6 @@ export const ERROR_I18N_MESSAGES = {
 	'admin_and_system.update_failed': "We couldn't update the resource. Please try again.",
 	'admin_and_system.user_must_be_bot_for_system_user': 'User must be a bot to be marked as a system user.',
 	'age_verification.already_verified': "You've already completed age verification.",
-	'attachments_and_uploads.attachment_fields_required':
-		'`attachment_id`, `channel_id`, `message_id`, and `expires_at` are required.',
-	'attachments_and_uploads.attachment_ids_must_be_valid_integers':
-		'`attachment_id`, `channel_id`, and `message_id` must be valid integers.',
 	'attachments_and_uploads.attachment_must_be_image':
 		'Attachment "{filename}" must be an image file (png, jpg, jpeg, webp, or gif).',
 	'attachments_and_uploads.attachment_not_found_in_message':
@@ -84,13 +78,11 @@ export const ERROR_I18N_MESSAGES = {
 	'attachments_and_uploads.preview_must_be_jpeg': 'Preview must be JPEG.',
 	'attachments_and_uploads.referenced_attachment_not_found':
 		'Referenced attachment "{filename}" wasn\'t found in message attachments.',
-	'attachments_and_uploads.size_bytes_must_be_valid_integer': '`size_bytes` must be a valid integer.',
 	'attachments_and_uploads.too_many_files':
 		'Too many files. Maximum {maxFiles, plural, one {# file} other {# files}} allowed.',
 	'attachments_and_uploads.unresolved_attachment_url':
 		'Unresolved `attachment://` URL detected. This should have been resolved before embed processing.',
 	'attachments_and_uploads.uploaded_attachment_not_found': "Uploaded attachment {filename} wasn't found.",
-	'auth_and_oauth.application_not_owned': "You don't own this application.",
 	'auth_and_oauth.bot_already_in_guild': 'This bot is already in the community.',
 	'auth_and_oauth.bot_users_cannot_create_auth_sessions': "Bot users can't create auth sessions.",
 	'auth_and_oauth.bot_users_cannot_use_auth_endpoints': "Bot users can't use auth endpoints.",
@@ -344,13 +336,10 @@ export const ERROR_I18N_MESSAGES = {
 		"You've reached the maximum of {count, plural, one {# emoji} other {# emojis}}.",
 	'limits.at_least_one_entry_required': 'At least one entry is required.',
 	'limits.base64_length_invalid': 'Base64 string length must be between {min} and {maxLength} characters.',
-	'limits.bucket_required': '`bucket` is required.',
-	'limits.cannot_shrink_reserved_slots': "You can't shrink reserved slots.",
 	'limits.cannot_specify_before_and_after': "You can't specify both `before` and `after`.",
 	'limits.content_exceeds_max_length':
 		'Text must not exceed {maxLength, plural, one {# character} other {# characters}}.',
 	'limits.integer_out_of_int64_range': 'Integer value is out of the valid int64 range.',
-	'limits.rows_required': '`rows` is required.',
 	'limits.string_length_exact': 'String must be exactly {length, plural, one {# character} other {# characters}}.',
 	'limits.string_length_invalid': 'String length must be between {min} and {max} characters.',
 	'limits.synced_preferences_too_large': 'Synced preferences exceed {max_bytes} bytes.',
@@ -602,5 +591,3 @@ export const ERROR_I18N_MESSAGES = {
 
 export type ErrorI18nCatalog = typeof ERROR_I18N_MESSAGES;
 export type ErrorI18nKey = keyof ErrorI18nCatalog;
-
-export const defineErrorI18nLocaleMessages = defineStaticLocaleMessages<ErrorI18nCatalog>();

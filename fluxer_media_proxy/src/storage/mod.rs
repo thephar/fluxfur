@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-mod identity;
 mod keys;
 mod local;
 mod object_read;
@@ -9,12 +8,10 @@ mod relay_body;
 mod response_body;
 mod s3;
 mod s3_endpoint;
-mod source_read;
 
 #[cfg(test)]
 pub(crate) mod tests;
 
-pub use identity::SourceObjectIdentity;
 pub(crate) use keys::safe_key;
 pub use relay_body::{RelayBody, RelayBodyChunks, RelayPutOptions};
 
@@ -24,14 +21,12 @@ use crate::{
     config::{Config, StorageBackend},
     http_client::{self, HTTPClientOptions},
     metrics::{http_client::HTTPClientMetrics, storage::StorageMetrics},
-    range::ByteRange,
     response_body_limit,
 };
 use axum::body::Body;
 use bytes::Bytes;
 use http::StatusCode;
 use response_body::LocalStreamBufferPool;
-use source_read::SourceReadCoordinator;
 use std::{num::NonZeroU64, sync::Arc};
 use thiserror::Error;
 
@@ -64,24 +59,6 @@ pub struct StreamObject {
 pub struct HeadResult {
     pub content_length: u64,
     pub content_type: String,
-    pub identity: SourceObjectIdentity,
-}
-
-pub struct ObjectReadRequest<'a> {
-    pub bucket: &'a str,
-    pub key: &'a str,
-    pub max_bytes: usize,
-    pub budget: &'a ByteBudget,
-    pub expected_identity: &'a SourceObjectIdentity,
-}
-
-#[derive(Clone, Copy)]
-pub struct ObjectStreamRequest<'a> {
-    pub bucket: &'a str,
-    pub key: &'a str,
-    pub max_bytes: usize,
-    pub byte_range: Option<ByteRange>,
-    pub expected_identity: &'a SourceObjectIdentity,
 }
 
 #[derive(Clone, Copy)]
@@ -90,7 +67,6 @@ struct BufferedObjectReadRequest<'a> {
     key: &'a str,
     limit: usize,
     budget: &'a ByteBudget,
-    expected_identity: Option<&'a SourceObjectIdentity>,
     content_digest: ContentDigestRequest,
 }
 
@@ -100,29 +76,17 @@ enum ContentDigestRequest {
     Include,
 }
 
-impl ContentDigestRequest {
-    const fn cache_key(self) -> &'static str {
-        match self {
-            Self::Omit => "omit-digest",
-            Self::Include => "include-digest",
-        }
-    }
-}
-
 #[derive(Clone, Copy)]
 struct ObjectStreamPlan<'a> {
     bucket: &'a str,
     key: &'a str,
-    max_bytes: usize,
     range: StreamRange<'a>,
-    expected_identity: Option<&'a SourceObjectIdentity>,
 }
 
 #[derive(Clone, Copy)]
 enum StreamRange<'a> {
     Full,
     Header(&'a str),
-    Bytes(ByteRange),
 }
 
 #[derive(Debug, Error)]
@@ -145,14 +109,6 @@ pub enum StorageError {
     BufferBudgetExhausted,
     #[error("buffered input allocation failed")]
     BufferAllocationFailed,
-    #[error("source read capacity exhausted")]
-    SourceReadCapacityExhausted,
-    #[error("source read waiter capacity exhausted")]
-    SourceReadWaiterCapacityExhausted,
-    #[error("source read leader ended without publishing a result")]
-    SourceReadLeaderEnded,
-    #[error("coalesced source read failed: {0}")]
-    CoalescedSourceReadFailed(String),
     #[error("object storage operation failed: {0}")]
     ObjectStorage(#[source] anyhow::Error),
     #[error("S3 request failed: {0}")]
@@ -173,11 +129,11 @@ pub struct Store {
     client: http_client::HttpClient,
     raw_client: reqwest::Client,
     metrics: Arc<StorageMetrics>,
-    source_reads: SourceReadCoordinator,
     local_stream_buffers: LocalStreamBufferPool,
 }
 
 impl Store {
+    #[cfg(test)]
     pub fn new(
         cfg: Config,
         metrics: Arc<StorageMetrics>,
@@ -188,7 +144,6 @@ impl Store {
             client: http_client::build_default(http_client_metrics),
             raw_client: http_client::build_raw_default(),
             metrics,
-            source_reads: SourceReadCoordinator::new(),
             local_stream_buffers: local_stream_buffer_pool(),
         }
     }
@@ -208,25 +163,26 @@ impl Store {
             client,
             raw_client,
             metrics,
-            source_reads: SourceReadCoordinator::new(),
             local_stream_buffers: local_stream_buffer_pool(),
         })
     }
 
+    #[cfg(test)]
     pub async fn write_object(
         &self,
         bucket: &str,
         key: &str,
         data: &[u8],
-        content_type: &str,
+        _content_type: &str,
     ) -> Result<(), StorageError> {
         if self.cfg.read_only {
             return Err(StorageError::ReadOnlyStorage);
         }
-        match self.cfg.storage.backend {
-            StorageBackend::Local => self.write_local(bucket, key, data).await,
-            StorageBackend::S3 => self.write_s3(bucket, key, data, content_type).await,
-        }
+        assert!(
+            matches!(self.cfg.storage.backend, StorageBackend::Local),
+            "write_object is a local-only test fixture"
+        );
+        self.write_local(bucket, key, data).await
     }
 
     pub async fn relay_put_object(
@@ -261,9 +217,9 @@ pub(crate) fn unversioned_read_budget(limit: usize) -> ByteBudget {
 
 fn record_storage_outcome<T>(metrics: &StorageMetrics, result: &Result<T, StorageError>) {
     match result {
-        Ok(_) => metrics.record_hit(),
-        Err(StorageError::NotFound) => metrics.record_miss(),
-        Err(_) => metrics.record_error(),
+        Ok(_) => metrics.storage_hits.inc(),
+        Err(StorageError::NotFound) => metrics.storage_misses.inc(),
+        Err(_) => metrics.storage_errors.inc(),
     }
 }
 

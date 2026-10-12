@@ -9,14 +9,15 @@ import {
 	type RoleID,
 	type UserID,
 } from '@app/api/BrandedTypes';
-import {isOperationDisabled, isPersonalNotesChannel} from '@app/api/channel/services/message/MessageHelpers';
+import {isOperationDisabled} from '@app/api/channel/services/message/MessageHelpers';
 import type {MessageResponseDataService} from '@app/api/channel/services/message/MessageResponseDataService';
-import type {IGuildRepositoryAggregate} from '@app/api/guild/repositories/IGuildRepositoryAggregate';
+import {isPersonalNotesChannelId} from '@app/api/channel/services/PersonalNotesChannelRepair';
+import type {GuildRepository} from '@app/api/guild/repositories/GuildRepository';
 import type {GatewayChannelMention, IGatewayService} from '@app/api/infrastructure/IGatewayService';
 import {Logger} from '@app/api/Logger';
 import type {Channel} from '@app/api/models/Channel';
 import type {Message} from '@app/api/models/Message';
-import type {IUserRepository} from '@app/api/user/IUserRepository';
+import type {UserRepository} from '@app/api/user/repositories/UserRepository';
 import type {WorkerTaskName} from '@app/api/worker/WorkerLaneConfig';
 import {WorkerQueueOverflowError} from '@app/api/worker/WorkerQueueOverflowError';
 import {ChannelTypes, MessageTypes, SENDABLE_MESSAGE_FLAGS} from '@fluxer/constants/src/ChannelConstants';
@@ -55,8 +56,8 @@ interface MentionableUser {
 
 export class MessageMentionService {
 	constructor(
-		private userRepository: IUserRepository,
-		private guildRepository: IGuildRepositoryAggregate,
+		private userRepository: UserRepository,
+		private guildRepository: GuildRepository,
 		private gatewayService: IGatewayService,
 		private workerService: IWorkerService<WorkerTaskName>,
 		private responseDataService: MessageResponseDataService,
@@ -483,7 +484,7 @@ export class MessageMentionService {
 		mentionHere?: boolean;
 	}): Promise<void> {
 		const {guildId, message, authorId, mentionHere = false} = params;
-		if (isPersonalNotesChannel({userId: authorId, channelId: message.channelId})) return;
+		if (isPersonalNotesChannelId({userId: authorId, channelId: message.channelId})) return;
 		const mentionUserIds = Array.from(message.mentionedUserIds ?? []);
 		const mentionRoleIds = Array.from(message.mentionedRoleIds ?? []);
 		const mentionEveryone = message.mentionEveryone && !mentionHere;

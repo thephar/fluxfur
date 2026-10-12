@@ -395,16 +395,16 @@ permissions_fail_closed_for_unknown_ids_test() ->
 thread_permissions_derive_from_parent_test() ->
     with_guild(fun(State) ->
         Perms = guild_permissions:get_member_permissions(?V, ?T1, State),
-        ?assert(permission_bits:has(Perms, ?VIEW)),
-        ?assert(permission_bits:has(Perms, ?SEND)),
+        ?assert(bitset:has(Perms, ?VIEW)),
+        ?assert(bitset:has(Perms, ?SEND)),
         ?assertNot(
-            permission_bits:has(guild_permissions:get_member_permissions(?V, ?T2, State), ?VIEW)
+            bitset:has(guild_permissions:get_member_permissions(?V, ?T2, State), ?VIEW)
         ),
         ?assert(
-            permission_bits:has(guild_permissions:get_member_permissions(?A, ?T2, State), ?VIEW)
+            bitset:has(guild_permissions:get_member_permissions(?A, ?T2, State), ?VIEW)
         ),
         ?assert(
-            permission_bits:has(guild_permissions:get_member_permissions(?M, ?T2, State), ?VIEW)
+            bitset:has(guild_permissions:get_member_permissions(?M, ?T2, State), ?VIEW)
         ),
         {reply, #{auth_context := Context}, _} = guild_data:get_auth_context(
             #{user_id => ?V, channel_id => ?T1}, State
@@ -833,7 +833,7 @@ public_online_count_ignores_forums_test() ->
         WithoutForums = guild_data_index:put_channels(
             [
                 C
-             || C <- guild_data_index:channel_list(Data),
+             || C <- guild_data_index_channels:channel_list(Data),
                 maps:get(<<"type">>, C) =/= 15
             ],
             Data
@@ -915,10 +915,10 @@ flip_result_keeps_live_channels_and_replays_held_events_test() ->
             ?assert(guild_thread_gate:active(On)),
             ?assertNot(maps:is_key(thread_flip_held, On)),
             ?assertNot(maps:is_key(thread_flip_retry, On)),
-            Index = guild_data_index:channel_index(maps:get(data, On)),
+            Index = guild_data_index_channels:channel_index(maps:get(data, On)),
             ?assertMatch(#{<<"type">> := 15}, maps:get(?FORUM, Index)),
             ?assertEqual([], maps:get(<<"permission_overwrites">>, maps:get(?HIDDEN, Index))),
-            ?assertEqual(2, length(guild_data_index:role_list(maps:get(data, On)))),
+            ?assertEqual(2, length(guild_data_index_roles:role_list(maps:get(data, On)))),
             ?assertNotEqual(undefined, guild_thread_gate:thread(?T1, On)),
             guild_thread_store:destroy(guild_thread_gate:store(On))
         after
@@ -1049,7 +1049,7 @@ flip_activation_without_sessions_rebuilds_the_permission_cache_test() ->
             ?assert(
                 lists:any(
                     fun(C) -> maps:get(<<"type">>, C) =:= 15 end,
-                    guild_data_index:channel_list(Cached)
+                    guild_data_index_channels:channel_list(Cached)
                 )
             ),
             guild_permission_cache:delete(?G),
@@ -1071,7 +1071,7 @@ non_viewer_visibility_of_indexed_channels_uses_type_only_test() ->
         ?assertNot(guild_thread_gate:channel_visible(C, ?FORUM, State)),
         ?assertNot(guild_thread_gate:channel_visible(C, ?T1, State)),
         Data = maps:get(data, State),
-        Index = guild_data_index:channel_index(Data),
+        Index = guild_data_index_channels:channel_index(Data),
         Indexed = State#{
             data => Data#{
                 <<"channel_index">> => Index#{?T2 => #{<<"id">> => ?T2, <<"type">> => 12}}
@@ -1084,7 +1084,7 @@ forum_only_category_update_skips_non_viewers_test() ->
     with_guild(fun(State) ->
         [Category] = [
             C
-         || C <- guild_data_index:channel_list(maps:get(data, State)),
+         || C <- guild_data_index_channels:channel_list(maps:get(data, State)),
             maps:get(<<"type">>, C) =:= 4
         ],
         Update = guild_data_wire:payload(Category#{<<"name">> => <<"renamed">>}),
@@ -1123,7 +1123,7 @@ visibility_gain_channel_create_is_masked_for_non_viewers_test() ->
                     _ ->
                         C
                 end
-             || C <- guild_data_index:channel_list(Data)
+             || C <- guild_data_index_channels:channel_list(Data)
             ],
             State#{data => guild_data_index:put_channels(Channels, Data)}
         end,
@@ -1205,6 +1205,8 @@ can_view_channel_call_sites_are_enumerated_test() ->
         guild_subscription_handler,
         guild_thread_gate,
         guild_visibility_channels,
+        guild_visibility_memo,
+        guild_visibility_overwrites,
         guild_visibility_roles,
         guild_members_search,
         guild_members_mutation
@@ -1486,6 +1488,74 @@ thread_member_list_follows_presence_changes_test() ->
         ?assertEqual(State, guild_thread_subscriptions:presence_changed(?A, State))
     end).
 
+thread_member_list_follows_member_updates_test() ->
+    with_guild(fun(State) ->
+        Subscribed = guild_thread_subscriptions:update(
+            <<"a">>, #{member_lists => [?T1]}, State
+        ),
+        [_] = received(a, thread_member_list_update, drain()),
+        Update = fun(UserId, Nick) ->
+            #{
+                <<"user">> => #{<<"id">> => integer_to_binary(UserId)},
+                <<"roles">> => [],
+                <<"nick">> => Nick
+            }
+        end,
+        Changed = dispatch(guild_member_update, Update(?A, <<"renamed">>), Subscribed),
+        ?assertEqual([], received(a, thread_member_list_update, drain())),
+        _ = guild_thread_subscriptions:handle_list_flush(Changed),
+        [#{<<"members">> := Members}] = received(a, thread_member_list_update, drain()),
+        ?assertEqual(
+            [<<"renamed">>],
+            [
+                maps:get(<<"nick">>, Member)
+             || #{<<"user_id">> := Id, <<"member">> := Member} <- Members,
+                Id =:= integer_to_binary(?A)
+            ]
+        ),
+        Unlisted = dispatch(guild_member_update, Update(?C, <<"other">>), Subscribed),
+        ?assertNot(maps:is_key(thread_list_dirty, Unlisted))
+    end).
+
+thread_member_list_resubscribe_resends_snapshot_test() ->
+    with_guild(fun(State) ->
+        Subscribed = guild_thread_subscriptions:update(
+            <<"a">>, #{member_lists => [?T1]}, State
+        ),
+        [_] = received(a, thread_member_list_update, drain()),
+        Again = guild_thread_subscriptions:update(
+            <<"a">>, #{member_lists => [?T1]}, Subscribed
+        ),
+        [_] = received(a, thread_member_list_update, drain()),
+        _ = guild_thread_subscriptions:update(<<"a">>, #{threads => true}, Again),
+        ?assertEqual([], received(a, thread_member_list_update, drain()))
+    end).
+
+thread_member_list_drops_removed_guild_members_test() ->
+    with_guild(fun(State0) ->
+        Added = #{
+            <<"id">> => integer_to_binary(?T1),
+            <<"member_count">> => 2,
+            <<"added_members">> => [thread_member(?T1, ?V)]
+        },
+        State1 = dispatch(thread_members_update, Added, State0),
+        Subscribed = guild_thread_subscriptions:update(
+            <<"a">>, #{member_lists => [?T1]}, State1
+        ),
+        _ = drain(),
+        Removed = dispatch(
+            guild_member_remove,
+            #{<<"user">> => #{<<"id">> => integer_to_binary(?V)}},
+            Subscribed
+        ),
+        ?assertEqual(#{?T1 => true}, maps:get(thread_list_dirty, Removed)),
+        _ = guild_thread_subscriptions:handle_list_flush(Removed),
+        [#{<<"members">> := Members}] = received(a, thread_member_list_update, drain()),
+        ?assertEqual(
+            [integer_to_binary(?A)], [maps:get(<<"user_id">>, M) || M <- Members]
+        )
+    end).
+
 handoff_through_an_old_node_round_trips_test() ->
     with_guild(fun(State) ->
         Exported = guild_handoff:export_handoff_state(State),
@@ -1736,7 +1806,7 @@ forum_only_shared_channel_grants_no_presence_to_control_sessions_test() ->
         Data0 = maps:get(data, State0),
         Forum = [
             maps:remove(<<"parent_id">>, C)
-         || C <- guild_data_index:channel_list(Data0), maps:get(<<"type">>, C) =:= 15
+         || C <- guild_data_index_channels:channel_list(Data0), maps:get(<<"type">>, C) =:= 15
         ],
         State = State0#{data => guild_data_index:put_channels(Forum, Data0)},
         Sessions = maps:get(sessions, State),
@@ -1827,8 +1897,8 @@ news_thread_create_reaches_viewers_only_test() ->
 news_thread_permissions_derive_from_announcement_parent_test() ->
     with_news_guild(fun(State) ->
         Perms = guild_permissions:get_member_permissions(?V, ?NEWS_THREAD, State),
-        ?assert(permission_bits:has(Perms, ?VIEW)),
-        ?assert(permission_bits:has(Perms, ?SEND)),
+        ?assert(bitset:has(Perms, ?VIEW)),
+        ?assert(bitset:has(Perms, ?SEND)),
         {reply, #{auth_context := Context}, _} = guild_data:get_auth_context(
             #{user_id => ?V, channel_id => ?NEWS_THREAD}, State
         ),
@@ -1856,7 +1926,7 @@ news_thread_permission_loss_on_parent_hides_thread_test() ->
         State1 = dispatch(channel_update, Hidden, State0),
         _ = drain(),
         ?assertNot(
-            permission_bits:has(
+            bitset:has(
                 guild_permissions:get_member_permissions(?A, ?NEWS_THREAD, State1), ?VIEW
             )
         ),
@@ -1976,7 +2046,7 @@ news_thread_handoff_round_trips_test() ->
                 #{<<"type">> := 10}, guild_thread_gate:thread(?NEWS_THREAD, Restored)
             ),
             ?assert(
-                permission_bits:has(
+                bitset:has(
                     guild_permissions:get_member_permissions(?V, ?NEWS_THREAD, Restored), ?VIEW
                 )
             )

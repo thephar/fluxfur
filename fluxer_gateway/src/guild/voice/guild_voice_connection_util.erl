@@ -17,9 +17,8 @@
     maybe_attach_geolocation/3,
     maybe_attach_voice_routing_metadata/3,
     maybe_attach_e2ee_key_to_reply/2,
-    normalize_session_id/1,
-    normalize_optional_binary/1,
     maybe_error_reply/5,
+    p2p_agreed/1,
     clear_virtual_access_flags/2
 ]).
 
@@ -61,8 +60,14 @@ build_context(Request0) ->
         latitude => Coord(maps:get(latitude, Request, undefined)),
         longitude => Coord(maps:get(longitude, Request, undefined)),
         e2ee_capable => Norm(maps:get(e2ee_capable, Request, false)),
-        bot => Norm(maps:get(bot, Request, false))
+        bot => Norm(maps:get(bot, Request, false)),
+        p2p => maps:get(p2p, Request, undefined),
+        country_code => maps:get(country_code, Request, undefined)
     }.
+
+-spec p2p_agreed(context()) -> boolean().
+p2p_agreed(Context) ->
+    voice_p2p:agreed(maps:get(p2p, Context, undefined), maps:get(bot, Context, false)).
 
 -spec voice_flags_for_permissions(context(), voice_utils:voice_permissions()) -> voice_flags().
 voice_flags_for_permissions(Context, VoicePermissions) ->
@@ -75,7 +80,7 @@ voice_flags_for_permissions(Context, VoicePermissions) ->
 resolve_guild_identity(State) ->
     Data = guild_data(State),
     DataGuildIdBin = maps:get(<<"id">>, Data, undefined),
-    StateGuildId = guild_voice_connection_normalize:normalize_positive_snowflake(
+    StateGuildId = snowflake_id:parse_maybe(
         maps:get(id, State, undefined)
     ),
     GuildMeta = map_utils:ensure_map(maps:get(<<"guild">>, Data, #{})),
@@ -152,14 +157,6 @@ maybe_attach_e2ee_key_to_reply(Reply, undefined) ->
     Reply;
 maybe_attach_e2ee_key_to_reply(Reply, Key) when is_binary(Key) ->
     Reply#{e2ee_key => Key}.
-
--spec normalize_session_id(term()) -> binary() | undefined.
-normalize_session_id(Value) ->
-    guild_voice_connection_normalize:normalize_session_id(Value).
-
--spec normalize_optional_binary(term()) -> binary() | undefined.
-normalize_optional_binary(Value) ->
-    guild_voice_connection_normalize:normalize_optional_binary(Value).
 
 -spec maybe_error_reply(context(), voice_state(), guild_state(), integer(), atom()) ->
     {reply, map(), guild_state()} | {reply, {error, atom(), atom()}, guild_state()}.

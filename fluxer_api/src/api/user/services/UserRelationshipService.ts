@@ -14,11 +14,8 @@ import {getInstanceConfigRepository} from '@app/api/middleware/ServiceSingletons
 import type {Relationship} from '@app/api/models/Relationship';
 import type {User} from '@app/api/models/User';
 import {assertMayStartConversation} from '@app/api/user/NewConversationLimit';
-import type {IUserAccountRepository} from '@app/api/user/repositories/IUserAccountRepository';
-import type {IUserChannelRepository} from '@app/api/user/repositories/IUserChannelRepository';
-import type {IUserRelationshipRepository} from '@app/api/user/repositories/IUserRelationshipRepository';
-import type {IUserSettingsRepository} from '@app/api/user/repositories/IUserSettingsRepository';
-import {getCachedUserPartialResponse} from '@app/api/user/UserCacheHelpers';
+import type {UserRepository} from '@app/api/user/repositories/UserRepository';
+
 import {isDirectDeliverySuppressed} from '@app/api/user/UserHelpers';
 import {mapRelationshipToResponse} from '@app/api/user/UserMappers';
 import type {UserPermissionUtils} from '@app/api/utils/UserPermissionUtils';
@@ -44,12 +41,6 @@ import type {
 } from '@fluxer/schema/src/domains/user/UserRequestSchemas';
 import {extractTimestamp} from '@fluxer/snowflake/src/SnowflakeUtils';
 
-interface UserRelationshipRepository
-	extends IUserAccountRepository,
-		IUserChannelRepository,
-		IUserRelationshipRepository,
-		IUserSettingsRepository {}
-
 function emitUserBlocked(userId: UserID, targetId: UserID): void {
 	void emitActivity('user_blocked', targetId.toString(), {
 		blocker_id: userId.toString(),
@@ -66,7 +57,7 @@ function emitFriendRequest(userId: UserID, targetId: UserID, delivered: boolean)
 }
 
 export class UserRelationshipService {
-	private readonly userRepository: UserRelationshipRepository;
+	private readonly userRepository: UserRepository;
 	private readonly gatewayService: IGatewayService;
 
 	constructor(
@@ -767,8 +758,7 @@ export class UserRelationshipService {
 		userCacheService: UserCacheService;
 		requestCache: RequestCache;
 	}): Promise<void> {
-		const userPartialResolver = (userId: UserID) =>
-			getCachedUserPartialResponse({userId, userCacheService, requestCache});
+		const userPartialResolver = (userId: UserID) => userCacheService.getUserPartialResponse(userId, requestCache);
 		await this.gatewayService.dispatchPresence({
 			userId,
 			event: 'RELATIONSHIP_ADD',
@@ -787,8 +777,7 @@ export class UserRelationshipService {
 		userCacheService: UserCacheService;
 		requestCache: RequestCache;
 	}): Promise<void> {
-		const userPartialResolver = (userId: UserID) =>
-			getCachedUserPartialResponse({userId, userCacheService, requestCache});
+		const userPartialResolver = (userId: UserID) => userCacheService.getUserPartialResponse(userId, requestCache);
 		await this.gatewayService.dispatchPresence({
 			userId,
 			event: 'RELATIONSHIP_UPDATE',

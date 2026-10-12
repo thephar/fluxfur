@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import * as AuthEmail from '@app/api/auth/AuthEmail';
+import * as AuthLogin from '@app/api/auth/AuthLogin';
+import * as AuthMfa from '@app/api/auth/AuthMfa';
+import * as AuthPassword from '@app/api/auth/AuthPassword';
+import * as AuthSession from '@app/api/auth/AuthSession';
+
 import {requireSudoMode} from '@app/api/auth/services/SudoVerificationService';
-import {Config} from '@app/api/Config';
 import {
 	onUsernameInstance,
 	RequireEmailAccountIdentity,
@@ -16,8 +21,8 @@ import {OpenAPI} from '@app/api/middleware/ResponseTypeMiddleware';
 import {SudoModeMiddleware} from '@app/api/middleware/SudoModeMiddleware';
 import {RateLimitConfigs} from '@app/api/RateLimitConfig';
 import type {HonoApp} from '@app/api/types/HonoEnv';
+import {requireRequestClientIp} from '@app/api/utils/RequestClientIp';
 import {Validator} from '@app/api/Validator';
-import {requireClientIp} from '@fluxer/ip_utils/src/ClientIp';
 import {
 	AuthLoginResponse,
 	AuthorizeIpRequest,
@@ -78,7 +83,7 @@ export function AuthController(app: HonoApp) {
 			description: 'Retrieve the current status of the SSO authentication session without authentication required.',
 		}),
 		async (ctx) => {
-			const status = await ctx.get('authRequestService').getSsoStatus();
+			const status = await ctx.get('ssoService').getPublicStatus();
 			return ctx.json(status);
 		},
 	);
@@ -167,7 +172,6 @@ export function AuthController(app: HonoApp) {
 			const result = await ctx.get('authRequestService').login({
 				data: ctx.req.valid('json'),
 				request: ctx.req.raw,
-				requestCache: ctx.get('requestCache'),
 				captchaVerified: ctx.get('captchaVerified') === true,
 			});
 			return ctx.json(result);
@@ -209,7 +213,10 @@ export function AuthController(app: HonoApp) {
 				'Invalidate the current authentication token and end the session. The auth token in the Authorization header will no longer be valid. A bot token has no session to end, so the call answers 204 and the token stays valid.',
 		}),
 		async (ctx) => {
-			await ctx.get('authRequestService').logout({authToken: ctx.get('authToken')});
+			const authToken = ctx.get('authToken');
+			if (authToken) {
+				await AuthSession.revokeToken(ctx.get('apiContext'), authToken);
+			}
 			return ctx.body(null, 204);
 		},
 	);
@@ -252,7 +259,7 @@ export function AuthController(app: HonoApp) {
 				'Request a new email verification code to be sent. Requires authentication. Use this if the original verification email was lost or expired.',
 		}),
 		async (ctx) => {
-			await ctx.get('authRequestService').resendVerificationEmail(ctx.get('user'));
+			await AuthEmail.resendVerificationEmail(ctx.get('apiContext'), ctx.get('user'));
 			return ctx.body(null, 204);
 		},
 	);
@@ -274,7 +281,7 @@ export function AuthController(app: HonoApp) {
 				"Initiate password reset process by email. A password reset link will be sent to the user's email address. Requires a solved captcha challenge (X-Captcha-Token).",
 		}),
 		async (ctx) => {
-			await ctx.get('authRequestService').forgotPassword({
+			await AuthPassword.forgotPassword(ctx.get('apiContext'), {
 				data: ctx.req.valid('json'),
 				request: ctx.req.raw,
 			});
@@ -390,7 +397,7 @@ export function AuthController(app: HonoApp) {
 		async (ctx) => {
 			const userId = ctx.get('user').id;
 			const currentSessionIdHash = ctx.get('authSession')?.sessionIdHash;
-			return ctx.json(await ctx.get('authRequestService').getAuthSessions(userId, currentSessionIdHash));
+			return ctx.json(await AuthSession.getAuthSessions(ctx.get('apiContext'), userId, currentSessionIdHash));
 		},
 	);
 	app.post(
@@ -456,7 +463,7 @@ export function AuthController(app: HonoApp) {
 				'Request a new IP authorization verification code to be sent via email. Use if the original code was lost or expired.',
 		}),
 		async (ctx) => {
-			await ctx.get('authRequestService').resendIpAuthorization(ctx.req.valid('json'));
+			await AuthLogin.resendIpAuthorization(ctx.get('apiContext'), ctx.req.valid('json').ticket);
 			return ctx.body(null, 204);
 		},
 	);
@@ -495,7 +502,12 @@ export function AuthController(app: HonoApp) {
 				'Retrieve WebAuthn authentication challenge and options for passwordless login with biometrics or security keys.',
 		}),
 		async (ctx) => {
-			return ctx.json(await ctx.get('authRequestService').getWebAuthnAuthenticationOptions(ctx.req.header('origin')));
+			return ctx.json(
+				await AuthMfa.generateWebAuthnAuthenticationOptionsDiscoverable(
+					ctx.get('apiContext'),
+					ctx.req.header('origin'),
+				),
+			);
 		},
 	);
 	app.post(
@@ -539,7 +551,11 @@ export function AuthController(app: HonoApp) {
 		}),
 		async (ctx) => {
 			return ctx.json(
-				await ctx.get('authRequestService').getWebAuthnMfaOptions(ctx.req.valid('json'), ctx.req.header('origin')),
+				await AuthMfa.generateWebAuthnAuthenticationOptionsForMfa(
+					ctx.get('apiContext'),
+					ctx.req.valid('json').ticket,
+					ctx.req.header('origin'),
+				),
 			);
 		},
 	);
@@ -646,10 +662,7 @@ export function AuthController(app: HonoApp) {
 				'Retrieve device and location information about a pending handoff request. Non-destructive – the code remains valid after this call.',
 		}),
 		async (ctx) => {
-			const clientIp = requireClientIp(ctx.req.raw, {
-				trustClientIpHeader: Config.proxy.trust_client_ip_header,
-				clientIpHeaderName: Config.proxy.client_ip_header,
-			});
+			const clientIp = requireRequestClientIp(ctx);
 			const response = await ctx.get('authRequestService').getHandoffInfo({
 				code: ctx.req.valid('param').code,
 				clientIp,
@@ -672,10 +685,7 @@ export function AuthController(app: HonoApp) {
 				'Complete the handoff process and authenticate on the target device using the handoff code. With the deep_link return method, responds with the deep link that hands the one-time grant back to the initiating app. Otherwise responds with no content.',
 		}),
 		async (ctx) => {
-			const clientIp = requireClientIp(ctx.req.raw, {
-				trustClientIpHeader: Config.proxy.trust_client_ip_header,
-				clientIpHeaderName: Config.proxy.client_ip_header,
-			});
+			const clientIp = requireRequestClientIp(ctx);
 			const response = await ctx.get('authRequestService').completeHandoff({
 				data: ctx.req.valid('json'),
 				clientIp,
@@ -700,11 +710,8 @@ export function AuthController(app: HonoApp) {
 				'Decline a handoff request after looking it up. The initiating device sees the denied status and the code can no longer be approved.',
 		}),
 		async (ctx) => {
-			const clientIp = requireClientIp(ctx.req.raw, {
-				trustClientIpHeader: Config.proxy.trust_client_ip_header,
-				clientIpHeaderName: Config.proxy.client_ip_header,
-			});
-			await ctx.get('authRequestService').denyHandoff({code: ctx.req.valid('param').code, clientIp});
+			const clientIp = requireRequestClientIp(ctx);
+			await ctx.get('desktopHandoffService').denyHandoff(ctx.req.valid('param').code, clientIp);
 			return ctx.body(null, 204);
 		},
 	);
@@ -723,10 +730,7 @@ export function AuthController(app: HonoApp) {
 				'Check the status of a handoff session. Returns whether the handoff has been completed or is still pending.',
 		}),
 		async (ctx) => {
-			const clientIp = requireClientIp(ctx.req.raw, {
-				trustClientIpHeader: Config.proxy.trust_client_ip_header,
-				clientIpHeaderName: Config.proxy.client_ip_header,
-			});
+			const clientIp = requireRequestClientIp(ctx);
 			const response = await ctx.get('authRequestService').getHandoffStatus({
 				code: ctx.req.valid('param').code,
 				clientIp,
@@ -750,10 +754,7 @@ export function AuthController(app: HonoApp) {
 				'Check the status of a handoff session using the poll secret from initiation. Returns the authentication token once the handoff is complete and the presented secret matches.',
 		}),
 		async (ctx) => {
-			const clientIp = requireClientIp(ctx.req.raw, {
-				trustClientIpHeader: Config.proxy.trust_client_ip_header,
-				clientIpHeaderName: Config.proxy.client_ip_header,
-			});
+			const clientIp = requireRequestClientIp(ctx);
 			const response = await ctx.get('authRequestService').getHandoffStatus({
 				code: ctx.req.valid('param').code,
 				clientIp,
@@ -778,10 +779,9 @@ export function AuthController(app: HonoApp) {
 			description: 'Cancel an ongoing handoff session. The handoff code will no longer be valid for authentication.',
 		}),
 		async (ctx) => {
-			await ctx.get('authRequestService').cancelHandoff({
-				code: ctx.req.valid('param').code,
-				pollSecret: ctx.req.valid('json').poll_secret,
-			});
+			await ctx
+				.get('desktopHandoffService')
+				.cancelHandoff(ctx.req.valid('param').code, ctx.req.valid('json').poll_secret);
 			return ctx.body(null, 204);
 		},
 	);

@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {createMessageID, type UserID} from '@app/api/BrandedTypes';
-import type {IChannelRepositoryAggregate} from '@app/api/channel/repositories/IChannelRepositoryAggregate';
-import type {ThreadStatePatch} from '@app/api/channel/repositories/IThreadRepository';
+import type {ChannelRepository} from '@app/api/channel/ChannelRepository';
+import type {ThreadStatePatch} from '@app/api/channel/repositories/ThreadRepository';
 import type {AuthenticatedChannel, AuthenticatedThread} from '@app/api/channel/services/AuthenticatedChannel';
 import type {ChannelUtilsService} from '@app/api/channel/services/channel_data/ChannelUtilsService';
+import {dispatchMessageCreateBroadcast} from '@app/api/channel/services/message/MessageGatewayDispatch';
 import type {MessagePersistenceService} from '@app/api/channel/services/message/MessagePersistenceService';
 import {resolveAppliedTags} from '@app/api/channel/services/thread/ForumTagRules';
 import {clearThreadSourceFlag} from '@app/api/channel/services/thread/ThreadDeletionService';
@@ -55,7 +56,7 @@ import type {ICacheService} from '@pkgs/cache/src/ICacheService';
 import type {IRateLimitService} from '@pkgs/rate_limit/src/IRateLimitService';
 
 interface ThreadModifyServiceDeps {
-	channelRepository: IChannelRepositoryAggregate;
+	channelRepository: ChannelRepository;
 	gatewayService: IGatewayService;
 	guildAuditLogService: GuildAuditLogService;
 	rateLimitService: IRateLimitService;
@@ -92,7 +93,7 @@ function requiresModerator(patch: ThreadPatch, thread: AuthenticatedThread): boo
 export class ThreadModifyService {
 	constructor(private readonly deps: ThreadModifyServiceDeps) {}
 
-	get repository(): IChannelRepositoryAggregate {
+	get repository(): ChannelRepository {
 		return this.deps.channelRepository;
 	}
 
@@ -100,7 +101,6 @@ export class ThreadModifyService {
 		authChannel,
 		userId,
 		data: input,
-		requestCache,
 		auditLogReason,
 	}: {
 		authChannel: AuthenticatedChannel;
@@ -207,15 +207,17 @@ export class ThreadModifyService {
 					? await this.deps.channelRepository.threads.listMembers(channel.id, {limit: MAX_THREAD_MEMBERS})
 					: undefined;
 			await dispatchThreadEvents(this.deps.gatewayService, next.guildId, [threadUpdateEvent(after, unarchivedMembers)]);
-			await this.recordAudit({
-				view: after,
+			await this.deps.guildAuditLogService.record({
+				guildId: after.state.guildId,
+				targetId: after.channel.id,
+				metadata: {type: after.channel.type.toString()},
 				userId,
 				action: AuditLogActionType.THREAD_UPDATE,
 				auditLogReason,
 				changes,
 			});
 		}
-		if (renamed) await this.sendNameChangeMessage(updatedChannel, userId, requestCache);
+		if (renamed) await this.sendNameChangeMessage(updatedChannel, userId);
 		return updatedChannel;
 	}
 
@@ -268,8 +270,10 @@ export class ThreadModifyService {
 				thread.parent,
 			)),
 		]);
-		await this.recordAudit({
-			view,
+		await this.deps.guildAuditLogService.record({
+			guildId: view.state.guildId,
+			targetId: view.channel.id,
+			metadata: {type: view.channel.type.toString()},
 			userId,
 			action: AuditLogActionType.THREAD_DELETE,
 			auditLogReason,
@@ -295,7 +299,7 @@ export class ThreadModifyService {
 		}
 	}
 
-	private async sendNameChangeMessage(channel: Channel, userId: UserID, requestCache: RequestCache): Promise<void> {
+	private async sendNameChangeMessage(channel: Channel, userId: UserID): Promise<void> {
 		const messageId = createMessageID(await this.deps.snowflakeService.generateForChannel(channel.id));
 		const message = await this.deps.messagePersistence.createSystemMessage({
 			messageId,
@@ -305,29 +309,6 @@ export class ThreadModifyService {
 			content: channel.name,
 			guildId: channel.guildId,
 		});
-		await this.deps.utils.dispatchMessageCreate({channel, message, requestCache});
-	}
-
-	private async recordAudit(params: {
-		view: ThreadView;
-		userId: UserID;
-		action: AuditLogActionType;
-		auditLogReason: string | null;
-		changes: ReturnType<GuildAuditLogService['computeChanges']>;
-	}): Promise<void> {
-		try {
-			await this.deps.guildAuditLogService
-				.createBuilder(params.view.state.guildId, params.userId)
-				.withAction(params.action, params.view.channel.id.toString())
-				.withReason(params.auditLogReason)
-				.withMetadata({type: params.view.channel.type.toString()})
-				.withChanges(params.changes)
-				.commit();
-		} catch (error) {
-			Logger.error(
-				{error, guildId: params.view.state.guildId.toString(), action: params.action},
-				'Failed to record thread audit log',
-			);
-		}
+		await dispatchMessageCreateBroadcast({gatewayService: this.deps.gatewayService, channel, message});
 	}
 }

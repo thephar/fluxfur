@@ -9,7 +9,7 @@ import {
 	THREAD_SCOPED_AUDIT_OPTION,
 } from '@app/api/guild/GuildAuditLogEntryMapper';
 import type {AuditLogChange, GuildAuditLogChange} from '@app/api/guild/GuildAuditLogTypes';
-import type {IGuildRepositoryAggregate} from '@app/api/guild/repositories/IGuildRepositoryAggregate';
+import type {GuildRepository} from '@app/api/guild/repositories/GuildRepository';
 import type {IGatewayService} from '@app/api/infrastructure/IGatewayService';
 import type {ISnowflakeService} from '@app/api/infrastructure/ISnowflakeService';
 import {Logger} from '@app/api/Logger';
@@ -60,8 +60,52 @@ function normalizeAuditLogMetadata(metadata?: CreateGuildAuditLogParams['metadat
 }
 
 export class GuildAuditLogService {
+	async record(params: {
+		guildId: GuildID;
+		userId: UserID;
+		action: AuditLogActionType;
+		targetId?: bigint | string | null;
+		auditLogReason?: string | null;
+		metadata?: Map<string, string> | Record<string, string>;
+		changes?: GuildAuditLogChange | null;
+		createdAt?: Date;
+	}): Promise<void> {
+		const targetId =
+			params.targetId === undefined || params.targetId === null
+				? null
+				: typeof params.targetId === 'string'
+					? params.targetId
+					: params.targetId.toString();
+		try {
+			const builder = this.createBuilder(params.guildId, params.userId)
+				.withAction(params.action, targetId)
+				.withReason(params.auditLogReason ?? null);
+			if (params.metadata) {
+				builder.withMetadata(params.metadata);
+			}
+			if (params.changes) {
+				builder.withChanges(params.changes);
+			}
+			if (params.createdAt) {
+				builder.withCreatedAt(params.createdAt);
+			}
+			await builder.commit();
+		} catch (error) {
+			Logger.error(
+				{
+					error,
+					guildId: params.guildId.toString(),
+					userId: params.userId.toString(),
+					action: params.action,
+					targetId,
+				},
+				'Failed to record guild audit log',
+			);
+		}
+	}
+
 	constructor(
-		private readonly guildRepository: IGuildRepositoryAggregate,
+		private readonly guildRepository: GuildRepository,
 		private readonly snowflakeService: ISnowflakeService,
 		private readonly workerService: IWorkerService<WorkerTaskName>,
 		private readonly gatewayService: IGatewayService,

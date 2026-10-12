@@ -4,22 +4,17 @@ import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {ArchiveAttemptSupersededError} from '@app/api/archive/ArchiveAttemptSupersededError';
 import type {UserID} from '@app/api/BrandedTypes';
-import {executeConditional, fetchMany, fetchOne} from '@app/api/database/CassandraQueryExecution';
+import {executeConditional, fetchOne} from '@app/api/database/CassandraQueryExecution';
 import {Db, type DbOp} from '@app/api/database/CassandraTypes';
 import type {UserHarvestRow} from '@app/api/database/types/UserTypes';
 import {Logger} from '@app/api/Logger';
 import {UserHarvests} from '@app/api/Tables';
 import {UserHarvest} from '@app/api/user/UserHarvestModel';
-import {UnknownHarvestError} from '@fluxer/errors/src/domains/moderation/UnknownHarvestError';
 
 const FIND_HARVEST_CQL = UserHarvests.selectCql({
 	where: [UserHarvests.where.eq('user_id'), UserHarvests.where.eq('harvest_id')],
 });
-const createFindUserHarvestsQuery = (limit: number) =>
-	UserHarvests.select({
-		where: UserHarvests.where.eq('user_id'),
-		limit,
-	});
+
 const FIND_LATEST_HARVEST_CQL = UserHarvests.selectCql({
 	where: UserHarvests.where.eq('user_id'),
 	limit: 1,
@@ -50,15 +45,6 @@ export class UserHarvestRepository {
 			harvest_id: harvestId,
 		});
 		return row ? new UserHarvest(row) : null;
-	}
-
-	async findByUserId(userId: UserID, limit: number = 10): Promise<Array<UserHarvest>> {
-		const rows = await fetchMany<UserHarvestRow>(
-			createFindUserHarvestsQuery(limit).bind({
-				user_id: userId,
-			}),
-		);
-		return rows.map((row) => new UserHarvest(row));
 	}
 
 	async findLatestByUserId(userId: UserID): Promise<UserHarvest | null> {
@@ -156,19 +142,6 @@ export class UserHarvestRepository {
 			{userId: harvest.userId, harvestId: harvest.harvestId, errorMessage},
 			'Marked harvest as terminally failed',
 		);
-	}
-
-	async setDownloadUrlExpiry(userId: UserID, harvestId: bigint, expiresAt: Date): Promise<void> {
-		const harvest = await this.findByUserAndHarvestId(userId, harvestId);
-		if (!harvest) throw new UnknownHarvestError();
-		const applied = await executeConditional(
-			UserHarvests.conditionalPatchByPk(
-				{user_id: userId, harvest_id: harvestId},
-				{download_url_expires_at: Db.set(expiresAt)},
-				{requested_at: harvest.requestedAt},
-			),
-		);
-		if (!applied) throw new UnknownHarvestError();
 	}
 
 	private async patchOwned(harvest: UserHarvest, patch: UserHarvestPatch): Promise<void> {

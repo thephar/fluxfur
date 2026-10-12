@@ -4,6 +4,7 @@ import {createChannelID, createGuildID} from '@app/api/BrandedTypes';
 import {Config} from '@app/api/Config';
 import type {GuildDiscoveryRow} from '@app/api/database/types/GuildDiscoveryTypes';
 import {viewerFromCtx} from '@app/api/experiment/ChannelThreadsGate';
+import {emitGuildJoinRefused} from '@app/api/infrastructure/activity/GuildEvents';
 import {DefaultUserOnly, LoginRequired} from '@app/api/middleware/AuthMiddleware';
 import {RateLimitMiddleware} from '@app/api/middleware/RateLimitMiddleware';
 import {OpenAPI} from '@app/api/middleware/ResponseTypeMiddleware';
@@ -151,8 +152,11 @@ export function GuildDiscoveryController(app: HonoApp) {
 			if (!status || status.status !== DiscoveryApplicationStatus.APPROVED) {
 				throw new DiscoveryNotDiscoverableError();
 			}
-			const guild = await ctx.get('guildService').data.getGuildSystem(guildId);
+			const guild = await ctx.get('guildService').data.operations.getGuildSystem(guildId);
 			if (guild.features.has(GuildFeatures.INVITES_DISABLED)) {
+				if (!(await ctx.get('gatewayService').hasGuildMember({guildId, userId: user.id}))) {
+					await emitGuildJoinRefused({guildId, userId: user.id, joinSource: 'discovery'});
+				}
 				throw new InvitesDisabledError();
 			}
 			await ctx.get('guildService').members.addUserToGuild({

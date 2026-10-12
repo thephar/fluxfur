@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::{api::types::FlashLevel, config::AdminConfig, middleware::auth::AuthContext};
+use crate::{
+    api::types::{FlashLevel, PremiumBranding},
+    config::AdminConfig,
+    middleware::auth::AuthContext,
+};
 use maud::{DOCTYPE, Markup, PreEscaped, html};
 
 use super::components::drawer::drawer_controller_script;
@@ -10,6 +14,28 @@ use super::layout_scripts::{
     HTMX_SCROLL_PRESERVER_SCRIPT, SH_LINK_REWRITE_SCRIPT, SIDEBAR_SCRIPT,
 };
 use super::layout_sidebar::render_sidebar;
+
+const DEFAULT_PRODUCT_NAME: &str = "Fluxer";
+
+pub fn product_name(branding: Option<&PremiumBranding>) -> &str {
+    branding
+        .and_then(|branding| branding.product_name.as_deref())
+        .unwrap_or(DEFAULT_PRODUCT_NAME)
+}
+
+pub fn favicon_links(config: &AdminConfig, branding: Option<&PremiumBranding>) -> Markup {
+    let cdn = &config.static_cdn_endpoint;
+    html! {
+        @if let Some(favicon_url) = branding.and_then(|branding| branding.favicon_url.as_deref()) {
+            link rel="icon" href=(favicon_url);
+        } @else {
+            link rel="icon" type="image/x-icon" href={(cdn) "/web/favicon.ico"};
+            link rel="apple-touch-icon" href={(cdn) "/web/apple-touch-icon.png"};
+            link rel="icon" type="image/png" sizes="32x32" href={(cdn) "/web/favicon-32x32.png"};
+            link rel="icon" type="image/png" sizes="16x16" href={(cdn) "/web/favicon-16x16.png"};
+        }
+    }
+}
 
 fn cache_busted_asset(base_path: &str, asset_version: &str, path: &str) -> String {
     format!("{base_path}{path}?t={asset_version}")
@@ -72,10 +98,7 @@ pub fn admin_layout_ext(
                 title { (title) " ~ Fluxer Admin" }
                 link rel="stylesheet" href={(base) "/static/fonts/" (crate::fonts::STYLESHEET_FILE_NAME)};
                 link rel="stylesheet" href=(cache_busted_asset(base, asset_version, "/static/app.css"));
-                link rel="icon" type="image/x-icon" href={(config.static_cdn_endpoint) "/web/favicon.ico"};
-                link rel="apple-touch-icon" href={(config.static_cdn_endpoint) "/web/apple-touch-icon.png"};
-                link rel="icon" type="image/png" sizes="32x32" href={(config.static_cdn_endpoint) "/web/favicon-32x32.png"};
-                link rel="icon" type="image/png" sizes="16x16" href={(config.static_cdn_endpoint) "/web/favicon-16x16.png"};
+                (favicon_links(config, auth.branding.as_ref()))
                 script src=(cache_busted_asset(base, asset_version, "/static/htmx.min.js")) defer {}
             }
             body class="min-h-screen overflow-hidden bg-neutral-50" hx-boost="true" {

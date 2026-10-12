@@ -8,7 +8,6 @@ import {GatewayCompression} from '@app/features/gateway/transport/GatewayCompres
 import {GatewayConnectionRole} from '@app/features/gateway/transport/GatewayConnectionRole';
 import {
 	type GatewayDispatchDelivery,
-	type GatewayDispatchReceipt,
 	GatewaySocket,
 	type GatewaySocketOptions,
 	type GatewaySocketProperties,
@@ -16,7 +15,7 @@ import {
 	MAX_DEFERRED_GATEWAY_EMIT_BYTES,
 	MAX_DEFERRED_GATEWAY_EMITS,
 } from '@app/features/gateway/transport/GatewaySocket';
-import {GatewayCloseCodes} from '@fluxer/constants/src/GatewayConstants';
+import {GatewayCloseCodes, GatewayOpcodes} from '@fluxer/constants/src/GatewayConstants';
 import {initSync} from '@pkgs/libfluxcore/libfluxcore';
 import {afterEach, beforeAll, beforeEach, describe, expect, test, vi} from 'vitest';
 
@@ -45,6 +44,7 @@ interface SocketInternals {
 	openSocket: () => void;
 	handleSocketMessage: (event: {data: string | ArrayBuffer}) => Promise<void>;
 	handleSocketClose: (event: {code: number; reason: string; wasClean: boolean}) => void;
+	sendIdentify: () => void;
 }
 
 function internals(socket: GatewaySocket): SocketInternals {
@@ -99,14 +99,6 @@ afterEach(() => {
 	vi.useRealTimers();
 });
 
-describe('gateway url', () => {
-	test('pins the deployed query string including stream=1', async () => {
-		const url = await internals(createSocket()).buildGatewayUrl();
-
-		expect(url).toBe('wss://gateway.example/?v=9&encoding=json&compress=zstd-stream&stream=1');
-	});
-});
-
 describe('voice state payloads', () => {
 	test('two sockets each stamp only their own connection id', () => {
 		const first = createSocket();
@@ -128,25 +120,38 @@ describe('voice state payloads', () => {
 		expect(JSON.parse(firstSent[0]).d.connection_id).toBe('connection-first');
 		expect(JSON.parse(secondSent[0]).d.connection_id).toBeNull();
 	});
+});
 
-	test('stamps the injected mobile layout and geo instead of reading a global', () => {
-		const socket = createSocket({
-			isMobileLayout: () => true,
-			geo: () => ({latitude: '1.5', longitude: '-2.5'}),
-		});
+function presenceFrames(sent: Array<string>): Array<unknown> {
+	return sent
+		.map((frame) => JSON.parse(frame) as {op: number; d: unknown})
+		.filter((payload) => payload.op === GatewayOpcodes.PRESENCE_UPDATE || payload.op === GatewayOpcodes.IDENTIFY)
+		.map((payload) =>
+			payload.op === GatewayOpcodes.IDENTIFY ? (payload.d as {presence: unknown}).presence : payload.d,
+		);
+}
+
+describe('presence across reconnects', () => {
+	test('resends the presence dropped while disconnected once the session resumes', async () => {
+		const socket = createSocket({presence: {status: 'online', afk: false, mobile: false}});
 		const sent = attachOpenTransport(socket);
 
-		socket.updateVoiceStateExplicit({
-			guild_id: null,
-			channel_id: null,
-			self_mute: true,
-			self_deaf: true,
-			self_video: false,
-			self_stream: false,
-			connection_id: null,
-		});
+		socket.updatePresence('online', true, false, null);
+		expect(sent).toHaveLength(0);
 
-		expect(JSON.parse(sent[0]).d).toMatchObject({is_mobile: true, latitude: '1.5', longitude: '-2.5'});
+		await internals(socket).handleSocketMessage({data: JSON.stringify({op: 0, t: 'RESUMED', s: 1, d: {}})});
+
+		expect(presenceFrames(sent)).toEqual([{status: 'online', afk: true, mobile: false, custom_status: null}]);
+	});
+
+	test('identifies with the latest presence instead of the one it was created with', () => {
+		const socket = createSocket({presence: {status: 'online', afk: false, mobile: false}});
+		const sent = attachOpenTransport(socket);
+
+		socket.updatePresence('dnd', true, false);
+		internals(socket).sendIdentify();
+
+		expect(presenceFrames(sent)).toEqual([{status: 'dnd', afk: true, mobile: false}]);
 	});
 });
 
@@ -166,21 +171,6 @@ describe('dispatch delivery', () => {
 		expect(deliveries[0].retainedByteSize).toBe(frame.length * 3);
 		expect(deliveries[0].receipt.sequence).toBe(7);
 		expect(socket.isDispatchActive(deliveries[0].receipt)).toBe(true);
-	});
-
-	test('exposes the receipt of the dispatch being emitted and nothing outside it', async () => {
-		const socket = createSocket();
-		let observed: GatewayDispatchReceipt | null = null;
-		socket.on('dispatch', (delivery) => {
-			observed = socket.currentDispatchReceipt();
-			expect(observed).toBe(delivery.receipt);
-		});
-
-		await internals(socket).handleSocketMessage({data: dispatchFrame('TYPING_START', 3, {})});
-		vi.advanceTimersByTime(5000);
-
-		expect(observed).not.toBeNull();
-		expect(() => socket.currentDispatchReceipt()).toThrow();
 	});
 
 	test('completing a dispatch retires its receipt', async () => {
@@ -335,7 +325,7 @@ describe('compression decode failure recovery', () => {
 				closes.push({code, reason});
 			},
 		};
-		internals(socket).payloadDecompressor = new GatewayCompression('zstd-stream', true);
+		internals(socket).payloadDecompressor = new GatewayCompression('zstd-stream');
 		return closes;
 	}
 

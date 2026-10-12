@@ -127,7 +127,7 @@ The request body shared by [Modify current guild member](#modify-current-guild-m
 
 A `roles` entry that does not resolve to an existing role of the guild is dropped from the replacement, so a request naming only unknown roles clears the member's role set.
 
-An `avatar` or `banner` base64 payload longer than 13981016 characters returns `BASE64_LENGTH_INVALID`, and a malformed one returns `INVALID_BASE64_FORMAT`. Fluxer then checks the decoded bytes against the instance-configured `avatar_max_size` [limit](/http-api/instance/#limit-keys), whose stock value is 10485760. The same limit applies to both fields. The decoded image must also be in a format the field accepts, and an animated AVIF is rejected. Pixel dimensions are not enforced. A value that is too large returns `IMAGE_SIZE_EXCEEDS_LIMIT`, and one whose format or animation is not allowed returns `INVALID_IMAGE_FORMAT`.
+An `avatar` or `banner` base64 payload longer than 139810136 characters returns `BASE64_LENGTH_INVALID`, and a malformed one returns `INVALID_BASE64_FORMAT`. Fluxer then checks the decoded bytes against the instance-configured `avatar_max_size` [limit](/http-api/instance/#limit-keys), whose stock value is 10485760. The same limit applies to both fields. The decoded image must also be in a format the field accepts, and an animated AVIF is rejected. Pixel dimensions are not enforced. A value that is too large returns `IMAGE_SIZE_EXCEEDS_LIMIT`, and one whose format or animation is not allowed returns `INVALID_IMAGE_FORMAT`.
 
 Null and any `communication_disabled_until` that is not in the future both clear the timeout. A time more than 365.25 days ahead returns `TIMEOUT_CANNOT_EXCEED_365_DAYS`, and a value that passes the schema but is not a real instant returns `INVALID_TIMEOUT_VALUE`. `timeout_reason` has no effect unless `communication_disabled_until` is also supplied.
 
@@ -308,7 +308,7 @@ Hierarchy authority over the target is not checked for `roles`, so a caller who 
 
 Fluxer never checks the target's own permissions in the destination, so a member can be moved into a channel they could not join themselves. Disconnecting sets `channel_id` to null and requires the same permission.
 
-Supplying `channel_id` for a target with no live voice connection, or a `connection_id` that is not one of the target's own, returns 400 `USER_NOT_IN_VOICE`. Supplying `mute` or `deaf` for such a target succeeds and stores the flags. A destination that does not exist returns the field code `CHANNEL_DOES_NOT_EXIST`, and one that is not a voice channel `CHANNEL_MUST_BE_VOICE`.
+Supplying `channel_id` for a target with no live voice connection, or a `connection_id` that is not one of the target's own, returns 400 `USER_NOT_IN_VOICE`. Supplying `mute` or `deaf` for such a target succeeds and stores the flags. A destination that does not exist returns the field code `CHANNEL_DOES_NOT_EXIST`, and one that is not a voice channel `CHANNEL_MUST_BE_VOICE`. A destination that is [peer-to-peer](/gateway/events/#peer-to-peer-voice) also returns 400 `USER_NOT_IN_VOICE`.
 
 `MANAGE_ROLES` and `MODERATE_MEMBERS` are [elevated permissions](/http-api/permissions/#elevated-permissions). When the guild [MFA level](/http-api/guilds/#mfa-levels) is elevated, a caller who is not the guild owner also needs an enrolled multi-factor authenticator to replace `roles` or apply `communication_disabled_until`.
 

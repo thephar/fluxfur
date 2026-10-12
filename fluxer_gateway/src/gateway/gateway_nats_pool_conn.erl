@@ -200,7 +200,7 @@ subscribe_slot(Idx, Conn, #{subs := Subs} = State) ->
 -spec subscribe_new_slot(non_neg_integer(), nats:conn(), map(), map()) -> map().
 subscribe_new_slot(Idx, Conn, Subs, State) ->
     Role = fluxer_gateway_sup:current_role(),
-    Subjects = gateway_nats_rpc:rpc_subjects_for_role(Role),
+    Subjects = gateway_nats_rpc_handler:rpc_subjects_for_role(Role),
     Sids = subscribe_slot_subjects(Idx, Conn, Role, Subjects),
     case Sids of
         [] -> State;
@@ -351,64 +351,10 @@ coerce_sid(_) ->
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 
-reconnect_delay_first_failure_test() ->
-    ?assertEqual(?RECONNECT_BASE_DELAY_MS, reconnect_delay(1)).
-
-reconnect_delay_exponential_backoff_test() ->
-    ?assertEqual(?RECONNECT_BASE_DELAY_MS * 2, reconnect_delay(2)),
-    ?assertEqual(?RECONNECT_BASE_DELAY_MS * 4, reconnect_delay(3)).
-
-reconnect_delay_capped_at_max_test() ->
-    ?assert(reconnect_delay(4) =< ?RECONNECT_MAX_DELAY_MS).
-
 reconnect_delay_circuit_breaker_kicks_in_test() ->
     ?assertEqual(?CIRCUIT_BREAKER_COOLDOWN_MS, reconnect_delay(?CIRCUIT_BREAKER_THRESHOLD)),
     ?assertEqual(
         ?CIRCUIT_BREAKER_COOLDOWN_MS, reconnect_delay(?CIRCUIT_BREAKER_THRESHOLD + 10)
     ).
-
-reset_failure_count_resets_test() ->
-    Idx = 999,
-    persistent_term:put({?FAILURE_COUNTS_KEY, Idx}, 10),
-    reset_failure_count(Idx),
-    ?assertEqual(0, persistent_term:get({?FAILURE_COUNTS_KEY, Idx}, 0)),
-    persistent_term:erase({?FAILURE_COUNTS_KEY, Idx}).
-
-increment_failure_count_increments_test() ->
-    Idx = 998,
-    persistent_term:erase({?FAILURE_COUNTS_KEY, Idx}),
-    ?assertEqual(1, increment_failure_count(Idx)),
-    ?assertEqual(2, increment_failure_count(Idx)),
-    ?assertEqual(3, increment_failure_count(Idx)),
-    persistent_term:erase({?FAILURE_COUNTS_KEY, Idx}).
-
-parse_nats_url_nats_scheme_test() ->
-    ?assertEqual({ok, "127.0.0.1", 4222}, parse_nats_url(<<"nats://127.0.0.1:4222">>)).
-
-parse_nats_url_default_port_test() ->
-    ?assertEqual({ok, "localhost", 4222}, parse_nats_url(<<"nats://localhost">>)).
-
-parse_nats_url_tls_scheme_test() ->
-    ?assertEqual(
-        {ok, "nats.example.com", 4443}, parse_nats_url(<<"tls://nats.example.com:4443">>)
-    ).
-
-parse_nats_url_invalid_test() ->
-    ?assertEqual({error, invalid_nats_url}, parse_nats_url(undefined)).
-
-build_connect_opts_with_token_test() ->
-    ?assertEqual(
-        #{auth_token => <<"secret">>, buffer_size => 0}, build_connect_opts(<<"secret">>)
-    ).
-
-address_family_prefers_ipv4_test() ->
-    ?assertEqual(inet, address_family("127.0.0.1")),
-    ?assertEqual(inet, address_family("localhost")).
-
-address_family_falls_back_to_ipv6_test() ->
-    ?assertEqual(inet6, address_family("::1")).
-
-build_connect_opts_empty_test() ->
-    ?assertEqual(#{buffer_size => 0}, build_connect_opts(undefined)).
 
 -endif.

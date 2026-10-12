@@ -13,17 +13,16 @@ import {EmailVerificationNagbar} from '@app/features/app/components/layout/app_l
 import {GiftInventoryNagbar} from '@app/features/app/components/layout/app_layout/nagbars/GiftInventoryNagbar';
 import {GuildMembershipCtaNagbar} from '@app/features/app/components/layout/app_layout/nagbars/GuildMembershipCtaNagbar';
 import {LegacyPriceOptInNagbar} from '@app/features/app/components/layout/app_layout/nagbars/LegacyPriceOptInNagbar';
-import {PremiumExpiredNagbar} from '@app/features/app/components/layout/app_layout/nagbars/PremiumExpiredNagbar';
-import {PremiumGracePeriodNagbar} from '@app/features/app/components/layout/app_layout/nagbars/PremiumGracePeriodNagbar';
 import {PremiumOnboardingNagbar} from '@app/features/app/components/layout/app_layout/nagbars/PremiumOnboardingNagbar';
+import {PremiumStatusNagbar} from '@app/features/app/components/layout/app_layout/nagbars/PremiumStatusNagbar';
 import {PriceAnnouncementNagbar} from '@app/features/app/components/layout/app_layout/nagbars/PriceAnnouncementNagbar';
-import {PrivacySetupNagbar} from '@app/features/app/components/layout/app_layout/nagbars/PrivacySetupNagbar';
 import {ScheduledMaintenanceNagbar} from '@app/features/app/components/layout/app_layout/nagbars/ScheduledMaintenanceNagbar';
 import {StreamerModeNagbar} from '@app/features/app/components/layout/app_layout/nagbars/StreamerModeNagbar';
 import {TermsAcceptanceNagbar} from '@app/features/app/components/layout/app_layout/nagbars/TermsAcceptanceNagbar';
 import {UnclaimedAccountNagbar} from '@app/features/app/components/layout/app_layout/nagbars/UnclaimedAccountNagbar';
 import {VisionaryMfaNagbar} from '@app/features/app/components/layout/app_layout/nagbars/VisionaryMfaNagbar';
 import {VoiceSessionRestoreNagbar} from '@app/features/app/components/layout/app_layout/nagbars/VoiceSessionRestoreNagbar';
+import {WindowsFontNagbar} from '@app/features/app/components/layout/app_layout/nagbars/WindowsFontNagbar';
 import {shouldShowPremiumFeatures} from '@app/features/premium/utils/PremiumUtils';
 import MobileLayout from '@app/features/ui/state/MobileLayout';
 import {SoftwareEncoderNagbar} from '@app/features/voice/components/SoftwareEncoderNagbar';
@@ -81,14 +80,6 @@ export const NagbarContainer: React.FC<NagbarContainerProps> = observer(({nagbar
 								data-flx="app.app-layout.nagbar-container.terms-acceptance-nagbar"
 							/>
 						);
-					case NagbarType.PRIVACY_SETUP:
-						return (
-							<PrivacySetupNagbar
-								key={nagbar.type}
-								isMobile={mobileLayout.enabled}
-								data-flx="app.app-layout.nagbar-container.privacy-setup-nagbar"
-							/>
-						);
 					case NagbarType.SCHEDULED_MAINTENANCE:
 						return (
 							<ScheduledMaintenanceNagbar
@@ -132,7 +123,8 @@ export const NagbarContainer: React.FC<NagbarContainerProps> = observer(({nagbar
 					case NagbarType.PREMIUM_GRACE_PERIOD:
 						if (!showPremiumFeatures) return null;
 						return (
-							<PremiumGracePeriodNagbar
+							<PremiumStatusNagbar
+								variant="grace-period"
 								key={nagbar.type}
 								isMobile={mobileLayout.enabled}
 								data-flx="app.app-layout.nagbar-container.premium-grace-period-nagbar"
@@ -141,7 +133,8 @@ export const NagbarContainer: React.FC<NagbarContainerProps> = observer(({nagbar
 					case NagbarType.PREMIUM_EXPIRED:
 						if (!showPremiumFeatures) return null;
 						return (
-							<PremiumExpiredNagbar
+							<PremiumStatusNagbar
+								variant="expired"
 								key={nagbar.type}
 								isMobile={mobileLayout.enabled}
 								data-flx="app.app-layout.nagbar-container.premium-expired-nagbar"
@@ -237,6 +230,14 @@ export const NagbarContainer: React.FC<NagbarContainerProps> = observer(({nagbar
 								key={nagbar.type}
 								isMobile={mobileLayout.enabled}
 								data-flx="app.app-layout.nagbar-container.domain-moved-nagbar"
+							/>
+						);
+					case NagbarType.WINDOWS_FONT:
+						return (
+							<WindowsFontNagbar
+								key={nagbar.type}
+								isMobile={mobileLayout.enabled}
+								data-flx="app.app-layout.nagbar-container.windows-font-nagbar"
 							/>
 						);
 					default:

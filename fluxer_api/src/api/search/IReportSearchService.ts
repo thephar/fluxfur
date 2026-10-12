@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type {ReportID} from '@app/api/BrandedTypes';
-import type {IARSubmission} from '@app/api/report/IReportRepository';
+import type {IARSubmission} from '@app/api/report/ReportModels';
 import type {
 	ISearchAdapter as SchemaISearchAdapter,
 	SearchResult as SchemaSearchResult,
@@ -13,7 +13,6 @@ export interface IReportSearchService extends SchemaISearchAdapter<ReportSearchF
 	indexReports(reports: Array<IARSubmission>): Promise<void>;
 	updateReport(report: IARSubmission): Promise<void>;
 	deleteReport(reportId: ReportID): Promise<void>;
-	deleteReports(reportIds: Array<ReportID>): Promise<void>;
 	searchReports(
 		query: string,
 		filters: ReportSearchFilters,

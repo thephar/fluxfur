@@ -6,7 +6,9 @@ import {
 	SystemChannelFlags,
 	SystemChannelFlagsDescriptions,
 } from '@fluxer/constants/src/GuildConstants';
-import {LIMIT_KEYS} from '@fluxer/constants/src/LimitConfigMetadata';
+import {LIMIT_KEY_METADATA, LIMIT_KEYS} from '@fluxer/constants/src/LimitConfigMetadata';
+import {SmtpTlsModes} from '@fluxer/constants/src/SmtpConstants';
+import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
 import {ADMIN_ACL_COUNT, AdminAclType} from '@fluxer/schema/src/domains/admin/AdminAclType';
 import {AdminArchiveResponseSchema} from '@fluxer/schema/src/domains/admin/AdminArchiveSchemas';
 import {GuildAdminResponse} from '@fluxer/schema/src/domains/admin/AdminGuildSchemas';
@@ -25,6 +27,7 @@ import {
 	InstanceBillingUpdateRequest,
 } from '@fluxer/schema/src/domains/admin/InstanceBillingSchemas';
 import {PushRelayConfigResponse, PushRelayConfigUpdateRequest} from '@fluxer/schema/src/domains/admin/PushRelaySchemas';
+import {VoiceP2pConfigResponse, VoiceP2pConfigUpdateRequest} from '@fluxer/schema/src/domains/admin/VoiceP2pSchemas';
 import {
 	ExperimentDeliveryConfigResponse,
 	ExperimentDeliveryConfigUpdateRequest,
@@ -562,6 +565,8 @@ function isAbsoluteHttpUrl(value: string): boolean {
 	}
 }
 
+const HEX_THEME_COLOR_PATTERN = /^(?:#?(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}))?$/;
+
 const AppPublicConfigUpdateRequest = z.object({
 	branding: z
 		.object({
@@ -571,7 +576,7 @@ const AppPublicConfigUpdateRequest = z.object({
 			logo_url: z.string().trim().max(2048).nullish(),
 			wordmark_url: z.string().trim().max(2048).nullish(),
 			favicon_url: z.string().trim().max(2048).nullish(),
-			theme_color: z.string().trim().max(64).nullish(),
+			theme_color: z.string().trim().regex(HEX_THEME_COLOR_PATTERN).nullish(),
 			status_page_url: z.string().trim().max(2048).nullish(),
 			status_page_incident_history_url: z.string().trim().max(2048).nullish(),
 			premium_product_name: z.string().trim().min(1).max(40).nullable().optional(),
@@ -625,6 +630,16 @@ const InstancePolicyResponse = z.object({
 
 const EmailProviderSchema = z.enum(['smtp', 'none']);
 
+const SmtpTlsModeSchema = createNamedStringLiteralUnion(
+	[
+		[SmtpTlsModes.IMPLICIT, 'IMPLICIT', 'TLS from the first byte, usually on port 465'],
+		[SmtpTlsModes.STARTTLS, 'STARTTLS', 'Plain connection that must upgrade with STARTTLS, usually on port 587'],
+		[SmtpTlsModes.OPPORTUNISTIC, 'OPPORTUNISTIC', 'Plain connection upgraded with STARTTLS when the server offers it'],
+		[SmtpTlsModes.NONE, 'NONE', 'No TLS, even when the server offers STARTTLS'],
+	],
+	'How the SMTP connection is encrypted',
+);
+
 const AttachmentDecayEffectiveResponse = z.object({
 	enabled: z.boolean(),
 	min_size_mb: z.number().positive(),
@@ -673,7 +688,8 @@ const InstanceIntegrationsResponse = z.object({
 			port: z.number().int().min(1).max(65535).nullable(),
 			username: z.string().nullable(),
 			password_set: z.boolean(),
-			secure: z.boolean().nullable(),
+			tls_mode: SmtpTlsModeSchema.nullable().describe('Saved TLS mode, or null to pick one from the port'),
+			effective_tls_mode: SmtpTlsModeSchema.nullable(),
 		}),
 		disable_new_ip_authorization: z.boolean(),
 		effective_disable_new_ip_authorization: z.boolean(),
@@ -701,6 +717,7 @@ export const InstanceConfigResponse = z.object({
 	gateway_rollout: GatewayRolloutConfigResponse,
 	push_relay: PushRelayConfigResponse,
 	domain_migration: DomainMigrationConfigResponse,
+	voice_p2p: VoiceP2pConfigResponse,
 	captcha: CaptchaConfigResponse,
 	experiment_delivery: ExperimentDeliveryConfigResponse,
 	registration: InstanceRegistrationResponse,
@@ -735,6 +752,7 @@ export const InstanceConfigUpdateRequest = z.object({
 	gateway_rollout: GatewayRolloutConfigUpdateRequest.nullish(),
 	push_relay: PushRelayConfigUpdateRequest.nullish(),
 	domain_migration: DomainMigrationConfigUpdateRequest.nullish(),
+	voice_p2p: VoiceP2pConfigUpdateRequest.nullish(),
 	captcha: CaptchaConfigUpdateRequest.nullish(),
 	experiment_delivery: ExperimentDeliveryConfigUpdateRequest.nullish(),
 	registration: z
@@ -785,8 +803,10 @@ export const InstanceConfigUpdateRequest = z.object({
 							port: z.number().int().min(1).max(65535).nullish(),
 							username: z.string().trim().max(320).nullish(),
 							password: z.string().trim().max(4096).nullish(),
-							secure: z.boolean().nullish(),
+							tls_mode: SmtpTlsModeSchema.nullish(),
+							secure: z.boolean().nullish().describe('Deprecated, use tls_mode'),
 						})
+						.register(schemaMetadata, {preserveNullFields: true})
 						.nullish(),
 					disable_new_ip_authorization: z.boolean().nullish(),
 				})
@@ -843,11 +863,11 @@ export const BrandingAssetUploadRequest = z.object({
 export type BrandingAssetUploadRequest = z.infer<typeof BrandingAssetUploadRequest>;
 
 export const InstanceEmailSmtpTestRequest = z.object({
-	host: z.string().trim().min(1).max(255),
-	port: z.number().int().min(1).max(65535),
-	username: z.string().trim().min(1).max(320),
-	password: z.string().trim().min(1).max(4096),
-	secure: z.boolean().default(true),
+	host: z.string().trim().min(1).max(255).nullish(),
+	port: z.number().int().min(1).max(65535).nullish(),
+	username: z.string().trim().min(1).max(320).nullish(),
+	password: z.string().trim().min(1).max(4096).nullish(),
+	tls_mode: SmtpTlsModeSchema.nullish(),
 });
 
 export type InstanceEmailSmtpTestRequest = z.infer<typeof InstanceEmailSmtpTestRequest>;
@@ -913,6 +933,20 @@ const LimitRuleSchema = z.object({
 			},
 			{error: 'Invalid limit key detected'},
 		)
+		.superRefine((limits, ctx) => {
+			for (const key of LIMIT_KEYS) {
+				const value = limits[key];
+				const {min = 0, max} = LIMIT_KEY_METADATA[key];
+				if (value !== undefined && max !== undefined && (value < min || value > max)) {
+					ctx.addIssue({
+						code: 'custom',
+						message: ValidationErrorCodes.VALUE_MUST_BE_INTEGER_IN_RANGE,
+						params: {minValue: min, maxValue: max},
+						path: [key],
+					});
+				}
+			}
+		})
 		.describe('Per-limit key values'),
 });
 const LimitConfigSchema = z.object({
@@ -1649,7 +1683,7 @@ const LimitKeyMetadataSchema = z.object({
 	category: z.string(),
 	scope: z.string(),
 	isToggle: z.boolean(),
-	unit: z.enum(['bytes', 'count']).optional(),
+	unit: z.enum(['bytes', 'count', 'bps']).optional(),
 	min: z.number().optional(),
 	max: z.number().optional(),
 });

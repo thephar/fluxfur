@@ -14,7 +14,7 @@ import type {IGatewayService} from '@app/api/infrastructure/IGatewayService';
 import type {UserCacheService} from '@app/api/infrastructure/UserCacheService';
 import type {RequestCache} from '@app/api/middleware/RequestCacheMiddleware';
 import {Channel} from '@app/api/models/Channel';
-import type {IUserRepository} from '@app/api/user/IUserRepository';
+import type {UserRepository} from '@app/api/user/repositories/UserRepository';
 import {ChannelTypes} from '@fluxer/constants/src/ChannelConstants';
 import {describe, expect, it} from 'vitest';
 
@@ -44,6 +44,7 @@ function dmChannelRow(lastMessageId: MessageID | null): ChannelRow {
 		user_limit: null,
 		voice_connection_limit: null,
 		rtc_region: null,
+		rtc_p2p: null,
 		last_message_id: lastMessageId,
 		last_pin_timestamp: null,
 		permission_overwrites: null,
@@ -61,7 +62,7 @@ function buildService(): {service: MessageProcessingService; opened: Array<Chann
 		openPrivateChannelForUser: async (_userId: UserID, channel: Channel) => {
 			opened.push(channel);
 		},
-	} as unknown as IUserRepository;
+	} as unknown as UserRepository;
 	const userCacheService = {
 		getUserPartialResponses: async (userIds: Array<UserID>) =>
 			new Map(userIds.map((userId) => [userId, {id: userId.toString()}])),

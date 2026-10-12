@@ -129,7 +129,7 @@ function planStatementName(prefix: string, plan: CandidatePlan): string | undefi
 	}
 }
 
-function normalizeCql(cql: string): string {
+export function normalizeCql(cql: string): string {
 	return cql.replace(/\s+/g, ' ').trim();
 }
 
@@ -283,7 +283,7 @@ function compareValues(left: unknown, right: unknown): number {
 	return (l as number | string) < (r as number | string) ? -1 : 1;
 }
 
-function valuesEqual(left: unknown, right: unknown): boolean {
+export function valuesEqual(left: unknown, right: unknown): boolean {
 	if (left == null && right == null) return true;
 	if (left instanceof Date && right instanceof Date) return left.getTime() === right.getTime();
 	if (Buffer.isBuffer(left) && Buffer.isBuffer(right)) return left.equals(right);
@@ -326,21 +326,6 @@ export function matchesWhere(
 			case 'gte':
 				if (compareValues(row[clause.col], getParam(params, clause.param)) < 0) return false;
 				break;
-			case 'tupleGt': {
-				const left = clause.cols.map((column) => row[column]);
-				const right = clause.params.map((param) => getParam(params, param));
-				let greater = false;
-				for (let i = 0; i < left.length; i += 1) {
-					const cmp = compareValues(left[i], right[i]);
-					if (cmp > 0) {
-						greater = true;
-						break;
-					}
-					if (cmp < 0) break;
-				}
-				if (!greater) return false;
-				break;
-			}
 		}
 	}
 	return true;
@@ -363,7 +348,7 @@ function compareColumns(columns: ReadonlyArray<string>, left: Row, right: Row): 
 	return 0;
 }
 
-function rowComparator(meta: KvQueryMeta): (left: Row, right: Row) => number {
+export function rowComparator(meta: KvQueryMeta): (left: Row, right: Row) => number {
 	const primaryKey = meta.table.primaryKey as ReadonlyArray<string>;
 	if (!meta.orderBy) return (left, right) => compareColumns(primaryKey, left, right);
 	const column = meta.orderBy.col as string;
@@ -417,7 +402,7 @@ function pinnedClause(where: ReadonlyArray<WhereExpr<Row>>, column: string): Pin
 }
 
 function clauseColumns(clause: WhereExpr<Row>): ReadonlyArray<string> {
-	return clause.kind === 'tupleGt' ? (clause.cols as ReadonlyArray<string>) : [clause.col as string];
+	return [clause.col as string];
 }
 
 function describeClause(clause: WhereExpr<Row>): string {

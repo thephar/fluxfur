@@ -20,7 +20,6 @@ const STOCKHOLM = {
 	latitude: '59.3293',
 	longitude: '18.0686',
 	ageRestrictedGeos: [],
-	ageBlockedGeos: [],
 };
 
 interface Instance {
@@ -120,7 +119,6 @@ test('the served age policy seeds both tables before anything is fetched', async
 	installRuntime(documentFor(instance, SWEDEN_BLOCKS_STOCKHOLM));
 	const GeoIP = await loadGeoIP();
 	expect(GeoIP.ageRestrictedGeos).toEqual([]);
-	expect(GeoIP.ageBlockedGeos).toEqual([{countryCode: 'SE', regionCode: 'AB'}]);
 	expect(instance.requests).toEqual([]);
 	await GeoIP.ready();
 });
@@ -133,7 +131,6 @@ test('a document with no age policy falls back to the bundled table', async () =
 		{countryCode: 'GB', regionCode: null},
 		{countryCode: 'BR', regionCode: null},
 	]);
-	expect(GeoIP.ageBlockedGeos).toEqual([{countryCode: 'US', regionCode: 'MS'}]);
 	await GeoIP.ready();
 });
 
@@ -149,7 +146,6 @@ test('the location is resolved from GET /ip on the instance the document names',
 	expect(GeoIP.regionCode).toBe('AB');
 	expect(GeoIP.latitude).toBe('59.3293');
 	expect(GeoIP.longitude).toBe('18.0686');
-	expect(GeoIP.isBlocked()).toBe(false);
 });
 
 test('no active runtime never reaches the network and stays age gated', async () => {
@@ -163,7 +159,6 @@ test('no active runtime never reaches the network and stays age gated', async ()
 		{countryCode: 'GB', regionCode: null},
 		{countryCode: 'BR', regionCode: null},
 	]);
-	expect(GeoIP.ageBlockedGeos).toEqual([{countryCode: 'US', regionCode: 'MS'}]);
 });
 
 test('a failed lookup leaves the gateway free to supply the country', async () => {
@@ -176,7 +171,6 @@ test('a failed lookup leaves the gateway free to supply the country', async () =
 	expect(GeoIP.countryCode).toBeNull();
 	GeoIP.applyConnectionFallbackGeo({countryCode: 'SE', regionCode: 'AB', latitude: '1', longitude: '2'});
 	expect(GeoIP.countryCode).toBe('SE');
-	expect(GeoIP.isBlocked()).toBe(true);
 });
 
 test('the gateway never overwrites a resolved location', async () => {
@@ -201,14 +195,12 @@ test('switching to another instance re-seeds the tables and re-resolves against 
 	]);
 	await GeoIP.ready();
 	expect(GeoIP.countryCode).toBe('SE');
-	expect(GeoIP.ageBlockedGeos).toEqual([{countryCode: 'SE', regionCode: 'AB'}]);
 
 	RuntimeConfig.applySnapshot(
 		runtimeSnapshotFromDiscovery(parseInstanceDiscoveryDocument(documentFor(second, UK_ONLY))),
 	);
 	expect(GeoIP.resolution).toBe('pending');
 	expect(GeoIP.ageRestrictedGeos).toEqual([{countryCode: 'GB', regionCode: null}]);
-	expect(GeoIP.ageBlockedGeos).toEqual([]);
 	await GeoIP.ready();
 	expect(lookups(second)).toEqual(['GET /api/ip']);
 	expect(GeoIP.countryCode).toBe('GB');
@@ -234,8 +226,6 @@ test('installing the first runtime re-seeds and resolves', async () => {
 	expect(lookups(instance)).toEqual(['GET /api/ip']);
 	expect(GeoIP.resolution).toBe('resolved');
 	expect(GeoIP.countryCode).toBe('SE');
-	expect(GeoIP.ageBlockedGeos).toEqual([{countryCode: 'SE', regionCode: 'AB'}]);
-	expect(GeoIP.isBlocked()).toBe(true);
 });
 
 test('an instance that cannot geolocate never wipes a country the gateway already supplied', async () => {

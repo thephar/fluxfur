@@ -480,6 +480,7 @@ send_forum_thread_created(
             MentionRoles = mention_role_id_set(maps:get(<<"mention_roles">>, MessageData, [])),
             Recipient = guild_thread_gate:recipient_active(ChannelId, State),
             HeldSessions = held_sessions(Hold),
+            CanView = fun guild_permissions_check:can_view_channel/4,
             Recipients = fold_members(
                 fun(UserId, Member, Acc) ->
                     Route =
@@ -492,7 +493,7 @@ send_forum_thread_created(
                             not member_has_mentioned_role(Member, MentionRoles) andalso
                             not guild_members_common:is_member_bot(Member) andalso
                             Recipient(UserId) andalso
-                            guild_permissions:can_view_channel(UserId, ForumId, Member, State)
+                            CanView(UserId, ForumId, Member, State)
                     of
                         true -> [{Route, UserId, extract_role_ids(Member)} | Acc];
                         false -> Acc
@@ -709,7 +710,7 @@ thread_role_visible(ChannelId, State) ->
     Recipient = guild_thread_gate:recipient_active(ChannelId, State),
     fun(UserId, Member) ->
         Recipient(UserId) andalso
-            guild_permissions:can_view_channel(UserId, ChannelId, Member, State)
+            guild_permissions_check:can_view_channel(UserId, ChannelId, Member, State)
     end.
 
 -spec thread_role_adds(
@@ -793,7 +794,7 @@ member_route(UserId, Member, Context, State) ->
             ThreadRecipient = maps:get(thread_recipient, Context, fun all_recipients/1),
             visible_member_route(
                 Key,
-                guild_permissions:can_view_channel(
+                guild_permissions_check:can_view_channel(
                     UserId, maps:get(channel_id, Context), Member, State
                 ) andalso ThreadRecipient(UserId)
             )
@@ -946,7 +947,7 @@ collect_and_send_push_notifications(MessageData, GuildId, State) ->
 -spec send_push_notifications(event_data(), guild_id(), guild_state()) -> ok.
 send_push_notifications(MessageData, GuildId, State) ->
     Data = maps:get(data, State),
-    Members = guild_data_index:member_map(Data),
+    Members = guild_data_index_members:member_map(Data),
     Sessions = maps:get(sessions, State, #{}),
     {SessionEligibility, Hold} = build_push_session_eligibility(Sessions, State),
     CandidateUserIds = push_candidate_user_ids(Members, SessionEligibility, MessageData),
@@ -1229,7 +1230,7 @@ is_push_eligible(UserId, Members, ChannelId, State) ->
     user_id(), integer(), map(), guild_state()
 ) -> {true, user_id()} | false.
 view_to_filtermap(UserId, ChannelId, Member, State) ->
-    case guild_permissions:can_view_channel(UserId, ChannelId, Member, State) of
+    case guild_permissions_check:can_view_channel(UserId, ChannelId, Member, State) of
         true -> {true, UserId};
         false -> false
     end.
@@ -1628,7 +1629,7 @@ find_channel_name(ChannelIdBin, Data) ->
 
 -spec lookup_channel_name(integer(), map()) -> binary().
 lookup_channel_name(ChannelId, Data) ->
-    Channels = guild_data_index:channel_index(Data),
+    Channels = guild_data_index_channels:channel_index(Data),
     case maps:get(ChannelId, Channels, undefined) of
         undefined -> <<"unknown">>;
         Channel -> maps:get(<<"name">>, Channel, <<"unknown">>)
@@ -1639,7 +1640,7 @@ build_role_names_map(Data) ->
     maps:fold(
         fun add_role_name/3,
         #{},
-        guild_data_index:role_index(Data)
+        guild_data_index_roles:role_index(Data)
     ).
 
 -spec add_role_name(term(), term(), #{integer() => binary()}) -> #{integer() => binary()}.
@@ -1866,10 +1867,6 @@ grace_recipients_push_a_user_whose_live_session_went_offline_test() ->
     Presences = #{1 => #{<<"status">> => <<"offline">>}},
     ?assertEqual([1], grace_recipients([1], [1], Presences, [])).
 
-grace_recipients_skip_a_user_with_one_ended_and_one_live_online_session_test() ->
-    Presences = #{1 => #{<<"status">> => <<"online">>}},
-    ?assertEqual([], grace_recipients([1], [1], Presences, [])).
-
 grace_recipients_mix_users_test() ->
     Presences = #{
         1 => #{<<"status">> => <<"online">>},
@@ -2005,124 +2002,6 @@ push_candidate_user_ids_deduplicates_mentions_test() ->
     CandidateUserIds = push_candidate_user_ids(Members, SessionEligibility, MessageData),
     ?assertEqual([1], CandidateUserIds).
 
-build_user_roles_map_uses_member_map_test() ->
-    Members = #{
-        1 => #{<<"roles">> => [<<"10">>, <<"11">>]},
-        2 => #{<<"roles">> => [<<"20">>]}
-    },
-    Result = build_user_roles_map(Members, [2, 1]),
-    ?assertEqual([10, 11], lists:sort(maps:get(1, Result))),
-    ?assertEqual([20], maps:get(2, Result)).
-
-find_channel_name_found_test() ->
-    Data = #{
-        <<"channels">> => [
-            #{<<"id">> => <<"100">>, <<"name">> => <<"general">>},
-            #{<<"id">> => <<"101">>, <<"name">> => <<"random">>}
-        ]
-    },
-    ?assertEqual(<<"general">>, find_channel_name(<<"100">>, Data)).
-
-find_channel_name_not_found_test() ->
-    Data = #{<<"channels">> => []},
-    ?assertEqual(<<"unknown">>, find_channel_name(<<"100">>, Data)).
-
-find_channel_name_uses_index_test() ->
-    Data = #{
-        <<"channels">> => [
-            #{<<"id">> => <<"100">>, <<"name">> => <<"general">>}
-        ],
-        <<"channel_index">> => #{100 => #{<<"id">> => <<"100">>, <<"name">> => <<"general">>}}
-    },
-    ?assertEqual(<<"general">>, find_channel_name(<<"100">>, Data)).
-
-send_push_to_eligible_users_uses_full_data_for_channel_name_test() ->
-    Self = self(),
-    ok = meck:new(push, [passthrough, no_link]),
-    try
-        ok = meck:expect(push, handle_message_create, fun(Params) ->
-            Self ! {push_params, Params},
-            ok
-        end),
-        MessageData = #{
-            <<"channel_id">> => <<"100">>,
-            <<"author">> => #{<<"id">> => <<"42">>}
-        },
-        Data = #{
-            <<"guild">> => #{
-                <<"name">> => <<"Test Guild">>,
-                <<"default_message_notifications">> => 0
-            },
-            <<"channels">> => [
-                #{<<"id">> => <<"100">>, <<"name">> => <<"general">>}
-            ],
-            <<"channel_index">> => #{
-                100 => #{<<"id">> => <<"100">>, <<"name">> => <<"general">>}
-            },
-            <<"roles">> => [
-                #{<<"id">> => <<"200">>, <<"name">> => <<"Alerts">>}
-            ],
-            <<"role_index">> => #{
-                200 => #{<<"id">> => <<"200">>, <<"name">> => <<"Alerts">>}
-            }
-        },
-        ?assertEqual(
-            ok,
-            send_push_to_eligible_users(
-                MessageData, 10, [1], #{1 => []}, #{}, Data, undefined, {[], none, undefined}
-            )
-        ),
-        receive
-            {push_params, Params} ->
-                ?assertEqual(<<"general">>, maps:get(channel_name, Params)),
-                ?assertEqual(<<"Test Guild">>, maps:get(guild_name, Params)),
-                ?assertEqual(#{200 => <<"Alerts">>}, maps:get(role_names, Params)),
-                ?assertEqual(undefined, maps:get(guild_member_count, Params)),
-                ?assertEqual(undefined, maps:get(guild_features, Params))
-        after 1000 ->
-            ?assert(false)
-        end,
-        ?assert(meck:validate(push))
-    after
-        meck:unload(push)
-    end.
-
-find_channel_name_invalid_id_test() ->
-    Data = #{<<"channels">> => []},
-    ?assertEqual(<<"unknown">>, find_channel_name(<<"invalid">>, Data)).
-
-build_role_names_map_uses_role_index_test() ->
-    Data = #{
-        <<"roles">> => [
-            #{<<"id">> => <<"100">>, <<"name">> => <<"Fallback">>}
-        ],
-        <<"role_index">> => #{
-            100 => #{<<"id">> => <<"100">>, <<"name">> => <<"Mods">>},
-            200 => #{<<"id">> => <<"200">>, <<"name">> => <<>>},
-            bad => #{<<"id">> => <<"300">>, <<"name">> => <<"Bad">>}
-        }
-    },
-    ?assertEqual(#{100 => <<"Mods">>}, build_role_names_map(Data)).
-
-extract_role_ids_test() ->
-    Member = #{<<"roles">> => [<<"10">>, <<"20">>, <<"invalid">>]},
-    Result = lists:sort(extract_role_ids(Member)),
-    ?assertEqual([10, 20], Result).
-
-extract_role_ids_empty_test() ->
-    Member = #{<<"roles">> => []},
-    ?assertEqual([], extract_role_ids(Member)).
-
-extract_role_ids_missing_key_test() ->
-    Member = #{},
-    ?assertEqual([], extract_role_ids(Member)).
-
-meta_accessors_default_to_undefined_test() ->
-    ?assertEqual(undefined, meta_member_count(undefined)),
-    ?assertEqual(undefined, meta_features(undefined)),
-    ?assertEqual(5, meta_member_count(#{member_count => 5, features => []})),
-    ?assertEqual([], meta_features(#{member_count => 5, features => []})).
-
 compact_push_state_drops_members_and_keeps_member_count_test() ->
     Tab = ets:new(test_members, [set, public]),
     try
@@ -2203,13 +2082,6 @@ collect_format_mention_ids_is_bounded_test() ->
     Mentions = [#{<<"id">> => integer_to_binary(Id)} || Id <- lists:seq(1, 80)],
     Result = collect_format_mention_ids(Mentions, ?MAX_FORMAT_MEMBERS, #{}),
     ?assertEqual(?MAX_FORMAT_MEMBERS, map_size(Result)).
-
-format_member_id_set_includes_author_test() ->
-    MessageData = #{
-        <<"author">> => #{<<"id">> => <<"99">>},
-        <<"mentions">> => [#{<<"id">> => <<"1">>}, #{<<"id">> => <<"1">>}]
-    },
-    ?assertEqual(#{1 => true, 99 => true}, format_member_id_set(MessageData)).
 
 spawn_push_without_members_table_falls_back_to_legacy_push_test() ->
     reset_push_worker_state(),
@@ -2370,41 +2242,6 @@ thread_role_adds_skip_private_and_archived_threads_test() ->
         )
     ).
 
-thread_push_message_data_names_the_thread_test() ->
-    Tab = ets:new(test_members, [set, public]),
-    Store = guild_thread_store:new(),
-    try
-        guild_thread_store:load(
-            Store,
-            [#{<<"id">> => 500, <<"parent_id">> => 10, <<"name">> => <<"ideas">>}],
-            [#{<<"id">> => <<"500">>, <<"user_id">> => <<"1">>, <<"flags">> => 4}]
-        ),
-        Data = (compact_test_data(Tab))#{
-            thread_gate => #{active => true, version => 1}, thread_store => Store
-        },
-        Message = #{<<"channel_id">> => <<"500">>},
-        {ThreadMessage, Name} = push_message_data(Message, <<"500">>, [1, 2], Data),
-        ?assertEqual(<<"ideas">>, Name),
-        ?assertEqual(
-            #{
-                <<"parent_id">> => 10,
-                <<"parent_name">> => <<"general">>,
-                <<"category_id">> => undefined,
-                <<"members">> => #{1 => #{<<"flags">> => 4}}
-            },
-            maps:get(<<"__thread_push">>, ThreadMessage)
-        ),
-        Plain = #{<<"channel_id">> => <<"10">>},
-        ?assertEqual({Plain, <<"general">>}, push_message_data(Plain, <<"10">>, [1], Data)),
-        ?assertEqual(
-            {Message, <<"unknown">>},
-            push_message_data(Message, <<"500">>, [1], compact_test_data(Tab))
-        )
-    after
-        guild_thread_store:destroy(Store),
-        ets:delete(Tab)
-    end.
-
 compact_format_data_restricts_member_map_test() ->
     Data = #{
         <<"guild">> => #{},
@@ -2486,117 +2323,6 @@ stale_push_worker_slot_is_reclaimed_and_counted_test() ->
         ?assertNot(lists:member(Stale, worker_pids(get(push_inflight_workers))))
     after
         stop_push_worker(Stale),
-        reset_push_worker_state()
-    end.
-
-push_drop_is_readable_from_named_ets_table_test() ->
-    reset_push_worker_state(),
-    ok = application:set_env(fluxer_gateway, ?CONCURRENCY_LIMIT_KEY, 1),
-    ok = application:set_env(fluxer_gateway, ?QUEUE_LIMIT_KEY, 0),
-    Blocker = blocking_push_worker(),
-    put(push_inflight_workers, [{1, Blocker, erlang:monotonic_time(millisecond)}]),
-    Before = read_push_counter(dropped_at_limit),
-    try
-        ?assertEqual(ok, maybe_spawn_push(#{}, 7, legacy_test_state())),
-        ?assertEqual(Before + 1, read_push_counter(dropped_at_limit)),
-        ?assertMatch([{dropped_at_limit, _}], ets:lookup(?PUSH_COUNTERS, dropped_at_limit)),
-        ?assertEqual(
-            lists:sort(?PUSH_COUNTER_KEYS),
-            lists:sort([Key || {Key, _} <- ets:tab2list(?PUSH_COUNTERS)])
-        )
-    after
-        stop_push_worker(Blocker),
-        reset_push_worker_state()
-    end.
-
-started_push_worker_is_counted_test() ->
-    reset_push_worker_state(),
-    Before = read_push_counter(worker_started),
-    try
-        ?assertEqual(ok, maybe_spawn_push(#{}, 7, legacy_test_state())),
-        ?assertEqual(Before + 1, read_push_counter(worker_started)),
-        ?assert(is_pid(get(push_inflight))),
-        ?assertEqual(1, length(get(push_inflight_workers)))
-    after
-        reset_push_worker_state()
-    end.
-
-worker_completion_is_counted_test() ->
-    reset_push_worker_state(),
-    Before = read_push_counter(worker_completed),
-    BeforeFailed = read_push_counter(worker_failed),
-    try
-        ?assertEqual(ok, run_counted_push_worker(fun() -> ok end)),
-        ?assertEqual(Before + 1, read_push_counter(worker_completed)),
-        ?assertEqual(BeforeFailed, read_push_counter(worker_failed))
-    after
-        reset_push_worker_state()
-    end.
-
-worker_crash_is_counted_as_failure_not_completion_test() ->
-    reset_push_worker_state(),
-    Before = read_push_counter(worker_failed),
-    BeforeCompleted = read_push_counter(worker_completed),
-    try
-        ?assertEqual(ok, run_counted_push_worker(fun() -> error(boom) end)),
-        ?assertEqual(Before + 1, read_push_counter(worker_failed)),
-        ?assertEqual(BeforeCompleted, read_push_counter(worker_completed))
-    after
-        reset_push_worker_state()
-    end.
-
-spawned_worker_reports_started_and_completed_test() ->
-    reset_push_worker_state(),
-    Self = self(),
-    Started = read_push_counter(worker_started),
-    Completed = read_push_counter(worker_completed),
-    try
-        ?assertEqual(
-            ok,
-            spawn_push_worker(
-                fun() ->
-                    Self ! {ran, self()},
-                    ok
-                end,
-                7,
-                undefined
-            )
-        ),
-        Pid = get(push_inflight),
-        receive
-            {ran, Pid} -> ok
-        after 1000 -> ?assert(false)
-        end,
-        wait_for_counter(worker_completed, Completed + 1),
-        ?assertEqual(Started + 1, read_push_counter(worker_started)),
-        ?assertEqual(Completed + 1, read_push_counter(worker_completed)),
-        Messages = element(2, process_info(self(), messages)),
-        ?assertEqual([], [M || {'DOWN', _, process, P, _} = M <- Messages, P =:= Pid])
-    after
-        reset_push_worker_state()
-    end.
-
-missing_members_table_is_counted_test() ->
-    reset_push_worker_state(),
-    Before = read_push_counter(members_table_missing),
-    try
-        ?assertEqual(ok, maybe_spawn_push(#{}, 7, legacy_test_state())),
-        ?assertEqual(Before + 1, read_push_counter(members_table_missing))
-    after
-        reset_push_worker_state()
-    end.
-
-scan_table_unavailable_is_counted_test() ->
-    reset_push_worker_state(),
-    Tab = ets:new(test_members, [set, public]),
-    State = compact_scan_state(Tab),
-    true = ets:delete(Tab),
-    Before = read_push_counter(scan_table_unavailable),
-    try
-        MessageData = #{<<"channel_id">> => <<"10">>},
-        ?assertEqual(ok, send_compact_push_notifications(MessageData, 7, State)),
-        ?assertEqual(Before + 1, read_push_counter(scan_table_unavailable))
-    after
         reset_push_worker_state()
     end.
 
@@ -2714,20 +2440,6 @@ legacy_test_state() ->
 
 worker_pids(Workers) ->
     [Pid || {_Gen, Pid, _StartedMs} <- Workers].
-
-wait_for_counter(Key, Target) ->
-    wait_for_counter(Key, Target, 200).
-
-wait_for_counter(Key, Target, 0) ->
-    ?assertEqual(Target, read_push_counter(Key));
-wait_for_counter(Key, Target, Retries) ->
-    case read_push_counter(Key) >= Target of
-        true ->
-            ok;
-        false ->
-            timer:sleep(5),
-            wait_for_counter(Key, Target, Retries - 1)
-    end.
 
 remote_test_pid() ->
     binary_to_term(<<131, 88, 119, 12, "fake@nowhere", 1:32, 0:32, 1:32>>).

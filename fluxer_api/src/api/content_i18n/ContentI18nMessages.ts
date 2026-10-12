@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {defineStaticLocaleMessages} from '@fluxer/i18n/src/runtime/MessageCatalogTypes';
-
 export const CONTENT_I18N_MESSAGES = {
 	'auth.unknown_location': 'Unknown location',
 	'billing.donation_description_monthly': 'Monthly donation to support {product_name}',
@@ -47,7 +45,6 @@ export const CONTENT_I18N_MESSAGES = {
 	'report_flow.label.csam': 'Real or AI-generated images or videos of child sexual abuse',
 	'report_flow.label.discovery_listing': 'Discovery listing',
 	'report_flow.label.dislike': "It's just not for me",
-	'report_flow.label.dsa': "Content that's illegal in the EU (Digital Services Act)",
 	'report_flow.label.eating_disorder_promotion': 'Encouraging disordered eating',
 	'report_flow.label.eating_disorder_promotion_profile': 'Their profile promotes eating disorders',
 	'report_flow.label.email': 'Email address',
@@ -235,5 +232,3 @@ export const CONTENT_I18N_MESSAGES = {
 
 export type ContentI18nCatalog = typeof CONTENT_I18N_MESSAGES;
 export type ContentI18nKey = keyof ContentI18nCatalog;
-
-export const defineContentI18nLocaleMessages = defineStaticLocaleMessages<ContentI18nCatalog>();

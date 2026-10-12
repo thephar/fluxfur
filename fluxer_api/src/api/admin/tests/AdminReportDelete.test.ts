@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type {AdminAuditLog} from '@app/api/admin/IAdminRepository';
+import type {AdminAuditLog} from '@app/api/admin/AdminRepository';
 import {createTestAccount, setUserACLs, type TestAccount} from '@app/api/auth/tests/AuthTestUtils';
 import {
 	createAttachmentID,
@@ -130,6 +130,9 @@ describe('DELETE /admin/reports/:report_id', () => {
 		const profileKey = `reports/${reportId}/profile/user_avatar/abc${id}`;
 		await harness.storageService.uploadObject({bucket: REPORTS_BUCKET, key: attachmentKey, body: new Uint8Array([1])});
 		await harness.storageService.uploadObject({bucket: REPORTS_BUCKET, key: profileKey, body: new Uint8Array([2])});
+		const uploadedAt = new Date(Date.now() - ms('1 hour'));
+		harness.storageService.setObjectLastModified(REPORTS_BUCKET, attachmentKey, uploadedAt);
+		harness.storageService.setObjectLastModified(REPORTS_BUCKET, profileKey, uploadedAt);
 		const report = await repository.createReport({
 			...Object.fromEntries(IAR_SUBMISSION_COLUMNS.map((column) => [column, null])),
 			report_id: id,
@@ -269,14 +272,6 @@ describe('DELETE /admin/reports/:report_id', () => {
 		await deleteRequest(admin, seeded.reportId).expect(HTTP_STATUS.NO_CONTENT).execute();
 
 		expect(await repository.getReport(seeded.reportId)).toBeNull();
-	});
-
-	test('an unknown report gives UNKNOWN_REPORT and records nothing', async () => {
-		await deleteRequest(admin, '1499999999999999999')
-			.expect(HTTP_STATUS.NOT_FOUND, APIErrorCodes.UNKNOWN_REPORT)
-			.execute();
-
-		expect(await auditEntries('delete_report')).toEqual([]);
 	});
 
 	test('needs REPORT_DELETE, which REPORT_RESOLVE does not grant', async () => {

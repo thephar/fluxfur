@@ -111,9 +111,6 @@ pub(in crate::server) async fn serve_stored_passthrough_stream(
         Ok(value) => value,
         Err(err) => return storage_error_response(key, err),
     };
-    if total_len > constants::MAX_MEDIA_PROXY_BYTES {
-        return storage_error_response(key, StorageError::StreamTooLong);
-    }
     streaming_media_response(StreamingMediaResponse {
         method,
         object,
@@ -135,9 +132,6 @@ async fn serve_stored_passthrough_head(
         Ok(head) => head,
         Err(err) => return storage_error_response(key, err),
     };
-    if head.content_length > constants::MAX_MEDIA_PROXY_BYTES as u64 {
-        return storage_error_response(key, StorageError::StreamTooLong);
-    }
     let content_type = passthrough_content_type(&head.content_type, key);
     if app.cfg.mode == DeploymentMode::Mp
         && (is_svg_content_type(&content_type)
@@ -272,6 +266,8 @@ async fn serve_stored_svg_rasterized(
     let format = OutputFormat::WebP;
     let quality = ImageQuality::Lossless;
     let options = media_process::ImageOptions {
+        width: Some(constants::SVG_RASTER_MAX_DIMENSION),
+        height: Some(constants::SVG_RASTER_MAX_DIMENSION),
         format,
         quality,
         animation: AnimationMode::Static,
@@ -282,8 +278,8 @@ async fn serve_stored_svg_rasterized(
         route: TransformRoute::Stored,
         asset_kind: None,
         cache_identity,
-        width: None,
-        height: None,
+        width: options.width,
+        height: options.height,
         format,
         quality: Some(quality),
         animated: false,

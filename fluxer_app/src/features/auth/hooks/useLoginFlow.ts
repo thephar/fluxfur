@@ -15,7 +15,7 @@ import {
 } from '@app/features/auth/passkey_migration/PasskeyLegacyCeremony';
 import {readPasskeyLoginRoute, writePasskeyLoginRoute} from '@app/features/auth/passkey_migration/PasskeyLoginRoute';
 import {isPasskeyMigrationOrigin, rpIdMatchesPage} from '@app/features/auth/passkey_migration/PasskeyMigrationOrigin';
-import type {UserData} from '@app/features/auth/state/AccountStorage';
+import type {UserData} from '@app/features/auth/state/AccountStorageContract';
 import {getAccountKey} from '@app/features/auth/state/AccountStorageKey';
 import Accounts, {AccountReplacementRecoveryFailedError} from '@app/features/auth/state/Accounts';
 import Authentication from '@app/features/auth/state/Authentication';
@@ -53,7 +53,7 @@ import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 
 const logger = Logger.create('useLoginFlow');
 
-export const LOGIN_CONNECTING_STATUS_DELAY_MS = 1500;
+const LOGIN_CONNECTING_STATUS_DELAY_MS = 1500;
 
 export const SESSION_EXPIRED_SIGN_IN_AGAIN_DESCRIPTOR = msg({
 	message: 'Session expired for {identifier}. Sign in again.',
@@ -318,7 +318,7 @@ export interface StoredAccountSelectionHandlers {
 	readonly onSessionExpired: (account: Account) => void;
 }
 
-export async function selectStoredAccount(
+async function selectStoredAccount(
 	account: Account,
 	{onLoginWithStoredAccount, onSessionExpired}: StoredAccountSelectionHandlers,
 ): Promise<void> {

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use crate::branding_images::InstanceBranding;
 use crate::config::{AppProxyConfig, HttpUrl};
 use crate::csp::CompiledCspPolicy;
 use crate::local_files::LocalFileStore;
@@ -82,6 +83,7 @@ impl SpaIndexSource {
 pub struct AppState {
     pub config: Arc<AppProxyConfig>,
     pub csp: Arc<CompiledCspPolicy>,
+    pub branding: InstanceBranding,
     pub http_client: reqwest::Client,
     pub spa_index_source: SpaIndexSource,
     pub local_asset_prefixes: Option<Arc<[&'static str]>>,
@@ -102,6 +104,7 @@ impl AppState {
         let local_asset_prefixes = (!spa_index_source.is_upstream())
             .then(|| present_local_asset_prefixes(&config.static_dir));
         Ok(Self {
+            branding: InstanceBranding::from_config(&config),
             config,
             csp,
             http_client,

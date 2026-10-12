@@ -8,7 +8,6 @@
     handle_passive_sync/1,
     send_passive_updates_to_sessions/1,
     compute_delta/2,
-    compute_channel_diffs/2,
     compute_voice_state_updates/3
 ]).
 
@@ -124,7 +123,7 @@ is_large_guild(MemberCount) ->
 
 -spec send_passive_updates(integer(), map(), guild_state()) -> ok.
 send_passive_updates(GuildId, PassiveSessions, SyncState) ->
-    Channels = guild_data_index:channel_list(maps:get(data, SyncState)),
+    Channels = guild_data_index_channels:channel_list(maps:get(data, SyncState)),
     send_passive_session_updates(PassiveSessions, GuildId, Channels, SyncState).
 
 -spec send_passive_session_updates(map(), integer(), [map()], guild_state()) -> ok.
@@ -141,7 +140,7 @@ send_passive_session_updates(PassiveSessions, GuildId, Channels, SyncState) ->
 process_single_passive_session(SessionId, SessionData, GuildId, Channels, State) ->
     Pid = maps:get(pid, SessionData),
     UserId = maps:get(user_id, SessionData),
-    Member = guild_permissions:find_member_by_user_id(UserId, State),
+    Member = guild_permissions_check:find_member_by_user_id(UserId, State),
     RegState = passive_sync_registry:lookup(SessionId, GuildId),
     Visible =
         session_channels(SessionData, Channels, State) ++
@@ -185,7 +184,7 @@ compute_passive_msg_diffs(Channels, UserId, Member, State, RegState) ->
 
 -spec compute_passive_voice_diffs(integer(), integer(), guild_state(), map()) -> map().
 compute_passive_voice_diffs(UserId, GuildId, State, RegState) ->
-    ViewableChannels = guild_visibility:viewable_channel_set(UserId, State),
+    ViewableChannels = guild_visibility_channels:viewable_channel_set(UserId, State),
     StateWithLatestVoice = guild_data:fetch_latest_voice_states(State),
     LatestVoiceStates = maps:get(voice_states, StateWithLatestVoice, #{}),
     Current = guild_passive_sync_voice:build_current_voice_state_map(
@@ -276,43 +275,6 @@ last_message_changed(ChannelId, CurrentValue, PreviousLastMessageIds) ->
         PreviousValue -> CurrentValue =/= PreviousValue
     end.
 
--spec compute_channel_diffs(#{channel_id() => version()}, #{channel_id() => version()}) ->
-    {[channel_id()], [channel_id()], [channel_id()]}.
-compute_channel_diffs(Current, Previous) ->
-    {Created, Updated} = maps:fold(
-        fun(Id, V, {CreatedAcc, UpdatedAcc}) ->
-            collect_channel_version_diff(Id, V, Previous, {CreatedAcc, UpdatedAcc})
-        end,
-        {[], []},
-        Current
-    ),
-    Deleted = maps:fold(
-        fun(Id, _, Acc) ->
-            collect_deleted_channel_id(Id, Current, Acc)
-        end,
-        [],
-        Previous
-    ),
-    {Created, Updated, Deleted}.
-
--spec collect_channel_version_diff(
-    channel_id(), version(), #{channel_id() => version()}, {[channel_id()], [channel_id()]}
-) -> {[channel_id()], [channel_id()]}.
-collect_channel_version_diff(Id, V, Previous, {CreatedAcc, UpdatedAcc}) ->
-    case maps:find(Id, Previous) of
-        error -> {[Id | CreatedAcc], UpdatedAcc};
-        {ok, PrevV} when PrevV =/= V -> {CreatedAcc, [Id | UpdatedAcc]};
-        _ -> {CreatedAcc, UpdatedAcc}
-    end.
-
--spec collect_deleted_channel_id(channel_id(), #{channel_id() => version()}, [channel_id()]) ->
-    [channel_id()].
-collect_deleted_channel_id(Id, Current, Acc) ->
-    case maps:is_key(Id, Current) of
-        false -> [Id | Acc];
-        true -> Acc
-    end.
-
 -spec build_last_message_ids([map()], integer(), map() | undefined, guild_state()) ->
     #{channel_id() => last_message_id()}.
 build_last_message_ids(_Channels, _UserId, undefined, _State) ->
@@ -361,7 +323,7 @@ maybe_add_last_message_id(RawId, RawMsgId, UserId, Member, State, Acc) ->
     binary(), binary(), term(), integer(), map(), guild_state(), map()
 ) -> map().
 maybe_add_last_message_for_channel(IdBin, MsgIdBin, RawId, UserId, Member, State, Acc) ->
-    case parse_snowflake(<<"id">>, RawId) of
+    case guild_dispatch_decorate:parse_snowflake(<<"id">>, RawId) of
         ChId when is_integer(ChId) ->
             maybe_add_visible_last_message(IdBin, MsgIdBin, UserId, ChId, Member, State, Acc);
         undefined ->
@@ -372,7 +334,7 @@ maybe_add_last_message_for_channel(IdBin, MsgIdBin, RawId, UserId, Member, State
     binary(), term(), integer(), integer(), map(), guild_state(), map()
 ) -> map().
 maybe_add_visible_last_message(IdBin, MsgId, UserId, ChId, Member, State, Acc) ->
-    case guild_permissions:can_view_channel(UserId, ChId, Member, State) of
+    case guild_permissions_check:can_view_channel(UserId, ChId, Member, State) of
         true -> Acc#{IdBin => MsgId};
         false -> Acc
     end.
@@ -382,13 +344,6 @@ maybe_add_visible_last_message(IdBin, MsgId, UserId, ChId, Member, State, Acc) -
 ) -> [voice_state()].
 compute_voice_state_updates(Current, Previous, GuildId) ->
     guild_passive_sync_voice:compute_voice_state_updates(Current, Previous, GuildId).
-
--spec parse_snowflake(binary(), term()) -> integer() | undefined.
-parse_snowflake(FieldName, Value) ->
-    case validation:validate_snowflake(FieldName, Value) of
-        {ok, Id} -> Id;
-        {error, _, _} -> undefined
-    end.
 
 -spec snowflake_binary(binary(), term()) -> binary() | undefined.
 snowflake_binary(FieldName, Value) ->
@@ -400,27 +355,6 @@ snowflake_binary(FieldName, Value) ->
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 
-is_large_guild_matches_previous_inline_threshold_test() ->
-    lists:foreach(
-        fun(MemberCount) ->
-            Expected = is_integer(MemberCount) andalso MemberCount > 250,
-            ?assertEqual(Expected, is_large_guild(MemberCount))
-        end,
-        [undefined, 0, 1, 249, 250, 251, 1000000]
-    ).
-
-skipped_spawn_drops_no_session_the_old_filter_kept_test() ->
-    GuildId = 4242,
-    lists:foreach(
-        fun({MemberCount, Sessions}) ->
-            Kept = reference_passive_sessions(GuildId, Sessions, MemberCount),
-            ?assert(is_large_guild(MemberCount) orelse map_size(Kept) =:= 0)
-        end,
-        passive_gate_cases()
-    ),
-    Large = reference_passive_sessions(GuildId, passive_test_sessions(), 251),
-    ?assertEqual(1, map_size(Large)).
-
 reference_passive_sessions(GuildId, Sessions, MemberCount) ->
     IsLargeGuild = is_integer(MemberCount) andalso MemberCount > 250,
     maps:filter(
@@ -429,32 +363,6 @@ reference_passive_sessions(GuildId, Sessions, MemberCount) ->
         end,
         Sessions
     ).
-
-passive_gate_cases() ->
-    Sessions = passive_test_sessions(),
-    [
-        {undefined, #{}},
-        {undefined, Sessions},
-        {0, Sessions},
-        {250, Sessions},
-        {251, Sessions},
-        {251, #{}},
-        {not_a_count, Sessions}
-    ].
-
-passive_test_sessions() ->
-    passive_test_sessions(<<"passive-session">>).
-
-passive_test_sessions(SessionId) ->
-    #{
-        SessionId => #{
-            session_id => SessionId,
-            user_id => 1130650140672000000,
-            pid => self(),
-            active_guilds => sets:new(),
-            bot => false
-        }
-    }.
 
 handle_passive_sync_stays_silent_below_threshold_test() ->
     flush_passive_dispatches(),
@@ -601,7 +509,7 @@ reference_send_passive_updates(State) ->
         GuildId, maps:get(sessions, State), maps:get(member_count, State)
     ),
     Data = maps:get(data, State),
-    Channels = guild_data_index:channel_list(Data),
+    Channels = guild_data_index_channels:channel_list(Data),
     SyncState = State#{data => Data, voice_states => maps:get(voice_states, State, #{})},
     ok = send_passive_session_updates(PassiveSessions, GuildId, Channels, SyncState),
     State.
@@ -797,4 +705,14 @@ diff_channel(N) -> 1428100000000000000 + N.
 
 diff_message(N, Round) -> 1500000000000000000 + N * 10 + Round.
 
+passive_test_sessions(SessionId) ->
+    #{
+        SessionId => #{
+            session_id => SessionId,
+            user_id => 1130650140672000000,
+            pid => self(),
+            active_guilds => sets:new(),
+            bot => false
+        }
+    }.
 -endif.

@@ -15,14 +15,24 @@ import {
 } from '@app/api/user/repositories/account/crud/UserEmailOwnershipRepository';
 import {UserIndexRepository} from '@app/api/user/repositories/account/crud/UserIndexRepository';
 import {UserSearchRepository} from '@app/api/user/repositories/account/crud/UserSearchRepository';
-import {UserLookupRepository} from '@app/api/user/repositories/account/UserLookupRepository';
-import type {UserDeletionScheduleUpdate} from '@app/api/user/repositories/IUserAccountRepository';
 import {
 	extractPremiumFlagsFromLegacyUserFlags,
 	LEGACY_DEAD_USER_FLAGS_MASK,
 	LEGACY_PREMIUM_FLAGS_MASK,
 } from '@fluxer/constants/src/UserConstants';
 import type {IKVProvider} from '@pkgs/kv_client/src/IKVProvider';
+
+export interface UserDeletionScheduleUpdate {
+	pending_deletion_at: Date | null;
+	flags?: bigint;
+	deletion_reason_code?: number | null;
+	deletion_public_reason?: string | null;
+	deletion_audit_log_reason?: string | null;
+	deletion_scheduled_by?: UserID | null;
+	deletion_scheduled_at?: Date | null;
+	temp_banned_until?: Date | null;
+	first_refund_at?: Date | null;
+}
 
 const USER_FLAGS_WRITE_ATTEMPTS = 3;
 
@@ -31,14 +41,12 @@ export class UserAccountRepository {
 	private emailOwnershipRepo: UserEmailOwnershipRepository;
 	private indexRepo: UserIndexRepository;
 	private searchRepo: UserSearchRepository;
-	private lookupRepo: UserLookupRepository;
 
 	constructor(kv: IKVProvider) {
 		this.dataRepo = new UserDataRepository();
 		this.emailOwnershipRepo = new UserEmailOwnershipRepository((userId: UserID) => this.findUnique(userId), kv);
 		this.indexRepo = new UserIndexRepository();
 		this.searchRepo = new UserSearchRepository();
-		this.lookupRepo = new UserLookupRepository((userId: UserID) => this.findUnique(userId), this.emailOwnershipRepo);
 	}
 
 	async create(data: UserRow): Promise<User> {
@@ -51,10 +59,6 @@ export class UserAccountRepository {
 
 	async findUniqueAssert(userId: UserID): Promise<User> {
 		return this.dataRepo.findUniqueAssert(userId);
-	}
-
-	async listAllUsersPaginated(limit: number, lastUserId?: UserID): Promise<Array<User>> {
-		return this.dataRepo.listAllUsersPaginated(limit, lastUserId);
 	}
 
 	async scanAllUsersPage(
@@ -258,17 +262,6 @@ export class UserAccountRepository {
 		finalVersion: number | null;
 	}> {
 		return this.dataRepo.updateSubscriptionStatus(userId, updates);
-	}
-
-	async listUserIdsByLastActiveIp(
-		lastActiveIp: string,
-		limit: number,
-		offset: number,
-	): Promise<{
-		userIds: Array<UserID>;
-		total: number;
-	}> {
-		return this.lookupRepo.listUserIdsByLastActiveIp(lastActiveIp, limit, offset);
 	}
 
 	private applyPremiumFlagsMigration(data: UserRow, oldData: UserRow | null | undefined): void {

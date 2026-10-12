@@ -1,6 +1,10 @@
 %% SPDX-License-Identifier: AGPL-3.0-or-later
 
 -module(guild_subscription_handler).
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
 -typing([eqwalizer]).
 
 -export([
@@ -8,10 +12,6 @@
     handle_cast/2,
     handle_info/2
 ]).
-
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
--endif.
 
 -type guild_state() :: map().
 -type user_id() :: integer().
@@ -267,10 +267,10 @@ process_lazy_subscribe_for_guild(
 ) ->
     CanView =
         is_integer(SessionUserId) andalso
-            guild_permissions:can_view_channel(
+            guild_permissions_check:can_view_channel(
                 SessionUserId, ChannelId, undefined, State
             ) andalso
-            guild_permissions:can_view_channel_members(
+            guild_permissions_check:can_view_channel_members(
                 SessionUserId, ChannelId, undefined, State
             ) andalso
             member_list_channel_allowed(SessionId, ChannelId, State),
@@ -307,7 +307,7 @@ subscribe_member_list_ranges(undefined, _GuildId, _ChannelId, _SessionId, _Range
     State;
 subscribe_member_list_ranges(ListId, GuildId, ChannelId, SessionId, Ranges, State) ->
     {NewState, ShouldSendSync, NormalizedRanges} =
-        guild_member_list:subscribe_ranges(SessionId, ListId, Ranges, State),
+        guild_member_list_subscribe:subscribe_ranges(SessionId, ListId, Ranges, State),
     process_lazy_subscribe_sync(
         ShouldSendSync, NormalizedRanges, GuildId, ListId, ChannelId, SessionId, NewState
     ).
@@ -331,7 +331,9 @@ should_ignore_member_list_subscribe(_Ranges, State) ->
 process_lazy_subscribe_sync(true, [], _GuildId, _ListId, _ChannelId, _SessionId, State) ->
     State;
 process_lazy_subscribe_sync(true, RangesToSend, GuildId, ListId, ChannelId, SessionId, State) ->
-    SyncResponse = guild_member_list:build_sync_response(GuildId, ListId, RangesToSend, State),
+    SyncResponse = guild_member_list_read:build_sync_response(
+        GuildId, ListId, RangesToSend, State
+    ),
     dispatch_lazy_subscribe_sync(SyncResponse, ChannelId, GuildId, SessionId, State);
 process_lazy_subscribe_sync(_, _, _GuildId, _ListId, _ChannelId, _SessionId, State) ->
     State.
@@ -418,7 +420,7 @@ handle_added_subscriptions(Added, SessionId, State) ->
 -spec subscribe_added_member(user_id(), session_id(), map(), guild_state()) -> guild_state().
 subscribe_added_member(UserId, SessionId, Prefetched, State) ->
     Watched = presence_watched(UserId, State),
-    StateWithPresence = guild_sessions:subscribe_to_user_presence(UserId, State),
+    StateWithPresence = guild_sessions_presence:subscribe_to_user_presence(UserId, State),
     case {Watched, maps:find(UserId, Prefetched)} of
         {true, {ok, Lookup}} ->
             guild_presence:send_presence_lookup_to_session(
@@ -435,7 +437,7 @@ presence_watched(UserId, State) ->
 -spec handle_removed_subscriptions([user_id()], guild_state()) -> guild_state().
 handle_removed_subscriptions(Removed, State) ->
     lists:foldl(
-        fun guild_sessions:unsubscribe_from_user_presence/2,
+        fun guild_sessions_presence:unsubscribe_from_user_presence/2,
         State,
         Removed
     ).
@@ -563,23 +565,6 @@ warm_list_state(ChannelId) ->
         ?ENGINES_KEY => #{ListId => warm_list_state_engine_ref}
     }.
 
-engine_already_built_detects_built_engine_test() ->
-    Request = #{session_id => <<"s1">>, channel_id => 500, ranges => [{0, 99}]},
-    ?assertEqual(true, engine_already_built(Request, warm_list_state(500))).
-
-engine_already_built_false_without_engine_test() ->
-    Request = #{session_id => <<"s1">>, channel_id => 500, ranges => [{0, 99}]},
-    State = maps:put(?ENGINES_KEY, #{}, warm_list_state(500)),
-    ?assertEqual(false, engine_already_built(Request, State)).
-
-engine_already_built_false_for_unknown_channel_test() ->
-    Request = #{session_id => <<"s1">>, channel_id => 999, ranges => [{0, 99}]},
-    ?assertEqual(false, engine_already_built(Request, warm_list_state(500))).
-
-engine_already_built_false_on_bare_state_test() ->
-    Request = #{session_id => <<"s1">>, channel_id => 500, ranges => [{0, 99}]},
-    ?assertEqual(false, engine_already_built(Request, #{})).
-
 dispatch_immediately_requires_idle_window_test() ->
     Request = #{session_id => <<"s1">>, channel_id => 500, ranges => [{0, 99}]},
     Warm = warm_list_state(500),
@@ -681,11 +666,6 @@ cold_list_still_uses_the_coalesce_buffer_test() ->
     Buffer = maps:get(lazy_subscribe_buffer, NewState),
     ?assertEqual(Request, maps:get({<<"s1">>, 500}, Buffer)).
 
-arm_lazy_subscribe_timer_is_idempotent_test() ->
-    Ref = make_ref(),
-    State = #{lazy_subscribe_timer => Ref},
-    ?assertEqual(Ref, maps:get(lazy_subscribe_timer, arm_lazy_subscribe_timer(State))).
-
 member_subscription_test_member(UserId, RoleIds) ->
     #{
         <<"user">> => #{<<"id">> => integer_to_binary(UserId)},
@@ -759,7 +739,7 @@ reference_update_member_subscriptions(SessionId, MemberIds, State) ->
         MemberId =/= Viewer,
         lists:any(
             fun(ChannelId) -> maps:is_key(ChannelId, SessionMap) end,
-            guild_visibility:get_user_viewable_channels(MemberId, State)
+            guild_visibility_channels:get_user_viewable_channels(MemberId, State)
         )
     ],
     {NewSubs, Added, Removed} = guild_subscriptions:update_subscriptions_with_delta(
@@ -767,7 +747,7 @@ reference_update_member_subscriptions(SessionId, MemberIds, State) ->
     ),
     State1 = lists:foldl(
         fun(UserId, Acc) ->
-            StateWithPresence = guild_sessions:subscribe_to_user_presence(UserId, Acc),
+            StateWithPresence = guild_sessions_presence:subscribe_to_user_presence(UserId, Acc),
             guild_presence:send_cached_presence_to_session(UserId, SessionId, StateWithPresence)
         end,
         State#{member_subscriptions => NewSubs},

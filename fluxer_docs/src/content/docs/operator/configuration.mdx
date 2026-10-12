@@ -270,7 +270,7 @@ Internal endpoints address one container from another and never appear in a brow
 
 #### `FLUXER_INTERNAL_API_ENDPOINT`
 
-Default `http://127.0.0.1:8080` in the Gateway. The API address used by `gateway` and `push`, and the discovery fallback of `app-proxy`. `push` refuses to start without it. Compose sets `http://api:8080`.
+Default `http://127.0.0.1:8080` in the Gateway. The API address used by `gateway` and `push`. `push` refuses to start without it. Compose sets `http://api:8080`.
 
 #### `FLUXER_INTERNAL_MEDIA_PROXY_ENDPOINT`
 
@@ -332,17 +332,17 @@ All are optional.
 
 #### `FLUXER_TRUST_CLIENT_IP_HEADER`
 
-Default `false`. Whether the client-IP header is trusted. Compose forwards it from `.env` with a default of `true`, because the edge sets the header on every upstream hop. It reaches every service that reads it, `app-proxy` included. The API has no peer-address fallback, so `false` on `api` makes every non-exempt request a 403.
+Default `false`. Whether the client-IP header is trusted. Compose forwards it from `.env` with a default of `true`, because the edge sets the header on every upstream hop. With `false`, `api` ignores the header and uses the address of the peer that opened the connection. That suits an `api` that clients reach directly. Behind any proxy it makes every request look as though it came from the proxy.
 
 #### `FLUXER_CLIENT_IP_HEADER_NAME`
 
-Default `x-forwarded-for`. Which header has the client IP. Read by `api`, `worker`, `admin`, `app-proxy`, and `gateway`. It must match what the edge sets. Compose forwards it from `.env`.
+Default `x-forwarded-for`. Which header has the client IP. Read by `api`, `worker`, `admin`, and `gateway`. It must match what the edge sets. Compose forwards it from `.env`.
 
 #### `FLUXER_API_IP_BAN_EXEMPT_IPS`
 
 Default empty. Addresses and CIDR ranges exempt from IP bans. Comma separated. A bare IPv4 address exempts that address, a bare IPv6 address exempts its /64, and a CIDR range such as `2001:db8:1200::/56` exempts every address in it. Every entry must parse as an IP or a CIDR range or the API fails at boot. Compose forwards it from `.env`.
 
-The API returns 403 for any request whose client-IP header is missing, empty, or not a parsable address, and for every request while `FLUXER_TRUST_CLIENT_IP_HEADER` is `false`. The exceptions are `/_health`, `/webhooks/livekit`, `/test`, and the Bluesky client metadata and JWKS routes. The edge sets the header on every upstream hop, so a missing or unparsable header happens only in a layout that puts something other than the edge directly in front of `api`. A proxy in front of the edge that never sets the header passes the check, and every request then looks as though it came from the proxy.
+While `FLUXER_TRUST_CLIENT_IP_HEADER` is `true`, the API returns 403 for any request whose client-IP header is missing, empty, or not a parsable address. The exceptions are `/_health`, `/webhooks/livekit`, `/test`, and the Bluesky client metadata and JWKS routes. The edge sets the header on every upstream hop, so a missing or unparsable header happens only in a layout that puts something other than the edge directly in front of `api`. A proxy in front of the edge that never sets the header passes the check, and every request then looks as though it came from the proxy.
 
 #### `FLUXER_API_TRUSTED_CALLERS`
 
@@ -514,6 +514,8 @@ Every uploaded file lands in an S3-compatible object store, which the stack prov
 
 Default `http://localhost:3900`. The S3 API address. `media-proxy` defaults to empty instead. Compose forwards it from `.env` with a default of `http://seaweedfs:8333`, the bundled store.
 
+An endpoint with a bucket in its path, such as `https://s3.example.com/my-bucket` with `FLUXER_S3_FORCE_PATH_STYLE=true`, keeps every Fluxer bucket inside that one bucket. Each bucket name becomes a key prefix there, so uploads land under `fluxer-uploads/` in `my-bucket`.
+
 #### `FLUXER_S3_PUBLIC_ENDPOINT`
 
 No default. The host substituted into presigned URLs, which are the only place it appears. Compose forwards it from `.env`, and uses `FLUXER_S3_ENDPOINT` when it is unset, except on `app-proxy`, which gets only a value `.env` sets and adds it to its Content Security Policy. `admin` reads it to find the origin that report downloads are presigned against. See `FLUXER_S3_BUCKET_REPORTS`.
@@ -528,7 +530,7 @@ Default `local`. The region string. `media-proxy` defaults to `us-east-1`. Compo
 
 #### `FLUXER_S3_ACCESS_KEY_ID`
 
-Default empty. The access key. Config validation requires it non-empty on `api` and `worker`. Optional for `media-proxy`. `app-proxy` reads it only to fetch an `s3://` GeoIP database. Compose fills it from `FLUXER_S3_ACCESS_KEY`.
+Default empty. The access key. Config validation requires it non-empty on `api` and `worker`. Optional for `media-proxy`. Compose fills it from `FLUXER_S3_ACCESS_KEY`.
 
 #### `FLUXER_S3_SECRET_ACCESS_KEY`
 
@@ -744,6 +746,16 @@ Moving a media port is one line in `.env` followed by `docker compose up -d live
 
 To rotate the key pair, set both names in `.env`, then run `docker compose up -d livekit api worker` to apply the change everywhere.
 
+### Peer-to-peer calls
+
+A peer-to-peer call sends media directly between its participants and not through LiveKit or any relay. It runs only while the `voice_p2p` experiment is enabled in the [instance configuration](/admin-api/instance/). The value below names the STUN servers Fluxer hands to each participant. It is optional and Compose forwards it from `.env`. The stack ships no STUN server.
+
+#### `FLUXER_VOICE_P2P_STUN_URLS`
+
+Default empty. A comma-separated list of `stun:` URLs. Participants use them to discover their public addresses.
+
+Unset, participants receive no ICE servers and connect only when they can already reach each other, as on one local network. Two participants that cannot reach each other directly fail to connect, and either one can switch the call to LiveKit. Participants in a peer-to-peer call can learn each other's IP addresses.
+
 The `Caddyfile` is a bind mount, so the edge reads the copy that sits on disk beside `docker-compose.yml`. Editing it takes `docker compose restart edge`, because `docker compose up -d` leaves a container alone when only a mounted file changed. An upgrade does that restart itself, which [What the script does](/operator/upgrading/#what-the-script-does) covers. A change to any LiveKit value in `.env` needs `docker compose up -d`, because `restart` reuses the existing container with its old environment.
 
 ## Email
@@ -794,9 +806,24 @@ Default empty. The address replies go to, sent as the `Reply-To` header on every
 
 `.env.example` empty. The SMTP password. Part of the completeness check. Compose forwards it from `.env`.
 
+#### `FLUXER_EMAIL_SMTP_TLS_MODE`
+
+`.env.example` empty. How the SMTP connection is encrypted. Anything other than the four values below fails startup. Compose forwards it from `.env`.
+
+| Value | Connection |
+| ----- | ---------- |
+| `implicit` | TLS from the first byte. Most providers serve this on port 465 |
+| `starttls` | A plain connection that must upgrade with STARTTLS before the login. Most providers serve this on port 587 |
+| `opportunistic` | A plain connection that upgrades with STARTTLS when the server offers it, and stays plain when it does not |
+| `none` | No TLS, even when the server offers STARTTLS. Only for a mail server on a network you trust |
+
+An empty value picks the mode from the port: `implicit` on port 465 and `starttls` on every other port. A mode saved in the admin dashboard wins over this variable, and choosing Automatic there hands the choice back to it. The dashboard shows the mode outgoing email ends up with. Automatic in the setup wizard saves the mode the port calls for, so it never follows this variable or `FLUXER_EMAIL_SMTP_SECURE`.
+
 #### `FLUXER_EMAIL_SMTP_SECURE`
 
-`.env.example` `true`. Implicit TLS. Defaults to `true` whenever the provider is `smtp`. Compose forwards it from `.env`.
+`.env.example` unset. The older switch, read only while `FLUXER_EMAIL_SMTP_TLS_MODE` is empty. `true` means `implicit` and `false` means `opportunistic`. Compose forwards it from `.env`, and `.env.example` lists it commented out. An older `.env` can hold `FLUXER_EMAIL_SMTP_SECURE=true` next to port 587, and that pair fails against a STARTTLS server with `wrong version number`. Remove the line or set `FLUXER_EMAIL_SMTP_TLS_MODE`.
+
+The Save and test button in the admin dashboard, and [Create SMTP test](/admin-api/instance/#create-smtp-test) with an empty body, connect with the saved settings, the same ones outgoing email uses, and fail with the reason when outgoing email is turned off or incomplete. A send that fails is logged by `api` or `worker` as `SMTP send failed` with the host, port and TLS mode.
 
 The API reads `FLUXER_EMAIL_WEBHOOK_SECRET` for inbound delivery webhooks. Compose forwards it from `.env`, and `.env.example` lists it commented out.
 
@@ -1059,7 +1086,7 @@ Explicit `false` values and supported null clears remain valid. Branding and int
 
 ## Limits
 
-No environment variable changes an instance limit. Use the admin dashboard's Limit Config page or the [Admin API](/admin-api/). The thread and forum limits are fixed and have no limit key. [Thread lifecycle](/http-api/threads/#thread-lifecycle), [Thread members](/http-api/thread-members/) and [Forum channel fields](/http-api/forums/#forum-channel-fields) state them. Effective limits combine saved settings, deployment defaults and premium policy. After a change is saved, every running `api` and `worker` process reloads the limits with no restart. Clients receive the [limit configuration object](/http-api/instance/#limit-configuration-object).
+No environment variable changes an instance limit. Use the admin dashboard's Limit Config page or the [Admin API](/admin-api/). The thread and forum limits are fixed and have no limit key. [Thread lifecycle](/http-api/threads/#thread-lifecycle), [Thread members](/http-api/thread-members/) and [Forum channel fields](/http-api/forums/#forum-channel-fields) state them. Effective limits combine saved settings, deployment defaults and premium policy. Only the values you change are saved. Every other limit follows the deployment defaults and the premium model, so switching the model moves the untouched limits and keeps your edits. Reset to Defaults on a rule in the dashboard drops the edits saved for that rule. After a change is saved, every running `api` and `worker` process reloads the limits with no restart. Clients receive the [limit configuration object](/http-api/instance/#limit-configuration-object).
 
 Request concurrency is separate from instance limits, and each process sets its own. All are optional.
 
@@ -1106,10 +1133,6 @@ Falls back to `FLUXER_GATEWAY_LOGGER_LEVEL`. The Gateway log level at runtime. O
 #### `BUILD_VERSION`
 
 Default `dev`. The reported build. Baked into the images, so Compose does not set it. When `BUILD_VERSION` is unset or empty outside development, the process prints a warning.
-
-#### `RELEASE_CHANNEL`
-
-Default `stable`. The reported channel. Only `canary` is recognised as non-stable. Read by `app-proxy` only. It describes the shipped build, so Compose does not set it.
 
 #### `HOSTNAME`
 
@@ -1203,11 +1226,15 @@ Default `10000`. Purge request timeout. Accepts 1000 to 10000. The range is chec
 
 #### `FLUXER_GEOIP_DB_PATH`
 
-Default empty. The GeoIP database. A filesystem path, or an `s3://bucket/key` URL whose `download_path` query parameter is mandatory and must be absolute. Read by `api`, `worker` and `app-proxy`. Compose forwards it from `.env`.
+Default empty. The GeoIP database. A filesystem path, or an `s3://bucket/key` URL whose `download_path` query parameter is mandatory and must be absolute. Read by `api` and `worker`. Compose forwards it from `.env`.
 
 ## Instance identity and branding
 
 Compose forwards every name below from `.env`. The admin dashboard also sets the product name and the brand assets, and a value saved there wins. All are optional.
+
+A brand asset on another origin than the instance needs no CSP setting. `app-proxy` adds the origin of each of the five image URLs below to `img-src`, whether the URL is set here or in the dashboard. [Content Security Policy](#content-security-policy) has the timing.
+
+`app-proxy` on a self-hosted instance also writes the product name, the icon, the favicon and the theme colour into the page it serves, so a browser shows them before the web app starts. The page title and the home screen name use the product name. The home screen icon uses the icon, or the favicon when no icon is set. The browser favicon and the `/favicon.ico` redirect use the favicon, or the icon when no favicon is set. The install manifest at `/manifest.json` takes the product name, the theme colour and the icon, and leaves out the Fluxer description. `/browserconfig.xml`, the Fluxer tile for legacy Edge, returns 404. `app-proxy` takes these values the same way as the image origins, from this environment at start and then from the dashboard.
 
 #### `FLUXER_APP_PRODUCT_NAME`
 
@@ -1235,7 +1262,7 @@ Default empty. The favicon. Its origin is added to the CSP by `app-proxy`. Compo
 
 #### `FLUXER_APP_THEME_COLOR`
 
-Default empty. The theme colour. Compose forwards it from `.env`.
+Default empty. The theme colour, as a hex value such as `#4641d9`. The web app uses it as its brand colour and as the browser theme colour. A value that is not `#rgb` or `#rrggbb` is ignored, and so is pure black. Compose forwards it from `.env`.
 
 #### `FLUXER_APP_STATUS_PAGE_URL`
 
@@ -1369,7 +1396,7 @@ Default `536870912`, 512 MiB. The memory all buffered relay uploads may hold at 
 
 #### `FLUXER_MEDIA_PROXY_UPLOAD_RELAY_SPOOL_DIR`
 
-Defaults to the system temporary directory. Where relay bodies spool. Must be writable. Compose forwards it from `.env`.
+Defaults to the system temporary directory. Where relay bodies spool, and where `media-proxy` copies a stored audio or video object above 500 MiB when it has to read inside the file. That happens when the API asks for the media metadata or a frame of an upload or a stored object, and when an attachment read asks for a frame of a video. Must be writable. Compose forwards it from `.env`.
 
 #### `FLUXER_MEDIA_PROXY_UPLOAD_RELAY_SPOOL_CHUNK_BYTES`
 
@@ -1377,7 +1404,11 @@ Default `1048576`. Spool chunk size. Accepts 64 KiB to 64 MiB. Compose forwards 
 
 #### `FLUXER_MEDIA_PROXY_UPLOAD_RELAY_SPOOL_MAX_TOTAL_BYTES`
 
-Default `8589934592`. Total spool ceiling. Accepts 0 to 256 GiB, and must be at or above `FLUXER_MEDIA_PROXY_UPLOAD_RELAY_MAX_BODY_BYTES`, which puts the usable floor at 500 MiB by default. Compose forwards it from `.env`.
+Default `8589934592`. Total spool ceiling, shared by relay bodies and the copies of stored audio and video above 500 MiB. A relay upload that does not fit beside the copies in progress fails. An upload larger than the ceiling is stored as a plain file without media metadata, and a stored video larger than the ceiling has no poster frame. Accepts 0 to 256 GiB, and must be at or above `FLUXER_MEDIA_PROXY_UPLOAD_RELAY_MAX_BODY_BYTES`, which puts the usable floor at 500 MiB by default. Compose forwards it from `.env`.
+
+Sending an audio or video attachment above 500 MiB holds up to three copies of it on local disk at once. `media-proxy` holds one in the spool directory, and `api` holds the download and the copy it rewrites without metadata in its temporary directory. Leave free space of three times the attachment size limit for each send you expect at the same moment.
+
+`api` waits 30 seconds for the metadata of an upload up to 500 MiB. Above that it waits 30 seconds plus one second for each 16 MiB of the upload, about 94 seconds for 1 GiB and 542 seconds for 8 GiB. In that time `media-proxy` copies the upload out of object storage, reads it, and hashes it. A deployment that cannot sustain 16 MiB per second through those steps stores the upload as a plain file.
 
 #### `FLUXER_MEDIA_PROXY_MAX_NATIVE_TRANSFORMS`
 
@@ -1565,19 +1596,11 @@ No default. An upstream to fetch `index.html` from. Leave unset for the shipped 
 
 #### `DISCOVERY_UPSTREAM_URL`
 
-Default `http://localhost:8088/api/.well-known/fluxer`. Where the bootstrap discovery document is fetched. Compose sets `http://edge:8088/.well-known/fluxer`. That internal listener supplies the client-IP header the API requires, so leave it pointed at the edge.
+Default `http://localhost:8088/api/.well-known/fluxer`. Where the self-hosted image fetches the discovery document, which it reads only for the branding image URLs. Compose sets `http://edge:8088/.well-known/fluxer`. That internal listener supplies the client-IP header the API requires, so leave it pointed at the edge.
 
 #### `DISCOVERY_REFRESH_INTERVAL_MS`
 
-Default `60000`. How often discovery is refetched. Unprefixed name. Compose forwards it from `.env`.
-
-#### `PUBLIC_BOOTSTRAP_API_ENDPOINT`
-
-Default `/api`. The API path put in the page bootstrap. Compose sets `/api`, the path the edge routes to the API.
-
-#### `PUBLIC_BOOTSTRAP_API_PUBLIC_ENDPOINT`
-
-No default. The absolute API URL in the bootstrap. Compose forwards it from `.env`, and builds it from the public origin when it is unset.
+Default `60000`. How often discovery is refetched, in milliseconds, and so the longest a branding image saved in the admin dashboard waits for its origin to reach the CSP. A value under `1000` counts as `1000`. A failed fetch keeps the previous origins and is retried with a backoff of up to five minutes. Unprefixed name. Compose forwards it from `.env`.
 
 #### `FLUXER_APP_PROXY_SAME_ORIGIN_HOSTS`
 
@@ -1623,7 +1646,7 @@ Every name below goes in `.env`. `app-proxy` reads its environment at container 
 
 `FLUXER_CSP_EXTRA_DEFAULT_SRC`, `FLUXER_CSP_EXTRA_CONNECT_SRC`, `FLUXER_CSP_EXTRA_IMG_SRC`, `FLUXER_CSP_EXTRA_MEDIA_SRC`, `FLUXER_CSP_EXTRA_FONT_SRC`, `FLUXER_CSP_EXTRA_SCRIPT_SRC`, `FLUXER_CSP_EXTRA_STYLE_SRC`, `FLUXER_CSP_EXTRA_FRAME_SRC`, `FLUXER_CSP_EXTRA_WORKER_SRC`, and `FLUXER_CSP_EXTRA_MANIFEST_SRC` take one or more sources separated by commas, spaces, tabs, or newlines. Blank entries and sources the directive already lists are dropped. `FLUXER_CSP_REPORT_URI` sets a single `report-uri` value.
 
-`object-src`, `base-uri`, and `frame-ancestors` are fixed and have no override. `app-proxy` reads the discovery document and adds the static CDN endpoint, the media endpoint, and the origins of the configured branding images. A stack on one hostname therefore needs no extra sources. The usual reason to set one is a voice server on another hostname, which needs its WebSocket origin in `FLUXER_CSP_EXTRA_CONNECT_SRC`. [Voice media does not use the proxy](/operator/reverse-proxy/#voice-media-does-not-use-the-proxy) has that line in place.
+`object-src`, `base-uri`, and `frame-ancestors` are fixed and have no override. `app-proxy` adds the static CDN endpoint and the media endpoint from its environment. The self-hosted image also adds the origin of each branding image to `img-src`. At start it takes them from `FLUXER_APP_ICON_URL`, `FLUXER_APP_SYMBOL_URL`, `FLUXER_APP_LOGO_URL`, `FLUXER_APP_WORDMARK_URL` and `FLUXER_APP_FAVICON_URL`. It then polls the discovery document every `DISCOVERY_REFRESH_INTERVAL_MS`, where a value saved in the admin dashboard wins, so a dashboard change reaches the header within a minute by default and needs no restart. The header is the same for every visitor. A stack on one hostname therefore needs no extra sources, and neither does a logo or favicon on another domain. The usual reason to set one is a voice server on another hostname, which needs its WebSocket origin in `FLUXER_CSP_EXTRA_CONNECT_SRC`. [Voice media does not use the proxy](/operator/reverse-proxy/#voice-media-does-not-use-the-proxy) has that line in place.
 
 A front proxy must not add a [Content-Security-Policy of its own](/operator/reverse-proxy/#send-no-content-security-policy-of-its-own).
 
@@ -1709,7 +1732,7 @@ Compose writes each of these from the `.env` name given, so setting the name its
 
 #### Fixed wiring
 
-`FLUXER_ENV`, `FLUXER_SELF_HOSTED`, `FLUXER_DATABASE_BACKEND`, the listen ports `FLUXER_API_PORT`, `FLUXER_GATEWAY_PORT`, `FLUXER_MEDIA_PROXY_PORT`, `FLUXER_APP_PROXY_PORT` and `FLUXER_ADMIN_PORT`, the internal endpoints `FLUXER_INTERNAL_API_ENDPOINT`, `FLUXER_INTERNAL_MEDIA_PROXY_ENDPOINT` and `FLUXER_MEDIA_PROXY_ENDPOINT`, the `FLUXER_API_ENDPOINT` of `admin`, `FLUXER_SVC_NAME`, `FLUXER_SVC_MODE`, `FLUXER_SVC_SHARD_ID`, `FLUXER_SVC_SHARD_COUNT`, `FLUXER_API_WORKER_MODE`, `FLUXER_API_WORKER_ENABLE_CRON_SCHEDULER`, `FLUXER_MEDIA_PROXY_MODE`, `FLUXER_MEDIA_PROXY_STORAGE_BACKEND`, `DISCOVERY_UPSTREAM_URL` and `PUBLIC_BOOTSTRAP_API_ENDPOINT`. Compose sets each to a fixed value that the edge, the health checks or another service depend on. A different value gives no working stack.
+`FLUXER_ENV`, `FLUXER_SELF_HOSTED`, `FLUXER_DATABASE_BACKEND`, the listen ports `FLUXER_API_PORT`, `FLUXER_GATEWAY_PORT`, `FLUXER_MEDIA_PROXY_PORT`, `FLUXER_APP_PROXY_PORT` and `FLUXER_ADMIN_PORT`, the internal endpoints `FLUXER_INTERNAL_API_ENDPOINT`, `FLUXER_INTERNAL_MEDIA_PROXY_ENDPOINT` and `FLUXER_MEDIA_PROXY_ENDPOINT`, the `FLUXER_API_ENDPOINT` of `admin`, `FLUXER_SVC_NAME`, `FLUXER_SVC_MODE`, `FLUXER_SVC_SHARD_ID`, `FLUXER_SVC_SHARD_COUNT`, `FLUXER_API_WORKER_MODE`, `FLUXER_API_WORKER_ENABLE_CRON_SCHEDULER`, `FLUXER_MEDIA_PROXY_MODE` and `FLUXER_MEDIA_PROXY_STORAGE_BACKEND`. Compose sets each to a fixed value that the edge, the health checks or another service depend on. A different value gives no working stack.
 
 #### Names the stack has no use for
 
@@ -1721,7 +1744,7 @@ Compose writes each of these from the `.env` name given, so setting the name its
 
 #### Build and platform metadata
 
-`BUILD_VERSION`, `FLUXER_BUILD_VERSION` and `RELEASE_CHANNEL` describe the shipped build. `POD_NAME` and `HOSTNAME` come from the platform.
+`BUILD_VERSION` and `FLUXER_BUILD_VERSION` describe the shipped build. `POD_NAME` and `HOSTNAME` come from the platform.
 
 #### Test and development switches
 
@@ -1770,6 +1793,12 @@ The premium tier name and information link, the billing switch, the Stripe secre
 #### Instance Config, Media Expiry
 
 Size-based attachment lifetimes. The built-in default is on.
+
+Turning expiry off hides every expiry date at once and stops deletion. The stored dates are kept.
+
+On a self-hosted instance, changes also apply to attachments that were uploaded earlier. Turning expiry on, or changing a size or lifetime rule, starts a background job that works through existing messages in chunks and recalculates the expiry of their attachments. No attachment is deleted while that job runs. An attachment whose date passed while expiry was off, or that the new settings would expire sooner, is kept for at least the renew window first. Until the job reaches a message, its attachments show the state they had before, so one whose date passed while expiry was off shows as expired until then.
+
+The official hosted instance does not run that job. There, a change applies to attachments uploaded from then on, and deletion of expired attachments is never paused.
 
 #### Instance Config, Gateway Rollout Configuration
 
@@ -1827,7 +1856,7 @@ The third-party images above are the defaults of the names under [Images](#image
 
 The edge and LiveKit are the only services that publish ports. The edge publishes 80/tcp, 443/tcp, 443/udp, or one plain-HTTP port under the overlay. LiveKit publishes 7881/tcp and 7882/udp. Everything else is reachable only over the bridge network.
 
-Most settings reach `api`, `worker`, `gateway`, `media-proxy`, `push`, `admin` and the internal services through one shared environment block, so one line in `.env` reaches every one of them that reads it. `app-proxy` takes its own list, since it reads the public address, the client IP settings, the GeoIP database and its own names. The edge takes the `FLUXER_EDGE_` variables and `FLUXER_ADMIN_BASE_PATH`. The third-party services take their image name, their memory limit, and their own tuning: `postgres` the password, database, role and `FLUXER_POSTGRES_` server settings, `meilisearch` the master key and `FLUXER_MEILISEARCH_` values, `valkey` the `FLUXER_VALKEY_` values, `seaweedfs` its heap ceiling and telemetry switch, and `livekit` the key pair, the port, STUN and log level variables. `static-proxy` reads no environment variables.
+Most settings reach `api`, `worker`, `gateway`, `media-proxy`, `push`, `admin` and the internal services through one shared environment block, so one line in `.env` reaches every one of them that reads it. `app-proxy` takes its own list, since it reads the static, media and S3 upload origins, the branding image URLs and its own names. The edge takes the `FLUXER_EDGE_` variables and `FLUXER_ADMIN_BASE_PATH`. The third-party services take their image name, their memory limit, and their own tuning: `postgres` the password, database, role and `FLUXER_POSTGRES_` server settings, `meilisearch` the master key and `FLUXER_MEILISEARCH_` values, `valkey` the `FLUXER_VALKEY_` values, `seaweedfs` its heap ceiling and telemetry switch, and `livekit` the key pair, the port, STUN and log level variables. `static-proxy` reads no environment variables.
 
 The internal services each run a router, which takes requests and holds no state, and one shard, which holds the caches and the database connections. The shipped stack fixes `FLUXER_SVC_SHARD_COUNT` at `1`.
 
@@ -1927,7 +1956,7 @@ Default `256mb`. The ceiling for `static-proxy`. The service reads no environmen
 
 #### `FLUXER_APP_PROXY_MEMORY_LIMIT`
 
-Default `256mb`. The ceiling for `app-proxy`. It holds the discovery cache and reads no database.
+Default `256mb`. The ceiling for `app-proxy`. It keeps the branding image origins from discovery in memory and reads no database.
 
 #### `FLUXER_SNOWFLAKES_MEMORY_LIMIT`
 

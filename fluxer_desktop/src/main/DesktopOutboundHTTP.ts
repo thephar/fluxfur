@@ -4,7 +4,7 @@ import {Buffer} from 'node:buffer';
 import dns from 'node:dns';
 import http from 'node:http';
 import https from 'node:https';
-import {isIPv4, isIPv6, type LookupFunction} from 'node:net';
+import type {LookupFunction} from 'node:net';
 import {Readable, Transform} from 'node:stream';
 import type {ReadableStream as NodeReadableStream} from 'node:stream/web';
 import {createChildLogger} from '@electron/common/Logger';
@@ -18,6 +18,7 @@ import {
 } from '@electron/main/DesktopSessionHTTP';
 import {resolveDesktopTrustedCertificates} from '@electron/main/DesktopTrustedCertificates';
 import {normalizeHTTPNetworkOrigin} from '@fluxer/instance_bootstrap/src/NetworkOrigin';
+import {isPublicIpAddress, parseIpAddress} from '@fluxer/ip_utils/src/IpAddress';
 
 const logger = createChildLogger('DesktopOutboundHTTP');
 
@@ -27,8 +28,6 @@ const DESKTOP_OUTBOUND_HTTP_RESOLUTION_TIMEOUT_MS = 10_000;
 const DESKTOP_OUTBOUND_HTTP_MAX_TARGET_URL_BYTES = 16 * 1024;
 const DESKTOP_OUTBOUND_HTTP_MAX_REDIRECT_LOCATION_BYTES = 4096;
 const DESKTOP_OUTBOUND_HTTP_MAX_ORIGINS = 2048;
-const DESKTOP_OUTBOUND_HTTP_MAX_ORIGIN_REQUESTS_IN_FLIGHT = 128;
-const DESKTOP_OUTBOUND_HTTP_MAX_IN_FLIGHT_PER_SERVICE = 64;
 const DESKTOP_OUTBOUND_HTTP_MAX_PENDING_RESOLUTIONS = 64;
 const DESKTOP_OUTBOUND_HTTP_MAX_REQUEST_BODY_BYTES = 1024 * 1024;
 const DESKTOP_OUTBOUND_HTTP_STALE_SOCKET_ATTEMPTS = 1;
@@ -54,12 +53,8 @@ const DESKTOP_OUTBOUND_HTTP_TRANSPORT_MESSAGE = 'The request could not be comple
 const DESKTOP_OUTBOUND_HTTP_TIMEOUT_MESSAGE = 'The request timed out';
 const DESKTOP_OUTBOUND_HTTP_CAPACITY_MESSAGE = 'Too many downloads are already in progress';
 
-const IPV6_GROUP_COUNT = 8;
-
 const DesktopOutboundBlockReason = Object.freeze({
 	INSECURE_TRANSPORT: 'insecure-transport',
-	INVALID_TARGET: 'invalid-target',
-	LOOKUP_HOSTNAME_MISMATCH: 'lookup-hostname-mismatch',
 	NON_PUBLIC_ADDRESS: 'non-public-address',
 	NO_USABLE_ADDRESS: 'no-usable-address',
 	RESOLUTION_FAILED: 'resolution-failed',
@@ -116,7 +111,6 @@ export interface DesktopOutboundHTTPRequest {
 	readonly maximumRequestBodyBytes?: number;
 	readonly method: string;
 	readonly originTrust: DesktopOriginTrust;
-	readonly serviceName: string;
 	readonly signal: AbortSignal | null;
 	readonly timeoutMs: number;
 	readonly url: string;
@@ -299,143 +293,13 @@ function blocked(
 	return new DesktopOutboundHTTPBlockedError();
 }
 
-function stripIPv6ZoneIdentifier(value: string): string {
-	const zoneIndex = value.indexOf('%');
-	if (zoneIndex === -1) {
-		return value;
-	}
-	const addressPart = value.slice(0, zoneIndex);
-	return addressPart.includes(':') ? addressPart : value;
-}
-
-function normalizeIPv6(value: string): string {
-	try {
-		const hostname = new URL(`http://[${value}]`).hostname;
-		return hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname;
-	} catch {
-		return value;
-	}
-}
-
 function parseIPAddress(value: string): PinnedAddress | null {
-	const trimmed = value.trim();
-	const unbracketed = trimmed.startsWith('[') && trimmed.endsWith(']') ? trimmed.slice(1, -1) : trimmed;
-	const unzoned = stripIPv6ZoneIdentifier(unbracketed);
-	if (isIPv4(unzoned)) {
-		return {address: unzoned, family: 4};
-	}
-	if (isIPv6(unzoned)) {
-		return {address: normalizeIPv6(unzoned), family: 6};
-	}
-	return null;
-}
-
-function parseIPv4Octets(address: string): Array<number> | null {
-	const parts = address.split('.');
-	if (parts.length !== 4) {
-		return null;
-	}
-	const octets = parts.map((part) => (/^\d{1,3}$/u.test(part) ? Number.parseInt(part, 10) : Number.NaN));
-	if (octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) {
-		return null;
-	}
-	return octets;
-}
-
-function ipv4Value(octets: ReadonlyArray<number>): number {
-	return ((octets[0] << 24) | (octets[1] << 16) | (octets[2] << 8) | octets[3]) >>> 0;
-}
-
-function isIPv4InCIDR(value: number, base: number, prefixLength: number): boolean {
-	const mask = prefixLength === 0 ? 0 : (0xffffffff << (32 - prefixLength)) >>> 0;
-	return (value & mask) >>> 0 === (base & mask) >>> 0;
-}
-
-const IPV4_NON_PUBLIC_RANGES: ReadonlyArray<readonly [base: number, prefixLength: number]> = Object.freeze([
-	[0x00000000, 8],
-	[0x0a000000, 8],
-	[0x64400000, 10],
-	[0x7f000000, 8],
-	[0xa9fe0000, 16],
-	[0xac100000, 12],
-	[0xc0000000, 24],
-	[0xc0000200, 24],
-	[0xc0a80000, 16],
-	[0xc6120000, 15],
-	[0xc6336400, 24],
-	[0xcb007100, 24],
-	[0xe0000000, 4],
-	[0xf0000000, 4],
-]);
-
-function isPublicIPv4Address(address: string): boolean {
-	const octets = parseIPv4Octets(address);
-	if (octets == null) {
-		return false;
-	}
-	const value = ipv4Value(octets);
-	return !IPV4_NON_PUBLIC_RANGES.some(([base, prefixLength]) => isIPv4InCIDR(value, base, prefixLength));
-}
-
-function expandIPv6Groups(address: string): Array<string> {
-	const halves = address.split('::');
-	if (halves.length === 2) {
-		const left = halves[0].length > 0 ? halves[0].split(':') : [];
-		const right = halves[1].length > 0 ? halves[1].split(':') : [];
-		const missing = Math.max(IPV6_GROUP_COUNT - left.length - right.length, 0);
-		return [...left, ...Array<string>(missing).fill('0'), ...right].map((group) => group.padStart(4, '0'));
-	}
-	return address.split(':').map((group) => group.padStart(4, '0'));
-}
-
-function ipv4FromMappedIPv6(groups: ReadonlyArray<string>): string | null {
-	const isMapped =
-		groups[0] === '0000' &&
-		groups[1] === '0000' &&
-		groups[2] === '0000' &&
-		groups[3] === '0000' &&
-		groups[4] === '0000' &&
-		groups[5] === 'ffff';
-	if (!isMapped) {
-		return null;
-	}
-	const high = Number.parseInt(groups[6], 16);
-	const low = Number.parseInt(groups[7], 16);
-	return `${(high >> 8) & 0xff}.${high & 0xff}.${(low >> 8) & 0xff}.${low & 0xff}`;
-}
-
-function isPublicIPv6Address(address: string): boolean {
-	const groups = expandIPv6Groups(address);
-	if (groups.length !== IPV6_GROUP_COUNT) {
-		return false;
-	}
-	const mapped = ipv4FromMappedIPv6(groups);
-	if (mapped != null) {
-		return isPublicIPv4Address(mapped);
-	}
-	const first = Number.parseInt(groups[0], 16);
-	const second = Number.parseInt(groups[1], 16);
-	const last = Number.parseInt(groups[7], 16);
-	if (groups.slice(0, 7).every((group) => group === '0000') && (last === 0 || last === 1)) {
-		return false;
-	}
-	if ((first & 0xe000) !== 0x2000) {
-		return false;
-	}
-	if ((first & 0xffc0) === 0xfe80) {
-		return false;
-	}
-	if ((first & 0xfe00) === 0xfc00) {
-		return false;
-	}
-	if ((first & 0xff00) === 0xff00) {
-		return false;
-	}
-	return !(first === 0x2001 && second === 0x0db8);
+	const parsed = parseIpAddress(value);
+	return parsed == null ? null : {address: parsed.normalized, family: parsed.family === 'ipv4' ? 4 : 6};
 }
 
 function isPublicPinnedAddress(pinned: PinnedAddress): boolean {
-	return pinned.family === 4 ? isPublicIPv4Address(pinned.address) : isPublicIPv6Address(pinned.address);
+	return isPublicIpAddress(pinned.address);
 }
 
 function proxiedHostScope(hostname: string): DesktopOriginAddressScope {
@@ -698,7 +562,7 @@ interface DesktopProxiedSend {
 	readonly body: Uint8Array | Readable | null;
 	readonly headers: Readonly<Record<string, string>>;
 	readonly method: string;
-	readonly release: () => void;
+	readonly release?: () => void;
 	readonly signal: AbortSignal | null;
 	readonly target: URL;
 	readonly timeout: () => Error;
@@ -711,20 +575,15 @@ export class DesktopOutboundHTTP {
 		maxSockets: DESKTOP_OUTBOUND_HTTP_MAX_SOCKETS,
 	});
 	private readonly httpsAgent: https.Agent;
-	private readonly originRequestHttpAgent = new HappyEyeballsHttpAgent({
-		keepAlive: true,
-		maxSockets: DESKTOP_OUTBOUND_HTTP_MAX_IN_FLIGHT_PER_SERVICE,
-	});
+	private readonly originRequestHttpAgent = new HappyEyeballsHttpAgent({keepAlive: true});
 	private readonly originRequestHttpsAgent: https.Agent;
 	private readonly bindings = new Map<string, DesktopOriginAddressBinding>();
 	private readonly pendingBindings = new Map<string, DesktopPendingOriginBinding>();
 	private readonly registeredRequirements = new Map<string, DesktopAddressRequirement>();
-	private readonly originRequestsInFlightByService = new Map<string, number>();
 	private readonly resolveHostAddresses: DesktopHostAddressResolver;
 	private readonly resolveProxy: DesktopProxyResolver;
 	private readonly sendThroughSession: DesktopSessionHTTPSender;
 	private inFlight = 0;
-	private originRequestsInFlight = 0;
 	private activeResolutions = 0;
 	private acceptingRequests = true;
 
@@ -741,7 +600,6 @@ export class DesktopOutboundHTTP {
 		});
 		this.originRequestHttpsAgent = new HappyEyeballsHttpsAgent({
 			keepAlive: true,
-			maxSockets: DESKTOP_OUTBOUND_HTTP_MAX_IN_FLIGHT_PER_SERVICE,
 			...trust,
 		});
 	}
@@ -916,7 +774,6 @@ export class DesktopOutboundHTTP {
 		this.originRequestHttpsAgent.destroy();
 		this.bindings.clear();
 		this.registeredRequirements.clear();
-		this.originRequestsInFlightByService.clear();
 	}
 
 	private async routesDirect(url: URL): Promise<boolean> {
@@ -946,15 +803,6 @@ export class DesktopOutboundHTTP {
 		request: DesktopOutboundHTTPRequest,
 		target: URL,
 	): Promise<DesktopOutboundHTTPMessage> {
-		this.acquireSlot(request.serviceName);
-		let released = false;
-		const release = (): void => {
-			if (released) {
-				return;
-			}
-			released = true;
-			this.releaseSlot(request.serviceName);
-		};
 		return this.sendProxied({
 			body: this.proxiedRequestBody(request),
 			headers: requestHeaders(request.headers),
@@ -963,7 +811,6 @@ export class DesktopOutboundHTTP {
 			target,
 			timeout: () => new DesktopOutboundHTTPRequestTimeoutError(target.toString(), request.timeoutMs),
 			timeoutMs: request.timeoutMs,
-			release,
 		}).catch((error: unknown) => {
 			if (request.signal?.aborted === true) {
 				throw new DesktopOutboundHTTPRequestAbortedError(target.toString());
@@ -987,7 +834,7 @@ export class DesktopOutboundHTTP {
 		timer.unref();
 		const settle = (): void => {
 			clearTimeout(timer);
-			release();
+			release?.();
 		};
 		try {
 			const response = await this.sendThroughSession({
@@ -1216,42 +1063,11 @@ export class DesktopOutboundHTTP {
 		}
 	}
 
-	private acquireSlot(serviceName: string): void {
-		if (this.originRequestsInFlight >= DESKTOP_OUTBOUND_HTTP_MAX_ORIGIN_REQUESTS_IN_FLIGHT) {
-			throw new DesktopOutboundHTTPCapacityError('in-flight request');
-		}
-		const perService = this.originRequestsInFlightByService.get(serviceName) ?? 0;
-		if (perService >= DESKTOP_OUTBOUND_HTTP_MAX_IN_FLIGHT_PER_SERVICE) {
-			throw new DesktopOutboundHTTPCapacityError(`in-flight request for ${serviceName}`);
-		}
-		this.originRequestsInFlight += 1;
-		this.originRequestsInFlightByService.set(serviceName, perService + 1);
-	}
-
-	private releaseSlot(serviceName: string): void {
-		this.originRequestsInFlight -= 1;
-		const perService = (this.originRequestsInFlightByService.get(serviceName) ?? 1) - 1;
-		if (perService <= 0) {
-			this.originRequestsInFlightByService.delete(serviceName);
-		} else {
-			this.originRequestsInFlightByService.set(serviceName, perService);
-		}
-	}
-
 	private issueOriginRequest(
 		request: DesktopOutboundHTTPRequest,
 		target: URL,
 		binding: DesktopOriginAddressBinding,
 	): Promise<DesktopOutboundHTTPMessage> {
-		this.acquireSlot(request.serviceName);
-		let released = false;
-		const release = (): void => {
-			if (released) {
-				return;
-			}
-			released = true;
-			this.releaseSlot(request.serviceName);
-		};
 		return new Promise<DesktopOutboundHTTPMessage>((resolve, reject) => {
 			let attemptsRemaining = isReplayableRequest(request) ? DESKTOP_OUTBOUND_HTTP_STALE_SOCKET_ATTEMPTS : 0;
 			let active: http.ClientRequest | null = null;
@@ -1277,7 +1093,6 @@ export class DesktopOutboundHTTP {
 			const settle = (): void => {
 				clearTimeout(timeout);
 				request.signal?.removeEventListener('abort', onAbort);
-				release();
 			};
 			const destroyActive = (error: Error): void => {
 				active?.destroy(error);

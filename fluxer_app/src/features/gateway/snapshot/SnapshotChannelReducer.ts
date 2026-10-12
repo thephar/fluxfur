@@ -32,7 +32,6 @@ import {ChannelTypes, TEXT_BASED_CHANNEL_TYPES} from '@fluxer/constants/src/Chan
 import {THREAD_CHANNEL_TYPES, THREAD_ONLY_CHANNEL_TYPES} from '@fluxer/constants/src/ThreadConstants';
 import type {Channel as WireChannel} from '@fluxer/schema/src/domains/channel/ChannelSchemas';
 import type {ThreadMemberResponse} from '@fluxer/schema/src/domains/channel/ThreadSchemas';
-import {decodeReadStateProto} from '@fluxer/schema/src/domains/read_state/ReadStateProtoCodec';
 
 export interface SnapshotChannelUserAuthority {
 	readonly getSelfUserId: () => string | null;
@@ -106,22 +105,6 @@ export class SnapshotChannelReducer {
 		private readonly readStates: ReducerRowMap<string, SnapshotReadStateRow>,
 		private readonly users: SnapshotChannelUserAuthority,
 	) {}
-
-	get channelCount(): number {
-		return this.channels.size;
-	}
-
-	get readStateCount(): number {
-		return this.readStates.size;
-	}
-
-	get channelRows(): ReadonlyMap<string, WireChannel> {
-		return this.channels;
-	}
-
-	get readStateRows(): ReadonlyMap<string, SnapshotReadStateRow> {
-		return this.readStates;
-	}
 
 	load(entries: StateSnapshotEntries): void {
 		this.channels.clear();
@@ -415,8 +398,7 @@ export class SnapshotChannelReducer {
 				type: channel.type,
 			});
 		}
-		const readStates =
-			data.read_state_proto == null ? (data.read_states ?? []) : decodeReadStateProto(data.read_state_proto);
+		const readStates = data.read_states ?? [];
 		const channelsWithReadState = new Set<string>();
 		for (const readState of readStates) {
 			channelsWithReadState.add(readState.id);

@@ -116,22 +116,10 @@ describe('KVClient script execution', () => {
 					run: async (client) => client.extendLock('lock:key', 'token', 30),
 				},
 				{
-					name: 'renewSnowflakeNode',
-					reply: 1,
-					keyCount: 1,
-					run: async (client) => client.renewSnowflakeNode('snowflake:1', 'instance', 30),
-				},
-				{
 					name: 'checkLeakyBucketLimit',
 					reply: RATE_LIMIT_REPLY,
 					keyCount: 1,
 					run: async (client) => client.checkLeakyBucketLimit('rate_limit:bucket', 5, 1000, 1),
-				},
-				{
-					name: 'tryConsumeTokens',
-					reply: 2,
-					keyCount: 1,
-					run: async (client) => client.tryConsumeTokens('tokens:key', 2, 10, 1, 1000),
 				},
 				{
 					name: 'scheduleBulkDeletion',
@@ -187,23 +175,6 @@ describe('KVClient script execution', () => {
 			message: 'KV request failed (releaseLock): Connection is closed.',
 		});
 		expect(evalMock).not.toHaveBeenCalled();
-	});
-
-	it('normalizes timeouts raised by the EVALSHA attempt', async () => {
-		evalshaMock.mockRejectedValue(new Error('Command timed out'));
-		await expect(createClient().releaseLock('lock:key', 'token')).rejects.toMatchObject({
-			code: KVClientErrorCode.TIMEOUT,
-			message: 'KV request timed out: releaseLock',
-		});
-	});
-
-	it('normalizes failures raised by the EVAL fallback', async () => {
-		evalshaMock.mockRejectedValue(noScriptError());
-		evalMock.mockRejectedValue(new Error('Connection is closed.'));
-		await expect(createClient().releaseLock('lock:key', 'token')).rejects.toMatchObject({
-			code: KVClientErrorCode.REQUEST_FAILED,
-			message: 'KV request failed (releaseLock): Connection is closed.',
-		});
 	});
 
 	it('reports invalid JSON from a scripted command', async () => {

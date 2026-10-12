@@ -3,13 +3,17 @@
 import {ConfirmModal} from '@app/features/app/components/dialogs/ConfirmModal';
 import {DESKTOP_DOWNLOAD_URL} from '@app/features/app/config/I18nDisplayConstants';
 import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
-import {CLOSE_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
-import type {UpdaterDownloadFormat, UpdaterDownloadOption} from '@app/features/platform/types/Electron';
+import {
+	AVAILABLE_DESCRIPTOR as AVAILABLE_VERSION_LABEL_DESCRIPTOR,
+	CLOSE_DESCRIPTOR,
+	UNKNOWN_DESCRIPTOR as UNKNOWN_VERSION_DESCRIPTOR,
+} from '@app/features/i18n/utils/CommonMessageDescriptors';
 import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
 import {modal} from '@app/features/ui/commands/ModalCommands';
 import {Combobox} from '@app/features/ui/components/form/FormCombobox';
 import {isCanaryDesktop, openExternalUrl} from '@app/features/ui/utils/NativeUtils';
 import styles from '@app/features/updater/commands/UpdaterModalCommands.module.css';
+import type {UpdaterDownloadFormat, UpdaterDownloadOption} from '@app/types/electron.d';
 import {i18n, type MessageDescriptor} from '@lingui/core';
 import {msg} from '@lingui/core/macro';
 import {useMemo, useState} from 'react';
@@ -121,14 +125,7 @@ const INSTALLED_VERSION_LABEL_DESCRIPTOR = msg({
 	message: 'Installed',
 	comment: 'Label for the installed desktop version in the Linux update modal.',
 });
-const AVAILABLE_VERSION_LABEL_DESCRIPTOR = msg({
-	message: 'Available',
-	comment: 'Label for the available desktop version in the Linux update modal.',
-});
-const UNKNOWN_VERSION_DESCRIPTOR = msg({
-	message: 'Unknown',
-	comment: 'Fallback version label when the installed desktop version is unknown.',
-});
+
 const NEW_VERSION_DESCRIPTOR = msg({
 	message: 'New version',
 	comment: 'Fallback version label when the available desktop version is unknown.',

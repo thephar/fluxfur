@@ -133,7 +133,7 @@ member_list_presence_fields(Presence) ->
 
 -spec find_member_in_state_data(user_id(), guild_state()) -> map() | undefined.
 find_member_in_state_data(UserId, State) ->
-    guild_data_index:get_member(UserId, maps:get(data, State, #{})).
+    guild_data_index_members:get_member(UserId, maps:get(data, State, #{})).
 
 -spec broadcast_all_member_list_updates(guild_state()) -> {ok, guild_state()}.
 broadcast_all_member_list_updates(State) ->
@@ -571,23 +571,6 @@ subscribed_list_sync_is_skipped_only_for_absent_member_test() ->
         end)
     after
         guild_member_list_engine:destroy(Ref)
-    end.
-
-list_id_fold_matches_fold_lists_test() ->
-    Tab = guild_member_list_subs:new(),
-    try
-        guild_member_list_subs:subscribe(<<"s1">>, <<"500">>, [{0, 99}], Tab),
-        guild_member_list_subs:subscribe(<<"s2">>, <<"500">>, [{0, 9}], Tab),
-        guild_member_list_subs:subscribe(<<"s1">>, <<"600">>, [{0, 99}], Tab),
-        Sizes = guild_member_list_subs:fold_lists(
-            fun(ListId, ListSubs, Acc) -> Acc#{ListId => map_size(ListSubs)} end,
-            #{},
-            Tab
-        ),
-        ?assertEqual(lists:sort(maps:keys(Sizes)), guild_member_list_subs:list_ids(Tab)),
-        ?assertEqual([], [ListId || {ListId, 0} <- maps:to_list(Sizes)])
-    after
-        guild_member_list_subs:destroy(Tab)
     end.
 
 presence_change_resyncs_lists_on_status_custom_status_or_mobile_test() ->

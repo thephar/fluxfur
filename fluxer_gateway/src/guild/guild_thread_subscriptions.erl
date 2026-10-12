@@ -12,6 +12,7 @@
     member_lists_changed/2,
     resync_after_load/1,
     presence_changed/2,
+    member_changed/2,
     handle_list_flush/1,
     refresh_presence_users/1,
     export_handoff/1,
@@ -74,7 +75,6 @@ apply_threads_flag(_Other, Session) ->
 
 -spec apply_member_lists(term(), map(), guild_state()) -> {map(), [integer()]}.
 apply_member_lists(Ids, Session, State) when is_list(Ids) ->
-    Previous = maps:get(thread_member_lists, Session, []),
     Viewable = lists:sublist(
         [Id || Id <- lists:usort(Ids), viewable_thread(Session, Id, State)], ?MAX_MEMBER_LISTS
     ),
@@ -83,7 +83,7 @@ apply_member_lists(Ids, Session, State) when is_list(Ids) ->
             [] -> maps:remove(thread_member_lists, Session);
             _ -> Session#{thread_member_lists => Viewable}
         end,
-    {Updated, Viewable -- Previous};
+    {Updated, Viewable};
 apply_member_lists(_Other, Session, _State) ->
     {Session, []}.
 
@@ -96,7 +96,7 @@ viewable_thread(Session, ThreadId, State) ->
 
 -spec session_can_view(map(), map(), guild_state()) -> boolean().
 session_can_view(#{user_id := UserId}, Thread, State) when is_integer(UserId) ->
-    case guild_permissions:find_member_by_user_id(UserId, State) of
+    case guild_permissions_check:find_member_by_user_id(UserId, State) of
         undefined -> false;
         Member -> guild_thread_view:can_view(UserId, Thread, Member, State)
     end;
@@ -261,7 +261,7 @@ needs_resync(_Session, _Tab) ->
 
 -spec send_list_sync(pid(), integer(), [integer()] | all | joined, guild_state()) -> ok.
 send_list_sync(Pid, UserId, Parents, #{id := GuildId} = State) ->
-    Member = guild_permissions:find_member_by_user_id(UserId, State),
+    Member = guild_permissions_check:find_member_by_user_id(UserId, State),
     Payload = guild_thread_view:list_sync(GuildId, UserId, Parents, Member, State),
     gateway_dispatch_relay:dispatch(Pid, thread_list_sync, Payload, GuildId).
 
@@ -305,6 +305,10 @@ presence_changed(UserId, #{thread_presence_users := Users} = State) ->
     mark_dirty(maps:get(UserId, Users, []), State);
 presence_changed(_UserId, State) ->
     State.
+
+-spec member_changed(integer(), guild_state()) -> guild_state().
+member_changed(UserId, State) ->
+    presence_changed(UserId, State).
 
 -spec mark_dirty([integer()], guild_state()) -> guild_state().
 mark_dirty([], State) ->
@@ -523,7 +527,7 @@ list_member(UserId, ThreadMember, Ctx, State) ->
         #{}, UserId, Ctx
     ),
     GuildMember =
-        case guild_data_members:find_member_by_user_id(UserId, State) of
+        case guild_permissions_check:find_member_by_user_id(UserId, State) of
             undefined -> null;
             M -> M
         end,

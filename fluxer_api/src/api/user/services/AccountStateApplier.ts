@@ -5,7 +5,9 @@ import type {AdminRepository} from '@app/api/admin/AdminRepository';
 import type {AdminArchiveService} from '@app/api/admin/services/AdminArchiveService';
 import {type ChannelID, createUserID, type MessageID, type UserID} from '@app/api/BrandedTypes';
 import {isIpBanExempt} from '@app/api/ban/IpBanExemptions';
-import type {IChannelRepository} from '@app/api/channel/IChannelRepository';
+import type {ChannelRepository} from '@app/api/channel/ChannelRepository';
+import type {ChannelDataRepository} from '@app/api/channel/repositories/ChannelDataRepository';
+import type {MessageRepository} from '@app/api/channel/repositories/MessageRepository';
 import {dispatchChannelEvent} from '@app/api/channel/services/ChannelGatewayDispatch';
 import {SYSTEM_USER_ID} from '@app/api/constants/Core';
 import {IP_BAN_REFRESH_CHANNEL} from '@app/api/constants/IpBan';
@@ -20,17 +22,13 @@ import type {IGatewayService} from '@app/api/infrastructure/IGatewayService';
 import type {KVBulkMessageDeletionQueueService} from '@app/api/infrastructure/KVBulkMessageDeletionQueueService';
 import type {User} from '@app/api/models/User';
 import {isAccountLimitExempt} from '@app/api/user/AccountLimit';
-import type {IUserRepository} from '@app/api/user/IUserRepository';
-import {
-	clearNewConversationLimit,
-	isNewConversationLimitExempt,
-	setNewConversationLimit,
-} from '@app/api/user/NewConversationLimit';
+import {clearNewConversationLimit, setNewConversationLimit} from '@app/api/user/NewConversationLimit';
+import type {UserRepository} from '@app/api/user/repositories/UserRepository';
 import {
 	type PartialUserChangePropagationDeps,
 	propagatePartialUserChange,
 } from '@app/api/user/services/PartialUserChangePropagation';
-import {mapUserToPrivateResponse} from '@app/api/user/UserMappers';
+import {dispatchUserUpdate} from '@app/api/user/UserMappers';
 import {UserFlags} from '@fluxer/constants/src/UserConstants';
 import {getSameIpDecisionKey, isPublicIpAddress, parseIpAddress} from '@fluxer/ip_utils/src/IpAddress';
 import {snowflakeToDate} from '@fluxer/snowflake/src/Snowflake';
@@ -47,14 +45,14 @@ interface AccountUpdateDispatch {
 }
 
 export interface AccountStateDeps {
-	users: Pick<IUserRepository, 'findUnique' | 'compareAndSetFlags' | 'patchUpsert'>;
+	users: Pick<UserRepository, 'findUnique' | 'compareAndSetFlags' | 'patchUpsert'>;
 	dispatch: AccountUpdateDispatch;
 	ipBans: Pick<AdminRepository, 'isIpBanned' | 'banIpTemp'>;
 	cache: Pick<ICacheService, 'publish' | 'get' | 'set' | 'delete'>;
 	archives: Pick<AdminArchiveService, 'triggerUserArchive' | 'listArchives'>;
 	messageDeletionQueue: Pick<KVBulkMessageDeletionQueueService, 'scheduleDeletion' | 'removeFromQueue'>;
 	messageDeletionDelayMs: number;
-	authored: Pick<IChannelRepository, 'listMessagesByAuthor'>;
+	authored: Pick<MessageRepository, 'listMessagesByAuthor'>;
 	now?: () => number;
 }
 
@@ -69,11 +67,11 @@ type ProfilePropagation = Omit<PartialUserChangePropagationDeps, 'gatewayService
 function gatewayDispatch(
 	gateway: IGatewayService,
 	profile: ProfilePropagation,
-	channels: Pick<IChannelRepository, 'findUnique'>,
+	channels: Pick<ChannelDataRepository, 'findUnique'>,
 ): AccountUpdateDispatch {
 	return {
 		async userUpdated(user) {
-			await gateway.dispatchPresence({userId: user.id, event: 'USER_UPDATE', data: mapUserToPrivateResponse(user)});
+			await dispatchUserUpdate(gateway, user);
 		},
 		async profileChanged(user) {
 			await propagatePartialUserChange({...profile, gatewayService: gateway}, user);
@@ -101,15 +99,19 @@ export function accountStateDepsFromContext(
 	ipBans: AccountStateDeps['ipBans'],
 	profile: Omit<ProfilePropagation, 'userRepository'>,
 	messageDeletion: Pick<AccountStateDeps, 'archives' | 'messageDeletionQueue' | 'messageDeletionDelayMs'>,
-	channels: Pick<IChannelRepository, 'findUnique' | 'listMessagesByAuthor'>,
+	channels: Pick<ChannelRepository, 'channelData' | 'messages'>,
 ): AccountStateDeps {
 	return {
 		users: ctx.services.users,
-		dispatch: gatewayDispatch(ctx.services.gateway, {...profile, userRepository: ctx.services.users}, channels),
+		dispatch: gatewayDispatch(
+			ctx.services.gateway,
+			{...profile, userRepository: ctx.services.users},
+			channels.channelData,
+		),
 		ipBans,
 		cache: ctx.services.cache,
 		...messageDeletion,
-		authored: channels,
+		authored: channels.messages,
 	};
 }
 
@@ -121,7 +123,7 @@ function observedOf(user: User): Observed {
 }
 
 export function outcomeOf(
-	env: Pick<ActionEnvelope, 'id'> & {type: string; user_id?: string},
+	env: Pick<ActionEnvelope, 'id'> & {type: string; user_id?: string; guild_id?: string},
 	status: OutcomeStatus,
 	user: User | null = null,
 	detail: string | null = null,
@@ -134,6 +136,7 @@ export function outcomeOf(
 		observed: user ? observedOf(user) : null,
 	};
 	if (env.user_id) outcome.user_id = env.user_id;
+	if (env.guild_id) outcome.guild_id = env.guild_id;
 	return outcome;
 }
 
@@ -341,7 +344,7 @@ export async function applyLimitNewConversations(
 		const lifted = await clearNewConversationLimit(user.id, store);
 		return outcomeOf(env, lifted ? 'applied' : 'noop', user);
 	}
-	if (isNewConversationLimitExempt(user)) return outcomeOf(env, 'exempt', user);
+	if (isAccountLimitExempt(user)) return outcomeOf(env, 'exempt', user);
 	const applied = await setNewConversationLimit(user.id, env.until_ms, store);
 	return outcomeOf(env, applied ? 'applied' : 'noop', user);
 }

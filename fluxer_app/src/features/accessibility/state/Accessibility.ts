@@ -22,8 +22,9 @@ import {initializeStore} from '@app/features/platform/utils/StoreInitialization'
 import MobileLayout from '@app/features/ui/state/MobileLayout';
 import {applyAppZoomToDocument} from '@app/features/ui/utils/AppZoomUtils';
 import {makeSyncedField} from '@app/features/user/state/SyncedField';
-import {decodeSyncedPreferencesLenient} from '@app/features/user/state/SyncedPreferencesEngine';
 import {StickerAnimationOptions} from '@fluxer/constants/src/UserConstants';
+import {isRecord} from '@fluxer/record_utils/src/RecordGuards';
+import {decodeSyncedPreferencesLenient} from '@fluxer/schema/src/domains/user/SyncedPreferencesCodec';
 import {
 	AccessibilitySettingsSchema,
 	ChannelTypingIndicatorMode as ProtoChannelTypingIndicatorMode,
@@ -93,10 +94,6 @@ const DEFAULT_LOCAL_MOTION_SETTINGS: LocalMotionSettings = {
 	keepGifAutoPlayUnderReducedMotion: false,
 	keepStickerAnimationUnderReducedMotion: false,
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
 
 const FONT_SIZE_MIN = 8;
 const FONT_SIZE_MAX = 48;
@@ -784,9 +781,6 @@ class Accessibility {
 			persistLocalMotionSettings(this.localMotionSettingsSnapshot);
 		}
 		this.customThemeCss = readLocalCustomThemeCss();
-		if (this.customThemeCss !== null) {
-			persistLocalCustomThemeCss(this.customThemeCss);
-		}
 		this.customThemeCssSyncAcrossDevices = readLocalCustomThemeCssSyncAcrossDevices();
 		this.showNeko = readAndMigrateLocalShowNeko();
 		this.keepNekoStill = readAndMigrateLocalKeepNekoStill();
@@ -798,6 +792,7 @@ class Accessibility {
 		this.initializeShowNekoSessionSync();
 		this.initializeShowNekoStorageSync();
 		this.initializeVideoSeekPreviewThumbnailsStorageSync();
+		this.initializeCustomThemeCssStorageSync();
 		this.applyStartupPresentationSettings();
 		initializeStore(this, () => this.initPersistence());
 	}
@@ -1021,7 +1016,6 @@ class Accessibility {
 			},
 		});
 		await this.applyStoredZoom();
-		this.applyStoredCustomThemeCss();
 	}
 
 	private initializeMotionDetection() {
@@ -1498,12 +1492,23 @@ class Accessibility {
 		await this.applyZoom(zoomLevel);
 	}
 
-	applyStoredCustomThemeCss(): void {
-		const customThemeCss = readLocalCustomThemeCss();
-		if (customThemeCss !== null) {
-			this.customThemeCss = customThemeCss;
-			persistLocalCustomThemeCss(customThemeCss);
-		}
+	private initializeCustomThemeCssStorageSync(): void {
+		AppStorage.subscribe(
+			(event) => {
+				if (
+					event.key !== null &&
+					event.key !== ACCESSIBILITY_CUSTOM_THEME_STORAGE_KEY &&
+					event.key !== ACCESSIBILITY_CUSTOM_THEME_SYNC_STORAGE_KEY
+				) {
+					return;
+				}
+				runInAction(() => {
+					this.customThemeCss = readLocalCustomThemeCss();
+					this.customThemeCssSyncAcrossDevices = readLocalCustomThemeCssSyncAcrossDevices();
+				});
+			},
+			{source: 'external'},
+		);
 	}
 
 	private applyStartupPresentationSettings(): void {

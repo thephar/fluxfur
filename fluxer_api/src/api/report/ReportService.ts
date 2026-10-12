@@ -13,7 +13,7 @@ import {
 	guildIdToRoleId,
 } from '@app/api/BrandedTypes';
 import {Config} from '@app/api/Config';
-import type {IChannelRepository} from '@app/api/channel/IChannelRepository';
+import type {ChannelRepository} from '@app/api/channel/ChannelRepository';
 import type {AuthenticatedChannel} from '@app/api/channel/services/AuthenticatedChannel';
 import {MessageChannelAuthService} from '@app/api/channel/services/message/MessageChannelAuthService';
 import * as MessageHelpers from '@app/api/channel/services/message/MessageHelpers';
@@ -33,16 +33,16 @@ import type {
 	UserReportSubmissionByReporterRow,
 } from '@app/api/database/types/ReportTypes';
 import type {ThreadViewer} from '@app/api/experiment/ChannelThreadsGate';
-import type {IGuildRepositoryAggregate} from '@app/api/guild/repositories/IGuildRepositoryAggregate';
+import type {GuildRepository} from '@app/api/guild/repositories/GuildRepository';
 import {emitActivity} from '@app/api/infrastructure/activity/ActivityEvents';
 import type {ReportOutcome, ReportTarget, ResolvedBy} from '@app/api/infrastructure/activity/Contract.generated';
 import {emitReportResolved} from '@app/api/infrastructure/activity/ModerationEvents';
-import type {IEmailDnsValidationService} from '@app/api/infrastructure/IEmailDnsValidationService';
+import type {EmailDnsValidationService} from '@app/api/infrastructure/EmailDnsValidationService';
 import type {IGatewayService} from '@app/api/infrastructure/IGatewayService';
 import type {ISnowflakeService} from '@app/api/infrastructure/ISnowflakeService';
 import type {IStorageService} from '@app/api/infrastructure/IStorageService';
 import {usesUniqueUsernames} from '@app/api/instance/AccountIdentityModeCache';
-import type {IInviteRepository} from '@app/api/invite/IInviteRepository';
+import type {InviteRepository} from '@app/api/invite/InviteRepository';
 import {Logger} from '@app/api/Logger';
 import type {Attachment} from '@app/api/models/Attachment';
 import type {Channel} from '@app/api/models/Channel';
@@ -52,19 +52,20 @@ import type {Message} from '@app/api/models/Message';
 import type {User} from '@app/api/models/User';
 import type {Webhook} from '@app/api/models/Webhook';
 import {resolveReportFlowAnswers, resolveReportFlowLocale} from '@app/api/report/flows/ReportFlowRegistry';
-import type {
-	IARMessageContextRow,
-	IARSubmission,
-	IARSubmissionRow,
-	IReportRepository,
-} from '@app/api/report/IReportRepository';
-import {ReportStatus, ReportType} from '@app/api/report/IReportRepository';
+import {
+	type IARMessageContextRow,
+	type IARSubmission,
+	type IARSubmissionRow,
+	ReportStatus,
+	ReportType,
+} from '@app/api/report/ReportModels';
+import type {ReportRepository} from '@app/api/report/ReportRepository';
 import type {IReportSearchService} from '@app/api/search/IReportSearchService';
-import type {IUserRepository} from '@app/api/user/IUserRepository';
 import {isUnderEnforcement} from '@app/api/user/ProfileVisibility';
+import type {UserRepository} from '@app/api/user/repositories/UserRepository';
 import {findPersonByLoginHandle, type ParsedLoginHandle, parseLoginHandle} from '@app/api/user/UniqueUsernames';
 import {isAccountClosed} from '@app/api/user/UserHelpers';
-import type {IWebhookRepository} from '@app/api/webhook/IWebhookRepository';
+import type {WebhookRepository} from '@app/api/webhook/WebhookRepository';
 import {buildHashedAssetKey} from '@app/api/worker/utils/AssetArchiveHelpers';
 import {APIErrorCodes} from '@fluxer/constants/src/ApiErrorCodes';
 import {ME} from '@fluxer/constants/src/AppConstants';
@@ -267,18 +268,18 @@ export class ReportService {
 	private readonly messageChannelAuthService: MessageChannelAuthService;
 
 	constructor(
-		private reportRepository: IReportRepository,
-		private channelRepository: IChannelRepository,
-		private guildRepository: IGuildRepositoryAggregate,
-		private userRepository: IUserRepository,
-		private inviteRepository: IInviteRepository,
+		private reportRepository: ReportRepository,
+		private channelRepository: ChannelRepository,
+		private guildRepository: GuildRepository,
+		private userRepository: UserRepository,
+		private inviteRepository: InviteRepository,
 		private emailService: IEmailService,
-		private emailDnsValidationService: IEmailDnsValidationService,
+		private emailDnsValidationService: EmailDnsValidationService,
 		private snowflakeService: ISnowflakeService,
 		private storageService: IStorageService,
 		private gatewayService: IGatewayService,
 		private rateLimitService: IRateLimitService,
-		private webhookRepository: IWebhookRepository,
+		private webhookRepository: WebhookRepository,
 		private reportSearchService: IReportSearchService | null = null,
 	) {
 		this.messageChannelAuthService = new MessageChannelAuthService(
@@ -375,11 +376,9 @@ export class ReportService {
 			});
 			const report = await this.reportRepository.createReport(reportData);
 			await emitReportFiled(reportData, 'message');
-			if (this.reportSearchService && 'indexReport' in this.reportSearchService) {
-				await this.reportSearchService.indexReport(report).catch((error) => {
-					Logger.error({error, reportId: report.reportId}, 'Failed to index message report in search');
-				});
-			}
+			await this.reportSearchService?.indexReport(report).catch((error) => {
+				Logger.error({error, reportId: report.reportId}, 'Failed to index message report in search');
+			});
 			return report;
 		} catch (error) {
 			if (reservation) {
@@ -461,11 +460,9 @@ export class ReportService {
 			});
 			const report = await this.reportRepository.createReport(reportData);
 			await emitReportFiled(reportData, 'user');
-			if (this.reportSearchService && 'indexReport' in this.reportSearchService) {
-				await this.reportSearchService.indexReport(report).catch((error) => {
-					Logger.error({error, reportId: report.reportId}, 'Failed to index user report in search');
-				});
-			}
+			await this.reportSearchService?.indexReport(report).catch((error) => {
+				Logger.error({error, reportId: report.reportId}, 'Failed to index user report in search');
+			});
 			return report;
 		} catch (error) {
 			if (reservation) {
@@ -544,11 +541,9 @@ export class ReportService {
 			reportData.reported_profile_snapshot = await this.captureProfileSnapshot(reportId, {guild});
 			const report = await this.reportRepository.createReport(reportData);
 			await emitReportFiled(reportData, 'guild');
-			if (this.reportSearchService && 'indexReport' in this.reportSearchService) {
-				await this.reportSearchService.indexReport(report).catch((error) => {
-					Logger.error({error, reportId: report.reportId}, 'Failed to index guild report in search');
-				});
-			}
+			await this.reportSearchService?.indexReport(report).catch((error) => {
+				Logger.error({error, reportId: report.reportId}, 'Failed to index guild report in search');
+			});
 			return report;
 		} catch (error) {
 			if (reservation) {
@@ -701,7 +696,6 @@ export class ReportService {
 			fullLegalName: report.reporter_full_legal_name ?? null,
 			countryOfResidence: report.reporter_country_of_residence,
 		};
-		await this.checkReportBan(null);
 		const reporterKey = this.getReporterRateLimitKey(reporterMeta);
 		await this.ensureReportRateLimit(this.createReportRateLimitIdentifier(reporterKey), REPORT_RATE_LIMIT_MAX, false);
 		const reportId = createReportID(await this.snowflakeService.generate());
@@ -719,11 +713,9 @@ export class ReportService {
 		reportRow.reported_profile_snapshot = await this.captureProfileSnapshot(reportId, profileSubject);
 		const createdReport = await this.reportRepository.createReport(reportRow);
 		await emitReportFiled(reportRow, 'dsa');
-		if (this.reportSearchService && 'indexReport' in this.reportSearchService) {
-			await this.reportSearchService.indexReport(createdReport).catch((error) => {
-				Logger.error({error, reportId: createdReport.reportId}, 'Failed to index DSA report in search');
-			});
-		}
+		await this.reportSearchService?.indexReport(createdReport).catch((error) => {
+			Logger.error({error, reportId: createdReport.reportId}, 'Failed to index DSA report in search');
+		});
 		await this.sendDsaReportReceipt(
 			ticket.email_lower,
 			createdReport.reportId,
@@ -817,11 +809,11 @@ export class ReportService {
 		classification: DsaReportClassification,
 	): Promise<DsaReportDraft> {
 		const {guildSegment, channelId, messageId} = this.extractChannelAndMessageFromLink(report.message_link);
-		const channel = await this.channelRepository.findUnique(channelId);
+		const channel = await this.channelRepository.channelData.findUnique(channelId);
 		if (!channel || guildSegment !== (channel.guildId?.toString() ?? ME)) {
 			throw new UnknownMessageError();
 		}
-		const message = await this.channelRepository.getMessage(channelId, messageId);
+		const message = await this.channelRepository.messages.getMessage(channelId, messageId);
 		if (!message || message.channelId !== channelId) {
 			throw new UnknownMessageError();
 		}
@@ -1006,7 +998,7 @@ export class ReportService {
 		if (!(await this.canAccessMessage(authChannel, messageId))) {
 			throw new UnknownMessageError();
 		}
-		const message = await this.channelRepository.getMessage(channelId, messageId);
+		const message = await this.channelRepository.messages.getMessage(channelId, messageId);
 		if (!message || message.channelId !== channelId) {
 			throw new UnknownMessageError();
 		}
@@ -1037,7 +1029,7 @@ export class ReportService {
 		if (!reference?.messageId) {
 			return null;
 		}
-		const source = await this.channelRepository.getMessage(reference.channelId, reference.messageId);
+		const source = await this.channelRepository.messages.getMessage(reference.channelId, reference.messageId);
 		if (!source || (source.flags & MessageFlags.IS_CROSSPOST) !== 0) {
 			return null;
 		}
@@ -1094,11 +1086,11 @@ export class ReportService {
 		}
 		const guildView = guildToContentWarningView(guild);
 		const scope = channel
-			? await resolveNsfwScopeChannel(channel, (channelId) => this.channelRepository.findUnique(channelId))
+			? await resolveNsfwScopeChannel(channel, (channelId) => this.channelRepository.channelData.findUnique(channelId))
 			: null;
 		let parentCategoryView: ContentWarningChannelLike | null = null;
 		if (scope?.parentId) {
-			const parent = await this.channelRepository.findUnique(scope.parentId);
+			const parent = await this.channelRepository.channelData.findUnique(scope.parentId);
 			if (parent) {
 				parentCategoryView = channelToContentWarningView(parent);
 			}
@@ -1316,11 +1308,9 @@ export class ReportService {
 		resolution: {outcome?: ReportOutcome; resolvedBy?: ResolvedBy} = {},
 	): Promise<IARSubmission> {
 		const report = await this.reportRepository.resolveReport(reportId, adminUserId, publicComment, auditLogReason);
-		if (this.reportSearchService && 'updateReport' in this.reportSearchService) {
-			await this.reportSearchService.updateReport(report).catch((error) => {
-				Logger.error({error, reportId: report.reportId}, 'Failed to update report in search index');
-			});
-		}
+		await this.reportSearchService?.updateReport(report).catch((error) => {
+			Logger.error({error, reportId: report.reportId}, 'Failed to update report in search index');
+		});
 		const outcome = resolution.outcome ?? (await this.observedOutcome(report));
 		await emitReportResolved(report, outcome, resolution.resolvedBy ?? 'staff');
 		return report;
@@ -1346,13 +1336,18 @@ export class ReportService {
 	): Promise<Array<IARMessageContextRow>> {
 		const messagesBefore =
 			scope === 'window'
-				? await this.channelRepository.listMessages(channelId, targetMessageId, MESSAGE_CONTEXT_WINDOW)
+				? await this.channelRepository.messages.listMessages(channelId, targetMessageId, MESSAGE_CONTEXT_WINDOW)
 				: [];
 		const messagesAfter =
 			scope === 'window'
-				? await this.channelRepository.listMessages(channelId, undefined, MESSAGE_CONTEXT_WINDOW, targetMessageId)
+				? await this.channelRepository.messages.listMessages(
+						channelId,
+						undefined,
+						MESSAGE_CONTEXT_WINDOW,
+						targetMessageId,
+					)
 				: [];
-		const targetMessage = await this.channelRepository.getMessage(channelId, targetMessageId);
+		const targetMessage = await this.channelRepository.messages.getMessage(channelId, targetMessageId);
 		if (!targetMessage) {
 			return [];
 		}

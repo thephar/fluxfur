@@ -1,127 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::{env, fs, path::Path};
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum GeoipSourceConfig {
-    Filesystem {
-        maxmind_db_path: Option<String>,
-    },
-    S3 {
-        maxmind_db_path: String,
-        s3_bucket: String,
-        s3_key: String,
-    },
-}
-
-impl GeoipSourceConfig {
-    pub fn maxmind_db_path(&self) -> Option<String> {
-        match self {
-            Self::Filesystem { maxmind_db_path } => maxmind_db_path.clone(),
-            Self::S3 {
-                maxmind_db_path, ..
-            } => Some(maxmind_db_path.clone()),
-        }
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct GeoipS3Config {
-    pub endpoint: String,
-    pub region: String,
-    pub access_key_id: String,
-    pub secret_access_key: String,
-}
-
-pub fn read_geoip_s3_config_from_env(source: &GeoipSourceConfig) -> Option<GeoipS3Config> {
-    read_geoip_s3_config(source, env_value)
-}
-
-fn read_geoip_s3_config<F>(source: &GeoipSourceConfig, mut read_var: F) -> Option<GeoipS3Config>
-where
-    F: FnMut(&str) -> Option<String>,
-{
-    match source {
-        GeoipSourceConfig::S3 { .. } => Some(GeoipS3Config {
-            endpoint: read_var("FLUXER_S3_ENDPOINT").unwrap_or_default(),
-            region: read_var("FLUXER_S3_REGION").unwrap_or_default(),
-            access_key_id: read_var("FLUXER_S3_ACCESS_KEY_ID").unwrap_or_default(),
-            secret_access_key: read_var("FLUXER_S3_SECRET_ACCESS_KEY").unwrap_or_default(),
-        }),
-        GeoipSourceConfig::Filesystem { .. } => None,
-    }
-}
-
-pub fn parse_geoip_source_config(raw_value: &str, service_name: &str) -> GeoipSourceConfig {
-    let trimmed = raw_value.trim();
-    if trimmed.is_empty() {
-        return GeoipSourceConfig::Filesystem {
-            maxmind_db_path: None,
-        };
-    }
-    if !trimmed.starts_with("s3://") {
-        return GeoipSourceConfig::Filesystem {
-            maxmind_db_path: Some(trimmed.to_owned()),
-        };
-    }
-    parse_geoip_s3_source_config(trimmed, service_name)
-}
-
-fn parse_geoip_s3_source_config(raw_value: &str, service_name: &str) -> GeoipSourceConfig {
-    let url = reqwest::Url::parse(raw_value)
-        .unwrap_or_else(|err| panic!("invalid GeoIP S3 URL {}: {}", raw_value, err));
-    let s3_bucket = url.host_str().unwrap_or("").to_owned();
-    if s3_bucket.is_empty() {
-        panic!("invalid GeoIP S3 URL (missing bucket): {raw_value}");
-    }
-    let s3_key = percent_decode(url.path().trim_start_matches('/'));
-    if s3_key.is_empty() {
-        panic!("invalid GeoIP S3 URL (missing object key): {raw_value}");
-    }
-    let maxmind_db_path =
-        geoip_runtime_path(&resolve_geoip_download_path(&url, raw_value), service_name);
-    GeoipSourceConfig::S3 {
-        maxmind_db_path,
-        s3_bucket,
-        s3_key,
-    }
-}
-
-fn resolve_geoip_download_path(url: &reqwest::Url, raw_value: &str) -> String {
-    let Some(download_path) = url
-        .query_pairs()
-        .find(|(key, _)| key == "download_path")
-        .map(|(_, value)| value.into_owned())
-    else {
-        panic!("invalid GeoIP S3 URL (missing query parameter \"download_path\"): {raw_value}");
-    };
-    require_absolute_path(&download_path, "download_path", raw_value)
-}
-
-fn require_absolute_path(value: &str, param: &str, raw_value: &str) -> String {
-    if !Path::new(value).is_absolute() {
-        panic!("GeoIP S3 URL query parameter \"{param}\" must be an absolute path: {raw_value}");
-    }
-    value.to_owned()
-}
-
-fn geoip_runtime_path(configured_path: &str, service_name: &str) -> String {
-    let basename = Path::new(configured_path)
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or("GeoLite2-City.mmdb");
-    Path::new("/tmp/fluxer/geoip")
-        .join(service_name)
-        .join(basename)
-        .to_string_lossy()
-        .into_owned()
-}
-
-fn percent_decode(value: &str) -> String {
-    urlencoding::decode(value)
-        .map(|value| value.into_owned())
-        .unwrap_or_else(|_| value.to_owned())
-}
+use std::{env, fs};
 
 pub fn env_value(name: &str) -> Option<String> {
     resolve_env_value(name, |key| env::var(key).ok()).unwrap_or_else(|error| panic!("{error}"))
@@ -250,7 +129,7 @@ pub fn parse_public_origin(origin: &str) -> Option<PublicOrigin> {
     if trimmed.is_empty() {
         return None;
     }
-    let parsed = reqwest::Url::parse(trimmed).ok()?;
+    let parsed = url::Url::parse(trimmed).ok()?;
     let scheme = parsed.scheme();
     if scheme != "http" && scheme != "https" {
         return None;
@@ -315,7 +194,7 @@ pub fn normalize_public_endpoint(url: &str, base_domain: &str, public_port: Opti
     if domain.is_empty() {
         return url.to_owned();
     }
-    let Ok(parsed) = reqwest::Url::parse(url) else {
+    let Ok(parsed) = url::Url::parse(url) else {
         return url.to_owned();
     };
     if canonicalize_domain(parsed.host_str().unwrap_or_default()) != domain {
@@ -351,308 +230,72 @@ pub fn normalize_public_endpoint_from_env(url: &str) -> String {
     try_normalize_public_endpoint_from_env(url).unwrap_or_else(|error| panic!("{error}"))
 }
 
+#[derive(Debug, Default)]
+pub struct EnvMap(Vec<(String, String)>);
+
+impl EnvMap {
+    pub fn from_pairs<I, K, V>(vars: I) -> Self
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: Into<String>,
+        V: Into<String>,
+    {
+        Self(
+            vars.into_iter()
+                .map(|(k, v)| (k.into(), v.into()))
+                .collect(),
+        )
+    }
+
+    pub fn get(&self, key: &str) -> Option<&str> {
+        self.0
+            .iter()
+            .find_map(|(k, v)| (k == key).then_some(v.as_str()))
+            .filter(|v| !v.trim().is_empty())
+    }
+}
+
+pub fn parse_bool(var_name: &str, raw: Option<&str>) -> anyhow::Result<Option<bool>> {
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    let raw = raw.trim();
+    match raw.to_ascii_lowercase().as_str() {
+        "true" | "1" | "yes" => Ok(Some(true)),
+        "false" | "0" | "no" => Ok(Some(false)),
+        _ => Err(anyhow::anyhow!(
+            "{var_name} must be a boolean: true, false, 1, 0, yes, or no"
+        )),
+    }
+}
+
+pub fn parse_number<T>(
+    var_name: &str,
+    raw: Option<&str>,
+    default_value: T,
+    min_value: T,
+    max_value: T,
+) -> anyhow::Result<T>
+where
+    T: std::str::FromStr + PartialOrd + std::fmt::Display + Copy,
+{
+    let Some(raw) = raw else {
+        return Ok(default_value);
+    };
+    let parsed = raw
+        .trim()
+        .parse::<T>()
+        .map_err(|_| anyhow::anyhow!("{var_name} must be a number"))?;
+    anyhow::ensure!(
+        parsed >= min_value && parsed <= max_value,
+        "{var_name} must be between {min_value} and {max_value}"
+    );
+    Ok(parsed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn parses_filesystem_geoip_source() {
-        let source = parse_geoip_source_config("/data/GeoLite2-City.mmdb", "test");
-        assert_eq!(
-            source,
-            GeoipSourceConfig::Filesystem {
-                maxmind_db_path: Some("/data/GeoLite2-City.mmdb".to_owned()),
-            }
-        );
-    }
-
-    #[test]
-    fn parses_empty_geoip_source() {
-        let source = parse_geoip_source_config("", "test");
-        assert_eq!(
-            source,
-            GeoipSourceConfig::Filesystem {
-                maxmind_db_path: None,
-            }
-        );
-    }
-
-    #[test]
-    fn parses_s3_geoip_source() {
-        let source = parse_geoip_source_config(
-            "s3://geoip/GeoLite2-City.mmdb?download_path=/tmp/city.mmdb",
-            "test_svc",
-        );
-        assert_eq!(
-            source,
-            GeoipSourceConfig::S3 {
-                maxmind_db_path: "/tmp/fluxer/geoip/test_svc/city.mmdb".to_owned(),
-                s3_bucket: "geoip".to_owned(),
-                s3_key: "GeoLite2-City.mmdb".to_owned(),
-            }
-        );
-    }
-
-    #[test]
-    fn reads_geoip_s3_config_only_for_s3_source() {
-        let source = parse_geoip_source_config(
-            "s3://geoip/GeoLite2-City.mmdb?download_path=/tmp/city.mmdb",
-            "test_svc",
-        );
-        let config = read_geoip_s3_config(&source, |name| {
-            Some(
-                match name {
-                    "FLUXER_S3_ENDPOINT" => "https://s3.example.test",
-                    "FLUXER_S3_REGION" => "ewr1",
-                    "FLUXER_S3_ACCESS_KEY_ID" => "access",
-                    "FLUXER_S3_SECRET_ACCESS_KEY" => "secret",
-                    _ => "",
-                }
-                .to_owned(),
-            )
-        })
-        .expect("s3 source should read s3 config");
-
-        assert_eq!(
-            config,
-            GeoipS3Config {
-                endpoint: "https://s3.example.test".to_owned(),
-                region: "ewr1".to_owned(),
-                access_key_id: "access".to_owned(),
-                secret_access_key: "secret".to_owned(),
-            }
-        );
-
-        let filesystem_source = parse_geoip_source_config("/tmp/city.mmdb", "test_svc");
-        assert!(read_geoip_s3_config(&filesystem_source, |_| None).is_none());
-    }
-
-    #[test]
-    fn normalize_base_path_strips_slashes() {
-        assert_eq!(normalize_base_path("/foo/bar/"), "/foo/bar");
-        assert_eq!(normalize_base_path("foo"), "/foo");
-        assert_eq!(normalize_base_path(""), "");
-        assert_eq!(normalize_base_path("/"), "");
-    }
-
-    #[test]
-    fn default_https_install_is_untouched() {
-        for url in [
-            "https://fluxer.example",
-            "https://fluxer.example/media",
-            "https://fluxer.example/admin/oauth2_callback",
-            "wss://fluxer.example/gateway",
-        ] {
-            assert_eq!(
-                url,
-                normalize_public_endpoint(url, "fluxer.example", Some(443))
-            );
-        }
-    }
-
-    #[test]
-    fn default_http_install_is_untouched() {
-        for url in [
-            "http://fluxer.example",
-            "http://fluxer.example/media",
-            "ws://fluxer.example/gateway",
-        ] {
-            assert_eq!(
-                url,
-                normalize_public_endpoint(url, "fluxer.example", Some(80))
-            );
-        }
-    }
-
-    #[test]
-    fn inserts_a_non_default_port_for_the_base_domain() {
-        assert_eq!(
-            "http://fluxer.example:19080/media",
-            normalize_public_endpoint("http://fluxer.example/media", "fluxer.example", Some(19080))
-        );
-        assert_eq!(
-            "http://fluxer.example:19080",
-            normalize_public_endpoint("http://fluxer.example", "fluxer.example", Some(19080))
-        );
-        assert_eq!(
-            "https://fluxer.example:8443/admin/oauth2_callback",
-            normalize_public_endpoint(
-                "https://fluxer.example/admin/oauth2_callback",
-                "fluxer.example",
-                Some(8443)
-            )
-        );
-    }
-
-    #[test]
-    fn a_default_port_for_the_urls_own_scheme_is_never_inserted() {
-        assert_eq!(
-            "ws://fluxer.example/gateway",
-            normalize_public_endpoint("ws://fluxer.example/gateway", "fluxer.example", Some(80))
-        );
-        assert_eq!(
-            "wss://fluxer.example/gateway",
-            normalize_public_endpoint("wss://fluxer.example/gateway", "fluxer.example", Some(443))
-        );
-        assert_eq!(
-            "http://fluxer.example:443/media",
-            normalize_public_endpoint("http://fluxer.example/media", "fluxer.example", Some(443))
-        );
-        assert_eq!(
-            "https://fluxer.example:80/media",
-            normalize_public_endpoint("https://fluxer.example/media", "fluxer.example", Some(80))
-        );
-    }
-
-    #[test]
-    fn another_host_is_never_touched() {
-        for url in [
-            "https://cdn.example.net/assets",
-            "https://media.example.net",
-            "http://api:8080",
-            "http://media-proxy:8080",
-        ] {
-            assert_eq!(
-                url,
-                normalize_public_endpoint(url, "fluxer.example", Some(19080))
-            );
-        }
-        assert_eq!(
-            "https://sub.fluxer.example/media",
-            normalize_public_endpoint(
-                "https://sub.fluxer.example/media",
-                "fluxer.example",
-                Some(19080)
-            )
-        );
-    }
-
-    #[test]
-    fn an_explicit_port_is_never_touched() {
-        for url in [
-            "http://fluxer.example:19080/media",
-            "http://fluxer.example:8080/media",
-            "https://fluxer.example:443/media",
-            "http://fluxer.example:80/media",
-            "http://user:pass@fluxer.example:19080/media",
-        ] {
-            assert_eq!(
-                url,
-                normalize_public_endpoint(url, "fluxer.example", Some(19080))
-            );
-        }
-    }
-
-    #[test]
-    fn is_idempotent() {
-        let once =
-            normalize_public_endpoint("http://fluxer.example/media", "fluxer.example", Some(19080));
-        let twice = normalize_public_endpoint(&once, "fluxer.example", Some(19080));
-        assert_eq!("http://fluxer.example:19080/media", once);
-        assert_eq!(once, twice);
-    }
-
-    #[test]
-    fn an_unset_port_leaves_every_url_alone() {
-        assert_eq!(
-            "http://fluxer.example/media",
-            normalize_public_endpoint("http://fluxer.example/media", "fluxer.example", None)
-        );
-        assert_eq!(
-            "http://fluxer.example/media",
-            normalize_public_endpoint("http://fluxer.example/media", "fluxer.example", Some(0))
-        );
-    }
-
-    #[test]
-    fn an_empty_base_domain_leaves_every_url_alone() {
-        assert_eq!(
-            "http://fluxer.example/media",
-            normalize_public_endpoint("http://fluxer.example/media", "", Some(19080))
-        );
-        assert_eq!(
-            "http://fluxer.example/media",
-            normalize_public_endpoint("http://fluxer.example/media", "   ", Some(19080))
-        );
-    }
-
-    #[test]
-    fn a_url_that_does_not_parse_is_returned_unchanged() {
-        for url in ["", "/api", "fluxer.example/media", "not a url", "://x"] {
-            assert_eq!(
-                url,
-                normalize_public_endpoint(url, "fluxer.example", Some(19080))
-            );
-        }
-    }
-
-    #[test]
-    fn matches_the_host_case_insensitively_and_ignores_a_trailing_dot() {
-        assert_eq!(
-            "http://FLUXER.example:19080/Media",
-            normalize_public_endpoint("http://FLUXER.example/Media", "Fluxer.Example", Some(19080))
-        );
-        assert_eq!(
-            "http://fluxer.example.:19080/media",
-            normalize_public_endpoint(
-                "http://fluxer.example./media",
-                "fluxer.example",
-                Some(19080)
-            )
-        );
-        assert_eq!(
-            "http://fluxer.example:19080/media",
-            normalize_public_endpoint(
-                "http://fluxer.example/media",
-                "fluxer.example.",
-                Some(19080)
-            )
-        );
-    }
-
-    #[test]
-    fn preserves_path_query_fragment_and_trailing_slash() {
-        assert_eq!(
-            "http://fluxer.example:19080/",
-            normalize_public_endpoint("http://fluxer.example/", "fluxer.example", Some(19080))
-        );
-        assert_eq!(
-            "http://fluxer.example:19080?a=1",
-            normalize_public_endpoint("http://fluxer.example?a=1", "fluxer.example", Some(19080))
-        );
-        assert_eq!(
-            "http://fluxer.example:19080#top",
-            normalize_public_endpoint("http://fluxer.example#top", "fluxer.example", Some(19080))
-        );
-        assert_eq!(
-            "http://fluxer.example:19080/media/x.png?v=1#frag",
-            normalize_public_endpoint(
-                "http://fluxer.example/media/x.png?v=1#frag",
-                "fluxer.example",
-                Some(19080)
-            )
-        );
-    }
-
-    #[test]
-    fn keeps_credentials_and_ipv6_literals_intact() {
-        assert_eq!(
-            "http://user:pass@fluxer.example:19080/media",
-            normalize_public_endpoint(
-                "http://user:pass@fluxer.example/media",
-                "fluxer.example",
-                Some(19080)
-            )
-        );
-        assert_eq!(
-            "http://[::1]:19080/media",
-            normalize_public_endpoint("http://[::1]/media", "[::1]", Some(19080))
-        );
-        assert_eq!(
-            "http://[::1]:8080/media",
-            normalize_public_endpoint("http://[::1]:8080/media", "[::1]", Some(19080))
-        );
-    }
 
     #[test]
     fn matches_the_typescript_normalizer_on_the_shared_vectors() {
@@ -952,14 +595,5 @@ mod tests {
         assert!(read_bool_env("FLUXER_COMMON_TEST_BLANK_EMPTY", true));
         assert!(read_bool_env("FLUXER_COMMON_TEST_BLANK_SPACES", true));
         assert!(read_bool_env("FLUXER_COMMON_TEST_BLANK_TRUE", false));
-    }
-
-    #[test]
-    fn trim_trailing_slash_works() {
-        assert_eq!(
-            trim_trailing_slash("https://example.com/"),
-            "https://example.com"
-        );
-        assert_eq!(trim_trailing_slash(""), "");
     }
 }

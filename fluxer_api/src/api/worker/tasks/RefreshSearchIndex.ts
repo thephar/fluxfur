@@ -2,7 +2,6 @@
 
 import type {GuildID, ReportID, UserID} from '@app/api/BrandedTypes';
 import {createGuildID} from '@app/api/BrandedTypes';
-import {channelThreadsEnabled, guildActive} from '@app/api/experiment/ChannelThreadsGate';
 import {GuildDiscoveryRepository} from '@app/api/guild/repositories/GuildDiscoveryRepository';
 import {Logger} from '@app/api/Logger';
 import type {User} from '@app/api/models/User';
@@ -205,13 +204,13 @@ const refreshChannelMessages: IndexHandler = async (payload, helpers, kvClient, 
 	const {channelRepository} = getWorkerDependencies();
 	const guildId = createGuildID(BigInt(payload.guild_id!));
 	const searchService = requireSearchService<IMessageSearchService>(getMessageSearchService());
-	const guildChannels = await channelRepository.listGuildChannels(guildId, 'complete');
+	const guildChannels = await channelRepository.channelData.listGuildChannels(guildId, 'complete');
 	const threadIds = await channelRepository.threads.listGuildThreadIds(guildId, {parents: guildChannels});
 	const channels = [...guildChannels.map((channel) => ({id: channel.id})), ...threadIds.map((id) => ({id}))];
 	if (channels.length === 0) {
 		return 0;
 	}
-	const indexedChannels = guildActive(guildId) ? channels : guildChannels;
+	const indexedChannels = channels;
 	for (const channel of indexedChannels) {
 		await deleteChannelMessageSearchDocuments(channel.id, {
 			searchService,
@@ -320,7 +319,6 @@ const refreshDiscovery: IndexHandler = async (_payload, _helpers, kvClient, prog
 	return synced;
 };
 const refreshThreads: IndexHandler = async (payload) => {
-	if (!channelThreadsEnabled()) return 0;
 	const {channelRepository} = getWorkerDependencies();
 	const guildId = createGuildID(BigInt(payload.guild_id!));
 	requireSearchService(getThreadSearchService());

@@ -12,8 +12,8 @@ export const AppStorageKey = Object.freeze({
 	AUTH_DESKTOP_CLIENT_WELCOME_SEEN: 'fluxer:auth:desktop-client-intro:welcome-seen',
 	AUTH_SESSION_TOKEN: AuthSessionStorageKey.Token,
 	AUTH_SESSION_USER_ID: AuthSessionStorageKey.UserId,
-	BACKGROUND_ACCOUNT_PRESENCE: 'BackgroundAccountPresence',
 	DELETED_KEYS: 'fluxer:internal:deleted-keys',
+	I18N_CHOSEN_LOCALE: 'fluxer:i18n:chosen-locale',
 	MESSAGING_DRAFTS: 'Drafts',
 	MESSAGING_MESSAGE_EDIT: 'MessageEdit',
 	NOTIFICATION: 'Notification',
@@ -29,6 +29,7 @@ export const AppStorageKey = Object.freeze({
 	UI_INBOX_POPOUT_SIZE: 'fluxer:ui:inbox-popout-size',
 	UI_SIDEBAR_WIDTH: 'fluxer:ui:sidebar-width',
 	VOICE_SETTINGS: 'VoiceSettings',
+	WINDOWS_FONT: 'WindowsFont',
 } as const);
 
 export type AppStorageKey = (typeof AppStorageKey)[keyof typeof AppStorageKey];
@@ -49,11 +50,12 @@ const GLOBAL_APP_STORAGE_KEY_LOOKUP: Readonly<Record<string, true>> = Object.fre
 	[AppStorageKey.AUTH_DESKTOP_CLIENT_WELCOME_SEEN]: true,
 	[AppStorageKey.AUTH_SESSION_TOKEN]: true,
 	[AppStorageKey.AUTH_SESSION_USER_ID]: true,
-	[AppStorageKey.BACKGROUND_ACCOUNT_PRESENCE]: true,
+	[AppStorageKey.I18N_CHOSEN_LOCALE]: true,
 	[AppStorageKey.THEME_LIBRARY_ENABLED_IDS]: true,
 	[AppStorageKey.THEME_LIBRARY_LOCAL_FILES]: true,
 	[AppStorageKey.THEME_LIBRARY_MIGRATED]: true,
 	[AppStorageKey.THEME_LIBRARY_THEMES]: true,
+	[AppStorageKey.WINDOWS_FONT]: true,
 });
 
 function keyStartsWithPrefix(key: string, prefix: AppStorageKey): boolean {

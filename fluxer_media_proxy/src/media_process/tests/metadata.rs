@@ -1,22 +1,35 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use super::super::placeholder::{encode_thumbhash, optional_thumbhash};
+use super::super::nsfw_processing::{VideoNSFWFramesRequest, extract_video_frames_for_nsfw};
+use super::super::placeholder::optional_thumbhash;
 use super::super::{
-    MediaError, MetadataOptions, NSFW_PREVIEW_MAX_DIMENSION, metadata_json_with_options,
-    probe_av_metadata,
+    AV_NATIVE_COST_BYTES, MediaError, MetadataOptions, NSFW_PREVIEW_MAX_DIMENSION, NativeCost,
+    extract_video_thumbnail, finish_metadata, metadata_cost, prepare_metadata, probe_av_metadata,
 };
 use super::fixtures::{metadata_value, test_media_limits};
 use crate::{
+    constants,
     metrics::transform::TransformMetrics,
     mime,
     nsfw::{NSFWClient, NSFWPolicy},
+    output_format::OutputFormat,
     test_fixtures::{
-        fixture_audio_mp3_with_png_cover_art, fixture_audio_mp4_with_attached_picture,
-        fixture_audio_only_mp4, fixture_h264_mp4, fixture_mkv_with_png_video_stream,
-        fixture_mp4_with_undecodable_video, synthetic_png, synthetic_wav,
+        JXL_4100_LOSSLESS_RGB16, JXL_4100_LOSSY_ALPHA, JXL_4100_LOSSY_RGB_DEPTH,
+        JXL_7000X4000_LOSSY_RGB, fixture_audio_mp3_with_png_cover_art,
+        fixture_audio_mp4_with_attached_picture, fixture_audio_only_mp4, fixture_h264_mp4,
+        fixture_mkv_with_png_video_stream, fixture_mp4_with_undecodable_video, synthetic_png,
+        synthetic_wav,
     },
 };
-use std::sync::Arc;
+use std::{io::Write as _, sync::Arc};
+
+fn mapped_past_the_buffer_bound(head: &[u8]) -> memmap2::Mmap {
+    let mut file = tempfile::tempfile().expect("temp file");
+    file.write_all(head).expect("written head");
+    file.set_len(constants::MAX_MEDIA_PROXY_BYTES as u64 + 1)
+        .expect("sparse tail");
+    unsafe { memmap2::Mmap::map(&file).expect("mapped file") }
+}
 
 #[test]
 fn metadata_json_includes_dimensions_and_placeholder() {
@@ -25,13 +38,15 @@ fn metadata_json_includes_dimensions_and_placeholder() {
         .build()
         .unwrap()
         .block_on(async {
-            metadata_json_with_options(
-                &png,
-                "test.png",
-                MetadataOptions::default(),
-                &test_media_limits(),
+            finish_metadata(
+                prepare_metadata(
+                    &png,
+                    &MetadataOptions::default(),
+                    &test_media_limits(),
+                    &TransformMetrics::default(),
+                )
+                .expect("metadata prepares"),
                 &NSFWClient::disabled(),
-                &TransformMetrics::new(),
             )
             .await
             .unwrap()
@@ -55,19 +70,22 @@ fn metadata_json_returns_unavailable_when_nsfw_service_fails() {
             let client = NSFWClient::new(
                 "http://127.0.0.1:9",
                 0.85,
-                Arc::new(crate::metrics::nsfw::NSFWMetrics::new()),
+                Arc::new(crate::metrics::nsfw::NSFWMetrics::default()),
             )
             .expect("nsfw client builds");
-            metadata_json_with_options(
-                &png,
-                "test.png",
-                MetadataOptions {
-                    placeholder: false,
-                    nsfw: NSFWPolicy::enabled(0.85).expect("valid threshold"),
-                },
-                &test_media_limits(),
+            finish_metadata(
+                prepare_metadata(
+                    &png,
+                    &MetadataOptions {
+                        placeholder: false,
+                        nsfw: NSFWPolicy::enabled(0.85).expect("valid threshold"),
+                        deadline_ms: None,
+                    },
+                    &test_media_limits(),
+                    &TransformMetrics::default(),
+                )
+                .expect("metadata prepares"),
                 &client,
-                &TransformMetrics::new(),
             )
             .await
             .unwrap_err()
@@ -170,16 +188,14 @@ fn metadata_json_still_rejects_a_playable_video_stream_outside_the_codec_allowli
         .build()
         .unwrap()
         .block_on(async {
-            metadata_json_with_options(
+            prepare_metadata(
                 &mkv,
-                "png.mkv",
-                MetadataOptions::default(),
+                &MetadataOptions::default(),
                 &test_media_limits(),
-                &NSFWClient::disabled(),
-                &TransformMetrics::new(),
+                &TransformMetrics::default(),
             )
-            .await
-            .unwrap_err()
+            .err()
+            .expect("metadata preparation fails")
         });
     assert_eq!(MediaError::MediaDecodeFailed, err);
 }
@@ -202,13 +218,6 @@ fn metadata_keeps_the_placeholder_for_every_aspect_ratio() {
             "{filename} should keep its placeholder"
         );
     }
-}
-
-#[test]
-fn thumbhash_for_valid_image_is_non_empty() {
-    let png = synthetic_png(16, 16);
-    let hash = encode_thumbhash(&test_media_limits(), &png, None).unwrap();
-    assert!(!hash.is_empty());
 }
 
 #[test]
@@ -236,4 +245,81 @@ fn metadata_succeeds_without_a_placeholder_when_thumbhash_generation_fails() {
     assert_eq!(64, value["width"]);
     assert_eq!(64, value["height"]);
     assert_eq!(None, value.get("placeholder"));
+}
+
+#[test]
+fn metadata_refuses_jxl_above_the_decode_pixel_cap() {
+    for jxl in [
+        JXL_4100_LOSSY_ALPHA,
+        JXL_4100_LOSSY_RGB_DEPTH,
+        JXL_4100_LOSSLESS_RGB16,
+    ] {
+        let err = prepare_metadata(
+            jxl,
+            &MetadataOptions::default(),
+            &test_media_limits(),
+            &TransformMetrics::default(),
+        )
+        .err()
+        .expect("metadata preparation fails");
+        assert_eq!(MediaError::TooLargeToProcess, err);
+    }
+}
+
+#[test]
+fn metadata_admits_8_bit_rgb_jxl_above_the_decode_pixel_cap() {
+    let value = metadata_value(JXL_7000X4000_LOSSY_RGB, "big.jxl");
+    assert_eq!("image/jxl", value["content_type"]);
+    assert_eq!(7000, value["width"]);
+    assert_eq!(4000, value["height"]);
+    assert!(value["placeholder"].as_str().is_some_and(|p| !p.is_empty()));
+}
+
+#[test]
+fn metadata_refuses_an_image_past_the_buffer_bound() {
+    let png = mapped_past_the_buffer_bound(&synthetic_png(16, 16));
+    assert_eq!("image/png", mime::sniff(&png).mime);
+    let err = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap()
+        .block_on(async {
+            prepare_metadata(
+                &png,
+                &MetadataOptions::default(),
+                &test_media_limits(),
+                &TransformMetrics::default(),
+            )
+            .err()
+            .expect("metadata preparation fails")
+        });
+    assert_eq!(MediaError::StreamTooLong, err);
+}
+
+#[test]
+fn native_cost_of_a_video_past_the_buffer_bound_leaves_out_the_mapped_tail() {
+    let mp4 = mapped_past_the_buffer_bound(&fixture_h264_mp4());
+    assert_eq!(
+        NativeCost::UpToBudget(constants::MAX_MEDIA_PROXY_BYTES + AV_NATIVE_COST_BYTES),
+        metadata_cost(&mp4, &test_media_limits()).expect("video cost")
+    );
+}
+
+#[test]
+fn video_reads_accept_an_input_past_the_buffer_bound() {
+    let mp4 = mapped_past_the_buffer_bound(&fixture_h264_mp4());
+    let limits = test_media_limits();
+
+    let probe = probe_av_metadata(&mp4, NSFW_PREVIEW_MAX_DIMENSION, &limits, None)
+        .expect("probed video")
+        .probe;
+    assert!(probe.has_video);
+    let poster = extract_video_thumbnail(&mp4, OutputFormat::WebP, &limits).expect("poster frame");
+    assert_eq!("image/webp", mime::sniff(&poster.bytes).mime);
+    let frames = extract_video_frames_for_nsfw(VideoNSFWFramesRequest {
+        input: &mp4,
+        duration_seconds: probe.duration_seconds,
+        deadline_ms: None,
+    })
+    .expect("sampled frames");
+    assert!(!frames.is_empty());
 }

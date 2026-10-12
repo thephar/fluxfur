@@ -9,13 +9,7 @@
 -export([
     handle_message_create/1,
     handle_buffered_message_creates/1,
-    sync_user_guild_settings/3,
     sync_user_guild_settings_local/3,
-    sync_user_blocked_ids/2,
-    sync_user_blocked_ids_local/2,
-    invalidate_user_subscriptions_local/1,
-    invalidate_user_badge_count_local/1,
-    invalidate_user_badge_counts_local/1,
     clear_channel_notifications/3,
     clear_notifications_enabled/0
 ]).
@@ -79,18 +73,6 @@ handle_call(_Request, _From, State) ->
 -spec handle_cast(term(), state()) -> {noreply, state()}.
 handle_cast({handle_message_create, Params}, State) when is_map(Params) ->
     handle_message_create_cast(Params, State);
-handle_cast({sync_user_guild_settings, UserId, GuildId, UserGuildSettings}, State) when
-    is_integer(UserId), is_integer(GuildId), is_map(UserGuildSettings)
-->
-    push_ets_cache:put_user_guild_settings(UserId, GuildId, UserGuildSettings),
-    {noreply, State};
-handle_cast({sync_user_blocked_ids, UserId, BlockedIds}, State) when is_integer(UserId) ->
-    handle_sync_user_blocked_ids(UserId, BlockedIds, State);
-handle_cast({cache_user_guild_settings, UserId, GuildId, Settings}, State) when
-    is_integer(UserId), is_integer(GuildId), is_map(Settings)
-->
-    push_ets_cache:put_user_guild_settings(UserId, GuildId, Settings),
-    {noreply, State};
 handle_cast({clear_channel_notifications, UserId, ChannelId, MessageId}, State) when
     is_integer(UserId), is_integer(ChannelId), is_integer(MessageId)
 ->
@@ -137,53 +119,11 @@ handle_buffered_message_creates(ParamsList) ->
             ok
     end.
 
--spec sync_user_guild_settings(integer(), integer(), map()) -> ok.
-sync_user_guild_settings(UserId, GuildId, Settings) ->
-    maybe_cast(UserId, {sync_user_guild_settings, UserId, GuildId, Settings}).
-
 -spec sync_user_guild_settings_local(integer(), integer(), map()) -> ok.
 sync_user_guild_settings_local(UserId, GuildId, Settings) ->
     local_cache_mutation(fun() ->
         push_ets_cache:put_user_guild_settings(UserId, GuildId, Settings)
     end).
-
--spec sync_user_blocked_ids(integer(), [integer()]) -> ok.
-sync_user_blocked_ids(UserId, BlockedIds) ->
-    maybe_cast(UserId, {sync_user_blocked_ids, UserId, BlockedIds}).
-
--spec sync_user_blocked_ids_local(integer(), term()) -> ok.
-sync_user_blocked_ids_local(UserId, BlockedIds) ->
-    case push_normalize:integer_list(BlockedIds) of
-        {ok, TypedBlockedIds} ->
-            put_blocked_ids_local(UserId, TypedBlockedIds);
-        error ->
-            ok
-    end.
-
--spec invalidate_user_subscriptions_local(integer()) -> ok.
-invalidate_user_subscriptions_local(_UserId) ->
-    ok.
-
--spec invalidate_user_badge_count_local(integer()) -> ok.
-invalidate_user_badge_count_local(_UserId) ->
-    ok.
-
--spec invalidate_user_badge_counts_local([integer()]) -> ok.
-invalidate_user_badge_counts_local(_UserIds) ->
-    ok.
-
--spec put_blocked_ids_local(integer(), [integer()]) -> ok.
-put_blocked_ids_local(UserId, TypedBlockedIds) ->
-    local_cache_mutation(fun() ->
-        push_ets_cache:put_blocked_ids(UserId, TypedBlockedIds)
-    end).
-
--spec maybe_cast(term(), term()) -> ok.
-maybe_cast(Key, Msg) ->
-    case is_push_noop() of
-        true -> ok;
-        false -> cast_to_push_owner(Key, Msg)
-    end.
 
 -spec is_push_active() -> boolean().
 is_push_active() ->
@@ -764,16 +704,6 @@ blocked_ids_counters() ->
         blocked_ids_budget_exhausted => read_counter(?CNT_BUDGET_EXHAUSTED)
     }.
 
--spec handle_sync_user_blocked_ids(integer(), term(), state()) -> {noreply, state()}.
-handle_sync_user_blocked_ids(UserId, BlockedIds, State) ->
-    case push_normalize:integer_list(BlockedIds) of
-        {ok, TypedBlockedIds} ->
-            push_ets_cache:put_blocked_ids(UserId, TypedBlockedIds),
-            {noreply, State};
-        error ->
-            {noreply, State}
-    end.
-
 -spec handle_message_create_cast(map(), state()) -> {noreply, state()}.
 handle_message_create_cast(Params, State) ->
     SpawnResult = maybe_spawn_push_worker(fun() -> do_handle_message_create(Params) end),
@@ -927,13 +857,6 @@ sync_user_guild_settings_local_updates_local_cache_test() ->
         ?assertEqual(Settings, push_ets_cache:get_user_guild_settings(10, 20))
     end),
     push_ets_cache:delete_user_guild_settings(10, 20).
-
-sync_user_blocked_ids_local_updates_local_cache_test() ->
-    push_ets_cache:init(),
-    with_registered_push(fun() ->
-        ok = sync_user_blocked_ids_local(10, [20, 30]),
-        ?assertEqual([20, 30], push_ets_cache:get_blocked_ids(10))
-    end).
 
 a_message_publishes_every_eligible_recipient_in_one_call_test() ->
     push_ets_cache:init(),
@@ -1224,19 +1147,6 @@ assert_read_state_requests(Count) ->
     after 0 -> erlang:error(no_read_state_request)
     end.
 
-blocked_ids_fetch_defaults_are_bounded_test() ->
-    ?assertEqual(?DEFAULT_FETCH_USERS, blocked_ids_fetch_max_users()),
-    ?assertEqual(?DEFAULT_FETCH_CHUNK, blocked_ids_fetch_chunk()).
-
-blocked_ids_from_response_skips_unparsable_entries_test() ->
-    ?assertEqual([123, 456], blocked_ids_from_response([<<"123">>, <<"abc">>, 456, null])),
-    ?assertEqual([], blocked_ids_from_response(<<"not_a_list">>)).
-
-chunk_user_ids_splits_into_bounded_batches_test() ->
-    ?assertEqual([], chunk_user_ids([], 2, [])),
-    ?assertEqual([[1, 2], [3, 4], [5]], chunk_user_ids([1, 2, 3, 4, 5], 2, [])),
-    ?assertEqual([[1, 2, 3]], chunk_user_ids([1, 2, 3], 500, [])).
-
 blocked_ids_fetch_budget_is_capped_test() ->
     assert_budget_capped(),
     with_fetch_env(1, 1000000, fun assert_budget_capped/0),
@@ -1270,86 +1180,6 @@ cached_recipients_need_no_blocked_ids_fetch_test() ->
     push_ets_cache:init(),
     ok = seed_fetched_blocked_ids(5004, []),
     ?assertEqual([], missing_blocked_ids([5004])).
-
-blocked_ids_fetch_stops_after_a_failing_chunk_test() ->
-    push_ets_cache:init(),
-    Fill = push_ets_cache:reserve_blocked_ids([]),
-    ?assertEqual(#{}, fetch_blocked_ids_chunks([], Fill, #{})),
-    ?assertEqual(#{}, fetch_blocked_ids_chunks([[], []], Fill, #{})),
-    ok = push_ets_cache:release(Fill).
-
-blocked_ids_counters_are_unavailable_without_the_shared_table_test() ->
-    delete_counter_table(),
-    ?assertEqual(unavailable, read_counter(?CNT_SUPPRESSED)).
-
-blocked_ids_counters_are_exposed_in_cache_stats_test() ->
-    push_ets_cache:init(),
-    with_counter_table(fun() ->
-        ok = push_ets_cache:put_blocked_ids(5010, [999]),
-        ?assertEqual([], filter_dm_recipients([5010], 999)),
-        ?assertEqual(1, read_counter(?CNT_SUPPRESSED)),
-        assert_cache_stats_expose_blocked_ids()
-    end).
-
-assert_cache_stats_expose_blocked_ids() ->
-    Stats = maps:merge(push_ets_cache:cache_stats(), blocked_ids_counters()),
-    lists:foreach(
-        fun(Key) -> ?assertEqual(true, maps:is_key(Key, Stats)) end,
-        [
-            blocked_ids_size,
-            blocked_ids_fetch_attempts,
-            blocked_ids_fetch_failures,
-            blocked_ids_suppressed,
-            blocked_ids_budget_exhausted
-        ]
-    ).
-
-push_loss_counters_expose_every_counter_push_writes_test() ->
-    with_counter_table(fun() ->
-        ok = log_message_worker_drop(dropped, #{}),
-        Stats = push_loss_counters(),
-        ?assertEqual(live, maps:get(counters, Stats)),
-        ?assertEqual(1, maps:get(worker_pool_dropped, Stats))
-    end).
-
-push_loss_counters_are_unavailable_without_the_shared_table_test() ->
-    delete_counter_table(),
-    Stats = push_loss_counters(),
-    ?assertEqual(unavailable, maps:get(counters, Stats)),
-    ?assertEqual(unavailable, maps:get(worker_pool_dropped, Stats)).
-
-push_loss_counters_keep_a_genuine_zero_distinct_from_absent_test() ->
-    with_counter_table(fun() ->
-        ?assertEqual(unavailable, maps:get(worker_pool_dropped, push_loss_counters())),
-        ok = bump_counter(?CNT_WORKER_POOL, 0),
-        ?assertEqual(0, maps:get(worker_pool_dropped, push_loss_counters()))
-    end).
-
-cache_stats_with_counters_includes_the_loss_surface_test() ->
-    push_ets_cache:init(),
-    with_counter_table(fun() ->
-        Stats = cache_stats_with_counters(),
-        lists:foreach(
-            fun(Key) -> ?assertEqual(true, maps:is_key(Key, Stats)) end,
-            [blocked_ids_size, blocked_ids_suppressed, counters, worker_pool_dropped]
-        )
-    end).
-
-with_counter_table(Fun) ->
-    delete_counter_table(),
-    _ = ets:new(?PUSH_COUNTER_TABLE, [named_table, public, set, {write_concurrency, true}]),
-    try
-        Fun()
-    after
-        delete_counter_table()
-    end.
-
-delete_counter_table() ->
-    try ets:delete(?PUSH_COUNTER_TABLE) of
-        _ -> ok
-    catch
-        error:badarg -> ok
-    end.
 
 seed_fetched_blocked_ids(UserId, BlockedIds) ->
     push_ets_cache:put_blocked_ids_fetched(

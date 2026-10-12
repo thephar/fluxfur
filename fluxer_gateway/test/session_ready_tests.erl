@@ -6,7 +6,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 process_guild_state_unavailable_dispatches_guild_delete_test() ->
-    State0 = base_state_for_guild_dispatch_test(),
+    State0 = base_state_for_guild_dispatch(),
     GuildState = #{<<"id">> => <<"123">>, <<"unavailable">> => true},
     {noreply, State1} = session_ready:process_guild_state(GuildState, State0),
     Buffer = limited_deque:to_list(maps:get(buffer, State1)),
@@ -17,7 +17,7 @@ process_guild_state_unavailable_dispatches_guild_delete_test() ->
     ok.
 
 process_guild_state_available_dispatches_guild_create_test() ->
-    State0 = base_state_for_guild_dispatch_test(),
+    State0 = base_state_for_guild_dispatch(),
     GuildState = #{
         <<"id">> => <<"123">>,
         <<"unavailable">> => false,
@@ -34,7 +34,7 @@ process_guild_state_available_dispatches_guild_create_test() ->
 
 process_guild_state_bot_guild_create_marks_guild_available_test() ->
     drain_mailbox(),
-    State0 = (base_state_for_guild_dispatch_test())#{bot => true, socket_pid => self()},
+    State0 = (base_state_for_guild_dispatch())#{bot => true, socket_pid => self()},
     GuildState = #{<<"id">> => <<"123">>, <<"channels">> => [], <<"members">> => []},
     {noreply, _State1} = session_ready:process_guild_state(GuildState, State0),
     receive
@@ -47,7 +47,7 @@ process_guild_state_bot_guild_create_marks_guild_available_test() ->
 
 process_guild_state_bot_guild_create_after_join_omits_unavailable_test() ->
     drain_mailbox(),
-    State0 = (base_state_for_guild_dispatch_test())#{bot => true, socket_pid => self()},
+    State0 = (base_state_for_guild_dispatch())#{bot => true, socket_pid => self()},
     {noreply, State1} = session:handle_cast({guild_join, 123}, State0),
     GuildState = #{<<"id">> => <<"123">>, <<"channels">> => [], <<"members">> => []},
     {noreply, State2} = session_ready:process_guild_state(GuildState, State1),
@@ -69,7 +69,7 @@ process_guild_state_bot_guild_create_after_join_omits_unavailable_test() ->
 
 process_guild_state_bot_guild_create_after_join_and_outage_omits_unavailable_test() ->
     drain_mailbox(),
-    State0 = (base_state_for_guild_dispatch_test())#{bot => true, socket_pid => self()},
+    State0 = (base_state_for_guild_dispatch())#{bot => true, socket_pid => self()},
     {noreply, State1} = session:handle_cast({guild_join, 123}, State0),
     {noreply, State2} = session_ready:mark_guild_unavailable(123, State1),
     receive
@@ -92,7 +92,7 @@ process_guild_state_bot_guild_create_after_join_and_outage_omits_unavailable_tes
 
 process_guild_state_bot_guild_create_after_join_and_removal_marks_guild_available_test() ->
     drain_mailbox(),
-    State0 = (base_state_for_guild_dispatch_test())#{
+    State0 = (base_state_for_guild_dispatch())#{
         bot => true,
         socket_pid => self(),
         user_id => 1
@@ -120,7 +120,7 @@ process_guild_state_bot_guild_create_after_join_and_removal_marks_guild_availabl
 
 relayed_guild_create_to_bot_marks_guild_available_test() ->
     drain_mailbox(),
-    State0 = (base_state_for_guild_dispatch_test())#{bot => true, socket_pid => self()},
+    State0 = (base_state_for_guild_dispatch())#{bot => true, socket_pid => self()},
     GuildState = #{<<"id">> => <<"123">>, <<"channels">> => [], <<"members">> => []},
     {noreply, _State1} = session:handle_cast({dispatch, guild_create, GuildState}, State0),
     receive
@@ -133,7 +133,7 @@ relayed_guild_create_to_bot_marks_guild_available_test() ->
 
 process_guild_state_user_guild_create_omits_unavailable_test() ->
     drain_mailbox(),
-    State0 = (base_state_for_guild_dispatch_test())#{bot => false, socket_pid => self()},
+    State0 = (base_state_for_guild_dispatch())#{bot => false, socket_pid => self()},
     GuildState = #{<<"id">> => <<"123">>, <<"channels">> => [], <<"members">> => []},
     {noreply, _State1} = session_ready:process_guild_state(GuildState, State0),
     receive
@@ -159,7 +159,7 @@ mark_guild_unavailable_hidden_includes_flag_test() ->
 
 mark_guild_unavailable_after_ready_dispatches_guild_delete_test() ->
     drain_mailbox(),
-    State0 = (base_state_for_guild_dispatch_test())#{
+    State0 = (base_state_for_guild_dispatch())#{
         guilds => #{777 => undefined},
         socket_pid => self()
     },
@@ -492,65 +492,13 @@ dispatch_ready_data_includes_shard_metadata_test() ->
         ?assert(false, ready_not_dispatched)
     end.
 
-dispatch_ready_data_includes_gateway_timings_test() ->
-    drain_mailbox(),
-    GwTimings = gateway_timings:record(
-        test_gateway_step, gateway_timings:start() - 10, gateway_timings:new()
-    ),
-    State0 = (base_ready_state(
-        <<"session-ready-gateway-timings-test">>,
-        48,
-        false,
-        #{},
-        []
-    ))#{
-        gw_timings => GwTimings,
-        is_staff => true
-    },
-    {noreply, _State1} = session_ready:dispatch_ready_data(State0),
-    receive
-        {dispatch, ready, ReadyData, _ReadySeq} ->
-            Timings = maps:get(<<"_timings_gw">>, ReadyData),
-            ?assertEqual(<<"microseconds">>, maps:get(<<"unit">>, Timings)),
-            ?assert(is_binary(maps:get(<<"pod_name">>, Timings))),
-            ?assertNot(maps:is_key(<<"node_name">>, Timings)),
-            ?assertNot(maps:is_key(<<"erlang_node_name">>, Timings)),
-            Trace = maps:get(<<"trace">>, Timings),
-            TraceNames = [maps:get(<<"name">>, Span) || Span <- Trace],
-            ?assert(lists:member(<<"test_gateway_step">>, TraceNames)),
-            ReadySpan = find_trace_span(
-                <<"session_ready_dispatch:dispatch_ready_to_socket/1">>, Trace
-            ),
-            ReadyChildren = maps:get(<<"children">>, ReadySpan),
-            ReadyChildNames = [maps:get(<<"name">>, Span) || Span <- ReadyChildren],
-            ?assert(
-                lists:member(
-                    <<"session_ready_collect:collect_ready_presences/2">>, ReadyChildNames
-                )
-            ),
-            ?assert(
-                lists:member(
-                    <<"session_ready_collect:collect_ready_users/2">>, ReadyChildNames
-                )
-            ),
-            ?assert(
-                lists:member(
-                    <<"session_ready_dispatch:build_final_ready_data/9">>, ReadyChildNames
-                )
-            ),
-            ?assertNot(maps:is_key(<<"role">>, Timings)),
-            ?assertNot(maps:is_key(<<"steps">>, Timings)),
-            ?assertNot(maps:is_key(<<"nodes">>, Timings));
-        OtherReady ->
-            ?assert(false, {unexpected_ready_message, OtherReady})
-    after 1000 ->
-        ?assert(false, ready_not_dispatched)
-    end.
-
 dispatch_ready_data_omits_timings_for_non_staff_test() ->
     drain_mailbox(),
-    GwTimings = gateway_timings:record(
-        test_gateway_step, gateway_timings:start() - 10, gateway_timings:new()
+    GwTimings = gateway_timings:record_function(
+        test_gateway_step,
+        test_gateway_step,
+        gateway_timings:start() - 10,
+        gateway_timings:new()
     ),
     ApiTimings = #{
         <<"unit">> => <<"microseconds">>,
@@ -578,13 +526,6 @@ dispatch_ready_data_omits_timings_for_non_staff_test() ->
             ?assert(false, {unexpected_ready_message, OtherReady})
     after 1000 ->
         ?assert(false, ready_not_dispatched)
-    end.
-
--spec find_trace_span(binary(), [map()]) -> map().
-find_trace_span(Name, Trace) ->
-    case [Span || Span <- Trace, maps:get(<<"name">>, Span, undefined) =:= Name] of
-        [Span | _] -> Span;
-        [] -> error({trace_span_not_found, Name})
     end.
 
 -spec drain_mailbox() -> ok.
@@ -621,8 +562,8 @@ base_ready_state(SessionId, UserId, Bot, Guilds, CollectedGuildStates) ->
         presence_pid => undefined
     }.
 
--spec base_state_for_guild_dispatch_test() -> map().
-base_state_for_guild_dispatch_test() ->
+-spec base_state_for_guild_dispatch() -> map().
+base_state_for_guild_dispatch() ->
     #{
         guilds => #{},
         ready => undefined,

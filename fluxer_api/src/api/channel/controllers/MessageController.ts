@@ -2,10 +2,8 @@
 
 import {requireSudoMode} from '@app/api/auth/services/SudoVerificationService';
 import {createAttachmentID, createChannelID, createMessageID} from '@app/api/BrandedTypes';
-import {Config} from '@app/api/Config';
 import type {MessageRequest, MessageUpdateRequest} from '@app/api/channel/MessageTypes';
-import {normalizeMessageRequestPayload} from '@app/api/channel/services/message/MessageRequestCompatibility';
-import {parseMultipartMessageData} from '@app/api/channel/services/message/MessageRequestParser';
+import {parseMessageRequestBody} from '@app/api/channel/services/message/MessageRequestParser';
 import {viewerFromCtx} from '@app/api/experiment/ChannelThreadsGate';
 import {DefaultUserOnly, LoginRequired} from '@app/api/middleware/AuthMiddleware';
 import {RateLimitMiddleware} from '@app/api/middleware/RateLimitMiddleware';
@@ -15,11 +13,8 @@ import {RateLimitConfigs} from '@app/api/RateLimitConfig';
 import {readStateCapable} from '@app/api/read_state/ReadStateChannelMeta';
 import type {HonoApp} from '@app/api/types/HonoEnv';
 import {assertAccountNotLimited} from '@app/api/user/AccountLimit';
-import {parseJsonPreservingLargeIntegers} from '@app/api/utils/LosslessJsonParser';
+import {requireRequestClientIp} from '@app/api/utils/RequestClientIp';
 import {Validator} from '@app/api/Validator';
-import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
-import {InputValidationError} from '@fluxer/errors/src/domains/core/InputValidationError';
-import {requireClientIp} from '@fluxer/ip_utils/src/ClientIp';
 import {SudoVerificationSchema} from '@fluxer/schema/src/domains/auth/AuthSchemas';
 import {
 	ChannelIdMessageIdAttachmentIdParam,
@@ -183,23 +178,7 @@ export function MessageController(app: HonoApp) {
 			const channelId = createChannelID(ctx.req.valid('param').channel_id);
 			const requestCache = ctx.get('requestCache');
 			const messageRequestService = ctx.get('messageRequestService');
-			const contentType = ctx.req.header('content-type');
-			const validatedData = contentType?.includes('multipart/form-data')
-				? ((await parseMultipartMessageData(ctx, user, channelId, MessageRequestSchema)) as MessageRequest)
-				: await (async () => {
-						let data: unknown;
-						try {
-							const raw = await ctx.req.text();
-							data = raw.trim().length === 0 ? {} : parseJsonPreservingLargeIntegers(raw);
-						} catch {
-							throw InputValidationError.fromCode('message_data', ValidationErrorCodes.INVALID_MESSAGE_DATA);
-						}
-						const validationResult = MessageRequestSchema.safeParse(normalizeMessageRequestPayload(data));
-						if (!validationResult.success) {
-							throw InputValidationError.fromCode('message_data', ValidationErrorCodes.INVALID_MESSAGE_DATA);
-						}
-						return validationResult.data;
-					})();
+			const validatedData = await parseMessageRequestBody(ctx, user, channelId, MessageRequestSchema);
 			const response = await messageRequestService.sendMessage({
 				viewer: viewerFromCtx(ctx),
 				user,
@@ -227,10 +206,7 @@ export function MessageController(app: HonoApp) {
 				'Returns presigned upload URLs for message attachments in the target channel. Small files (<=10MB) return a singlepart PUT URL; larger files return a multipart plan (upload_id + per-part URLs) that the client should complete via the matching /attachments/complete endpoint. Requires message send and attachment permissions in guild channels.',
 		}),
 		async (ctx) => {
-			const clientIp = requireClientIp(ctx.req.raw, {
-				trustClientIpHeader: Config.proxy.trust_client_ip_header,
-				clientIpHeaderName: Config.proxy.client_ip_header,
-			});
+			const clientIp = requireRequestClientIp(ctx);
 			const channelId = createChannelID(ctx.req.valid('param').channel_id);
 			const {attachments} = ctx.req.valid('json');
 			return ctx.json({
@@ -261,10 +237,7 @@ export function MessageController(app: HonoApp) {
 				'Finalizes one or more multipart attachment uploads. Called after all chunks have been PUT to their presigned URLs. The server lists the uploaded parts and issues S3 CompleteMultipartUpload. Returns the finalized upload keys, which can be referenced in a subsequent message create request.',
 		}),
 		async (ctx) => {
-			const clientIp = requireClientIp(ctx.req.raw, {
-				trustClientIpHeader: Config.proxy.trust_client_ip_header,
-				clientIpHeaderName: Config.proxy.client_ip_header,
-			});
+			const clientIp = requireRequestClientIp(ctx);
 			const channelId = createChannelID(ctx.req.valid('param').channel_id);
 			const {uploads} = ctx.req.valid('json');
 			return ctx.json({
@@ -303,23 +276,7 @@ export function MessageController(app: HonoApp) {
 			const messageId = createMessageID(message_id);
 			const requestCache = ctx.get('requestCache');
 			const messageRequestService = ctx.get('messageRequestService');
-			const contentType = ctx.req.header('content-type');
-			const validatedData = contentType?.includes('multipart/form-data')
-				? ((await parseMultipartMessageData(ctx, user, channelId, MessageUpdateRequestSchema)) as MessageUpdateRequest)
-				: await (async () => {
-						let data: unknown;
-						try {
-							const raw = await ctx.req.text();
-							data = raw.trim().length === 0 ? {} : parseJsonPreservingLargeIntegers(raw);
-						} catch {
-							throw InputValidationError.fromCode('message_data', ValidationErrorCodes.INVALID_MESSAGE_DATA);
-						}
-						const validationResult = MessageUpdateRequestSchema.safeParse(normalizeMessageRequestPayload(data));
-						if (!validationResult.success) {
-							throw InputValidationError.fromCode('message_data', ValidationErrorCodes.INVALID_MESSAGE_DATA);
-						}
-						return validationResult.data;
-					})();
+			const validatedData = await parseMessageRequestBody(ctx, user, channelId, MessageUpdateRequestSchema);
 			return ctx.json(
 				await messageRequestService.editMessage({
 					viewer: viewerFromCtx(ctx),

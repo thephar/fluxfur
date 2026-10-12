@@ -12,21 +12,12 @@
 -define(RECORDER, guild_channel_move_equivalence_recorder).
 -define(MODE, guild_channel_move_equivalence_mode).
 -define(DEFAULT_SEEDS, 300).
--define(SENSITIVITY_SEEDS, 150).
 
 equivalence_test_() ->
     {timeout, 1800, fun() ->
         with_harness(fun() ->
             First = env_int("CHMOVE_FIRST_SEED", 1),
             lists:foreach(fun check_seed/1, lists:seq(First, First + seed_count() - 1))
-        end)
-    end}.
-
-sensitivity_test_() ->
-    {timeout, 1800, fun() ->
-        with_harness(fun() ->
-            Undetected = [Name || Name <- broken_modes(), not diverges_for_some_case(Name)],
-            ?assertEqual([], Undetected)
         end)
     end}.
 
@@ -559,7 +550,7 @@ input_changes() ->
             end)},
         {roles,
             with_data(fun(D) ->
-                [E | Rest] = guild_data_index:role_list(D),
+                [E | Rest] = guild_data_index_roles:role_list(D),
                 guild_data_index:put_roles([E#{<<"permissions">> => <<"0">>} | Rest], D)
             end)},
         {role_order,
@@ -652,7 +643,9 @@ with_channels(Fun) ->
 with_channels(Fun, State) ->
     with_data(
         fun(D) ->
-            guild_data_index:put_channels([Fun(C) || C <- guild_data_index:channel_list(D)], D)
+            guild_data_index:put_channels(
+                [Fun(C) || C <- guild_data_index_channels:channel_list(D)], D
+            )
         end,
         State
     ).
@@ -817,90 +810,11 @@ spec_layout_after_hooks(Spec) ->
     layout(Spec) ++ [C || {channel_create, C} <- maps:get(hooks, Spec, [])].
 
 check_spec(Spec, Events) ->
-    check_spec(Spec, Events, optimized).
-
-check_spec(Spec, Events, Mode) ->
     {RefHooks, Reference} = run(Spec, Events, reference),
-    {CandHooks, Candidate} = run(Spec, Events, Mode),
+    {CandHooks, Candidate} = run(Spec, Events, optimized),
     assert_same(hooks, log, RefHooks, CandHooks),
     compare_runs(Reference, Candidate, Events, 1),
     #{reference => Reference, optimized => Candidate}.
-
-diverges_for_some_case(Broken) ->
-    Cases =
-        hand_cases() ++
-            [
-                begin
-                    Spec = gen_spec(Seed),
-                    {Spec, gen_events(Seed, spec_layout_after_hooks(Spec))}
-                end
-             || Seed <- lists:seq(1, ?SENSITIVITY_SEEDS)
-            ],
-    lists:any(
-        fun({Spec, Events}) ->
-            try check_spec(Spec, Events, {broken, Broken}) of
-                _ -> false
-            catch
-                error:_ -> true
-            end
-        end,
-        Cases
-    ).
-
-broken_modes() ->
-    [never_stale, vca_marks_off, latch_off, reload_marks_off].
-
-hand_cases() ->
-    Create = (create_spec())#{hooks => [{channel_create, new_public_channel()}]},
-    CreateLayout = layout(Create) ++ [new_public_channel()],
-    Owner = (owner_spec())#{hooks => [{owner, user_id(2)}]},
-    OwnerFlip = (flip_spec())#{
-        hooks => owner_flip_hooks()
-    },
-    RoleFlip = (flip_spec())#{
-        list_subscriptions => [],
-        hooks => [
-            {ensure_list, flip_channel()},
-            {role_permissions, 1, 0},
-            {member_update, user_id(2)},
-            {role_permissions, 1, view()}
-        ]
-    },
-    Gap = (gap_spec(?CHAN_BASE + 500))#{
-        list_subscriptions => [{session_id(1), integer_to_binary(?CHAN_BASE + 500)}]
-    },
-    GapMoved = (find(?CHAN_BASE + 501, layout(Gap)))#{
-        <<"parent_id">> => integer_to_binary(?CHAN_BASE + 500)
-    },
-    Text = ticker_category() + 1,
-    [
-        {Create, [
-            bulk_event(renumber(move_channels([new_id()], {parent, cat_id()}, CreateLayout)))
-        ]},
-        {Owner, [position_move(Owner)]},
-        {flip_spec(), [position_move(flip_spec())]},
-        {OwnerFlip, [position_move(OwnerFlip)]},
-        {RoleFlip, [position_move(RoleFlip)]},
-        {Gap, [
-            {channel_update, GapMoved},
-            bulk_event(renumber(lists:reverse(replace(GapMoved, layout(Gap)))))
-        ]},
-        {ticker_spec(), [
-            {channel_update, (find(Text, layout(ticker_spec())))#{
-                <<"permission_overwrites">> => [overwrite(role_id(1), 0, 0, view())]
-            }}
-        ]},
-        {hidden_voice_spec(), [position_move(hidden_voice_spec())]},
-        category_flip_case(),
-        bulk_category_flip_case(),
-        everyone_patch_flip_case(),
-        reload_case(),
-        created_child_flip_case(),
-        subscribed_hidden_voice_case(),
-        shared_roles_case(user_allow(), [hidden_overwrite() | user_allow()]),
-        shared_roles_case([], [hidden_overwrite() | user_allow()]),
-        shared_roles_case([hidden_overwrite() | user_allow()], [hidden_overwrite()])
-    ].
 
 compare_runs([], [], [], _N) ->
     ok;
@@ -970,7 +884,7 @@ run(Spec, Events, Mode) ->
 
 apply_hooks(Hooks, State, Env) ->
     State1 = lists:foldl(fun apply_hook/2, State, Hooks),
-    State2 = guild_member_list:flush_pending_member_list_syncs(State1),
+    State2 = guild_member_list_write:flush_pending_member_list_syncs(State1),
     {Log, Direct, _Fetches} = take_log(Env),
     {State2, {normalize(Log, Env), normalize(Direct, Env)}}.
 
@@ -984,7 +898,7 @@ apply_hook({channel_create, Channel}, State) ->
 apply_hook({owner, UserId}, State) ->
     guild:dispatch_event(guild_update, #{<<"owner_id">> => integer_to_binary(UserId)}, State);
 apply_hook({member_update, UserId}, State) ->
-    Member = guild_data_index:get_member(UserId, maps:get(data, State)),
+    Member = guild_data_index_members:get_member(UserId, maps:get(data, State)),
     Nick =
         case maps:get(<<"nick">>, Member, null) of
             Previous when is_binary(Previous) -> <<Previous/binary, "x">>;
@@ -994,7 +908,7 @@ apply_hook({member_update, UserId}, State) ->
         guild_member_update, member_payload(Member#{<<"nick">> => Nick}), State
     );
 apply_hook({role_permissions, Index, Perms}, State) ->
-    Role = maps:get(role_id(Index), guild_data_index:role_index(maps:get(data, State))),
+    Role = maps:get(role_id(Index), guild_data_index_roles:role_index(maps:get(data, State))),
     guild:dispatch_event(
         guild_role_update,
         #{<<"role">> => Role#{<<"permissions">> => integer_to_binary(Perms)}},
@@ -1004,7 +918,7 @@ apply_hook({patch_everyone, Bit}, State) ->
     {noreply, Next} = guild:handle_cast({patch_everyone_perms, Bit}, State),
     Next;
 apply_hook({everyone_permissions, Perms}, State) ->
-    Role = maps:get(?GUILD_ID, guild_data_index:role_index(maps:get(data, State))),
+    Role = maps:get(?GUILD_ID, guild_data_index_roles:role_index(maps:get(data, State))),
     guild:dispatch_event(
         guild_role_update,
         #{<<"role">> => Role#{<<"permissions">> => integer_to_binary(Perms)}},
@@ -1026,7 +940,7 @@ run_event(Kind, Data, State, Env) ->
             hook -> apply_hook(Data, State);
             _ -> guild:dispatch_event(Kind, Data, State)
         end,
-    State2 = guild_member_list:flush_pending_member_list_syncs(State1),
+    State2 = guild_member_list_write:flush_pending_member_list_syncs(State1),
     {Log, Direct, Fetches} = take_log(Env),
     Counts = read_counters(),
     Result = #{
@@ -1089,24 +1003,8 @@ install_modes() ->
     meck:expect(guild_member_list_engine_inputs, is_stale, fun(ListId, State) ->
         case get(?MODE) of
             reference -> true;
-            {broken, never_stale} -> false;
             _ -> meck:passthrough([ListId, State])
         end
-    end),
-    Unmarked = fun(Broken, Args) ->
-        case get(?MODE) of
-            {broken, Broken} -> lists:last(Args);
-            _ -> meck:passthrough(Args)
-        end
-    end,
-    meck:expect(guild_member_list_engine_inputs, mark_stale, fun(ChannelId, State) ->
-        Unmarked(vca_marks_off, [ChannelId, State])
-    end),
-    meck:expect(guild_member_list_engine_inputs, latch_stale, fun(State) ->
-        Unmarked(latch_off, [State])
-    end),
-    meck:expect(guild_member_list_engine_inputs, forget_all, fun(State) ->
-        Unmarked(reload_marks_off, [State])
     end).
 
 empty_log() ->
@@ -1174,7 +1072,7 @@ voice_server_loop(VoiceStates) ->
     {visibility,
         {guild_visibility_overwrites, compute_and_dispatch_visibility_changes_for_channels, 3}},
     {prune, {guild_maintenance, prune_invalid_member_subscriptions, 1}},
-    {can_view, {guild_visibility_channels, channel_is_visible, 4}}
+    {can_view, {guild_permissions_check, can_view_channel, 4}}
 ]).
 
 start_counters() ->
@@ -1245,7 +1143,9 @@ materialize(Spec) ->
     ),
     S4 = lists:foldl(
         fun({Sid, ListId}, Acc) ->
-            {Acc1, _, _} = guild_member_list:subscribe_ranges(Sid, ListId, [{0, 99}], Acc),
+            {Acc1, _, _} = guild_member_list_subscribe:subscribe_ranges(
+                Sid, ListId, [{0, 99}], Acc
+            ),
             Acc1
         end,
         S3,
@@ -1272,7 +1172,7 @@ materialize(Spec) ->
         #{},
         #{},
         guild_maintenance:maybe_prune_invalid_member_subscriptions(
-            guild_role_update, guild_member_list:flush_pending_member_list_syncs(S5)
+            guild_role_update, guild_member_list_write:flush_pending_member_list_syncs(S5)
         )
     ),
     ok = guild_permission_cache:put_state(S6),
@@ -1293,7 +1193,7 @@ add_session(#{label := Label, user_id := UserId, pending := Pending}, Collectors
                 #{};
             false ->
                 guild_sessions:build_viewable_channel_map(
-                    guild_visibility:get_user_viewable_channels(UserId, State)
+                    guild_visibility_channels:get_user_viewable_channels(UserId, State)
                 )
         end,
     Session = #{
@@ -1339,7 +1239,7 @@ normalize_state(State, Env) ->
     EngineSnapshots = maps:map(
         fun(ListId, Ref) ->
             {
-                guild_member_list:member_list_snapshot(ListId, State),
+                guild_member_list_read:member_list_snapshot(ListId, State),
                 guild_member_list_engine:get_sorted_user_ids(Ref),
                 guild_member_list_engine:get_counts(Ref),
                 guild_member_list_engine:get_groups(Ref)

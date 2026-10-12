@@ -7,7 +7,6 @@
     build_voice_token_rpc_request/6,
     build_voice_token_rpc_request/8,
     build_force_disconnect_rpc_request/4,
-    build_update_participant_rpc_request/5,
     build_update_participant_rpc_request/6,
     build_update_participant_permissions_rpc_request/5,
     add_geolocation_to_request/3,
@@ -147,19 +146,6 @@ build_force_disconnect_rpc_request(GuildId, ChannelId, UserId, ConnectionId) ->
     end.
 
 -spec build_update_participant_rpc_request(
-    integer() | null, integer(), integer(), boolean(), boolean()
-) -> map().
-build_update_participant_rpc_request(GuildId, ChannelId, UserId, Mute, Deaf) ->
-    build_update_participant_rpc_request(
-        GuildId,
-        ChannelId,
-        UserId,
-        Mute,
-        Deaf,
-        #{can_speak => true, can_stream => true, can_video => true}
-    ).
-
--spec build_update_participant_rpc_request(
     integer() | null, integer(), integer(), boolean(), boolean(), voice_permissions()
 ) -> map().
 build_update_participant_rpc_request(GuildId, ChannelId, UserId, Mute, Deaf, VoicePermissions) ->
@@ -209,9 +195,9 @@ compute_voice_permissions(UserId, ChannelId, State) ->
     SpeakPerm = constants:speak_permission(),
     StreamPerm = constants:stream_permission(),
     AdminPerm = constants:administrator_permission(),
-    IsAdmin = permission_bits:has(Permissions, AdminPerm),
-    CanSpeak = IsAdmin orelse permission_bits:has(Permissions, SpeakPerm),
-    CanStream = IsAdmin orelse permission_bits:has(Permissions, StreamPerm),
+    IsAdmin = bitset:has(Permissions, AdminPerm),
+    CanSpeak = IsAdmin orelse bitset:has(Permissions, SpeakPerm),
+    CanStream = IsAdmin orelse bitset:has(Permissions, StreamPerm),
     HasVirtualAccess = guild_virtual_channel_access:has_voice_access(
         UserId, ChannelId, State
     ),

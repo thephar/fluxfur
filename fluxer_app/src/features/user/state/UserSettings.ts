@@ -17,9 +17,11 @@ import AppStorage, {flushAppStorageWrites} from '@app/features/platform/state/Pe
 import {http} from '@app/features/platform/transport/RestTransport';
 import {HttpError} from '@app/features/platform/types/EndpointError';
 import {Logger} from '@app/features/platform/utils/AppLogger';
+import {isAbortError} from '@app/features/platform/utils/PlatformHelpers';
 import LocalPresence, {setLocalPresenceUserSettings} from '@app/features/presence/state/LocalPresence';
 import Theme from '@app/features/theme/state/Theme';
 import MobileLayout from '@app/features/ui/state/MobileLayout';
+import {PRIVACY_SETUP_VERSION} from '@app/features/user/constants/PrivacySetupConstants';
 import {
 	type CustomStatus,
 	normalizeCustomStatus,
@@ -28,9 +30,6 @@ import {
 import {setSyncedFieldUserSettings} from '@app/features/user/state/SyncedField';
 import {
 	changedSyncedPreferenceFields,
-	createEmptySyncedPreferences,
-	decodeSyncedPreferencesLenient,
-	encodeSyncedPreferences,
 	isSyncedPreferencesField,
 	mergeIncomingSyncedPreferences as mergeIncomingSyncedPreferencesWithEngine,
 	preferencesFromBytes,
@@ -53,6 +52,11 @@ import {
 	ThemeTypes,
 	TimeFormatTypes,
 } from '@fluxer/constants/src/UserConstants';
+import {
+	createEmptySyncedPreferences,
+	decodeSyncedPreferencesLenient,
+	encodeSyncedPreferences,
+} from '@fluxer/schema/src/domains/user/SyncedPreferencesCodec';
 import camelCase from 'lodash/camelCase';
 import isEqual from 'lodash/isEqual';
 import isPlainObject from 'lodash/isPlainObject';
@@ -131,10 +135,6 @@ const SYNCED_PREFERENCES_LOCAL_KEY = 'UserSettings:syncedPreferencesLocal';
 const SYNCED_PREFERENCES_WIRE_KEY = 'UserSettings:syncedPreferencesWire';
 const SYNCED_PREFERENCES_RECENT_ACK_KEY = 'UserSettings:syncedPreferencesRecentAck';
 const RECENT_SYNCED_PREFERENCES_ACK_WINDOW_MS = 60_000;
-
-function isAbortError(error: unknown): boolean {
-	return (error instanceof DOMException || error instanceof Error) && error.name === 'AbortError';
-}
 
 function readDirtySyncedPreferenceFields(): Set<SyncedPreferencesField> {
 	try {
@@ -391,10 +391,6 @@ class UserSettingsState {
 		writePersistedSyncedPreferences(SYNCED_PREFERENCES_WIRE_KEY, this.wireSyncedPreferences);
 	}
 
-	getStatus(): StatusType {
-		return this.status;
-	}
-
 	getStatusResetsAt(): string | null {
 		return this.statusResetsAt;
 	}
@@ -403,28 +399,8 @@ class UserSettingsState {
 		return this.statusResetsTo;
 	}
 
-	getTimeFormat(): number {
-		return this.timeFormat;
-	}
-
-	getLocale(): string {
-		return this.locale;
-	}
-
 	applyLocalLocale(locale: string): void {
 		this.locale = applyLocaleChange(locale);
-	}
-
-	getBotDefaultGuildsRestricted(): boolean {
-		return this.botDefaultGuildsRestricted;
-	}
-
-	getDefaultGuildsRestricted(): boolean {
-		return this.defaultGuildsRestricted;
-	}
-
-	getInlineAttachmentMedia(): boolean {
-		return this.inlineAttachmentMedia;
 	}
 
 	getMotionPreferencesInput(): MotionPreferencesInput {
@@ -453,14 +429,6 @@ class UserSettingsState {
 		return selectEffectiveGifAutoPlay(createMotionPreferencesContext(this.getMotionPreferencesInput()));
 	}
 
-	getRenderEmbeds(): boolean {
-		return this.renderEmbeds;
-	}
-
-	getRenderReactions(): boolean {
-		return this.renderReactions;
-	}
-
 	getAnimateEmoji(): boolean {
 		return selectEffectiveAnimateEmoji(createMotionPreferencesContext(this.getMotionPreferencesInput()));
 	}
@@ -476,28 +444,8 @@ class UserSettingsState {
 		return this.messageDisplayCompact;
 	}
 
-	getFriendSourceFlags(): number {
-		return this.friendSourceFlags;
-	}
-
-	getIncomingCallFlags(): number {
-		return this.incomingCallFlags;
-	}
-
-	getGroupDmAddPermissionFlags(): number {
-		return this.groupDmAddPermissionFlags;
-	}
-
-	getProfilePrivacy(): ProfilePrivacyLevel {
-		return this.profilePrivacy;
-	}
-
-	getDefaultShareVoiceActivity(): boolean {
-		return this.defaultShareVoiceActivity;
-	}
-
-	getPrivacySetupVersion(): number | null {
-		return this.privacySetupVersion;
+	isPrivacySetupPending(): boolean {
+		return this.hydrated && this.privacySetupVersion !== null && this.privacySetupVersion < PRIVACY_SETUP_VERSION;
 	}
 
 	getCustomStatus(): CustomStatus | null {
@@ -508,28 +456,8 @@ class UserSettingsState {
 		return this.afkTimeout;
 	}
 
-	getTrustedDomains(): ReadonlyArray<string> {
-		return this.trustedDomains;
-	}
-
 	trustAllDomains(): boolean {
 		return this.trustedDomains.includes('*');
-	}
-
-	getDefaultHideMutedChannels(): boolean {
-		return this.defaultHideMutedChannels;
-	}
-
-	getSuppressUnprivilegedSelfMentions(): boolean {
-		return this.suppressUnprivilegedSelfMentions;
-	}
-
-	getSuppressUnprivilegedSelfMentionsBypassUserIds(): ReadonlyArray<string> {
-		return this.suppressUnprivilegedSelfMentionsBypassUserIds;
-	}
-
-	getStaffDmAccessUserIds(): ReadonlyArray<string> {
-		return this.staffDmAccessUserIds;
 	}
 
 	isHydrated(): boolean {
@@ -650,6 +578,7 @@ class UserSettingsState {
 		const {hydrate = true} = options;
 		const previousStatus = this.status;
 		const previousCustomStatus = this.customStatus;
+		const previousAfkTimeout = this.afkTimeout;
 		const wasHydrated = this.hydrated;
 		if (userSettings === null || userSettings === undefined) {
 			return;
@@ -743,13 +672,11 @@ class UserSettingsState {
 		) {
 			this.mergeIncomingSyncedPreferences(decodeSyncedPreferencesLenient(incomingSyncedPreferences));
 		}
-		if (normalizedStatus !== previousStatus) {
-			const presence = LocalPresence.getPresence();
-			if (!presence.afk) {
-				LocalPresence.updatePresence();
-			}
-		}
-		if (!isEqual(this.customStatus, previousCustomStatus)) {
+		if (
+			normalizedStatus !== previousStatus ||
+			!isEqual(this.customStatus, previousCustomStatus) ||
+			this.afkTimeout !== previousAfkTimeout
+		) {
 			LocalPresence.updatePresence();
 		}
 		if (hydrate && !wasHydrated) {

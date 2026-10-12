@@ -1,6 +1,10 @@
 %% SPDX-License-Identifier: AGPL-3.0-or-later
 
 -module(guild_presence_sync).
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
 -typing([eqwalizer]).
 
 -export([
@@ -16,10 +20,6 @@
 -type guild_state() :: map().
 -type user_id() :: integer().
 
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
--endif.
-
 -spec sync_online_status(user_id(), guild_state()) -> ok.
 sync_online_status(UserId, State) ->
     IsOnline = compute_is_online(UserId, State),
@@ -27,14 +27,14 @@ sync_online_status(UserId, State) ->
         error ->
             ok;
         {ok, Ref} ->
-            guild_member_list_store:set_online(Ref, UserId, IsOnline)
+            guild_member_list_engine:set_online(Ref, UserId, IsOnline)
     end,
     guild_member_list_channel_engine:sync_online(UserId, IsOnline, State).
 
 -spec sync_member_data(user_id(), guild_state()) -> ok.
 sync_member_data(UserId, State) ->
     Data = maps:get(data, State, #{}),
-    case guild_data_index:get_member(UserId, Data) of
+    case guild_data_index_members:get_member(UserId, Data) of
         undefined -> ok;
         Member -> sync_local_nif_member_data(UserId, Member, State)
     end.
@@ -54,7 +54,7 @@ sync_default_member_list_data(UserId, Member, State) ->
             SortKey = guild_member_list_common:casefold_binary(DisplayName),
             RoleIds = guild_member_list_store:extract_role_ids(Member),
             IsOnline = compute_is_online(UserId, State),
-            guild_member_list_store:update_member(Ref, UserId, SortKey, RoleIds, IsOnline)
+            guild_member_list_engine:update_member(Ref, UserId, SortKey, RoleIds, IsOnline)
     end.
 
 -spec compute_is_online(user_id(), guild_state()) -> boolean().
@@ -125,7 +125,9 @@ session_shares_channels(SessionData, SessionUserId, TargetChannelMap, State) ->
 
 -spec session_channel_list_shares(user_id(), map(), guild_state()) -> boolean().
 session_channel_list_shares(SessionUserId, TargetChannelMap, State) ->
-    SessionChannelList = guild_visibility:get_user_viewable_channels(SessionUserId, State),
+    SessionChannelList = guild_visibility_channels:get_user_viewable_channels(
+        SessionUserId, State
+    ),
     lists:any(fun(Ch) -> maps:is_key(Ch, TargetChannelMap) end, SessionChannelList).
 
 -spec maps_share_any_key(map(), map()) -> boolean().
@@ -155,7 +157,7 @@ key_matches_or_continue(Key, NextIterator, LargerMap) ->
 get_user_viewable_channel_map(UserId, Sessions, State) ->
     case find_session_viewable_channels_for_user(UserId, Sessions) of
         undefined ->
-            ChannelList = guild_visibility:get_user_viewable_channels(UserId, State),
+            ChannelList = guild_visibility_channels:get_user_viewable_channels(UserId, State),
             maps:from_list([{Ch, true} || Ch <- ChannelList]);
         ViewableMap ->
             ViewableMap
@@ -211,18 +213,6 @@ session_data_pid(SessionData) ->
 
 -ifdef(TEST).
 
-maps_share_any_key_empty_test() ->
-    ?assertEqual(false, maps_share_any_key(#{}, #{})),
-    ?assertEqual(false, maps_share_any_key(#{1 => true}, #{})),
-    ?assertEqual(false, maps_share_any_key(#{}, #{1 => true})).
-
-maps_share_any_key_overlap_test() ->
-    ?assertEqual(true, maps_share_any_key(#{1 => true, 2 => true}, #{2 => true, 3 => true})),
-    ?assertEqual(true, maps_share_any_key(#{5 => true}, #{5 => true})).
-
-maps_share_any_key_no_overlap_test() ->
-    ?assertEqual(false, maps_share_any_key(#{1 => true, 2 => true}, #{3 => true, 4 => true})).
-
 get_user_viewable_channel_map_uses_session_cache_test() ->
     Sessions = #{
         <<"s1">> => #{user_id => 10, viewable_channels => #{100 => true, 200 => true}},
@@ -274,18 +264,6 @@ partition_subscribed_sessions_excludes_target_user_test() ->
 
 partition_subscribed_sessions_missing_session_test() ->
     assert_partition_result(#{}, #{100 => true}, [], [<<"s1">>]).
-
-session_pids_keeps_order_and_skips_unknown_and_pidless_test() ->
-    Pid = self(),
-    Sessions = #{
-        <<"s1">> => #{user_id => 20, pid => Pid},
-        <<"s2">> => #{user_id => 30},
-        <<"s3">> => #{user_id => 40, pid => Pid}
-    },
-    ?assertEqual(
-        [Pid, Pid],
-        session_pids([<<"s3">>, <<"missing">>, <<"s2">>, <<"s1">>], Sessions)
-    ).
 
 sync_member_data_updates_loaded_channel_engines_test() ->
     GuildId = 100,

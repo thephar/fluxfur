@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {AdminRepository} from '@app/api/admin/AdminRepository';
-import type {AdminAuditLog} from '@app/api/admin/IAdminRepository';
+import {type AdminAuditLog, AdminRepository} from '@app/api/admin/AdminRepository';
 import {
 	clearTestEmails,
 	createTestAccount,
@@ -29,13 +28,13 @@ import {
 	getUserPermissionUtils,
 	getUserRepository,
 } from '@app/api/middleware/ServiceSingletons';
-import {ReportStatus} from '@app/api/report/IReportRepository';
+import {ReportStatus} from '@app/api/report/ReportModels';
 import {ReportRepository} from '@app/api/report/ReportRepository';
 import {getReportSearchService} from '@app/api/SearchFactory';
 import {drainSearchTasks} from '@app/api/search/SearchTaskTracker';
 import {createTestStoreEntitlementService} from '@app/api/store_billing/tests/StoreBillingTestUtils';
 import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHarness';
-import {NoopLogger} from '@app/api/test/mocks/NoopLogger';
+import {createTestWorkerHelpers} from '@app/api/test/SyncTaskWorkerService';
 import {HTTP_STATUS} from '@app/api/test/TestConstants';
 import {createBuilder, createBuilderWithoutAuth} from '@app/api/test/TestRequestBuilder';
 import bulkScheduleUserDeletion from '@app/api/worker/tasks/admin_bulk/BulkScheduleUserDeletion';
@@ -43,7 +42,7 @@ import {clearWorkerDependencies, setWorkerDependenciesForTest} from '@app/api/wo
 import {DeletionReasons} from '@fluxer/constants/src/Core';
 import {UserFlags} from '@fluxer/constants/src/UserConstants';
 import {getEmailTemplate} from '@pkgs/email/src/email_i18n/EmailI18n';
-import type {WorkerTaskHelpers, WorkerTaskResult} from '@pkgs/worker/src/contracts/WorkerTask';
+import type {WorkerTaskResult} from '@pkgs/worker/src/contracts/WorkerTask';
 import type {WorkerJobPayload} from '@pkgs/worker/src/contracts/WorkerTypes';
 import {afterEach, beforeEach, describe, expect, test, vi} from 'vitest';
 
@@ -58,17 +57,6 @@ interface BulkJobResult {
 }
 
 const AUDIT_LOG_REASON = 'Lilith spam sweep 2026-09-14';
-
-function createHelpers(): WorkerTaskHelpers {
-	return {
-		logger: new NoopLogger(),
-		jobId: 4242n,
-		addJob: async () => 0n,
-		reportProgress: async () => {},
-		shouldCancel: async () => false,
-		setContextLink: async () => {},
-	};
-}
 
 function installWorkerDependencies(): void {
 	setWorkerDependenciesForTest({
@@ -106,7 +94,7 @@ async function runBulkJob(
 			audit_log_reason: AUDIT_LOG_REASON,
 			...extraPayload,
 		},
-		createHelpers(),
+		createTestWorkerHelpers({jobId: 4242n}),
 	)) as WorkerTaskResult;
 	return result as unknown as BulkJobResult;
 }
@@ -589,7 +577,6 @@ describe('bulkScheduleUserDeletion', () => {
 				return 1n;
 			},
 			cancelJob: async () => false,
-			retryDeadLetterJob: async () => false,
 		});
 		await createBuilder(harness, admin.token)
 			.post('/admin/bulk-jobs')

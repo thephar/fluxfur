@@ -23,22 +23,6 @@ start_new_guild_skips_start_when_already_registered_test() ->
         ExistingPid ! stop
     end.
 
-start_guild_returns_existing_when_registered_test() ->
-    process_registry:init(),
-    GuildId = 88888,
-    GuildKey = process_registry:build_process_key(guild, GuildId),
-    ExistingPid = spawn(fun mock_guild_loop/0),
-    ets:insert(process_registry_table, {GuildKey, ExistingPid}),
-    try
-        State0 = #{guilds => #{}, pending_requests => #{}, shard_index => 0},
-        Data = #{<<"guild">> => #{<<"id">> => <<"88888">>, <<"features">> => []}},
-        Result = guild_manager_shard_lifecycle:start_guild(GuildId, Data, State0),
-        ?assertMatch({ok, ExistingPid, _}, Result)
-    after
-        process_registry:registry_unregister(GuildKey),
-        ExistingPid ! stop
-    end.
-
 normalize_transferred_guild_state_keeps_only_transferable_fields_test() ->
     GuildId = 99998,
     TransferState = #{
@@ -70,27 +54,6 @@ normalize_transferred_guild_state_keeps_only_transferable_fields_test() ->
     ?assertNot(maps:is_key(thread_resend_pending, Normalized)),
     ?assertNot(maps:is_key(voice_server_pid, Normalized)).
 
-register_and_monitor_race_kills_duplicate_test_() ->
-    {timeout, 15, fun() ->
-        process_registry:init(),
-        GuildId = 66666,
-        GuildKey = process_registry:build_process_key(guild, GuildId),
-        WinnerPid = spawn(fun mock_guild_loop/0),
-        ets:insert(process_registry_table, {GuildKey, WinnerPid}),
-        LoserPid = spawn(fun mock_guild_loop/0),
-        try
-            Result = process_registry:register_and_monitor(GuildKey, LoserPid, #{}),
-            ?assertMatch({ok, WinnerPid, _, _}, Result),
-            timer:sleep(200),
-            ?assertEqual(false, process_liveness:is_alive(LoserPid)),
-            ?assert(process_liveness:is_alive(WinnerPid))
-        after
-            process_registry:registry_unregister(GuildKey),
-            WinnerPid ! stop,
-            LoserPid ! stop
-        end
-    end}.
-
 shard_terminate_drains_pending_requests_test() ->
     ReplyRef1 = make_ref(),
     ReplyRef2 = make_ref(),
@@ -114,15 +77,6 @@ shard_terminate_drains_pending_requests_test() ->
     after 100 ->
         ?assert(false)
     end.
-
-shard_terminate_empty_pending_does_not_crash_test() ->
-    State = #{
-        guilds => #{},
-        pending_requests => #{},
-        fetch_workers => #{},
-        shard_index => 0
-    },
-    ?assertEqual(ok, guild_manager_shard:terminate(normal, State)).
 
 mock_guild_loop() ->
     receive

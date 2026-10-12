@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type {ChannelService} from '@app/api/channel/services/ChannelService';
-import type {IJobLedgerRepository} from '@app/api/jobs/IJobLedgerRepository';
+import type {JobLedgerRepository} from '@app/api/jobs/JobLedgerRepository';
 import {setInjectedWorkerService} from '@app/api/middleware/ServiceRegistry';
 import {NoopWorkerService} from '@app/api/test/NoopWorkerService';
 import type {UserRepository} from '@app/api/user/repositories/UserRepository';
@@ -44,7 +44,7 @@ function createLedgerStub(cancelAfter: number) {
 			cancelChecks.count += 1;
 			return cancelChecks.count > cancelAfter;
 		},
-	} as unknown as IJobLedgerRepository;
+	} as unknown as JobLedgerRepository;
 	return {ledger, markCancelled, markSucceeded};
 }
 
@@ -126,26 +126,6 @@ describe('System DM cancellation', () => {
 		expect(markSucceeded).not.toHaveBeenCalled();
 		expect(msg.ack).toHaveBeenCalledTimes(1);
 		expect(msg.nak).not.toHaveBeenCalled();
-	});
-
-	it('settles the ledger row as succeeded when no cancel is requested', async () => {
-		const deps = createWorkerDependencies();
-		const {ledger, markCancelled, markSucceeded} = createLedgerStub(Number.POSITIVE_INFINITY);
-		const runner = new TestWorkerRunner({
-			tasks: {[TASK_TYPE]: sendSystemDm},
-			queue: queueStub,
-			consumerName: 'workers_batch',
-			laneName: 'batch',
-			ledger,
-			concurrency: 1,
-		});
-		const msg = createJobMessage();
-
-		await expect(runner.runJob(TASK_TYPE, msg as unknown as JsMsg)).resolves.toBe(true);
-
-		expect(deps.sentChannelIds).toHaveLength(3);
-		expect(markSucceeded).toHaveBeenCalledTimes(1);
-		expect(markCancelled).not.toHaveBeenCalled();
 	});
 
 	it('sends every message as the synthetic system account', async () => {

@@ -66,10 +66,6 @@ class LastFrameSnapshotCache extends Store {
 	private captureIds = new Map<string, number>();
 	private nextCaptureId = 1;
 
-	get size(): number {
-		return this.snapshots.size;
-	}
-
 	getSnapshotUrl(key: string): string | null {
 		return this.snapshots.get(key) ?? null;
 	}
@@ -126,28 +122,6 @@ class LastFrameSnapshotCache extends Store {
 		const dataUrl = drawSourceToDataUrl(renderedVideo, renderedVideo.videoWidth, renderedVideo.videoHeight);
 		if (!dataUrl) return;
 		this.retainSnapshot(key, dataUrl);
-	}
-
-	release(key: string): void {
-		this.captureIds.delete(key);
-		const url = this.snapshots.get(key);
-		if (url === undefined) return;
-		this.update(() => {
-			this.snapshots.delete(key);
-		});
-		revokeSnapshotUrl(url);
-	}
-
-	clear(): void {
-		this.captureIds.clear();
-		if (this.snapshots.size === 0) return;
-		const revoked = [...this.snapshots.values()];
-		this.update(() => {
-			this.snapshots.clear();
-		});
-		for (const stale of revoked) {
-			revokeSnapshotUrl(stale);
-		}
 	}
 }
 

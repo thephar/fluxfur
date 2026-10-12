@@ -2,7 +2,8 @@
 
 import type {ChannelID, GuildID, MessageID, UserID} from '@app/api/BrandedTypes';
 import {createChannelID} from '@app/api/BrandedTypes';
-import type {IChannelRepository} from '@app/api/channel/IChannelRepository';
+import type {ChannelRepository} from '@app/api/channel/ChannelRepository';
+import {dispatchChannelEvent} from '@app/api/channel/services/ChannelGatewayDispatch';
 import {
 	type CrosspostWorkerService,
 	enqueueCrosspostSourceRemoval,
@@ -22,11 +23,10 @@ import {Logger} from '@app/api/Logger';
 import type {Message} from '@app/api/models/Message';
 import {deleteMessageSearchDocuments} from '@app/api/search/MessageSearchIndexCleanup';
 import {chunkArray} from '@app/api/utils/ArrayUtils';
-import {ChannelEventDispatcher} from '@app/api/worker/services/ChannelEventDispatcher';
 import {snowflakeToDate} from '@fluxer/snowflake/src/Snowflake';
 
 interface UserMessageDeletionServiceDeps {
-	channelRepository: IChannelRepository;
+	channelRepository: ChannelRepository;
 	gatewayService: IGatewayService;
 	storageService: IStorageService;
 	purgeQueue: IPurgeQueue;
@@ -58,13 +58,10 @@ interface MessageWithChannel {
 }
 
 export class UserMessageDeletionService {
-	private readonly eventDispatcher: ChannelEventDispatcher;
 	private readonly FETCH_BATCH_SIZE = 100;
 	private readonly DELETE_BATCH_SIZE = 100;
 
-	constructor(private readonly deps: UserMessageDeletionServiceDeps) {
-		this.eventDispatcher = new ChannelEventDispatcher({gatewayService: deps.gatewayService});
-	}
+	constructor(private readonly deps: UserMessageDeletionServiceDeps) {}
 
 	async deleteUserMessagesInScope(
 		userId: UserID,
@@ -125,7 +122,7 @@ export class UserMessageDeletionService {
 		const channelEligibility = new Map<string, boolean>();
 		let lastMessageId: MessageID | undefined;
 		while (true) {
-			const messageRefs = await this.deps.channelRepository.listMessagesByAuthor(
+			const messageRefs = await this.deps.channelRepository.messages.listMessagesByAuthor(
 				userId,
 				this.FETCH_BATCH_SIZE,
 				lastMessageId,
@@ -141,14 +138,14 @@ export class UserMessageDeletionService {
 				const channelIdStr = channelId.toString();
 				let eligible = channelEligibility.get(channelIdStr);
 				if (eligible === undefined) {
-					const channel = await this.deps.channelRepository.findUnique(channelId);
+					const channel = await this.deps.channelRepository.channelData.findUnique(channelId);
 					eligible = channel ? isChannelEligible(channel, userId, filter, context) : false;
 					channelEligibility.set(channelIdStr, eligible);
 				}
 				if (!eligible) {
 					continue;
 				}
-				const message = await this.deps.channelRepository.getMessage(channelId, messageId);
+				const message = await this.deps.channelRepository.messages.getMessage(channelId, messageId);
 				if (message && message.authorId === userId) {
 					if (!messagesByChannel.has(channelIdStr)) {
 						messagesByChannel.set(channelIdStr, []);
@@ -191,7 +188,7 @@ export class UserMessageDeletionService {
 		const messagesByChannel = new Map<string, Array<MessageWithChannel>>();
 		let lastMessageId: MessageID | undefined;
 		while (true) {
-			const messageRefs = await this.deps.channelRepository.listMessagesByAuthor(
+			const messageRefs = await this.deps.channelRepository.messages.listMessagesByAuthor(
 				userId,
 				this.FETCH_BATCH_SIZE,
 				lastMessageId,
@@ -207,7 +204,7 @@ export class UserMessageDeletionService {
 				if (messageTimestamp > beforeTimestamp) {
 					continue;
 				}
-				const message = await this.deps.channelRepository.getMessage(channelId, messageId);
+				const message = await this.deps.channelRepository.messages.getMessage(channelId, messageId);
 				if (message && message.authorId === userId) {
 					const channelIdStr = channelId.toString();
 					if (!messagesByChannel.has(channelIdStr)) {
@@ -226,7 +223,7 @@ export class UserMessageDeletionService {
 			return 0;
 		}
 		const channelId = createChannelID(BigInt(channelIdStr));
-		const channel = await this.deps.channelRepository.findUnique(channelId);
+		const channel = await this.deps.channelRepository.channelData.findUnique(channelId);
 		if (!channel) {
 			Logger.debug({channelId: channelIdStr}, 'Channel not found, skipping messages');
 			return 0;
@@ -241,9 +238,14 @@ export class UserMessageDeletionService {
 					purgeMessageAttachments(message, this.deps.storageService, this.deps.purgeQueue),
 				),
 			);
-			await this.deps.channelRepository.bulkDeleteMessages(channelId, messageIds);
+			await this.deps.channelRepository.messages.bulkDeleteMessages(channelId, messageIds);
 			await decrementThreadMessageCount(this.deps.channelRepository, channel, messageIds);
-			await this.eventDispatcher.dispatchBulkDelete(channel, messageIds);
+			await dispatchChannelEvent({
+				gatewayService: this.deps.gatewayService,
+				channel,
+				event: 'MESSAGE_DELETE_BULK',
+				data: {channel_id: channel.id.toString(), ids: messageIds.map((id) => id.toString())},
+			});
 			await enqueueCrosspostSourceRemoval(this.deps.workerService, {
 				messages: messageObjects,
 				mode: 'source_deleted',

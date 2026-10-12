@@ -28,6 +28,7 @@ load() ->
 env_config() ->
     #{
         <<"env">> => env_binary("FLUXER_ENV", <<"development">>),
+        <<"instance">> => #{<<"self_hosted">> => env_bool("FLUXER_SELF_HOSTED", false)},
         <<"internal">> => env_internal_config(),
         <<"public">> => env_public_config(),
         <<"proxy">> => env_proxy_config(),
@@ -147,9 +148,10 @@ build_config(RawConfig) ->
     Nats = get_map(RawConfig, [<<"services">>, <<"nats">>]),
     Proxy = get_map(RawConfig, [<<"proxy">>]),
     Public = get_map(RawConfig, [<<"public">>]),
+    Instance = get_map(RawConfig, [<<"instance">>]),
     lists:foldl(fun maps:merge/2, #{}, [
         build_core_config(Service, Internal, Nats, Proxy),
-        build_push_config(Service, Public),
+        build_push_config(Service, Public, Instance),
         build_sharding_config(Service),
         build_http_config(Service),
         build_cluster_config(Service, Public),
@@ -170,16 +172,14 @@ build_core_config(Service, Internal, Nats, Proxy) ->
         nats_auth_token => get_string(Nats, <<"auth_token">>, ""),
         rpc_auth_token => get_string(Service, <<"rpc_auth_token">>, ""),
         gateway_nats_rpc_max_handlers =>
-            get_int(Service, <<"gateway_nats_rpc_max_handlers">>, 512),
-        identify_rate_limit_enabled => get_bool(
-            Service, <<"identify_rate_limit_enabled">>, false
-        )
+            get_int(Service, <<"gateway_nats_rpc_max_handlers">>, 512)
     }.
 
--spec build_push_config(map(), map()) -> config().
-build_push_config(Service, Public) ->
+-spec build_push_config(map(), map(), map()) -> config().
+build_push_config(Service, Public, Instance) ->
     #{
         push_enabled => get_bool(Service, <<"push_enabled">>, true),
+        self_hosted => get_bool(Instance, <<"self_hosted">>, false),
         static_cdn_endpoint => public_endpoint(
             get_binary(Service, <<"static_cdn_endpoint">>, <<"http://localhost:8088">>), Public
         ),
@@ -281,9 +281,6 @@ parse_guild_id(Token) ->
 -spec build_misc_config(map()) -> config().
 build_misc_config(Service) ->
     #{
-        handoff_enable_event_pause => get_bool(
-            Service, <<"handoff_enable_event_pause">>, false
-        ),
         voice_state_counts_sync_interval_ms =>
             get_int(Service, <<"voice_state_counts_sync_interval_ms">>, 30000),
         logger_level => get_log_level(Service, <<"logger_level">>, info)

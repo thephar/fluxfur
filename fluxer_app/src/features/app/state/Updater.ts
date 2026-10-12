@@ -4,7 +4,6 @@ import Config from '@app/features/app/config/Config';
 import {DESKTOP_DOWNLOAD_URL} from '@app/features/app/config/I18nDisplayConstants';
 import {WORKER_NAVIGATION_CACHE_PREFIX} from '@app/features/platform/service_worker/WorkerCacheCleanup';
 import {getProtectedCacheStorage} from '@app/features/platform/state/ProtectedWebStorage';
-import type {UpdaterContext, UpdaterDownloadOption, UpdaterEvent} from '@app/features/platform/types/Electron';
 import {Logger} from '@app/features/platform/utils/AppLogger';
 import {getClientInfo} from '@app/features/platform/utils/ClientInfo';
 import {flushPendingPersistWrites} from '@app/features/platform/utils/MobXPersistence';
@@ -20,17 +19,49 @@ import type * as UpdaterModalCommands from '@app/features/updater/commands/Updat
 import {
 	createUpdaterMachineSnapshot,
 	getUpdaterDisplayVersion,
-	getUpdaterMachineStateValue,
 	hasManualNativeDownload,
 	transitionUpdaterMachineSnapshot,
 	type UpdateInfo,
 	type UpdaterMachineEvent,
 	type UpdaterMachineSnapshot,
-	type UpdaterState,
 } from '@app/features/updater/state/UpdaterStateMachine';
 import {buildLinuxManualUpdateOptions} from '@app/features/updater/utils/LinuxManualUpdateOptions';
-import type {UpdaterEvent as NativeUpdaterEvent} from '@app/types/electron.d';
+import type {UpdaterEvent as NativeUpdaterEvent, UpdaterDownloadOption} from '@app/types/electron.d';
+import {OFFICIAL_WEB_APP_HOSTS} from '@fluxer/instance_bootstrap/src/OfficialWebAppHosts';
 import {makeAutoObservable, runInAction} from 'mobx';
+
+type UpdaterContext = NonNullable<NativeUpdaterEvent['context']>;
+type UpdaterEvent =
+	| {
+			type: 'checking';
+			context: UpdaterContext;
+	  }
+	| {
+			type: 'available';
+			context: UpdaterContext;
+			version: string | null;
+			downloadUrl?: string;
+			downloadOptions?: Array<UpdaterDownloadOption>;
+	  }
+	| {
+			type: 'not-available';
+			context: UpdaterContext;
+	  }
+	| {
+			type: 'downloaded';
+			context: UpdaterContext;
+	  }
+	| {
+			type: 'error';
+			context: UpdaterContext;
+			message: string;
+	  }
+	| {
+			type: 'unsupported';
+			context: UpdaterContext;
+			reason: 'platform' | 'unpackaged' | 'managed-package';
+			downloadUrl?: string;
+	  };
 
 const logger = new Logger('Updater');
 const CHECK_INTERVAL_MS = 5 * 60 * 1000;
@@ -40,12 +71,7 @@ const WEB_CHECK_TIMEOUT_MS = 15 * 1000;
 const NATIVE_CHECK_TIMEOUT_MS = 30 * 1000;
 const VERSION_ENDPOINT = '/version.json';
 const CURRENT_BUILD_VERSION = Config.PUBLIC_BUILD_VERSION ?? null;
-const ALLOWED_WEB_UPDATE_HOSTS = new Set([
-	'web.fluxer.app',
-	'web.canary.fluxer.app',
-	'fluxer.com',
-	'canary.fluxer.com',
-]);
+const ALLOWED_WEB_UPDATE_HOSTS = new Set<string>(OFFICIAL_WEB_APP_HOSTS);
 
 function loadUpdaterModals(): Promise<typeof UpdaterModalCommands> {
 	return import('@app/features/updater/commands/UpdaterModalCommands');
@@ -204,10 +230,6 @@ class Updater {
 
 	get nativeManualUpdateAvailable(): boolean {
 		return this.updateInfo.native.available && this.hasManualNativeDownload;
-	}
-
-	get state(): UpdaterState {
-		return getUpdaterMachineStateValue(this.snapshot);
 	}
 
 	get isChecking(): boolean {
@@ -726,10 +748,6 @@ class Updater {
 		} finally {
 			this.transition({type: 'manualDownload.finished'});
 		}
-	}
-
-	reset(): void {
-		this.transition({type: 'reset'});
 	}
 
 	dispose(): void {

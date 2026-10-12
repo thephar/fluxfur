@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type {ChannelID, GuildID, UserID} from '@app/api/BrandedTypes';
-import type {IChannelRepositoryAggregate} from '@app/api/channel/repositories/IChannelRepositoryAggregate';
+import type {ChannelRepository} from '@app/api/channel/ChannelRepository';
 import type {AuthenticatedChannel, AuthenticatedThread} from '@app/api/channel/services/AuthenticatedChannel';
 import {DMPermissionValidator} from '@app/api/channel/services/DMPermissionValidator';
 import {
@@ -26,13 +26,13 @@ import {
 	viewerActive,
 } from '@app/api/experiment/ChannelThreadsGate';
 import {isGuildMemberTimedOut} from '@app/api/guild/GuildModel';
-import type {IGuildRepositoryAggregate} from '@app/api/guild/repositories/IGuildRepositoryAggregate';
+import type {GuildRepository} from '@app/api/guild/repositories/GuildRepository';
 import {createGuildMfaEnforcer} from '@app/api/guild/services/GuildMfaEnforcement';
 import type {GuildChannelAuthContext, IGatewayService} from '@app/api/infrastructure/IGatewayService';
 import type {Channel} from '@app/api/models/Channel';
 import type {GuildMember} from '@app/api/models/GuildMember';
 import type {User} from '@app/api/models/User';
-import type {IUserRepository} from '@app/api/user/IUserRepository';
+import type {UserRepository} from '@app/api/user/repositories/UserRepository';
 import {canUserAccessNsfwContent} from '@app/api/utils/AgeUtils';
 import {ChannelTypes, Permissions} from '@fluxer/constants/src/ChannelConstants';
 import {
@@ -80,9 +80,9 @@ export abstract class BaseChannelAuthService {
 	protected dmPermissionValidator: DMPermissionValidator;
 
 	constructor(
-		protected channelRepository: IChannelRepositoryAggregate,
-		protected userRepository: IUserRepository,
-		protected guildRepository: IGuildRepositoryAggregate,
+		protected channelRepository: ChannelRepository,
+		protected userRepository: UserRepository,
+		protected guildRepository: GuildRepository,
 		protected gatewayService: IGatewayService,
 	) {
 		this.dmPermissionValidator = new DMPermissionValidator({
@@ -102,7 +102,7 @@ export abstract class BaseChannelAuthService {
 		viewer: ThreadViewer;
 		skipNsfwValidation?: boolean;
 	}): Promise<AuthenticatedChannel> {
-		if (this.isPersonalNotesChannel({userId, channelId})) {
+		if (isPersonalNotesChannelId({userId, channelId})) {
 			const channel = await ensurePersonalNotesChannelExists({
 				channelRepository: this.channelRepository.channelData,
 				userId,
@@ -124,10 +124,6 @@ export abstract class BaseChannelAuthService {
 		return this.getGuildChannelAuth({channel, userId, skipNsfwValidation});
 	}
 
-	isPersonalNotesChannel({userId, channelId}: {userId: UserID; channelId: ChannelID}): boolean {
-		return isPersonalNotesChannelId({userId, channelId});
-	}
-
 	protected async getRealPersonalNotesChannelAuth({
 		channel,
 		userId,
@@ -135,7 +131,7 @@ export abstract class BaseChannelAuthService {
 		channel: Channel;
 		userId: UserID;
 	}): Promise<AuthenticatedChannel> {
-		if (!this.isPersonalNotesChannel({userId, channelId: channel.id})) {
+		if (!isPersonalNotesChannelId({userId, channelId: channel.id})) {
 			throw new UnknownChannelError();
 		}
 		if (channel.type !== ChannelTypes.DM_PERSONAL_NOTES) {

@@ -2,11 +2,10 @@
 
 import {Config} from '@app/api/Config';
 import {getContentMessage} from '@app/api/content_i18n/ContentI18n';
-import type {IDonationRepository} from '@app/api/donation/IDonationRepository';
-import type {IEmailDnsValidationService} from '@app/api/infrastructure/IEmailDnsValidationService';
+import type {DonationRepository} from '@app/api/donation/DonationRepository';
+import type {EmailDnsValidationService} from '@app/api/infrastructure/EmailDnsValidationService';
 import {getInstanceProductName} from '@app/api/instance/ProductName';
 import {Logger} from '@app/api/Logger';
-import {getBillingRepository} from '@app/api/middleware/ServiceRegistry';
 import {shouldDisableAdaptivePricing} from '@app/api/utils/CurrencyUtils';
 import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
 import {InputValidationError} from '@fluxer/errors/src/domains/core/InputValidationError';
@@ -97,8 +96,8 @@ function getDonationProductData(interval: 'month' | 'year' | null, locale: strin
 export class DonationCheckoutService {
 	constructor(
 		private stripe: Stripe | null,
-		private donationRepository: IDonationRepository,
-		private emailDnsValidationService: IEmailDnsValidationService,
+		private donationRepository: DonationRepository,
+		private emailDnsValidationService: EmailDnsValidationService,
 	) {}
 
 	async createCheckout(params: {
@@ -202,14 +201,6 @@ export class DonationCheckoutService {
 				delete sessionParams.customer;
 				sessionParams.customer_email = params.email;
 				session = await this.stripe.checkout.sessions.create(sessionParams);
-			}
-			try {
-				await getBillingRepository().checkoutSessions.upsertFromStripe(session);
-			} catch (mirrorErr) {
-				Logger.error(
-					{mirrorErr, sessionId: session.id},
-					'Mirror upsert failed after Stripe write; reconciler will heal',
-				);
 			}
 			if (!session.url) {
 				throw new StripeError('Failed to create checkout session');

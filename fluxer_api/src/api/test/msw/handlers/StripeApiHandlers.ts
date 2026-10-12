@@ -55,7 +55,6 @@ interface PortalSessionParams {
 }
 
 interface StripeApiMockConfig {
-	checkoutShouldFail?: boolean;
 	portalShouldFail?: boolean;
 	subscriptionShouldFail?: boolean;
 	customerShouldFail?: boolean;
@@ -63,9 +62,7 @@ interface StripeApiMockConfig {
 	charges?: Record<string, Partial<MockStripeCharge>>;
 	customers?: Record<string, Partial<MockStripeCustomer>>;
 	invoices?: Record<string, Partial<MockStripeInvoice> & {subscriptionId?: string}>;
-	paymentIntents?: Record<string, Partial<MockStripePaymentIntent>>;
 	paymentMethods?: Record<string, Partial<MockStripePaymentMethod>>;
-	setupIntents?: Record<string, Partial<MockStripeSetupIntent>>;
 	subscriptions?: Record<string, Partial<MockStripeSubscriptionState>>;
 	prices?: Record<string, MockStripePriceOverrides>;
 }
@@ -111,15 +108,12 @@ interface SubscriptionScheduleParams {
 interface StripeApiMockSpies {
 	createdCheckoutSessions: Array<CheckoutSessionParams>;
 	createdPortalSessions: Array<PortalSessionParams>;
-	createdCustomers: Array<{
-		id: string;
-		email: string | null;
-	}>;
+
 	retrievedSubscriptions: Array<string>;
 	cancelledSubscriptions: Array<string>;
-	retrievedCustomers: Array<string>;
+
 	retrievedPaymentIntents: Array<string>;
-	retrievedSetupIntents: Array<string>;
+
 	retrievedCharges: Array<string>;
 	updatedCustomers: Array<{
 		id: string;
@@ -418,23 +412,22 @@ export interface StripeApiHandlers {
 	handlers: Array<RequestHandler>;
 	spies: StripeApiMockSpies;
 	reset: () => void;
-	resetAll: () => void;
 }
 
 export function createStripeApiHandlers(config: StripeApiMockConfig = {}): StripeApiHandlers {
 	const spies: StripeApiMockSpies = {
 		createdCheckoutSessions: [],
 		createdPortalSessions: [],
-		createdCustomers: [],
+
 		createdRefunds: [],
 		createdValueListItems: [],
 		createdValueLists: [],
 		retrievedCharges: [],
 		retrievedSubscriptions: [],
 		cancelledSubscriptions: [],
-		retrievedCustomers: [],
+
 		retrievedPaymentIntents: [],
-		retrievedSetupIntents: [],
+
 		updatedCharges: [],
 		updatedCustomers: [],
 		updatedSubscriptions: [],
@@ -522,14 +515,6 @@ export function createStripeApiHandlers(config: StripeApiMockConfig = {}): Strip
 					overrides.payment_method_details ?? createDefaultCharge(chargeId).payment_method_details,
 			});
 		}
-		for (const [paymentIntentId, overrides] of Object.entries(config.paymentIntents ?? {})) {
-			paymentIntentStore.set(paymentIntentId, {
-				...createDefaultPaymentIntent(paymentIntentId),
-				...overrides,
-				id: paymentIntentId,
-				object: 'payment_intent',
-			});
-		}
 		for (const [paymentMethodId, overrides] of Object.entries(config.paymentMethods ?? {})) {
 			const defaultPaymentMethod = createDefaultPaymentMethod(paymentMethodId, overrides.customer ?? 'cus_test_1');
 			paymentMethodStore.set(paymentMethodId, {
@@ -544,42 +529,6 @@ export function createStripeApiHandlers(config: StripeApiMockConfig = {}): Strip
 					exp_year: overrides.card?.exp_year ?? defaultPaymentMethod.card.exp_year,
 					last4: overrides.card?.last4 ?? defaultPaymentMethod.card.last4,
 				},
-			});
-		}
-		for (const [setupIntentId, overrides] of Object.entries(config.setupIntents ?? {})) {
-			const defaultSetupIntent = createDefaultSetupIntent(setupIntentId);
-			const paymentMethodOverride = overrides.payment_method;
-			const paymentMethod =
-				typeof paymentMethodOverride === 'string' || paymentMethodOverride == null
-					? (paymentMethodOverride ?? defaultSetupIntent.payment_method)
-					: (() => {
-							const defaultPaymentMethod = createDefaultPaymentMethod(
-								paymentMethodOverride.id ?? `pm_${setupIntentId}`,
-							);
-							const mergedPaymentMethod: MockStripePaymentMethod = {
-								...defaultPaymentMethod,
-								...paymentMethodOverride,
-								id: paymentMethodOverride.id ?? `pm_${setupIntentId}`,
-								object: 'payment_method',
-								card: {
-									brand: paymentMethodOverride.card?.brand ?? defaultPaymentMethod.card.brand,
-									country: paymentMethodOverride.card?.country ?? defaultPaymentMethod.card.country,
-									exp_month: paymentMethodOverride.card?.exp_month ?? defaultPaymentMethod.card.exp_month,
-									exp_year: paymentMethodOverride.card?.exp_year ?? defaultPaymentMethod.card.exp_year,
-									last4: paymentMethodOverride.card?.last4 ?? defaultPaymentMethod.card.last4,
-								},
-							};
-							return mergedPaymentMethod;
-						})();
-			if (paymentMethod && typeof paymentMethod !== 'string') {
-				paymentMethodStore.set(paymentMethod.id, paymentMethod);
-			}
-			setupIntentStore.set(setupIntentId, {
-				...defaultSetupIntent,
-				...overrides,
-				id: setupIntentId,
-				object: 'setup_intent',
-				payment_method: paymentMethod,
 			});
 		}
 		for (const [customerId, overrides] of Object.entries(config.customers ?? {})) {
@@ -978,18 +927,6 @@ export function createStripeApiHandlers(config: StripeApiMockConfig = {}): Strip
 	hydrateStores();
 	const handlers = [
 		http.post(`${STRIPE_API_BASE}/v1/checkout/sessions`, async ({request}) => {
-			if (config.checkoutShouldFail) {
-				return HttpResponse.json(
-					{
-						error: {
-							type: 'invalid_request_error',
-							message: 'Mock checkout failure',
-							code: 'resource_missing',
-						},
-					},
-					{status: 400},
-				);
-			}
 			const formData = await request.formData();
 			const params = parseFormDataToObject<CheckoutSessionParams>(formData);
 			spies.createdCheckoutSessions.push(params);
@@ -1064,7 +1001,7 @@ export function createStripeApiHandlers(config: StripeApiMockConfig = {}): Strip
 		http.get(`${STRIPE_API_BASE}/v1/setup_intents/:id`, ({params}) => {
 			const {id} = params;
 			const setupIntentId = id as string;
-			spies.retrievedSetupIntents.push(setupIntentId);
+
 			return HttpResponse.json(getSetupIntent(setupIntentId));
 		}),
 		http.get(`${STRIPE_API_BASE}/v1/customers/:id/payment_methods`, ({params, request}) => {
@@ -1537,23 +1474,7 @@ export function createStripeApiHandlers(config: StripeApiMockConfig = {}): Strip
 				],
 			});
 		}),
-		http.get(`${STRIPE_API_BASE}/v1/customers/search`, ({request}) => {
-			const requestUrl = new URL(request.url);
-			const query = requestUrl.searchParams.get('query') ?? '';
-			const metadataMatch = query.match(/metadata\['([^']+)'\]:'([^']+)'/);
-			const matchedCustomers = metadataMatch
-				? [...customerStore.values()].filter(
-						(customer) => String(customer.metadata[metadataMatch[1]!] ?? '') === metadataMatch[2],
-					)
-				: [];
-			return HttpResponse.json({
-				object: 'search_result',
-				url: '/v1/customers/search',
-				has_more: false,
-				next_page: null,
-				data: matchedCustomers,
-			});
-		}),
+
 		http.get(`${STRIPE_API_BASE}/v1/customers/:id`, ({params}) => {
 			if (config.customerShouldFail) {
 				return HttpResponse.json(
@@ -1570,14 +1491,14 @@ export function createStripeApiHandlers(config: StripeApiMockConfig = {}): Strip
 			}
 			const {id} = params;
 			const customerId = id as string;
-			spies.retrievedCustomers.push(customerId);
+
 			return HttpResponse.json(getCustomer(customerId));
 		}),
 		http.post(`${STRIPE_API_BASE}/v1/customers`, async ({request}) => {
 			const formData = await request.formData();
 			const email = formData.get('email') as string | null;
 			const customerId = `cus_test_new_${Date.now()}`;
-			spies.createdCustomers.push({id: customerId, email});
+
 			customerStore.set(customerId, createDefaultCustomer(customerId, email));
 			return HttpResponse.json(getCustomer(customerId));
 		}),
@@ -1770,16 +1691,16 @@ export function createStripeApiHandlers(config: StripeApiMockConfig = {}): Strip
 	function reset() {
 		spies.createdCheckoutSessions.length = 0;
 		spies.createdPortalSessions.length = 0;
-		spies.createdCustomers.length = 0;
+
 		spies.createdRefunds.length = 0;
 		spies.createdValueListItems.length = 0;
 		spies.createdValueLists.length = 0;
 		spies.retrievedCharges.length = 0;
 		spies.retrievedSubscriptions.length = 0;
 		spies.cancelledSubscriptions.length = 0;
-		spies.retrievedCustomers.length = 0;
+
 		spies.retrievedPaymentIntents.length = 0;
-		spies.retrievedSetupIntents.length = 0;
+
 		spies.updatedCustomers.length = 0;
 		spies.updatedCharges.length = 0;
 		spies.updatedSubscriptions.length = 0;
@@ -1793,10 +1714,7 @@ export function createStripeApiHandlers(config: StripeApiMockConfig = {}): Strip
 		subscriptionScheduleCounter = 0;
 		hydrateStores();
 	}
-	function resetAll() {
-		reset();
-	}
-	return {handlers, spies, reset, resetAll};
+	return {handlers, spies, reset};
 }
 
 export interface StripeWebhookEventData {

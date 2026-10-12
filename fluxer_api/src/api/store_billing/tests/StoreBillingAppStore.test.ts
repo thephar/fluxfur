@@ -4,6 +4,8 @@ import {randomUUID} from 'node:crypto';
 import {createTestAccount, type TestAccount} from '@app/api/auth/tests/AuthTestUtils';
 import {createUserID} from '@app/api/BrandedTypes';
 import {Config} from '@app/api/Config';
+import {upsertOne} from '@app/api/database/CassandraQueryExecution';
+import {Db} from '@app/api/database/CassandraTypes';
 import {getKVClient} from '@app/api/middleware/ServiceRegistry';
 import {getStoreBillingRepository, getUserRepository} from '@app/api/middleware/ServiceSingletons';
 import {addGiftCodeDuration} from '@app/api/models/GiftCode';
@@ -20,14 +22,15 @@ import {
 	setTestPremium,
 	uninstallStoreBillingWorker,
 } from '@app/api/store_billing/tests/StoreBillingTestUtils';
+import {GiftCodes} from '@app/api/Tables';
 import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHarness';
-import {NoopLogger} from '@app/api/test/mocks/NoopLogger';
 import {
 	type AppStoreFakePayload,
 	type AppStoreServerApiFake,
 	createAppStoreServerApiFake,
 } from '@app/api/test/msw/handlers/AppStoreServerApiHandlers';
 import {server} from '@app/api/test/msw/server';
+import {createTestWorkerHelpers} from '@app/api/test/SyncTaskWorkerService';
 import {createBuilder, createBuilderWithoutAuth} from '@app/api/test/TestRequestBuilder';
 import pollAppStoreNotificationHistory from '@app/api/worker/tasks/PollAppStoreNotificationHistory';
 import {APIErrorCodes} from '@fluxer/constants/src/ApiErrorCodes';
@@ -37,7 +40,6 @@ import type {
 	StorePurchaseClaimResponse,
 	StorePurchaseResponse,
 } from '@fluxer/schema/src/domains/premium/StoreBillingSchemas';
-import type {WorkerTaskHelpers} from '@pkgs/worker/src/contracts/WorkerTask';
 import {ms} from 'itty-time';
 import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi} from 'vitest';
 
@@ -60,17 +62,6 @@ interface SubscriptionSeed {
 }
 
 let transactionCounter = 0;
-
-function createWorkerHelpers(): WorkerTaskHelpers {
-	return {
-		logger: new NoopLogger(),
-		jobId: 1n,
-		addJob: async () => 0n,
-		reportProgress: async () => {},
-		shouldCancel: async () => false,
-		setContextLink: async () => {},
-	};
-}
 
 function expectAccessCut(user: User): void {
 	expect(user.premiumUntil!.getTime()).toBeLessThanOrEqual(Date.now());
@@ -912,7 +903,7 @@ describe('App Store purchases', () => {
 		const result = await claim(purchaser, await signStoredTransaction('production', transactionId));
 		const giftCode = result.gift_code!;
 		await redeem(redeemer, giftCode);
-		await getUserRepository().updateGiftCode(giftCode, {redeemed_at: new Date(Date.now() - ms('40 days'))});
+		await upsertOne(GiftCodes.patchByPk({code: giftCode}, {redeemed_at: Db.set(new Date(Date.now() - ms('40 days')))}));
 		const redeemed = await findUser(redeemer.userId);
 		await getUserRepository().patchUpsert(
 			redeemed.id,
@@ -968,7 +959,7 @@ describe('App Store purchases', () => {
 			sentAt: Date.now() - ms('3 days'),
 			failed: true,
 		});
-		await pollAppStoreNotificationHistory({}, createWorkerHelpers());
+		await pollAppStoreNotificationHistory({}, createTestWorkerHelpers());
 		expect((await getUserRepository().findGiftCode(result.gift_code!))?.revokedAt).not.toBeNull();
 		expect((await getStoreBillingRepository().findPurchase(`app_store:production:${transactionId}`))?.state).toBe(
 			'refunded',
@@ -977,7 +968,7 @@ describe('App Store purchases', () => {
 		expect(historyRequests.map((request) => request.body)).toContainEqual(
 			expect.objectContaining({onlyFailures: true}),
 		);
-		await pollAppStoreNotificationHistory({}, createWorkerHelpers());
+		await pollAppStoreNotificationHistory({}, createTestWorkerHelpers());
 	});
 
 	describe('restore', () => {

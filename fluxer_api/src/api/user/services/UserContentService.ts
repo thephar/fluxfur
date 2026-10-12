@@ -5,7 +5,7 @@ import type {Readable} from 'node:stream';
 import type {ApiContext} from '@app/api/ApiContext';
 import {type ChannelID, createChannelID, createUserID, type MessageID, type UserID} from '@app/api/BrandedTypes';
 import {Config} from '@app/api/Config';
-import type {IChannelRepository} from '@app/api/channel/IChannelRepository';
+import type {ChannelRepository} from '@app/api/channel/ChannelRepository';
 import type {ChannelService} from '@app/api/channel/services/ChannelService';
 import {createMessageResponseDataService} from '@app/api/channel/services/message/MessageResponseDataService';
 import {
@@ -14,12 +14,7 @@ import {
 	maskThreadArtifactsByChannel,
 } from '@app/api/channel/services/message/ThreadMessageResponses';
 import type {PushSubscriptionRow} from '@app/api/database/types/UserTypes';
-import {
-	everEnabled,
-	THREAD_FEATURE_CHANNEL_TYPES,
-	type ThreadViewer,
-	viewerActive,
-} from '@app/api/experiment/ChannelThreadsGate';
+import {THREAD_FEATURE_CHANNEL_TYPES, type ThreadViewer, viewerActive} from '@app/api/experiment/ChannelThreadsGate';
 import type {IGatewayService} from '@app/api/infrastructure/IGatewayService';
 import type {ISnowflakeService} from '@app/api/infrastructure/ISnowflakeService';
 import type {IStorageService} from '@app/api/infrastructure/IStorageService';
@@ -33,9 +28,7 @@ import type {RequestCache} from '@app/api/middleware/RequestCacheMiddleware';
 import type {Channel} from '@app/api/models/Channel';
 import type {Message} from '@app/api/models/Message';
 import {PushSubscription} from '@app/api/models/PushSubscription';
-import type {IUserAccountRepository} from '@app/api/user/repositories/IUserAccountRepository';
-import type {IUserContentRepository} from '@app/api/user/repositories/IUserContentRepository';
-import {BaseUserUpdatePropagator} from '@app/api/user/services/BaseUserUpdatePropagator';
+import type {UserRepository} from '@app/api/user/repositories/UserRepository';
 import {verifyHarvestDownloadToken} from '@app/api/user/services/HarvestDownloadToken';
 import {buildHarvestDownloadUrl} from '@app/api/user/services/HarvestDownloadUrl';
 import {
@@ -51,6 +44,7 @@ import {
 } from '@app/api/user/services/WebPushOriginReplacement';
 import {UserHarvest} from '@app/api/user/UserHarvestModel';
 import {UserHarvestRepository} from '@app/api/user/UserHarvestRepository';
+import {dispatchUserUpdate} from '@app/api/user/UserMappers';
 import {serializeSelfMessageFilter} from '@app/api/worker/utils/SelfMessageFilterPayload';
 import type {WorkerTaskName} from '@app/api/worker/WorkerLaneConfig';
 import {MAX_BOOKMARKS_NON_PREMIUM} from '@fluxer/constants/src/LimitConstants';
@@ -103,8 +97,6 @@ interface UnregisterMobileDeviceParams {
 	userId: UserID;
 	device: UnregisterMobileDeviceRequest;
 }
-
-interface UserContentRepository extends IUserAccountRepository, IUserContentRepository {}
 
 const WEB_PUSH_PLATFORM = 'web_push' as const;
 const DEFAULT_MOBILE_APP_ID = 'stable';
@@ -190,11 +182,8 @@ const isUnreachableEntityError = (error: unknown): boolean =>
 	error instanceof AccessDeniedError ||
 	error instanceof NsfwContentRequiresAgeVerificationError;
 
-export const UserContentServiceTestHooks = {isUnreachableEntityError};
-
 export class UserContentService {
-	private readonly updatePropagator: BaseUserUpdatePropagator;
-	private readonly userRepository: UserContentRepository;
+	private readonly userRepository: UserRepository;
 	private readonly gatewayService: IGatewayService;
 	private readonly workerService: IWorkerService<WorkerTaskName>;
 	private readonly snowflakeService: ISnowflakeService;
@@ -202,9 +191,9 @@ export class UserContentService {
 
 	constructor(
 		apiContext: ApiContext,
-		userCacheService: UserCacheService,
+
 		private channelService: ChannelService,
-		private channelRepository: IChannelRepository,
+		private channelRepository: ChannelRepository,
 		private bulkMessageDeletionQueue: KVBulkMessageDeletionQueueService,
 		private limitConfigService: LimitConfigService,
 	) {
@@ -214,10 +203,6 @@ export class UserContentService {
 		this.workerService = worker;
 		this.snowflakeService = snowflake;
 		this.kv = kv;
-		this.updatePropagator = new BaseUserUpdatePropagator({
-			userCacheService,
-			gatewayService: this.gatewayService,
-		});
 	}
 
 	async getRecentMentions(params: {
@@ -402,12 +387,11 @@ export class UserContentService {
 		viewer: ThreadViewer,
 		messagesByChannel: ReadonlyMap<string, Map<string, Message> | null>,
 	): Promise<Set<string>> {
-		if (!everEnabled()) return new Set();
 		const unreachable = Array.from(messagesByChannel)
 			.filter(([, messages]) => messages === null)
 			.map(([channelId]) => createChannelID(BigInt(channelId)));
 		if (unreachable.length === 0) return new Set();
-		const channels = await this.channelRepository.listChannels(unreachable);
+		const channels = await this.channelRepository.channelData.listChannels(unreachable);
 		return new Set(
 			channels
 				.filter(
@@ -843,7 +827,7 @@ export class UserContentService {
 			user.toRow(),
 		);
 		await this.bulkMessageDeletionQueue.scheduleDeletion(userId, scheduledAt);
-		await this.updatePropagator.dispatchUserUpdate(updatedUser);
+		await dispatchUserUpdate(this.gatewayService, updatedUser);
 	}
 
 	async bulkDeleteSelfMessagesImmediate(params: {userId: UserID; filter: BulkDeleteSelfMessagesFilter}): Promise<void> {
@@ -873,7 +857,7 @@ export class UserContentService {
 			user.toRow(),
 		);
 		await this.bulkMessageDeletionQueue.removeFromQueue(userId);
-		await this.updatePropagator.dispatchUserUpdate(updatedUser);
+		await dispatchUserUpdate(this.gatewayService, updatedUser);
 	}
 
 	private async countBulkDeletionTargets(
@@ -888,7 +872,7 @@ export class UserContentService {
 		const channels = new Set<string>();
 		let messageCount = 0;
 		while (true) {
-			const messageRefs = await this.channelRepository.listMessagesByAuthor(userId, CHUNK_SIZE, lastMessageId);
+			const messageRefs = await this.channelRepository.messages.listMessagesByAuthor(userId, CHUNK_SIZE, lastMessageId);
 			if (messageRefs.length === 0) {
 				break;
 			}
@@ -971,7 +955,7 @@ export class UserContentService {
 	): Promise<{responses: Array<MessageResponse>; channelById: Map<string, Channel>}> {
 		if (messages.length === 0) return {responses: [], channelById: new Map()};
 		const channelIds = Array.from(new Set(messages.map((message) => message.channelId.toString())));
-		const channels = await this.channelRepository.listChannels(
+		const channels = await this.channelRepository.channelData.listChannels(
 			channelIds.map((channelId) => createChannelID(BigInt(channelId))),
 		);
 		const channelById = new Map(channels.map((channel) => [channel.id.toString(), channel] as const));

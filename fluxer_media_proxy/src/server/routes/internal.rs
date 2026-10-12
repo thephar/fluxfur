@@ -3,14 +3,15 @@
 use crate::{
     byte_budget::BudgetedBytes,
     constants,
+    image_quality::ImageQuality,
     image_transform::ResizeMode,
     media_process, mime,
     output_format::OutputFormat,
     server::{
         format_policy::is_svg_content_type,
         media_operations::{
-            MediaFailure, MediaInput, MediaInputLimit, MetadataOutput, load_media_input,
-            resolve_metadata,
+            MediaFailure, MediaInput, MediaInputLimit, MetadataOutput, STORED_SNIFF_PREFIX_BYTES,
+            load_media_input, read_sniff_prefix, resolve_metadata,
         },
         response::{
             MediaResponse,
@@ -20,7 +21,9 @@ use crate::{
             media_response,
         },
         state::AppState,
-        transform::execution::{run_transform, transform_error_is_timeout},
+        transform::execution::{
+            VideoTransformOptions, run_transform, run_video_transform, transform_error_is_timeout,
+        },
     },
 };
 use axum::{
@@ -31,11 +34,8 @@ use axum::{
 };
 use base64::{Engine as _, engine::general_purpose};
 use bytes::Bytes;
-use futures_util::StreamExt as _;
 use serde::Deserialize;
 use std::sync::Arc;
-
-const UPLOAD_SNIFF_PREFIX_BYTES: usize = 8192;
 
 #[derive(Debug, Deserialize)]
 struct MetadataRequest {
@@ -176,12 +176,23 @@ pub(in crate::server) async fn thumbnail_handler(
         Err(err) => return storage_error_response(&req.upload_filename, err),
     };
     let media = if mime::category(&object.content_type) == Some(mime::Category::Video) {
-        match media_process::extract_video_thumbnail(
-            &object.data,
-            OutputFormat::WebP,
-            &app.media.limits(),
-        ) {
+        let options = VideoTransformOptions {
+            format: OutputFormat::WebP,
+            width: None,
+            height: None,
+            quality: ImageQuality::Auto,
+            deadline_ms: app.media.transforms().transform_deadline_ms(),
+        };
+        match run_video_transform(app.media.transforms(), object.data.clone(), options).await {
             Ok(media) => media,
+            Err(err) if transform_error_is_timeout(&err) => {
+                return text_with_source(
+                    StatusCode::GATEWAY_TIMEOUT,
+                    "Gateway Timeout",
+                    "video_thumbnail_timeout",
+                    err,
+                );
+            }
             Err(err) => {
                 return text_with_source(
                     StatusCode::BAD_REQUEST,
@@ -253,11 +264,14 @@ pub(in crate::server) async fn frames_handler(
         Ok(input) => input,
         Err(failure) => return failure.into_response(),
     };
-    match media_process::extract_video_thumbnail(
-        &input.data,
-        OutputFormat::JPEG,
-        &app.media.limits(),
-    ) {
+    let options = VideoTransformOptions {
+        format: OutputFormat::JPEG,
+        width: None,
+        height: None,
+        quality: ImageQuality::Auto,
+        deadline_ms: app.media.transforms().transform_deadline_ms(),
+    };
+    match run_video_transform(app.media.transforms(), input.data, options).await {
         Ok(frame) => {
             let encoded = general_purpose::STANDARD.encode(frame.bytes);
             json_response(
@@ -287,7 +301,7 @@ pub(in crate::server) async fn sniff_handler(
         Ok(req) => req,
         Err(_) => return text(StatusCode::BAD_REQUEST, "Bad Request"),
     };
-    let range = format!("bytes=0-{}", UPLOAD_SNIFF_PREFIX_BYTES - 1);
+    let range = format!("bytes=0-{}", STORED_SNIFF_PREFIX_BYTES - 1);
     let object = match app
         .store
         .stream_object(
@@ -318,20 +332,6 @@ pub(in crate::server) async fn sniff_handler(
         StatusCode::OK,
         serde_json::json!({ "content_type": content_type }).to_string(),
     )
-}
-
-async fn read_sniff_prefix(body: Body) -> Result<Vec<u8>, axum::Error> {
-    let mut prefix = Vec::with_capacity(UPLOAD_SNIFF_PREFIX_BYTES);
-    let mut chunks = body.into_data_stream();
-    while prefix.len() < UPLOAD_SNIFF_PREFIX_BYTES {
-        let Some(chunk) = chunks.next().await else {
-            break;
-        };
-        let chunk = chunk?;
-        let wanted = chunk.len().min(UPLOAD_SNIFF_PREFIX_BYTES - prefix.len());
-        prefix.extend_from_slice(&chunk[..wanted]);
-    }
-    Ok(prefix)
 }
 
 fn check_internal_auth(headers: &HeaderMap, secret: &str) -> bool {
@@ -683,11 +683,15 @@ mod tests {
                 .media
                 .transforms()
                 .tasks()
-                .run_native(None, move || {
-                    let _ = started.blocking_send(());
-                    let _ = released.blocking_recv();
-                    Ok(())
-                })
+                .run_native(
+                    None,
+                    || Ok(media_process::NativeCost::Bytes(0)),
+                    move || {
+                        let _ = started.blocking_send(());
+                        let _ = released.blocking_recv();
+                        Ok(())
+                    },
+                )
                 .await
         });
         has_started
@@ -864,7 +868,7 @@ mod tests {
         let stream_source = upload.clone();
         let body = Body::from_stream(futures_util::stream::poll_fn(move |_| {
             assert!(
-                yielded < UPLOAD_SNIFF_PREFIX_BYTES,
+                yielded < STORED_SNIFF_PREFIX_BYTES,
                 "the body was polled again after {yielded} bytes were yielded"
             );
             let end = (yielded + 1000).min(stream_source.len());
@@ -875,7 +879,7 @@ mod tests {
 
         let prefix = read_sniff_prefix(body).await.expect("prefix read");
 
-        assert_eq!(&upload[..UPLOAD_SNIFF_PREFIX_BYTES], prefix.as_slice());
+        assert_eq!(&upload[..STORED_SNIFF_PREFIX_BYTES], prefix.as_slice());
     }
 
     #[tokio::test]

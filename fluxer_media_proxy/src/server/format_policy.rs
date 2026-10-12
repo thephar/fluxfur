@@ -42,7 +42,12 @@ pub(in crate::server) fn transform_static_quality_default(
 ) -> ImageQuality {
     if matches!(
         source_ext,
-        Some(AssetExtension::Jpeg | AssetExtension::Heic | AssetExtension::Heif)
+        Some(
+            AssetExtension::Jpeg
+                | AssetExtension::Heic
+                | AssetExtension::Heif
+                | AssetExtension::Jxl
+        )
     ) {
         ImageQuality::High
     } else {
@@ -184,25 +189,23 @@ pub(in crate::server) fn content_type_is_trustworthy(content_type: &str) -> bool
     )
 }
 
+pub(in crate::server) fn is_browser_displayable_image(mime: &str) -> bool {
+    matches!(
+        mime,
+        "image/jpeg" | "image/png" | "image/gif" | "image/webp"
+    )
+}
+
 pub(in crate::server) fn is_svg_content_type(content_type: &str) -> bool {
     mime::normalize(Some(content_type))
         .is_some_and(|value| value.eq_ignore_ascii_case("image/svg+xml"))
 }
 
-pub(in crate::server) fn extension_from_mime(content_type: &str) -> Option<AssetExtension> {
-    match mime::normalize(Some(content_type))? {
-        "image/jpeg" => Some(AssetExtension::Jpeg),
-        "image/png" => Some(AssetExtension::Png),
-        "image/webp" => Some(AssetExtension::Webp),
-        "image/gif" => Some(AssetExtension::Gif),
-        "image/apng" => Some(AssetExtension::Apng),
-        "image/avif" => Some(AssetExtension::Avif),
-        "image/heic" => Some(AssetExtension::Heic),
-        "image/heif" => Some(AssetExtension::Heif),
-        "image/jxl" => Some(AssetExtension::Jxl),
-        "image/svg+xml" => Some(AssetExtension::Svg),
-        _ => None,
-    }
+pub(in crate::server) fn extension_from_mime(mime: &str) -> Option<AssetExtension> {
+    let mime = mime::normalize(Some(mime))?;
+    AssetExtension::ALL
+        .into_iter()
+        .find(|extension| extension.mime() == mime)
 }
 
 pub(in crate::server) fn image_extension_from_filename(filename: &str) -> Option<AssetExtension> {

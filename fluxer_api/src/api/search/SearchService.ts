@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {createChannelID, createGuildID, type UserID} from '@app/api/BrandedTypes';
-import type {IChannelRepository} from '@app/api/channel/IChannelRepository';
+import type {ChannelRepository} from '@app/api/channel/ChannelRepository';
 import type {ChannelService} from '@app/api/channel/services/ChannelService';
 import type {ThreadViewer} from '@app/api/experiment/ChannelThreadsGate';
 import type {GuildService} from '@app/api/guild/services/GuildService';
@@ -9,26 +9,13 @@ import type {UserCacheService} from '@app/api/infrastructure/UserCacheService';
 import type {RequestCache} from '@app/api/middleware/RequestCacheMiddleware';
 import {GlobalSearchService} from '@app/api/search/GlobalSearchService';
 import {normalizeQuotedPhrases} from '@app/api/search/SearchQuotedPhrases';
-import type {IUserRepository} from '@app/api/user/IUserRepository';
+import type {UserRepository} from '@app/api/user/repositories/UserRepository';
 import type {WorkerTaskName} from '@app/api/worker/WorkerLaneConfig';
 import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
 import {InputValidationError} from '@fluxer/errors/src/domains/core/InputValidationError';
 import type {GlobalSearchMessagesRequest} from '@fluxer/schema/src/domains/message/MessageRequestSchemas';
-import type {MessageResponse, MessageSearchResponse} from '@fluxer/schema/src/domains/message/MessageResponseSchemas';
+import type {MessageSearchResponse} from '@fluxer/schema/src/domains/message/MessageResponseSchemas';
 import type {IWorkerService} from '@pkgs/worker/src/contracts/IWorkerService';
-
-function omitReferencedMessages(result: MessageSearchResponse): MessageSearchResponse {
-	if (!('messages' in result)) {
-		return result;
-	}
-	return {
-		...result,
-		messages: result.messages.map((message) => {
-			const {referenced_message: _referencedMessage, ...rest} = message as MessageResponse;
-			return rest;
-		}),
-	};
-}
 
 export class SearchService {
 	private readonly globalSearch: GlobalSearchService;
@@ -36,10 +23,10 @@ export class SearchService {
 	private readonly guildService: GuildService;
 
 	constructor(params: {
-		channelRepository: IChannelRepository;
+		channelRepository: ChannelRepository;
 		channelService: ChannelService;
 		guildService: GuildService;
-		userRepository: IUserRepository;
+		userRepository: UserRepository;
 		userCacheService: UserCacheService;
 		workerService: IWorkerService<WorkerTaskName>;
 	}) {
@@ -135,6 +122,6 @@ export class SearchService {
 				}
 				break;
 		}
-		return omitReferencedMessages(result);
+		return result;
 	}
 }

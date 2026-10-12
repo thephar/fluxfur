@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type {AccountPresenceIntent} from '@app/features/auth/state/AccountStorage';
+import type {AccountPresenceIntent} from '@app/features/auth/state/AccountStorageContract';
 import {deferUntilModulesLoaded} from '@app/features/platform/utils/DeferUntilModulesLoaded';
 import Idle from '@app/features/ui/state/Idle';
 import MobileLayout from '@app/features/ui/state/MobileLayout';
@@ -55,6 +55,10 @@ class LocalPresence {
 				() => Idle.isIdle(),
 				() => this.updatePresence(),
 			);
+			reaction(
+				() => Idle.isAfk(),
+				() => this.updatePresence(),
+			);
 		});
 	}
 
@@ -76,7 +80,7 @@ class LocalPresence {
 		this.restoredIntent = null;
 		const userStatus = settings.status;
 		const idleSince = Idle.getIdleSince();
-		const afk = this.computeAfk(idleSince, isMobile, settings);
+		const afk = this.syncAfk(isMobile, settings);
 		const effectiveStatus = userStatus === StatusTypes.ONLINE && idleSince > 0 ? StatusTypes.IDLE : userStatus;
 		const normalizedCustomStatus = normalizeCustomStatus(settings.getCustomStatus());
 		this.customStatus = normalizedCustomStatus ? {...normalizedCustomStatus} : null;
@@ -142,10 +146,9 @@ class LocalPresence {
 		return `hydrated:${hydrated}|${this.status}|${customStatusToKey(this.customStatus)}|afk:${afk}|mobile:${mobile}`;
 	}
 
-	private computeAfk(idleSince: number, isMobile: boolean, settings: LocalPresenceUserSettings | null): boolean {
-		if (isMobile || idleSince <= 0) return false;
-		const afkTimeout = settings?.getAfkTimeout() ?? 600;
-		return Date.now() - idleSince > afkTimeout * 1000;
+	private syncAfk(isMobile: boolean, settings: LocalPresenceUserSettings | null): boolean {
+		Idle.setAfkTimeoutMs((settings?.getAfkTimeout() ?? 600) * 1000);
+		return !isMobile && Idle.isAfk();
 	}
 
 	private applyRestoredIntent(isMobile: boolean, settings: LocalPresenceUserSettings | null): void {
@@ -158,7 +161,7 @@ class LocalPresence {
 		this.customStatus = this.restoredIntent.customStatus ? {...this.restoredIntent.customStatus} : null;
 		this.status = effectiveStatus;
 		this.since = idleSince;
-		this.afk = this.computeAfk(idleSince, isMobile, settings);
+		this.afk = this.syncAfk(isMobile, settings);
 		this.mobile = isMobile;
 	}
 

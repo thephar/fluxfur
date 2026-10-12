@@ -4,7 +4,6 @@ import AccountAccess, {AccountAccessDecision, AccountAccessPhase} from '@app/fea
 import {getAccountKey} from '@app/features/auth/state/AccountStorageKey';
 import {readAuthenticatedRuntimeContext} from '@app/features/auth/state/AuthenticatedRuntime';
 import {pruneOrphanedDesktopStateStores} from '@app/features/gateway/snapshot/SnapshotSync';
-import BackgroundAccountPresence from '@app/features/gateway/transport/BackgroundAccountPresence';
 import {
 	backgroundSessionNeedsRestart,
 	gatewayEndpointForAccount,
@@ -19,6 +18,7 @@ import {AccountScopedWork} from '@app/features/platform/state/AccountScopedWork'
 import SessionManager, {type Account} from '@app/features/platform/state/AuthSession';
 import {Logger} from '@app/features/platform/utils/AppLogger';
 import {getGatewayClientProperties} from '@app/features/platform/utils/ClientInfo';
+import Idle from '@app/features/ui/state/Idle';
 import {compareStructural, reaction} from 'mobx';
 
 const logger = new Logger('BackgroundGatewaySessionManager');
@@ -91,12 +91,13 @@ export class BackgroundGatewaySessionManager {
 		this.disposers.push(
 			installDeferredReaction(() =>
 				reaction(
-					() => BackgroundAccountPresence.appearOffline,
+					() => Idle.isAfk(),
 					() => {
 						for (const session of BackgroundGatewaySessions.values()) {
 							session.refreshPresence();
 						}
 					},
+					{equals: compareStructural},
 				),
 			),
 		);

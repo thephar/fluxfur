@@ -2,7 +2,7 @@
 
 import type {ChannelID, GuildID, MessageID, UserID} from '@app/api/BrandedTypes';
 import {channelIdToMessageId, createChannelID, createMessageID} from '@app/api/BrandedTypes';
-import type {IChannelRepositoryAggregate} from '@app/api/channel/repositories/IChannelRepositoryAggregate';
+import type {ChannelRepository} from '@app/api/channel/ChannelRepository';
 import type {AuthenticatedChannel} from '@app/api/channel/services/AuthenticatedChannel';
 import {
 	type MessageResponseDataService,
@@ -14,7 +14,7 @@ import type {UserCacheService} from '@app/api/infrastructure/UserCacheService';
 import type {RequestCache} from '@app/api/middleware/RequestCacheMiddleware';
 import type {Channel} from '@app/api/models/Channel';
 import type {Message} from '@app/api/models/Message';
-import {getCachedUserPartialResponse} from '@app/api/user/UserCacheHelpers';
+
 import {ChannelTypes, MessageReferenceTypes, MessageTypes} from '@fluxer/constants/src/ChannelConstants';
 import {
 	ServerMessageFlags,
@@ -104,7 +104,7 @@ export function maskThreadArtifactsByChannel(
 
 export class ThreadMessageResponses {
 	constructor(
-		private readonly channelRepository: IChannelRepositoryAggregate,
+		private readonly channelRepository: ChannelRepository,
 		private readonly responseDataService: MessageResponseDataService,
 		private readonly userCacheService: UserCacheService,
 	) {}
@@ -213,11 +213,7 @@ export class ThreadMessageResponses {
 		const author =
 			source?.author ??
 			(channel.ownerId
-				? await getCachedUserPartialResponse({
-						userId: channel.ownerId,
-						userCacheService: this.userCacheService,
-						requestCache: params.requestCache,
-					})
+				? await this.userCacheService.getUserPartialResponse(channel.ownerId, params.requestCache)
 				: null);
 		if (!author) return null;
 		const [referenced] = source ? await this.attachThreads([source], params.userId) : [null];

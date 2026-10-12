@@ -21,7 +21,6 @@ import {
 	CopyObjectCommand,
 	CreateMultipartUploadCommand,
 	DeleteObjectCommand,
-	DeleteObjectsCommand,
 	GetObjectCommand,
 	type GetObjectCommandOutput,
 	HeadObjectCommand,
@@ -116,6 +115,13 @@ const REJECTED_SERVER_SIDE_COPY_ERRORS = new Set([
 	'MethodNotAllowed',
 ]);
 
+function encodedEndpointPath(endpoint: string): Array<string> {
+	return (URL.parse(endpoint)?.pathname ?? '')
+		.split('/')
+		.filter((segment) => segment !== '')
+		.map((segment) => encodeURIComponent(decodeURIComponent(segment)));
+}
+
 function isRejectedServerSideCopy(error: unknown): boolean {
 	return (
 		error instanceof S3ServiceException &&
@@ -127,6 +133,7 @@ export class StorageService implements IStorageService {
 	private readonly client: S3Client;
 	private readonly presignClient: S3Client;
 	private readonly provider: S3ProviderSettings;
+	private readonly endpointPath: Array<string>;
 
 	constructor(provider?: S3ProviderSettings) {
 		this.provider = provider ?? {
@@ -137,6 +144,7 @@ export class StorageService implements IStorageService {
 			accessKeyId: Config.s3.accessKeyId,
 			secretAccessKey: Config.s3.secretAccessKey,
 		};
+		this.endpointPath = encodedEndpointPath(this.provider.endpoint);
 		this.client = buildPooledS3Client({
 			endpoint: this.provider.endpoint,
 			region: this.provider.region,
@@ -493,7 +501,7 @@ export class StorageService implements IStorageService {
 				new CopyObjectCommand({
 					Bucket: destinationBucket,
 					Key: destinationKey,
-					CopySource: `${encodeURIComponent(sourceBucket)}/${sourceKey.split('/').map(encodeURIComponent).join('/')}`,
+					CopySource: this.copySource(sourceBucket, sourceKey),
 					ContentType: newContentType,
 					MetadataDirective: newContentType ? 'REPLACE' : undefined,
 				}),
@@ -507,6 +515,14 @@ export class StorageService implements IStorageService {
 				copyError,
 			);
 		}
+	}
+
+	private copySource(bucket: string, key: string): string {
+		const encodedBucket = encodeURIComponent(bucket);
+		const location = this.provider.forcePathStyle
+			? [...this.endpointPath, encodedBucket]
+			: [encodedBucket, ...this.endpointPath];
+		return [...location, ...key.split('/').map(encodeURIComponent)].join('/');
 	}
 
 	private async copyObjectThroughApi(
@@ -628,35 +644,6 @@ export class StorageService implements IStorageService {
 		}
 	}
 
-	async moveObject({
-		sourceBucket,
-		sourceKey,
-		destinationBucket,
-		destinationKey,
-		newContentType,
-	}: {
-		sourceBucket: string;
-		sourceKey: string;
-		destinationBucket: string;
-		destinationKey: string;
-		newContentType?: string;
-	}): Promise<void> {
-		await this.copyObject({
-			sourceBucket,
-			sourceKey,
-			destinationBucket,
-			destinationKey,
-			newContentType,
-		});
-		await this.deleteObject(sourceBucket, sourceKey);
-	}
-
-	async purgeBucket(bucket: string): Promise<void> {
-		const objects = await this.listObjects({bucket, prefix: ''});
-		await Promise.all(objects.map(({key}) => this.deleteObject(bucket, key)));
-		Logger.debug({bucket, count: objects.length}, 'Purged bucket');
-	}
-
 	async uploadAvatar(params: {prefix: string; key: string; body: Uint8Array}): Promise<void> {
 		const {prefix, key, body} = params;
 		await this.uploadObject({
@@ -669,10 +656,6 @@ export class StorageService implements IStorageService {
 	async deleteAvatar(params: {prefix: string; key: string}): Promise<void> {
 		const {prefix, key} = params;
 		await this.deleteObject(Config.s3.buckets.cdn, `${prefix}/${key}`);
-	}
-
-	async getObject(params: {bucket: string; key: string}): Promise<GetObjectCommandOutput> {
-		return this.client.send(new GetObjectCommand({Bucket: params.bucket, Key: params.key}));
 	}
 
 	async listObjects(params: {bucket: string; prefix: string; maxObjects?: number}): Promise<
@@ -723,21 +706,6 @@ export class StorageService implements IStorageService {
 		return result;
 	}
 
-	async deleteObjects(params: {
-		bucket: string;
-		objects: ReadonlyArray<{
-			Key: string;
-		}>;
-	}): Promise<void> {
-		if (params.objects.length === 0) return;
-		await this.client.send(
-			new DeleteObjectsCommand({
-				Bucket: params.bucket,
-				Delete: {Objects: params.objects as Array<{Key: string}>},
-			}),
-		);
-	}
-
 	async createMultipartUpload(params: {bucket: string; key: string; contentType?: string}): Promise<{
 		uploadId: string;
 	}> {
@@ -749,27 +717,6 @@ export class StorageService implements IStorageService {
 		const response = await this.client.send(command);
 		assert(response.UploadId != null, 'Missing UploadId in CreateMultipartUpload response');
 		return {uploadId: response.UploadId};
-	}
-
-	async uploadPart(params: {
-		bucket: string;
-		key: string;
-		uploadId: string;
-		partNumber: number;
-		body: Uint8Array;
-	}): Promise<{
-		etag: string;
-	}> {
-		const command = new UploadPartCommand({
-			Bucket: params.bucket,
-			Key: params.key,
-			UploadId: params.uploadId,
-			PartNumber: params.partNumber,
-			Body: params.body,
-		});
-		const response = await this.client.send(command);
-		assert(response.ETag != null, 'Missing ETag in UploadPart response');
-		return {etag: response.ETag};
 	}
 
 	async listParts(params: {bucket: string; key: string; uploadId: string}): Promise<

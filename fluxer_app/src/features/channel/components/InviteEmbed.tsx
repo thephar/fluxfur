@@ -17,6 +17,7 @@ import {GuildIcon} from '@app/features/guild/components/popouts/GuildIcon';
 import GuildCount from '@app/features/guild/state/GuildCount';
 import Guilds from '@app/features/guild/state/Guilds';
 import {JOIN_COMMUNITY_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
+import {formatNumber} from '@app/features/i18n/utils/IntlCache';
 import {isKeyboardActivationKey} from '@app/features/input/utils/KeyboardUtils';
 import * as InviteCommands from '@app/features/invite/commands/InviteCommands';
 import Invites from '@app/features/invite/state/Invites';
@@ -39,7 +40,6 @@ import {
 	EmbedSkeletonTitle,
 } from '@app/features/messaging/components/embeds/embed_card/EmbedCard';
 import cardStyles from '@app/features/messaging/components/embeds/embed_card/EmbedCard.module.css';
-import {useEmbedSkeletonOverride} from '@app/features/messaging/components/embeds/embed_card/useEmbedSkeletonOverride';
 import type {Message} from '@app/features/messaging/models/MessagingMessage';
 import * as RouterUtils from '@app/features/navigation/utils/RouterUtils';
 import {currentInstanceTarget} from '@app/features/platform/transport/InstanceHTTP';
@@ -56,7 +56,6 @@ import {getCurrentLocale} from '@app/features/user/utils/LocaleUtils';
 import {msg} from '@lingui/core/macro';
 import {Plural, Trans, useLingui} from '@lingui/react/macro';
 import {QuestionIcon} from '@phosphor-icons/react';
-import {formatNumber} from '@pkgs/number_utils/src/NumberFormatting';
 import {observer} from 'mobx-react-lite';
 import type React from 'react';
 import {useEffect, useMemo, useRef, useState} from 'react';
@@ -156,7 +155,6 @@ const InviteEmbedInner = observer(function InviteEmbedInner({
 	const {i18n} = useLingui();
 	const instanceTarget = useMemo(currentInstanceTarget, []);
 	const inviteState = Invites.getInvite(code, instanceTarget);
-	const shouldForceSkeleton = useEmbedSkeletonOverride();
 	const invite = inviteState?.data ?? null;
 	const isGuildInviteType = invite != null && isGuildInvite(invite);
 	const guildFromInvite = isGuildInviteType ? invite!.guild : null;
@@ -167,7 +165,7 @@ const InviteEmbedInner = observer(function InviteEmbedInner({
 	const messageViewContext = useMaybeMessageViewContext();
 	const currentChannelId = messageViewContext?.channel.id;
 	const inviteWrapperRef = useRef<HTMLDivElement | null>(null);
-	const isLoading = shouldForceSkeleton || !inviteState || inviteState.loading;
+	const isLoading = !inviteState || inviteState.loading;
 	const prevLoadingRef = useRef(true);
 	const prevCodeRef = useRef(code);
 	useEffect(() => {
@@ -194,7 +192,7 @@ const InviteEmbedInner = observer(function InviteEmbedInner({
 		}
 	}, [memberGuildId]);
 	let content: React.ReactNode;
-	if (shouldForceSkeleton || !inviteState || inviteState.loading) {
+	if (!inviteState || inviteState.loading) {
 		content = <InviteLoadingState data-flx="channel.invite-embed.invite-loading-state" />;
 	} else if (inviteState.error || !invite) {
 		content = <InviteNotFoundError data-flx="channel.invite-embed.invite-not-found-error" />;

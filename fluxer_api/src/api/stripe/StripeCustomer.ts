@@ -3,7 +3,8 @@
 import {Logger} from '@app/api/Logger';
 import {getBillingRepository} from '@app/api/middleware/ServiceRegistry';
 import type {User} from '@app/api/models/User';
-import type {IUserRepository} from '@app/api/user/IUserRepository';
+import {mirrorBestEffort} from '@app/api/stripe/StripeMirror';
+import type {UserRepository} from '@app/api/user/repositories/UserRepository';
 import type {WorkerTaskName} from '@app/api/worker/WorkerLaneConfig';
 import {StripeError} from '@fluxer/errors/src/domains/payment/StripeError';
 import type {ICacheService} from '@pkgs/cache/src/ICacheService';
@@ -16,7 +17,7 @@ const CUSTOMER_LOCK_TTL_SECONDS = seconds('30 seconds');
 interface EnsureStripeCustomerParams {
 	stripe: Stripe;
 	user: User;
-	userRepository: IUserRepository;
+	userRepository: UserRepository;
 	cacheService: ICacheService;
 }
 
@@ -111,9 +112,9 @@ export async function enqueueStripeCustomerEmailSync(
 }
 
 async function mirrorStripeCustomer(customer: Stripe.Customer, user: User): Promise<void> {
-	try {
-		await getBillingRepository().customers.upsertFromStripe(customer, {knownUserId: user.id});
-	} catch (mirrorErr) {
-		Logger.error({mirrorErr, customerId: customer.id}, 'Mirror upsert failed after Stripe write; reconciler will heal');
-	}
+	await mirrorBestEffort(
+		() => getBillingRepository().customers.upsertFromStripe(customer, {knownUserId: user.id}),
+		{customerId: customer.id},
+		'Mirror upsert failed after Stripe write; reconciler will heal',
+	);
 }

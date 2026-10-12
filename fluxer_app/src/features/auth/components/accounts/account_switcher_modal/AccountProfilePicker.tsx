@@ -154,6 +154,27 @@ function renderInstanceBadge({
 	);
 }
 
+interface RenderInstanceDomainArgs {
+	readonly instanceBadge: AccountInstanceBadgeInfo | null;
+	readonly showInstance: boolean;
+}
+
+function renderInstanceDomain({instanceBadge, showInstance}: RenderInstanceDomainArgs): React.ReactNode {
+	if (!showInstance || instanceBadge == null) {
+		return null;
+	}
+	return (
+		<div
+			className={styles.domainRow}
+			data-flx="auth.accounts.account-switcher-modal.account-profile-picker.render-instance-domain.domain-row"
+		>
+			<span data-flx="auth.accounts.account-switcher-modal.account-profile-picker.render-instance-domain.span">
+				{instanceBadge.title}
+			</span>
+		</div>
+	);
+}
+
 function renderExpiredAccountStatus(isExpired: boolean, statusLabel: string): React.ReactNode {
 	if (!isExpired) {
 		return null;
@@ -238,6 +259,7 @@ const AccountProfileTile = observer(function AccountProfileTile({
 	const secondaryDisabled = disabled || resolveAccountPickerDisabled(secondaryActionDisabled, account, context);
 	const selectLabel = resolveSelectLabel({i18n, showInstance, accountTag: tagLabel, instanceLabel});
 	const removeLabel = i18n._(resolveRemoveAccountDescriptor(context.isCurrent), {accountTag: tagLabel});
+	const instanceDomain = renderInstanceDomain({instanceBadge, showInstance});
 	const avatarFrameRef = useRef<HTMLSpanElement | null>(null);
 	const handlePrimaryAction = useCallback(() => {
 		if (primaryDisabled) {
@@ -316,7 +338,11 @@ const AccountProfileTile = observer(function AccountProfileTile({
 	};
 	return (
 		<div
-			className={clsx(styles.tileSlot, context.isExpired && styles.tileSlotExpired)}
+			className={clsx(
+				styles.tileSlot,
+				context.isExpired && styles.tileSlotExpired,
+				instanceDomain != null && styles.tileSlotWithDomain,
+			)}
 			role="listitem"
 			data-flx="auth.accounts.account-switcher-modal.account-profile-picker.account-profile-tile.tile-slot"
 		>
@@ -357,6 +383,7 @@ const AccountProfileTile = observer(function AccountProfileTile({
 					</span>
 				</button>
 			</FocusRing>
+			{instanceDomain}
 			<div
 				className={styles.nameRow}
 				data-flx="auth.accounts.account-switcher-modal.account-profile-picker.account-profile-tile.name-row"

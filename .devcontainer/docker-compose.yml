@@ -28,7 +28,6 @@ services:
       FLUXER_GATEWAY_STATIC_CDN_ENDPOINT: "http://localhost:${FLUXER_DEV_PROXY_PORT:-8088}"
       FLUXER_ADMIN_OAUTH_REDIRECT_URI: "http://localhost:${FLUXER_DEV_PROXY_PORT:-8088}/admin/oauth2_callback"
       FLUXER_PASSKEY_ADDITIONAL_ALLOWED_ORIGINS: "http://localhost,http://localhost:${FLUXER_DEV_PROXY_PORT:-8088}"
-      PUBLIC_BOOTSTRAP_API_PUBLIC_ENDPOINT: "http://localhost:${FLUXER_DEV_PROXY_PORT:-8088}/api"
     volumes:
       - ..:/workspaces/fluxer:cached
       - type: volume
@@ -84,11 +83,6 @@ services:
       - type: volume
         source: package-hono-node-modules
         target: /workspaces/fluxer/packages/hono/node_modules
-        volume:
-          nocopy: true
-      - type: volume
-        source: package-hono-types-node-modules
-        target: /workspaces/fluxer/packages/hono_types/node_modules
         volume:
           nocopy: true
       - type: volume
@@ -167,18 +161,8 @@ services:
         volume:
           nocopy: true
       - type: volume
-        source: fluxer-api-initialization-node-modules
-        target: /workspaces/fluxer/fluxer_api/pkgs/initialization/node_modules
-        volume:
-          nocopy: true
-      - type: volume
         source: fluxer-api-kv-client-node-modules
         target: /workspaces/fluxer/fluxer_api/pkgs/kv_client/node_modules
-        volume:
-          nocopy: true
-      - type: volume
-        source: fluxer-api-locale-node-modules
-        target: /workspaces/fluxer/fluxer_api/pkgs/locale/node_modules
         volume:
           nocopy: true
       - type: volume
@@ -355,7 +339,6 @@ volumes:
   package-errors-node-modules:
   package-geo-utils-node-modules:
   package-hono-node-modules:
-  package-hono-types-node-modules:
   package-i18n-node-modules:
   package-instance-bootstrap-node-modules:
   package-ip-utils-node-modules:
@@ -371,9 +354,7 @@ volumes:
   fluxer-api-email-node-modules:
   fluxer-api-geoip-node-modules:
   fluxer-api-http-client-node-modules:
-  fluxer-api-initialization-node-modules:
   fluxer-api-kv-client-node-modules:
-  fluxer-api-locale-node-modules:
   fluxer-api-media-proxy-utils-node-modules:
   fluxer-api-mime-utils-node-modules:
   fluxer-api-nats-node-modules:

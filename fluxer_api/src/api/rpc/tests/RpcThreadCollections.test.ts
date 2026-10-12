@@ -1,16 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {createTestAccount, type TestAccount} from '@app/api/auth/tests/AuthTestUtils';
-import {createChannelID} from '@app/api/BrandedTypes';
-import {ChannelRepository} from '@app/api/channel/ChannelRepository';
 import {ThreadRepository} from '@app/api/channel/repositories/ThreadRepository';
 import {acceptInvite, createChannel, createChannelInvite, createGuild} from '@app/api/channel/tests/ChannelTestUtils';
-import {
-	ALL_THREADS_ACTIVE,
-	resetChannelThreadsConfig,
-	setChannelThreadsConfig,
-	threadsRequest,
-} from '@app/api/channel/tests/ThreadTestUtils';
+import {threadsRequest} from '@app/api/channel/tests/ThreadTestUtils';
+import {clearChannelThreadsTaintCacheForTesting} from '@app/api/experiment/ChannelThreadsGate';
 import {ensureSessionStarted} from '@app/api/message/tests/MessageTestUtils';
 import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHarness';
 import {createBuilder} from '@app/api/test/TestRequestBuilder';
@@ -36,11 +30,11 @@ describe('RpcService thread collections', () => {
 
 	beforeEach(async () => {
 		await harness.reset();
-		resetChannelThreadsConfig();
+		clearChannelThreadsTaintCacheForTesting();
 	});
 
 	afterAll(async () => {
-		resetChannelThreadsConfig();
+		clearChannelThreadsTaintCacheForTesting();
 		await harness.shutdown();
 	});
 
@@ -66,20 +60,7 @@ describe('RpcService thread collections', () => {
 			.execute();
 	}
 
-	test('control guild collections carry no thread keys', async () => {
-		await setup();
-		const channels = await rpc<Record<string, unknown>>({
-			type: 'guild_collection',
-			guild_id: guildId,
-			collection: 'channels',
-		});
-		for (const key of ['thread_gate', 'thread_tainted', 'threads', 'thread_members', 'thread_only_channels']) {
-			expect(channels.data).not.toHaveProperty(key);
-		}
-	});
-
 	test('active guild channel collections carry the gate and forums but load threads separately', async () => {
-		await setChannelThreadsConfig(ALL_THREADS_ACTIVE);
 		await setup();
 		await startThread();
 		const spy = vi.spyOn(ThreadRepository.prototype, 'listActiveThreads');
@@ -90,7 +71,7 @@ describe('RpcService thread collections', () => {
 				thread_only_channels: Array<unknown>;
 			}>({type: 'guild_collection', guild_id: guildId, collection: 'channels'});
 			expect(data.thread_gate.active).toBe(true);
-			expect(data.thread_gate.config_version).toBeGreaterThan(0);
+			expect(data.thread_gate.config_version).toBe(0);
 			expect(data.thread_tainted).toBe(true);
 			expect(data.thread_only_channels).toEqual([]);
 			for (const key of ['threads', 'thread_members', 'thread_parent_settings', 'thread_load_failed']) {
@@ -103,7 +84,6 @@ describe('RpcService thread collections', () => {
 	});
 
 	test('forums without a parent config row carry the default surface fields', async () => {
-		await setChannelThreadsConfig(ALL_THREADS_ACTIVE);
 		await setup();
 		const forum = await threadsRequest<{id: string}>(harness, owner.token)
 			.post(`/guilds/${guildId}/channels`)
@@ -133,40 +113,7 @@ describe('RpcService thread collections', () => {
 		expect(flip.data.thread_parent_settings.map((settings) => settings.channel_id)).not.toContain(channelId);
 	});
 
-	test('a tainted guild that left the experiment keeps only the taint marker', async () => {
-		await setChannelThreadsConfig(ALL_THREADS_ACTIVE);
-		await setup();
-		await startThread();
-		await setChannelThreadsConfig({enabled: true, user_basis_points: 10000, disabled_guild_ids: [guildId]});
-		const {data} = await rpc<Record<string, unknown>>({
-			type: 'guild_collection',
-			guild_id: guildId,
-			collection: 'channels',
-		});
-		expect(data.thread_tainted).toBe(true);
-		for (const key of ['thread_gate', 'threads', 'thread_members', 'thread_only_channels']) {
-			expect(data).not.toHaveProperty(key);
-		}
-	});
-
-	test('a tainted guild keeps the taint marker after the kill switch', async () => {
-		await setChannelThreadsConfig(ALL_THREADS_ACTIVE);
-		await setup();
-		await startThread();
-		await setChannelThreadsConfig({enabled: false});
-		const {data} = await rpc<Record<string, unknown>>({
-			type: 'guild_collection',
-			guild_id: guildId,
-			collection: 'channels',
-		});
-		expect(data.thread_tainted).toBe(true);
-		for (const key of ['thread_gate', 'threads', 'thread_members', 'thread_only_channels']) {
-			expect(data).not.toHaveProperty(key);
-		}
-	});
-
 	test('counts forum post unreads after the acknowledged message', async () => {
-		await setChannelThreadsConfig(ALL_THREADS_ACTIVE);
 		await setup();
 		await ensureSessionStarted(harness, owner.token);
 		const forum = await threadsRequest<{id: string}>(harness, owner.token)
@@ -213,27 +160,13 @@ describe('RpcService thread collections', () => {
 			threads: [{thread_id: post.id, ack_message_id: replies[1]}],
 		});
 		expect(caughtUp.data.threads).toEqual([{thread_id: post.id, count: 1}]);
-
-		await setChannelThreadsConfig({enabled: false});
-		const off = await rpc<Unreads>(request);
-		expect(off.data.threads).toEqual([]);
 	});
 
-	test('serves memberships, member pages and flip data', async () => {
-		await setChannelThreadsConfig(ALL_THREADS_ACTIVE);
+	test('serves member pages and flip data', async () => {
 		await setup();
 		const active = await startThread();
 		const privateThread = await startThread(ChannelTypes.PRIVATE_THREAD);
-		const archived = await startThread();
-		await new ChannelRepository().threads.updateState(createChannelID(BigInt(archived.id)), () => ({archived: true}));
 		await threadsRequest(harness, member.token).put(`/channels/${active.id}/thread-members/@me`).expect(204).execute();
-
-		const memberships = await rpc<{members: Array<{id: string; user_id: string}>}>({
-			type: 'get_thread_memberships',
-			guild_id: guildId,
-			user_id: owner.userId,
-		});
-		expect(memberships.data.members.map((entry) => entry.id).sort()).toEqual([active.id, privateThread.id].sort());
 
 		type MembersPage = {
 			members: Array<{id: string; user_id: string}>;
@@ -301,14 +234,5 @@ describe('RpcService thread collections', () => {
 		expect(paged.data.threads.map((entry) => entry.id).sort()).toEqual([active.id, privateThread.id].sort());
 		expect(paged.data).not.toHaveProperty('thread_members');
 		expect(paged.data).toHaveProperty('thread_parent_settings');
-
-		await setChannelThreadsConfig({enabled: false});
-		const off = await rpc<Record<string, unknown>>({
-			type: 'guild_thread_flip_data',
-			guild_id: guildId,
-			config_version: 0,
-		});
-		expect(off.data.thread_gate).toMatchObject({active: false});
-		expect(off.data).not.toHaveProperty('threads');
 	});
 });

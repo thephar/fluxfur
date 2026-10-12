@@ -18,11 +18,13 @@ import {
 	type ReportFlowScreenDef,
 } from '@app/api/report/flows/ReportFlowScreens';
 import {getLegacyCategory, isReportReasonKey, type ReportReasonKey} from '@app/api/report/flows/ReportReasonCatalog';
+import {isStringArray} from '@app/api/utils/JsonBoundaryUtils';
 import type {LocaleCode} from '@fluxer/constants/src/Locales';
 import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
 import {InputValidationError} from '@fluxer/errors/src/domains/core/InputValidationError';
 import {InvalidReportFlowAnswersError} from '@fluxer/errors/src/domains/moderation/InvalidReportFlowAnswersError';
 import {ReportFlowOutdatedError} from '@fluxer/errors/src/domains/moderation/ReportFlowOutdatedError';
+import {parseAcceptLanguage} from '@fluxer/i18n/src/locale/resolution/AcceptLanguageNegotiation';
 import type {
 	ReportFlowOutcome,
 	ReportFlowResponse,
@@ -30,7 +32,6 @@ import type {
 	ReportFlowSurface,
 	ReportFlowTargetType,
 } from '@fluxer/schema/src/domains/report/ReportFlowSchemas';
-import {parseAcceptLanguage} from '@pkgs/locale/src/LocaleService';
 
 export interface ReportFlowLibrary {
 	flows: Record<ReportFlowTargetType, ReportFlowDef>;
@@ -106,6 +107,7 @@ const REPORT_FLOW_SURFACES: ReadonlyArray<ReportFlowSurface> = ['in_app', 'dsa']
 const REPORT_FLOW_ID_PATTERN = /^[a-z0-9_]{1,48}$/;
 const MAX_WALK_SCREENS = 10;
 const CRISIS_LINES_URL = 'https://befrienders.org';
+const COPYRIGHT_HELP_URL = 'https://fluxer.app/help/copyright';
 const HOSTED_REPORT_FLOW_INSTANCE: ReportFlowInstance = {selfHosted: false, guidelinesLinked: true};
 const REPORT_FLOW_CHECKED_INSTANCES: ReadonlyArray<ReportFlowInstance> = [
 	HOSTED_REPORT_FLOW_INSTANCE,
@@ -130,7 +132,6 @@ function isLinkAvailable(link: ReportFlowLinkId, instance: ReportFlowInstance): 
 			return true;
 		case 'guidelines':
 			return instance.guidelinesLinked;
-		case 'dsa':
 		case 'copyright':
 			return !instance.selfHosted;
 	}
@@ -355,10 +356,9 @@ function collectDefinitionErrors(library: ReportFlowLibrary): Array<string> {
 			checkKey(option.label, optionWhere);
 			checkOutcome(option.outcome, optionWhere);
 			const endsWithoutNotice = option.outcome.type === 'end' && option.outcome.noticeId === undefined;
-			const linksToDsa =
-				option.outcome.type === 'link' && (option.outcome.link === 'dsa' || option.outcome.link === 'copyright');
-			if ((endsWithoutNotice || linksToDsa) && option.surface !== 'in_app') {
-				errors.push(`${optionWhere}: a no-report or DSA link option must be limited to in_app`);
+			const linksToCopyright = option.outcome.type === 'link' && option.outcome.link === 'copyright';
+			if ((endsWithoutNotice || linksToCopyright) && option.surface !== 'in_app') {
+				errors.push(`${optionWhere}: a no-report or copyright link option must be limited to in_app`);
 			}
 		}
 		if (screen.checklist) {
@@ -537,10 +537,8 @@ function getReportFlowInstance(guidelinesUrl: string | null): ReportFlowInstance
 
 function getLinkUrl(link: ReportFlowLinkId, guidelinesUrl: string | null): string | null {
 	switch (link) {
-		case 'dsa':
-			return `${Config.endpoints.webApp}/report`;
 		case 'copyright':
-			return `${Config.endpoints.webApp}/report?option=copyright_notice`;
+			return COPYRIGHT_HELP_URL;
 		case 'crisis_lines':
 			return CRISIS_LINES_URL;
 		case 'guidelines':
@@ -751,10 +749,6 @@ export function resolveReportFlowAnswers(params: {
 		currentRevisionHash: variant.revisionHash,
 		isCurrentRevision,
 	};
-}
-
-function isStringArray(value: unknown): value is Array<string> {
-	return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
 }
 
 export function parseReportFlowSteps(json: string | null | undefined): Array<ReportFlowStepRecord> | null {

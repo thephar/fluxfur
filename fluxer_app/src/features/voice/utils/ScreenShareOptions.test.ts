@@ -2,9 +2,7 @@
 
 import {
 	buildScreenShareOptions,
-	getScreenShareBitrateBps,
 	resolveScreenShareDegradationPreference,
-	resolveScreenShareFrameRate,
 	resolveScreenShareLayering,
 	resolveScreenShareTarget,
 } from '@app/features/voice/utils/ScreenShareOptions';
@@ -40,6 +38,7 @@ function targetOf(overrides: {mode?: 'gaming' | 'screenshare' | 'custom'; softwa
 		context: 'display',
 		sourceDimensions: null,
 		hintSetting: 'auto',
+		bitrate: {ceilingBps: 9_000_000, chosenBps: null},
 		...(overrides.softwareEncoderClamp === undefined ? {} : {softwareEncoderClamp: overrides.softwareEncoderClamp}),
 	});
 }
@@ -64,6 +63,7 @@ describe('display capture constraints', () => {
 		const {captureOptions} = buildScreenShareOptions({
 			resolution: 'high',
 			frameRate: 60,
+			maxBitrate: 6_000_000,
 			context: 'display',
 			includeAudio: true,
 			contentHint: 'text',
@@ -77,37 +77,6 @@ describe('display capture constraints', () => {
 });
 
 describe('screen share quality', () => {
-	it('uses the 1080p30 preset and lands the faster rungs on 60 FPS', () => {
-		expect(targetOf()).toMatchObject({resolution: 'high', frameRate: 30});
-		expect(resolveScreenShareFrameRate(120)).toBe(60);
-		expect(resolveScreenShareFrameRate(90)).toBe(60);
-		expect(resolveScreenShareFrameRate(60)).toBe(60);
-	});
-
-	it('reads the bitrate off the pixel budget', () => {
-		expect(getScreenShareBitrateBps('source', 60)).toBe(9_000_000);
-	});
-
-	it('publishes the resolved frame rate and the pixel budget bitrate', () => {
-		const {publishOptions} = buildScreenShareOptions({
-			resolution: 'source',
-			frameRate: 90,
-			context: 'display',
-			includeAudio: false,
-			sourceDimensions: {width: 3840, height: 2160},
-		});
-		expect(publishOptions.screenShareEncoding).toEqual({
-			maxBitrate: 9_000_000,
-			maxFramerate: 60,
-			priority: 'high',
-		});
-		expect(publishOptions.degradationPreference).toBe('maintain-resolution');
-	});
-
-	it('holds the motion hint only for a camera', () => {
-		expect(targetOf({mode: 'gaming'}).contentHint).toBeUndefined();
-	});
-
 	it('applies the software H.264 clamp', () => {
 		expect(targetOf({mode: 'gaming', softwareEncoderClamp: true})).toMatchObject({
 			resolution: 'medium',

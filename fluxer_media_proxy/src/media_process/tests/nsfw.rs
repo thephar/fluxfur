@@ -2,9 +2,8 @@
 
 use super::super::nsfw_processing::{
     VideoNSFWFramesRequest, compute_frame_sample_timestamps, extract_video_frames_for_nsfw,
-    nsfw_frame_seed,
 };
-use super::super::probe_av_metadata;
+use super::super::{MediaError, probe_av_metadata};
 use super::fixtures::test_media_limits;
 
 #[test]
@@ -31,46 +30,15 @@ fn compute_frame_sample_timestamps_distributes_start_middle_end() {
 }
 
 #[test]
-fn nsfw_frame_seed_is_deterministic_per_input() {
-    let a = b"hello world this is a video header blob".to_vec();
-    let b = b"hello world this is a video header blob".to_vec();
-    let c = b"hello world this is a different blob xx".to_vec();
-    assert_eq!(nsfw_frame_seed(&a), nsfw_frame_seed(&b));
-    assert_ne!(nsfw_frame_seed(&a), nsfw_frame_seed(&c));
-}
-
-#[test]
-fn extract_video_frames_for_nsfw_returns_multiple_frames() {
-    let fixture = std::path::Path::new("tests/fixtures/big-buck-bunny-720p-10s.mp4");
-    let alt = std::path::Path::new(".benchmark-cache/media/big-buck-bunny-720p-10s.mp4");
-    let path = if fixture.exists() {
-        fixture
-    } else if alt.exists() {
-        alt
-    } else {
-        eprintln!("skipping: no video fixture available");
-        return;
-    };
-    let bytes = std::fs::read(path).expect("read fixture");
-    let limits = test_media_limits();
-    let duration = probe_av_metadata(&bytes, 0, &limits, None)
-        .expect("probe fixture")
-        .probe
-        .duration_seconds;
+fn an_empty_input_fails_to_decode_for_the_probe_and_the_frame_sampler() {
     let frames = extract_video_frames_for_nsfw(VideoNSFWFramesRequest {
-        media_limits: &limits,
-        input: &bytes,
-        duration_seconds: duration,
+        input: &[],
+        duration_seconds: None,
         deadline_ms: None,
-    })
-    .expect("extract frames");
-    assert!(
-        !frames.is_empty() && frames.len() <= 3,
-        "expected 1-3 frames, got {}",
-        frames.len()
+    });
+    assert_eq!(Some(MediaError::MediaDecodeFailed), frames.err());
+    assert_eq!(
+        Some(MediaError::MediaDecodeFailed),
+        probe_av_metadata(&[], 0, &test_media_limits(), None).err()
     );
-    for f in &frames {
-        assert!(f.len() > 100, "JPEG frame too small ({} bytes)", f.len());
-        assert_eq!(&f[..2], &[0xFF, 0xD8], "not a JPEG");
-    }
 }

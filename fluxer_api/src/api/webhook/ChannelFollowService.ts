@@ -2,20 +2,22 @@
 
 import type {ChannelID, GuildID, UserID, WebhookID} from '@app/api/BrandedTypes';
 import {createMessageID, createWebhookID, createWebhookToken} from '@app/api/BrandedTypes';
-import type {IChannelRepository} from '@app/api/channel/IChannelRepository';
+import type {ChannelRepository} from '@app/api/channel/ChannelRepository';
 import {withChannelFollowLock} from '@app/api/channel/services/ChannelFollowers';
 import type {ChannelService} from '@app/api/channel/services/ChannelService';
+import {dispatchMessageCreateBroadcast} from '@app/api/channel/services/message/MessageGatewayDispatch';
 import type {ThreadViewer} from '@app/api/experiment/ChannelThreadsGate';
 import type {GuildService} from '@app/api/guild/services/GuildService';
 import type {AvatarService} from '@app/api/infrastructure/AvatarService';
 import {contentModerationService} from '@app/api/infrastructure/ContentModerationService';
+import type {IGatewayService} from '@app/api/infrastructure/IGatewayService';
 import type {ISnowflakeService} from '@app/api/infrastructure/ISnowflakeService';
 import {Logger} from '@app/api/Logger';
 import type {RequestCache} from '@app/api/middleware/RequestCacheMiddleware';
 import type {Channel} from '@app/api/models/Channel';
 import type {Webhook} from '@app/api/models/Webhook';
 import * as RandomUtils from '@app/api/utils/RandomUtils';
-import type {IWebhookRepository} from '@app/api/webhook/IWebhookRepository';
+import type {WebhookRepository} from '@app/api/webhook/WebhookRepository';
 import type {WebhookService} from '@app/api/webhook/WebhookService';
 import {
 	CHANNEL_FOLLOWER_STATS_CACHE_SECONDS,
@@ -65,13 +67,14 @@ function truncateToLength(value: string, maxLength: number): string {
 export class ChannelFollowService {
 	constructor(
 		private readonly webhookService: WebhookService,
-		private readonly webhookRepository: IWebhookRepository,
+		private readonly webhookRepository: WebhookRepository,
 		private readonly channelService: ChannelService,
-		private readonly channelRepository: IChannelRepository,
+		private readonly channelRepository: ChannelRepository,
 		private readonly guildService: GuildService,
 		private readonly avatarService: AvatarService,
 		private readonly cacheService: ICacheService,
 		private readonly snowflakeService: ISnowflakeService,
+		private readonly gatewayService: IGatewayService,
 	) {}
 
 	async followChannel(params: FollowChannelParams): Promise<FollowedChannel> {
@@ -112,7 +115,7 @@ export class ChannelFollowService {
 			targetGuild,
 		});
 		const webhook = await withChannelFollowLock(this.cacheService, targetChannel.id, async () => {
-			const current = await this.channelRepository.findUnique(targetChannel.id);
+			const current = await this.channelRepository.channelData.findUnique(targetChannel.id);
 			if (!current?.guildId || !CHANNEL_FOLLOW_TARGET_TYPES.has(current.type)) {
 				throw new InvalidFollowTargetChannelError();
 			}
@@ -150,7 +153,7 @@ export class ChannelFollowService {
 				sourceChannelId: source.id,
 			});
 		});
-		const currentSource = await this.channelRepository.findUnique(source.id);
+		const currentSource = await this.channelRepository.channelData.findUnique(source.id);
 		if (!currentSource || currentSource.type !== ChannelTypes.GUILD_ANNOUNCEMENT) {
 			await this.webhookRepository.delete(webhook.id);
 			throw new AnnouncementChannelRequiredError();
@@ -238,7 +241,6 @@ export class ChannelFollowService {
 		userId,
 		source,
 		targetChannel,
-		requestCache,
 	}: {
 		webhook: Webhook;
 		userId: UserID;
@@ -265,11 +267,7 @@ export class ChannelFollowService {
 				channel: targetChannel,
 				allowEmbeds: false,
 			});
-			await this.channelService.messages.dispatch.dispatchMessageCreate({
-				channel: targetChannel,
-				message,
-				requestCache,
-			});
+			await dispatchMessageCreateBroadcast({gatewayService: this.gatewayService, channel: targetChannel, message});
 		} catch (error) {
 			Logger.error(
 				{

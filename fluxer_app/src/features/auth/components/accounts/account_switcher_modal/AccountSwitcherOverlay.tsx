@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import Accessibility from '@app/features/accessibility/state/Accessibility';
 import {AccountProfilePicker} from '@app/features/auth/components/accounts/account_switcher_modal/AccountProfilePicker';
 import {
 	type AccountSwitcherContentView,
@@ -7,9 +8,11 @@ import {
 } from '@app/features/auth/components/accounts/account_switcher_modal/AccountSwitcherModalTypes';
 import styles from '@app/features/auth/components/accounts/account_switcher_modal/AccountSwitcherOverlay.module.css';
 import {AccountSwitcherViewTransition} from '@app/features/auth/components/accounts/account_switcher_modal/AccountSwitcherViewTransition';
+import Keybind, {type KeybindCommand} from '@app/features/input/state/InputKeybind';
 import type {Account} from '@app/features/platform/state/AuthSession';
 import FocusRingScope from '@app/features/ui/focus_ring/FocusRingScope';
 import {usePrefersReducedMotion} from '@app/features/ui/hooks/usePrefersReducedMotion';
+import {KeybindHint} from '@app/features/ui/keybind_hint/KeybindHint';
 import {AnimeButton, type AnimeTarget, createAnimeFlxElement} from '@app/features/ui/motion/AnimeElement';
 import LayerManager, {LayerType} from '@app/features/ui/state/LayerManager';
 import {getZIndexForStack} from '@app/features/ui/state/Modal';
@@ -18,11 +21,14 @@ import {isDesktop} from '@app/features/ui/utils/NativeUtils';
 import {flxElementClassName} from '@app/lib/react';
 import {msg} from '@lingui/core/macro';
 import {Trans, useLingui} from '@lingui/react/macro';
+import {observer} from 'mobx-react-lite';
 import type React from 'react';
 import {useCallback, useContext, useEffect, useId, useRef} from 'react';
 
 const AccountSwitcherAnimatedRoot = createAnimeFlxElement('flx-auth-account-switcher-overlay');
 const AccountSwitcherAnimatedShell = createAnimeFlxElement('flx-auth-account-switcher-overlay-shell');
+
+const SYSTEM_OPEN_ACCOUNT_SWITCHER_ACTION: KeybindCommand = 'system_open_account_switcher';
 
 const CLOSE_ACCOUNT_SWITCHER_DESCRIPTOR = msg({
 	message: 'Close account switcher',
@@ -47,6 +53,24 @@ interface AccountSwitcherStageProps {
 	readonly pickerDisabled: boolean;
 	readonly view: AccountSwitcherContentView;
 }
+
+const AccountSwitcherShortcutHint = observer(function AccountSwitcherShortcutHint(): React.ReactElement | null {
+	const {combo} = Keybind.getByAction(SYSTEM_OPEN_ACCOUNT_SWITCHER_ACTION);
+	if (Accessibility.hideKeyboardHints || (!combo.key && !combo.code)) {
+		return null;
+	}
+	return (
+		<div
+			className={styles.shortcutTitle}
+			data-flx="auth.accounts.account-switcher-modal.account-switcher-overlay.account-switcher-shortcut-hint.shortcut-title"
+		>
+			<KeybindHint
+				combo={combo}
+				data-flx="auth.accounts.account-switcher-modal.account-switcher-overlay.account-switcher-shortcut-hint.keybind-hint"
+			/>
+		</div>
+	);
+});
 
 function AccountSwitcherStage({
 	accounts,
@@ -73,6 +97,7 @@ function AccountSwitcherStage({
 			className={flxElementClassName(styles.accountsStage)}
 			data-flx="auth.accounts.account-switcher-modal.account-switcher-overlay.account-switcher-stage.accounts-stage"
 		>
+			<AccountSwitcherShortcutHint data-flx="auth.accounts.account-switcher-modal.account-switcher-overlay.account-switcher-stage.account-switcher-shortcut-hint" />
 			{accounts.length === 0 ? (
 				<flx-auth-account-switcher-overlay-empty
 					className={flxElementClassName(styles.noAccounts)}

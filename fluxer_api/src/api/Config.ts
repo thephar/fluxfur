@@ -3,8 +3,10 @@
 import type {APIConfig, BlueskyOAuthConfig, TrustedCallerConfig} from '@app/api/config/APIConfig';
 import {DonationRateLimitConfigs} from '@app/api/rate_limit_configs/DonationRateLimitConfig';
 import {parseIpBanEntry} from '@app/api/utils/IpRangeUtils';
+import {trimTrailingSlash} from '@app/api/utils/UrlUtils';
 import type {WorkerTaskName} from '@app/api/worker/WorkerLaneConfig';
 import type {MasterConfig} from '@fluxer/config/src/MasterConfig';
+import {smtpTlsModeFromSecure} from '@fluxer/constants/src/SmtpConstants';
 import {parseIpAddress} from '@fluxer/ip_utils/src/IpAddress';
 import {parseGeoipSourceConfig, resolveGeoipRuntimeSourceConfig} from '@pkgs/geoip/src/GeoipStartup';
 
@@ -14,10 +16,6 @@ function extractHostname(url: string): string {
 	} catch {
 		throw new Error(`Invalid URL: ${url}`);
 	}
-}
-
-function trimTrailingSlash(url: string): string {
-	return url.replace(/\/+$/u, '');
 }
 
 function resolveEmailAppBaseUrl(master: MasterConfig): string {
@@ -77,27 +75,6 @@ function normalizeIpBanExemptIps(values: Array<string>): Array<string> {
 		normalized.add(parsed.normalized);
 	}
 	return Array.from(normalized);
-}
-
-function mapApnsApps(
-	apps:
-		| Array<{
-				app_id?: string;
-				topic?: string;
-				environment?: 'production' | 'development';
-		  }>
-		| undefined,
-): APIConfig['push']['apns']['apps'] {
-	return (apps ?? []).map((app) => {
-		if (!app.app_id) {
-			throw new Error('FLUXER_PUSH_APNS_APPS contains an entry with no app_id');
-		}
-		return {
-			appId: app.app_id,
-			topic: app.topic,
-			environment: app.environment,
-		};
-	});
 }
 
 const TRUSTED_CALLER_MIN_KEY_LENGTH = 32;
@@ -301,7 +278,8 @@ export function buildAPIConfigFromMaster(master: MasterConfig): APIConfig {
 						port: master.integrations.email.smtp.port,
 						username: master.integrations.email.smtp.username,
 						password: master.integrations.email.smtp.password,
-						secure: master.integrations.email.smtp.secure ?? true,
+						tlsMode:
+							master.integrations.email.smtp.tls_mode ?? smtpTlsModeFromSecure(master.integrations.email.smtp.secure),
 					}
 				: undefined,
 		},
@@ -318,6 +296,7 @@ export function buildAPIConfigFromMaster(master: MasterConfig): APIConfig {
 			url: master.integrations.voice.url,
 			internalUrl: master.integrations.voice.internal_url,
 			defaultRegion: master.integrations.voice.default_region,
+			p2pStunUrls: master.integrations.voice.p2p_stun_urls,
 		},
 		stripe: {
 			enabled: master.integrations.stripe.enabled,
@@ -396,11 +375,6 @@ export function buildAPIConfigFromMaster(master: MasterConfig): APIConfig {
 				rpId: master.auth.passkeys.rp_id,
 				allowedOrigins: master.auth.passkeys.additional_allowed_origins,
 			},
-			vapid: {
-				publicKey: master.auth.vapid.public_key,
-				privateKey: master.auth.vapid.private_key,
-				email: master.auth.vapid.email,
-			},
 			bluesky: master.auth.bluesky as BlueskyOAuthConfig,
 		},
 		klipy: {
@@ -455,14 +429,6 @@ export function buildAPIConfigFromMaster(master: MasterConfig): APIConfig {
 		},
 		push: {
 			publicVapidKey: master.auth.vapid.public_key,
-			apns: {
-				enabled: master.integrations.push.apns.enabled,
-				teamId: master.integrations.push.apns.team_id,
-				keyId: master.integrations.push.apns.key_id,
-				privateKey: master.integrations.push.apns.private_key,
-				privateKeyPath: master.integrations.push.apns.private_key_path,
-				apps: mapApnsApps(master.integrations.push.apns.apps),
-			},
 		},
 		appStore: {
 			enabled: master.integrations.app_store.enabled,

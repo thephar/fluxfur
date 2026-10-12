@@ -1,55 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {messages as messagesEnUS} from '@app/features/i18n/locales/en-US/messages.mjs';
+import {AppStorageKey} from '@app/features/platform/state/AppStorageKeys';
 import AppStorage from '@app/features/platform/state/PersistentStorage';
 import {getNativeLocaleIdentifier} from '@app/features/platform/types/Platform';
 import {Logger} from '@app/features/platform/utils/AppLogger';
 import {loadLazyModule} from '@app/features/platform/utils/LazyModuleLoader';
 import {noteLocale} from '@app/features/theme/fonts/ScriptFontLoader';
+import {AllLocales, type LocaleCode} from '@fluxer/constants/src/Locales';
 import {type I18n, i18n, type Messages} from '@lingui/core';
 import {createAtom, runInAction} from 'mobx';
 
-const supportedLocales = [
-	'ar',
-	'bg',
-	'cs',
-	'da',
-	'de',
-	'el',
-	'en-GB',
-	'en-US',
-	'es-ES',
-	'es-419',
-	'fi',
-	'fr',
-	'he',
-	'hi',
-	'hr',
-	'hu',
-	'id',
-	'it',
-	'ja',
-	'ko',
-	'lt',
-	'nl',
-	'no',
-	'pl',
-	'pt-BR',
-	'ro',
-	'ru',
-	'sv-SE',
-	'th',
-	'tr',
-	'uk',
-	'vi',
-	'zh-CN',
-	'zh-TW',
-] as const;
-
-type LocaleCode = (typeof supportedLocales)[number];
-
 const DEFAULT_LOCALE: LocaleCode = 'en-US';
-const supportedLocaleSet = new Set<LocaleCode>(supportedLocales);
+const supportedLocaleSet = new Set<LocaleCode>(AllLocales);
 const logger = new Logger('i18n');
 const LANGUAGE_OVERRIDES: Record<string, LocaleCode> = {
 	en: 'en-US',
@@ -157,7 +120,7 @@ function resolveLocale(value: string): LocaleCode | null {
 	if (override) {
 		return override;
 	}
-	const fallback = supportedLocales.find((code) => code.split('-')[0].toLowerCase() === language);
+	const fallback = AllLocales.find((code) => code.split('-')[0].toLowerCase() === language);
 	if (fallback) {
 		return fallback;
 	}
@@ -183,7 +146,7 @@ function detectPreferredLocale(forceLocale?: string): LocaleCode {
 	if (forceLocale) {
 		return normalizeLocale(forceLocale);
 	}
-	const storedLocale = AppStorage.getItem('locale');
+	const storedLocale = AppStorage.getItem(AppStorageKey.I18N_CHOSEN_LOCALE);
 	if (storedLocale) {
 		return normalizeLocale(storedLocale);
 	}
@@ -204,7 +167,6 @@ function activateLocale(localeCode: LocaleCode, messages: Messages): void {
 		document.documentElement.lang = localeCode;
 	}
 	noteLocale(localeCode);
-	AppStorage.setItem('locale', localeCode);
 }
 
 export function ensureActiveLocale(): void {
@@ -246,10 +208,10 @@ export function applyLocaleChange(localeCode: string): LocaleCode {
 	const normalized = normalizeLocale(localeCode);
 	requestedLocale = normalized;
 	if (normalized === i18n.locale) {
-		AppStorage.setItem('locale', normalized);
+		AppStorage.setItem(AppStorageKey.I18N_CHOSEN_LOCALE, normalized);
 		return normalized;
 	}
-	AppStorage.setItem('locale', normalized);
+	AppStorage.setItem(AppStorageKey.I18N_CHOSEN_LOCALE, normalized);
 	void loadLocaleCatalog(normalized).catch((error) => {
 		logger.error(`Failed to apply locale ${normalized}`, error);
 	});

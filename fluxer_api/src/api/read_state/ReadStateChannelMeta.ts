@@ -6,11 +6,10 @@ import type {ChannelRow} from '@app/api/database/types/ChannelTypes';
 import {
 	THREAD_CHANNEL_TYPES,
 	THREAD_FEATURE_CHANNEL_TYPES,
-	userActive,
 	viewerActive,
 	viewerFromCtx,
 } from '@app/api/experiment/ChannelThreadsGate';
-import type {ReadStateMarker} from '@app/api/read_state/IReadStateRepository';
+import type {ReadStateMarker} from '@app/api/read_state/ReadStateRepository';
 import {Channels} from '@app/api/Tables';
 import type {HonoEnv} from '@app/api/types/HonoEnv';
 import {ReadStateFlags} from '@fluxer/constants/src/ThreadConstants';
@@ -73,7 +72,7 @@ export async function resolveReadStateMarker(params: {
 	channel?: ReadStateChannelHint | null;
 }): Promise<ReadStateMarker | null> {
 	const {userId, channelId, capable} = params;
-	if (!capable || !userActive(userId)) return null;
+	if (!capable) return null;
 	const channel = params.channel ?? (await loadChannelMeta(channelId));
 	if (!channel) return null;
 	const marker = readStateMarkerFor(channel);

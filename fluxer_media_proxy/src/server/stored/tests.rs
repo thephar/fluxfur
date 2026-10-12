@@ -4,8 +4,8 @@ use super::*;
 use crate::{
     config::Config,
     output_format::OutputFormat,
-    server::asset_path::parse_standard_asset_path,
-    storage::{Object, StorageError},
+    server::asset_path::{parse_simple_asset_path, parse_standard_asset_path},
+    storage::Object,
 };
 use axum::{body::to_bytes, http::header};
 use bytes::Bytes;
@@ -50,6 +50,7 @@ fn asset_transform_failure(error: CoalescerError) -> Response {
         object: asset_source_object(),
         range_header: None,
         source_format: AssetExtension::Png,
+        sniffed_content_type: "image/png",
         detail: "asset key=avatars/1/abc".to_owned(),
     })
 }
@@ -72,7 +73,7 @@ fn test_transform_cache() -> crate::transform_cache::TransformCache {
 #[test]
 fn asset_size_query_is_clamped_by_kind() {
     let params = HashMap::from([("size".to_owned(), "4096".to_owned())]);
-    let size = asset_size::parse_image_size(params.get("size").map(String::as_str));
+    let size = constants::parse_image_size(params.get("size").map(String::as_str));
     let selected = output_format::select_url_variant(output_format::Input {
         kind: AssetKind::Avatar,
         original: AssetExtension::Webp,
@@ -229,50 +230,6 @@ async fn an_asset_image_transform_is_served_and_then_reused_from_its_content_ide
     );
 }
 
-#[tokio::test]
-async fn an_asset_read_that_races_a_rewrite_is_refused_rather_than_cached() {
-    let tmp = tempfile::tempdir().unwrap();
-    let storage_root = tmp.path().canonicalize().unwrap();
-    let app = test_app_state(asset_test_config(&storage_root));
-    let asset = parse_standard_asset_path(ASSET_TEST_PATH).unwrap();
-    app.store
-        .write_object(
-            &app.cfg.storage.bucket_cdn,
-            &asset.storage_key,
-            &crate::test_fixtures::synthetic_png(512, 512),
-            "image/png",
-        )
-        .await
-        .unwrap();
-    let head = app
-        .store
-        .head_object(&app.cfg.storage.bucket_cdn, &asset.storage_key)
-        .await
-        .unwrap();
-    app.store
-        .write_object(
-            &app.cfg.storage.bucket_cdn,
-            &asset.storage_key,
-            &crate::test_fixtures::synthetic_png(256, 256),
-            "image/png",
-        )
-        .await
-        .unwrap();
-    let read_budget = storage::unversioned_read_budget(constants::MAX_MEDIA_PROXY_BYTES);
-    let error = app
-        .store
-        .read_object_versioned(storage::ObjectReadRequest {
-            bucket: &app.cfg.storage.bucket_cdn,
-            key: &asset.storage_key,
-            max_bytes: constants::MAX_MEDIA_PROXY_BYTES,
-            budget: &read_budget,
-            expected_identity: &head.identity,
-        })
-        .await
-        .expect_err("the rewritten object no longer matches its head");
-    assert!(matches!(error, StorageError::ObjectChanged));
-}
-
 #[test]
 fn a_transform_failure_on_a_source_the_browser_cannot_show_stays_an_error() {
     let svg_failure = |error| {
@@ -285,6 +242,7 @@ fn a_transform_failure_on_a_source_the_browser_cannot_show_stays_an_error() {
             },
             range_header: None,
             source_format: AssetExtension::Svg,
+            sniffed_content_type: "image/svg+xml",
             detail: "asset key=avatars/1/abc".to_owned(),
         })
     };
@@ -296,6 +254,56 @@ fn a_transform_failure_on_a_source_the_browser_cannot_show_stays_an_error() {
         StatusCode::SERVICE_UNAVAILABLE,
         svg_failure(CoalescerError::AllocationFailed).status()
     );
+}
+
+#[test]
+fn an_octet_stream_asset_sniffed_as_an_image_browsers_cannot_show_stays_an_error() {
+    let response = asset_transform_failure_response(AssetTransformFailure {
+        method: Method::GET,
+        error: CoalescerError::TooLargeToProcess,
+        object: Object {
+            data: Bytes::from_static(&[0xff, 0x0a, 0x00, 0x00]),
+            content_type: "application/octet-stream".to_owned(),
+        },
+        range_header: None,
+        source_format: AssetExtension::Jxl,
+        sniffed_content_type: "image/jxl",
+        detail: "asset key=avatars/1/abc".to_owned(),
+    });
+    assert_eq!(StatusCode::INTERNAL_SERVER_ERROR, response.status());
+}
+
+#[tokio::test]
+async fn an_untransformable_asset_stored_as_octet_stream_serves_the_original_as_its_sniffed_type() {
+    let fake = crate::storage::tests::fake_s3().await;
+    let tmp = tempfile::tempdir().unwrap();
+    let mut cfg = fake.config(tmp.path());
+    cfg.media.transform_timeout_ms = 60_000;
+    let app = test_app_state(cfg);
+    let asset =
+        parse_simple_asset_path("/emojis/1554531234351165442.webp", AssetKind::Emoji).unwrap();
+    let mut corrupt_gif = crate::test_fixtures::minimal_gif();
+    corrupt_gif.truncate(corrupt_gif.len() - 6);
+    corrupt_gif.extend_from_slice(&[0x02, 0x02, 0xff, 0xff, 0x00, 0x3b]);
+    fake.put_object(
+        &format!("{}/{}", app.cfg.storage.bucket_cdn, asset.storage_key),
+        crate::storage::tests::FakeObject {
+            body: corrupt_gif.clone(),
+            content_type: Some("application/octet-stream".to_owned()),
+            ..crate::storage::tests::FakeObject::default()
+        },
+    );
+    let response =
+        serve_asset_image(&app, Method::GET, asset, &HashMap::new(), &HeaderMap::new()).await;
+    assert_eq!(StatusCode::OK, response.status());
+    assert_eq!(
+        Some("image/gif"),
+        response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+    );
+    assert_eq!(&corrupt_gif[..], &response_body(response).await[..]);
 }
 
 #[tokio::test]
@@ -329,6 +337,116 @@ async fn a_stored_passthrough_stream_declares_the_length_it_serves() {
             .and_then(|value| value.to_str().ok())
     );
     assert_eq!(&b"hello"[..], &response_body(response).await[..]);
+}
+
+#[tokio::test]
+async fn a_stored_passthrough_serves_objects_larger_than_the_buffer_cap() {
+    let tmp = tempfile::tempdir().unwrap();
+    let storage_root = tmp.path().canonicalize().unwrap();
+    let app = test_app_state(asset_test_config(&storage_root));
+    let bucket = app.cfg.storage.bucket_cdn.clone();
+    app.store
+        .write_object(&bucket, "a/big.mp4", b"head", "video/mp4")
+        .await
+        .unwrap();
+    let total_len = constants::MAX_MEDIA_PROXY_BYTES as u64 + 1;
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(storage_root.join(&bucket).join("a/big.mp4"))
+        .unwrap()
+        .set_len(total_len)
+        .unwrap();
+    let mut range = HeaderMap::new();
+    range.insert(header::RANGE, "bytes=0-3".parse().unwrap());
+
+    let head =
+        passthrough::serve_stored_raw(&app, Method::HEAD, &bucket, "a/big.mp4", &HeaderMap::new())
+            .await;
+    assert_eq!(StatusCode::OK, head.status());
+    assert_eq!(
+        Some(total_len.to_string().as_str()),
+        head.headers()
+            .get(header::CONTENT_LENGTH)
+            .and_then(|value| value.to_str().ok())
+    );
+
+    let get = passthrough::serve_stored_raw(&app, Method::GET, &bucket, "a/big.mp4", &range).await;
+    assert_eq!(StatusCode::PARTIAL_CONTENT, get.status());
+    assert_eq!(
+        Some(format!("bytes 0-3/{total_len}").as_str()),
+        get.headers()
+            .get(header::CONTENT_RANGE)
+            .and_then(|value| value.to_str().ok())
+    );
+    assert_eq!(&b"head"[..], &response_body(get).await[..]);
+}
+
+fn poster_params() -> HashMap<String, String> {
+    HashMap::from([
+        ("format".to_owned(), "webp".to_owned()),
+        ("width".to_owned(), "64".to_owned()),
+    ])
+}
+
+#[tokio::test]
+async fn a_spooled_attachment_video_serves_its_poster_and_then_answers_from_the_cache() {
+    let tmp = tempfile::tempdir().unwrap();
+    let storage_root = tmp.path().canonicalize().unwrap();
+    let app = test_app_state(asset_test_config(&storage_root));
+    let bucket = app.cfg.storage.bucket_cdn.clone();
+    let key = "attachments/1/2/clip.mp4";
+    app.store
+        .write_object(
+            &bucket,
+            key,
+            &crate::test_fixtures::fixture_h264_mp4(),
+            "application/octet-stream",
+        )
+        .await
+        .unwrap();
+    let params = poster_params();
+    let headers = HeaderMap::new();
+
+    let poster = serve_spooled_attachment_video(&app, Method::GET, key, &params, &headers).await;
+    assert_eq!(StatusCode::OK, poster.status());
+    let poster = response_body(poster).await;
+    assert_eq!("image/webp", mime::sniff(&poster).mime);
+
+    std::fs::remove_file(storage_root.join(&bucket).join(key)).unwrap();
+    let cached = serve_spooled_attachment_video(&app, Method::GET, key, &params, &headers).await;
+    assert_eq!(StatusCode::OK, cached.status());
+    assert_eq!(&poster[..], &response_body(cached).await[..]);
+}
+
+#[tokio::test]
+async fn a_spooled_attachment_read_refuses_everything_but_video() {
+    let tmp = tempfile::tempdir().unwrap();
+    let storage_root = tmp.path().canonicalize().unwrap();
+    let app = test_app_state(asset_test_config(&storage_root));
+    let bucket = app.cfg.storage.bucket_cdn.clone();
+    let params = poster_params();
+    for (key, data) in [
+        (
+            "attachments/1/2/huge.png",
+            crate::test_fixtures::synthetic_png(8, 8),
+        ),
+        (
+            "attachments/1/2/song.wav",
+            crate::test_fixtures::synthetic_wav(),
+        ),
+        ("attachments/1/2/disk.iso", vec![0u8; 4096]),
+    ] {
+        app.store
+            .write_object(&bucket, key, &data, "application/octet-stream")
+            .await
+            .unwrap();
+
+        let refused =
+            serve_spooled_attachment_video(&app, Method::GET, key, &params, &HeaderMap::new())
+                .await;
+
+        assert_eq!(StatusCode::PAYLOAD_TOO_LARGE, refused.status(), "{key}");
+    }
 }
 
 fn fake_asset_object(read_status: Option<u16>) -> crate::storage::tests::FakeObject {
@@ -385,7 +503,7 @@ async fn an_asset_image_source_that_vanishes_mid_request_is_not_found() {
 }
 
 fn avatar_cache_key_for_requested_size(raw: &str) -> String {
-    let size = asset_size::parse_image_size(Some(raw));
+    let size = constants::parse_image_size(Some(raw));
     let selected = output_format::select_url_variant(output_format::Input {
         kind: AssetKind::Avatar,
         original: AssetExtension::Webp,
@@ -536,40 +654,4 @@ async fn an_explicit_quality_reuses_the_entry_the_resolved_default_minted() {
         "quality=high resolves to the entry the default request already minted"
     );
     assert!(rendered.contains("fluxer_media_proxy_transform_cache_misses_total 1\n"));
-}
-
-fn cache_control_of(response: &Response) -> &str {
-    response
-        .headers()
-        .get(header::CACHE_CONTROL)
-        .expect("cache-control is always set")
-        .to_str()
-        .expect("cache-control is ASCII")
-}
-
-#[test]
-fn stored_media_responses_cache_forever() {
-    let stored = media_response(MediaResponse {
-        method: Method::GET,
-        data: Bytes::from_static(b"stored bytes").into(),
-        content_type: "image/webp",
-        range_header: None,
-        disposition: None,
-    });
-    assert_eq!("public, max-age=31536000", cache_control_of(&stored));
-
-    let streamable = media_response(MediaResponse {
-        method: Method::GET,
-        data: Bytes::from_static(b"stored bytes").into(),
-        content_type: "video/mp4",
-        range_header: None,
-        disposition: None,
-    });
-    assert_eq!(
-        "public, max-age=31536000, no-transform",
-        cache_control_of(&streamable)
-    );
-
-    let head = super::response::passthrough_head_response("image/webp", 12, None, None);
-    assert_eq!("public, max-age=31536000", cache_control_of(&head));
 }

@@ -163,6 +163,7 @@ const NAMED_FLUXER_ENV_OVERRIDES: Record<string, NamedEnvOverride> = {
 	FLUXER_EMAIL_SMTP_PORT: {path: ['integrations', 'email', 'smtp', 'port'], parse: parseInteger},
 	FLUXER_EMAIL_SMTP_USERNAME: {path: ['integrations', 'email', 'smtp', 'username']},
 	FLUXER_EMAIL_SMTP_PASSWORD: {path: ['integrations', 'email', 'smtp', 'password']},
+	FLUXER_EMAIL_SMTP_TLS_MODE: {path: ['integrations', 'email', 'smtp', 'tls_mode'], parse: parseSmtpTlsMode},
 	FLUXER_EMAIL_SMTP_SECURE: {path: ['integrations', 'email', 'smtp', 'secure'], parse: parseBoolean},
 	FLUXER_LIVEKIT_ENABLED: {path: ['integrations', 'voice', 'enabled'], parse: parseBoolean},
 	FLUXER_LIVEKIT_API_KEY: {path: ['integrations', 'voice', 'api_key']},
@@ -170,6 +171,7 @@ const NAMED_FLUXER_ENV_OVERRIDES: Record<string, NamedEnvOverride> = {
 	FLUXER_LIVEKIT_URL: {path: ['integrations', 'voice', 'url']},
 	FLUXER_LIVEKIT_INTERNAL_URL: {path: ['integrations', 'voice', 'internal_url']},
 	FLUXER_LIVEKIT_DEFAULT_REGION: {path: ['integrations', 'voice', 'default_region'], parse: parseJsonObject},
+	FLUXER_VOICE_P2P_STUN_URLS: {path: ['integrations', 'voice', 'p2p_stun_urls'], parse: parseCsv},
 	FLUXER_SEARCH_ENGINE: {path: ['integrations', 'search', 'engine']},
 	FLUXER_SEARCH_URL: {path: ['integrations', 'search', 'url']},
 	FLUXER_SEARCH_API_KEY: {path: ['integrations', 'search', 'api_key']},
@@ -347,6 +349,12 @@ function parseTagStyle(raw: string): string {
 	const value = raw.trim().toLowerCase();
 	if (value === 'none' || value === 'random') return value;
 	throw new Error('must be none or random');
+}
+
+function parseSmtpTlsMode(raw: string): string {
+	const value = raw.trim().toLowerCase();
+	if (value === 'implicit' || value === 'starttls' || value === 'opportunistic' || value === 'none') return value;
+	throw new Error('must be implicit, starttls, opportunistic or none');
 }
 
 function parseJson(raw: string): unknown {

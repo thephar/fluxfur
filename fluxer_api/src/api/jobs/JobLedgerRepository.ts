@@ -11,18 +11,40 @@ import {
 } from '@app/api/database/CassandraQueryExecution';
 import {Db} from '@app/api/database/CassandraTypes';
 import type {JobActiveRow, JobByDayBucketRow, JobByIdRow, JobStatus} from '@app/api/database/types/JobLedgerTypes';
-import {
-	type CreateJobInput,
-	IJobLedgerRepository,
-	type ListJobsCursor,
-	type ListJobsFilters,
-	type ListJobsResult,
-} from '@app/api/jobs/IJobLedgerRepository';
 import {JobsActive, JobsByDayBucket, JobsById} from '@app/api/Tables';
 import {awaitAll} from '@app/api/utils/ConcurrencyUtils';
 import {JOBS_STREAM_MAX_AGE_MS} from '@app/api/worker/JetStreamWorkerQueue';
 import {snowflakeToDate} from '@fluxer/snowflake/src/Snowflake';
 import {ms, seconds} from 'itty-time';
+
+export interface CreateJobInput {
+	jobId: bigint;
+	taskType: string;
+	payload: Record<string, unknown>;
+	requestedByUserId: bigint | null;
+	auditLogReason: string | null;
+	maxAttempts: number;
+	runAt: Date | null;
+	jetStreamLane: string | null;
+	jetStreamSeq: string | null;
+}
+
+export interface ListJobsCursor {
+	bucketDay: string;
+	createdAt: Date;
+	jobId: bigint;
+}
+
+export interface ListJobsFilters {
+	status?: JobStatus | null;
+	taskType?: string | null;
+	requestedByUserId?: bigint | null;
+}
+
+export interface ListJobsResult {
+	jobs: Array<JobByIdRow>;
+	nextCursor: ListJobsCursor | null;
+}
 
 export const JOB_LEDGER_TTL_SECONDS = seconds('90 days');
 export const JOB_STALE_AFTER_MS = JOBS_STREAM_MAX_AGE_MS + ms('1 day');
@@ -32,9 +54,6 @@ const JOB_LEDGER_RETENTION_DAYS = JOB_LEDGER_TTL_SECONDS / seconds('1 day');
 const NEWEST_FIRST = {col: 'created_at', direction: 'DESC'} as const;
 
 const FETCH_JOB_BY_ID_QUERY = JobsById.select({
-	where: JobsById.where.eq('job_id'),
-});
-const FETCH_CANCEL_REQUESTED_QUERY = JobsById.select({
 	where: JobsById.where.eq('job_id'),
 });
 const ACTIVE_JOBS_QUERY = JobsActive.select();
@@ -88,7 +107,7 @@ async function fetchDayAfter(
 	return {rows: [...ties, ...older], exhausted: limit === null || older.length < limit};
 }
 
-export class JobLedgerRepository extends IJobLedgerRepository {
+export class JobLedgerRepository {
 	async createJob(input: CreateJobInput): Promise<Date> {
 		const now = new Date();
 		const status: JobStatus = 'queued';
@@ -176,47 +195,33 @@ export class JobLedgerRepository extends IJobLedgerRepository {
 		);
 	}
 
-	async markSucceeded(jobId: bigint, result: Record<string, unknown> | null): Promise<void> {
-		const completedAt = new Date();
-		const status: JobStatus = 'succeeded';
+	private async markTerminal(
+		jobId: bigint,
+		status: Extract<JobStatus, 'succeeded' | 'cancelled' | 'deadletter'>,
+		extra: Parameters<typeof JobsById.patchByPkWithTtl>[1] = {},
+	): Promise<void> {
 		await upsertOne(
 			JobsById.patchByPkWithTtl(
 				{job_id: jobId},
-				{
-					status: Db.set(status),
-					completed_at: Db.set(completedAt),
-					result: result === null ? Db.clear() : Db.set(JSON.stringify(result)),
-				},
+				{...extra, status: Db.set(status), completed_at: Db.set(new Date())},
 				JOB_LEDGER_TTL_SECONDS,
 			),
 		);
 		await deleteOneOrMany(JobsActive.deleteByPk({job_id: jobId}));
+	}
+
+	async markSucceeded(jobId: bigint, result: Record<string, unknown> | null): Promise<void> {
+		return this.markTerminal(jobId, 'succeeded', {
+			result: result === null ? Db.clear() : Db.set(JSON.stringify(result)),
+		});
 	}
 
 	async markCancelled(jobId: bigint): Promise<void> {
-		const completedAt = new Date();
-		const status: JobStatus = 'cancelled';
-		await upsertOne(
-			JobsById.patchByPkWithTtl(
-				{job_id: jobId},
-				{status: Db.set(status), completed_at: Db.set(completedAt)},
-				JOB_LEDGER_TTL_SECONDS,
-			),
-		);
-		await deleteOneOrMany(JobsActive.deleteByPk({job_id: jobId}));
+		return this.markTerminal(jobId, 'cancelled');
 	}
 
 	async markDeadletter(jobId: bigint, errorMessage: string): Promise<void> {
-		const completedAt = new Date();
-		const status: JobStatus = 'deadletter';
-		await upsertOne(
-			JobsById.patchByPkWithTtl(
-				{job_id: jobId},
-				{status: Db.set(status), completed_at: Db.set(completedAt), error_message: Db.set(errorMessage)},
-				JOB_LEDGER_TTL_SECONDS,
-			),
-		);
-		await deleteOneOrMany(JobsActive.deleteByPk({job_id: jobId}));
+		return this.markTerminal(jobId, 'deadletter', {error_message: Db.set(errorMessage)});
 	}
 
 	async reportProgress(jobId: bigint, current: number, total: number | null, message: string | null): Promise<void> {
@@ -250,7 +255,7 @@ export class JobLedgerRepository extends IJobLedgerRepository {
 	async isCancelRequested(jobId: bigint): Promise<boolean> {
 		const row = await fetchOne<{
 			cancel_requested: boolean | null;
-		}>(FETCH_CANCEL_REQUESTED_QUERY.bind({job_id: jobId}));
+		}>(FETCH_JOB_BY_ID_QUERY.bind({job_id: jobId}));
 		return row?.cancel_requested === true;
 	}
 
@@ -341,13 +346,6 @@ export class JobLedgerRepository extends IJobLedgerRepository {
 	async listActiveJobs(): Promise<Array<JobByIdRow>> {
 		const activeRows = await fetchMany<JobActiveRow>(ACTIVE_JOBS_QUERY.bind({}));
 		const fullRows = await Promise.all(activeRows.map((r) => this.getJob(r.job_id)));
-		return fullRows.filter((r): r is JobByIdRow => r !== null);
-	}
-
-	async listActiveJobsByTaskType(taskType: string): Promise<Array<JobByIdRow>> {
-		const activeRows = await fetchMany<JobActiveRow>(ACTIVE_JOBS_QUERY.bind({}));
-		const matching = activeRows.filter((r) => r.task_type === taskType);
-		const fullRows = await Promise.all(matching.map((r) => this.getJob(r.job_id)));
 		return fullRows.filter((r): r is JobByIdRow => r !== null);
 	}
 }

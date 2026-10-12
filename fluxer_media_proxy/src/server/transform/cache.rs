@@ -10,11 +10,6 @@ use crate::{
 use axum::{http::StatusCode, response::Response};
 use std::{future::Future, time::Instant};
 
-pub(in crate::server) struct CachedTransformHit {
-    pub(in crate::server) data: BudgetedBytes,
-    pub(in crate::server) format: OutputFormat,
-}
-
 pub(in crate::server) struct CachedTransformRequest<'a, F> {
     pub(in crate::server) runtime: &'a TransformRuntime,
     pub(in crate::server) cache_key: String,
@@ -26,12 +21,8 @@ pub(in crate::server) struct CachedTransformRequest<'a, F> {
 pub(in crate::server) fn cached_transform_hit(
     runtime: &TransformRuntime,
     cache_key: &str,
-) -> Option<CachedTransformHit> {
-    let cached = runtime.cache().get(cache_key)?;
-    Some(CachedTransformHit {
-        data: cached.data,
-        format: cached.format,
-    })
+) -> Option<crate::transform_cache::CachedTransform> {
+    runtime.cache().get(cache_key)
 }
 
 pub(in crate::server) async fn cached_transform<F, Fut>(
@@ -52,8 +43,11 @@ where
         .cache()
         .get_or_run(cache_key, format, deadline, work)
         .await;
-    if matches!(result, Err(CoalescerError::WorkFailed)) {
-        runtime.metrics().record_transform_failure();
+    if matches!(
+        result,
+        Err(CoalescerError::WorkFailed | CoalescerError::TooLargeToProcess)
+    ) {
+        runtime.metrics().transform_failures.inc();
     }
     result
 }
@@ -63,7 +57,7 @@ pub(in crate::server) fn coalescer_failure_response(
     timeout_code: &'static str,
 ) -> Option<Response> {
     let reason = match error {
-        CoalescerError::WorkFailed => return None,
+        CoalescerError::WorkFailed | CoalescerError::TooLargeToProcess => return None,
         CoalescerError::RequestTimeout => {
             return Some(text_with_reason(
                 StatusCode::GATEWAY_TIMEOUT,

@@ -62,11 +62,6 @@ pub struct LookupGuildResponse {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-pub struct GuildUpdateResponse {
-    pub guild: GuildInfo,
-}
-
-#[derive(Clone, Debug, Deserialize)]
 pub struct ListUserGuildsResponse {
     pub guilds: Vec<GuildInfo>,
 }
@@ -282,11 +277,6 @@ pub struct BlocklistEntryPage {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct BulkBanResult {
     pub job_id: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct BanAvatarResult {
-    pub hash_short: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

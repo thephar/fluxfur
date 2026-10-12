@@ -4,10 +4,7 @@
 -typing([eqwalizer]).
 
 -export([
-    check_rate_limit/2,
-    check_shared_ip_rate/1,
-    check_shared_user_rate/1,
-    rate_limits_disabled/0
+    check_rate_limit/2, check_shared_ip_rate/1, check_shared_user_rate/1, rate_limits_disabled/0
 ]).
 
 -export_type([state/0]).
@@ -18,6 +15,8 @@
 -define(PRESENCE_RATE_LIMIT_MAX_EVENTS, 5).
 -define(FORUM_UNREADS_RATE_LIMIT_WINDOW_MS, 5000).
 -define(FORUM_UNREADS_RATE_LIMIT_MAX_EVENTS, 5).
+-define(VOICE_SIGNAL_RATE_LIMIT_WINDOW_MS, 10000).
+-define(VOICE_SIGNAL_RATE_LIMIT_MAX_EVENTS, 240).
 
 -define(SHARED_IP_RATE_TABLE, gateway_shared_ip_rate).
 -define(SHARED_USER_RATE_TABLE, gateway_shared_user_rate).
@@ -31,7 +30,7 @@
 -type state() :: gateway_handler:state().
 
 -ifdef(TEST).
--export([prune_old_window_entries/2]).
+
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
@@ -108,6 +107,14 @@ check_opcode_rate_limit(State, request_forum_unreads, Now) ->
         Now,
         ?FORUM_UNREADS_RATE_LIMIT_WINDOW_MS,
         ?FORUM_UNREADS_RATE_LIMIT_MAX_EVENTS
+    );
+check_opcode_rate_limit(State, voice_signal, Now) ->
+    check_named_opcode_rate_limit(
+        State,
+        voice_signal,
+        Now,
+        ?VOICE_SIGNAL_RATE_LIMIT_WINDOW_MS,
+        ?VOICE_SIGNAL_RATE_LIMIT_MAX_EVENTS
     );
 check_opcode_rate_limit(State, _Op, _Now) ->
     {ok, State}.
