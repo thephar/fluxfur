@@ -1802,6 +1802,24 @@ msgstr "टाइटल बार का बदलाव लागू होन�
 msgid "{PRODUCT_NAME} needs to restart to disable Chromium's hardware acceleration. Use this only if you're troubleshooting graphics glitches or high GPU usage."
 msgstr "क्रोमियम का हार्डवेयर एक्सीलरेशन बंद करने के लिए {PRODUCT_NAME} को रीस्टार्ट करना होगा। इसे तभी इस्तेमाल करें जब आप ग्राफ़िक्स की गड़बड़ियों या ज़्यादा GPU इस्तेमाल की समस्या सुलझा रहे हों।"
 
+#: src/features/user/components/modals/tabs/advanced_settings_tab/AdvancedDesktopControls.tsx
+msgid "{PRODUCT_NAME} needs to restart to install updates automatically again."
+msgstr "{PRODUCT_NAME} को स्वचालित रूप से अपडेट फिर से इंस्टॉल करने के लिए पुनरारंभ करने की आवश्यकता है।"
+
+#: src/features/user/components/modals/tabs/advanced_settings_tab/AdvancedDesktopControls.tsx
+msgid "{PRODUCT_NAME} needs to restart to stop updating while starting. When an update is available, you can install it from the app whenever you like."
+msgstr "{PRODUCT_NAME} को रीस्टार्ट करने की आवश्यकता है ताकि वह शुरू होने पर अपडेट होना बंद कर दे। जब कोई अपडेट उपलब्ध हो, तो आप उसे ऐप से अपनी सुविधानुसार इंस्टॉल कर सकते हैं।"
+
+#. Desktop updater modal body for a Flatpak install when a newer desktop version exists. The version placeholder is the new app version and productName is the app name.
+#: src/features/updater/commands/UpdaterModalCommands.tsx
+msgid "{productName} {version} is available. Update it from your software center."
+msgstr "{productName} {version} उपलब्ध है। इसे अपने सॉफ़्टवेयर सेंटर से अपडेट करें।"
+
+#. Desktop updater modal body for a Linux install managed by a package manager, such as a deb, rpm or AUR package, when a newer desktop version exists. The version placeholder is the new app version and productName is the app name.
+#: src/features/updater/commands/UpdaterModalCommands.tsx
+msgid "{productName} {version} is available. Update it with your package manager, or download the new version."
+msgstr "{productName} {version} उपलब्ध है। इसे अपने पैकेज मैनेजर से अपडेट करें, या नया संस्करण डाउनलोड करें।"
+
 #. Accessible label for the Fluxer application icon.
 #: src/features/ui/components/icons/FluxerIconMark.tsx
 msgid "{productName} application icon"
@@ -1811,6 +1829,16 @@ msgstr "{productName} ऐप्लिकेशन आइकॉन"
 #: src/features/user/components/modals/tabs/notifications_tab/PushSettings.tsx
 msgid "{productName} avoids sending push notifications to your mobile devices when you are at your computer. Choose how long you need to be inactive on desktop before you receive push notifications."
 msgstr "जब आप अपने कंप्यूटर पर होते हैं, तब {productName} आपके मोबाइल डिवाइस पर पुश नोटिफ़िकेशन भेजने से बचता है। चुनें कि पुश नोटिफ़िकेशन मिलने से पहले आपको डेस्कटॉप पर कितनी देर निष्क्रिय रहना चाहिए।"
+
+#. First sentence of the network blocked screen when a rule is shown. productName is the app name. Must read the same as the error message for this block.
+#: src/features/auth/AuthMessageDescriptors.ts
+msgid "{productName} blocked access from this network because of activity that broke its rules."
+msgstr "{productName} ने अपने नियम तोड़ने वाली गतिविधि की वजह से इस नेटवर्क से एक्सेस ब्लॉक कर दिया है।"
+
+#. First sentence of the network blocked screen when no rule is shown. productName is the app name. Must read the same as the error message for this block.
+#: src/features/auth/AuthMessageDescriptors.ts
+msgid "{productName} blocked access from this network."
+msgstr "{productName} ने इस नेटवर्क से एक्सेस ब्लॉक कर दिया है।"
 
 #. Short badge title in the user profile badges popout. Preserve {productName}; it is inserted by code. English locales use Title Case for official badge titles; other locales should use natural local capitalization.
 #: src/features/user/components/popouts/UserProfileBadges.tsx
@@ -1911,6 +1939,16 @@ msgstr "{productName} {host} पर चला गया है। नया ऐ�
 msgid "{productName} has moved to {host}. Open it in your browser to install the new app."
 msgstr "{productName} {host} पर चला गया है। नया ऐप इंस्टॉल करने के लिए इसे अपने ब्राउज़र में खोलें।"
 
+#. Intro in the modal that explains how to install the app from its new domain. productName is the app name. host is the new domain, for example fluxer.com.
+#: src/features/app/domain_migration/DomainMovedStepsModal.tsx
+msgid "{productName} is now at {host}. Install it from there, then sign in with this app."
+msgstr "{productName} अब {host} पर है। वहां से इसे इंस्टॉल करें, फिर इस ऐप से साइन इन करें।"
+
+#. Intro in the modal that explains how to install the app from its new domain when the account already moved. productName is the app name. host is the new domain, for example fluxer.com.
+#: src/features/app/domain_migration/DomainMovedStepsModal.tsx
+msgid "{productName} is now at {host}. Install it from there."
+msgstr "{productName} अब {host} पर है। वहां से इंस्टॉल करें।"
+
 #. Profile membership label showing when the user account was created.
 #: src/features/user/components/popouts/UserProfileShared.tsx
 msgid "{productName} member since"
@@ -1950,16 +1988,6 @@ msgstr "{productName} को आपके डिवाइस दिखाने 
 #: src/features/permissions/system/components/MediaPermissionBlockedModal.tsx
 msgid "{productName} needs screen recording access. Allow screen recording in your operating system privacy settings and restart the app."
 msgstr "{productName} को स्क्रीन रिकॉर्डिंग का एक्सेस चाहिए। अपने ऑपरेटिंग सिस्टम की गोपनीयता सेटिंग्स में स्क्रीन रिकॉर्डिंग की अनुमति दें और ऐप को रीस्टार्ट करें।"
-
-#. Intro in the modal that explains how to install the app from its new domain. productName is the app name. host is the new domain, for example fluxer.com.
-#: src/features/app/domain_migration/DomainMovedStepsModal.tsx
-msgid "{productName} now lives at {host}. Install it from there, then sign in with this app."
-msgstr "{productName} अब {host} पर उपलब्ध है। वहां से इसे इंस्टॉल करें, फिर इस ऐप से साइन इन करें।"
-
-#. Intro in the modal that explains how to install the app from its new domain when the account already moved. productName is the app name. host is the new domain, for example fluxer.com.
-#: src/features/app/domain_migration/DomainMovedStepsModal.tsx
-msgid "{productName} now lives at {host}. Install it from there."
-msgstr "{productName} अब {host} पर उपलब्ध है। वहां से इसे इंस्टॉल करें।"
 
 #. Short badge title in the user profile badges popout. Preserve {productName}; it is inserted by code. English locales use Title Case for official badge titles; other locales should use natural local capitalization.
 #: src/features/user/components/popouts/UserProfileBadges.tsx
@@ -2015,6 +2043,11 @@ msgstr "{productName} विजनरी"
 #: src/features/user/components/popouts/UserProfileBadges.tsx
 msgid "{productName} Visionary since {premiumSinceFormatted}"
 msgstr "{productName} विजनरी, {premiumSinceFormatted} से"
+
+#. Settings search entry description. One-line summary of what the settings search entry controls.
+#: src/features/user/components/settings_utils/search_index/DesktopSettingsIndex.ts
+msgid "{productName} won't update while starting. When an update is available, you can install it from the app whenever you like. Takes effect the next time {productName} starts."
+msgstr "{productName} शुरू होने पर अपडेट नहीं होगा। जब कोई अपडेट उपलब्ध होगा, तो आप उसे अपनी इच्छानुसार ऐप से इंस्टॉल कर सकते हैं। यह अगली बार {productName} शुरू होने पर प्रभावी होगा।"
 
 #. Accessible label for the application wordmark.
 #: src/features/ui/components/icons/FluxerWordmark.tsx
@@ -2119,6 +2152,11 @@ msgstr "{streamerDisplayName} की स्क्रीन"
 msgid "{tenSeconds} seconds"
 msgstr "{tenSeconds} सेकंड"
 
+#. Template preview summary listing how many text channels, forum channels, voice channels, categories, and roles will be imported. Used when the template has at least one forum or media channel.
+#: src/features/guild/components/modals/add_guild_modal/TemplateImportForm.tsx
+msgid "{textChannelCount, plural, one {# text channel} other {# text channels}}, {forumChannelCount, plural, one {# forum channel} other {# forum channels}}, {voiceChannelCount, plural, one {# voice channel} other {# voice channels}}, {categoryCount, plural, one {# category} other {# categories}}, {roleCount, plural, one {# role} other {# roles}}"
+msgstr "{textChannelCount, plural, one {# टेक्स्ट चैनल} other {# टेक्स्ट चैनल}}, {forumChannelCount, plural, one {# फ़ोरम चैनल} other {# फ़ोरम चैनल}}, {voiceChannelCount, plural, one {# वॉयस चैनल} other {# वॉयस चैनल}}, {categoryCount, plural, one {# श्रेणी} other {# श्रेणियाँ}}, {roleCount, plural, one {# भूमिका} other {# भूमिकाएँ}}"
+
 #. Template preview summary listing how many text channels, voice channels, categories, and roles will be imported.
 #: src/features/guild/components/modals/add_guild_modal/TemplateImportForm.tsx
 msgid "{textChannelCount, plural, one {# text channel} other {# text channels}}, {voiceChannelCount, plural, one {# voice channel} other {# voice channels}}, {categoryCount, plural, one {# category} other {# categories}}, {roleCount, plural, one {# role} other {# roles}}"
@@ -2128,6 +2166,11 @@ msgstr "{textChannelCount, plural, one {# टेक्स्ट चैनल} ot
 #: src/features/theme/state/ThemeLibrary.ts
 msgid "{themeName} Copy"
 msgstr "{themeName} की कॉपी"
+
+#. Error in the import-template form when the third-party platform named by {theOtherPlatform} temporarily refused the desktop app template lookup because of too many requests.
+#: src/features/guild/components/modals/add_guild_modal/shared.ts
+msgid "{theOtherPlatform} is limiting template lookups right now. Try again in a moment."
+msgstr "{theOtherPlatform} अभी टेम्पलेट लुकअप सीमित कर रहा है। थोड़ी देर में फिर से प्रयास करें।"
 
 #. Time window preset label shown as a standalone duration in option lists. The number is interpolated.
 #: src/features/app/config/TimeWindowPresets.ts
@@ -2669,11 +2712,6 @@ msgstr "एक मददगार बॉट जो कमाल के काम
 msgid "a hostname, e.g. {exampleDomain}"
 msgstr "एक होस्टनेम, जैसे {exampleDomain}"
 
-#. Linux desktop updater modal body shown before version details and package format selector. productName is the app name.
-#: src/features/updater/commands/UpdaterModalCommands.tsx
-msgid "A Linux desktop update is available. Choose the package format for this system and {productName} will save it locally."
-msgstr "लिनक्स डेस्कटॉप के लिए एक अपडेट उपलब्ध है। इस सिस्टम के लिए पैकेज फ़ॉर्मैट चुनें और {productName} उसे आपके डिवाइस पर सेव कर लेगा।"
-
 #. Plutonium subscription card line offering a move to a lower price. {listPriceEffectiveDate} is a date already formatted and localized by code; never write a date into the translation.
 #: src/features/app/components/dialogs/components/plutonium/SubscriptionCard.tsx
 msgid "A lower price is available. Switching takes effect on <0>{listPriceEffectiveDate}</0> and changes nothing else."
@@ -2861,14 +2899,29 @@ msgstr "अकाउंट और प्रीमियम ओवरराइड
 msgid "Account and security details are hidden"
 msgstr "अकाउंट और सुरक्षा विवरण छिपे हुए हैं"
 
+#. Title of the sign-in screen for an account suspended with no end date.
+#: src/features/auth/flow/AccountRestrictionScreen.tsx
+msgid "Account banned"
+msgstr "अकाउंट बैन किया गया"
+
 #. Short label in the authentication claim account modal. Keep the tone plain and specific.
 #: src/features/auth/components/modals/ClaimAccountModal.tsx
 msgid "Account claimed successfully"
 msgstr "अकाउंट सफलतापूर्वक क्लेम किया गया"
 
+#. Title of the sign-in screen for an account the team closed and will delete.
+#: src/features/auth/flow/AccountRestrictionScreen.tsx
+msgid "Account closed"
+msgstr "अकाउंट बंद किया गया"
+
 #: src/features/connection/components/pages/ConnectionCallbackPage.tsx
 msgid "Account connected"
 msgstr "अकाउंट कनेक्ट हो गया"
+
+#. One line of the support email written for the user. createdAt is the account creation time as an ISO 8601 UTC timestamp.
+#: src/features/user/utils/MessagingPausedHelpEmail.ts
+msgid "Account created: {createdAt}"
+msgstr "अकाउंट बनाया गया: {createdAt}"
 
 #. Settings search synonym. Used to match this term when the user types it in the settings search bar.
 #: src/features/user/components/settings_utils/section_registry/PrivacySafetySections.ts
@@ -2880,6 +2933,11 @@ msgstr "अकाउंट डेटा"
 msgid "Account details unavailable"
 msgstr "खाता विवरण अनुपलब्ध"
 
+#. One line of the support email written for the user. accountId is the numeric account ID.
+#: src/features/user/utils/MessagingPausedHelpEmail.ts
+msgid "Account ID: {accountId}"
+msgstr "अकाउंट आईडी: {accountId}"
+
 #. Settings search synonym. Used to match this term when the user types it in the settings search bar.
 #: src/features/user/components/settings_utils/section_registry/AccountSecuritySections.ts
 msgid "Account removal"
@@ -2889,6 +2947,11 @@ msgstr "अकाउंट हटाना"
 #: src/features/channel/components/channel_header_components/developer_tools/AccountPremiumMenu.tsx
 msgid "Account state"
 msgstr "अकाउंट स्थिति"
+
+#. Title of the sign-in screen for an account suspended until a set date.
+#: src/features/auth/flow/AccountRestrictionScreen.tsx
+msgid "Account suspended"
+msgstr "अकाउंट सस्पेंड किया गया"
 
 #. Developer tools debug menu label. Internal-only surface for developers; translators may keep this terse.
 #: src/features/channel/components/channel_header_components/developer_tools/OptionPresets.ts
@@ -6365,7 +6428,7 @@ msgstr "कॉल उपलब्ध है"
 msgid "Call confirmation"
 msgstr "कॉल की पुष्टि"
 
-#. Overlay text shown in the in-app call area while the call view lives in a separate popped-out window.
+#. Overlay text shown in the in-app call area while the call view is in a separate popped-out window.
 #: src/features/voice/components/popout/PoppedOutOverlay.tsx
 msgid "Call is popped out"
 msgstr "कॉल पॉप आउट है"
@@ -9596,6 +9659,11 @@ msgstr "कोड कॉपी करें"
 msgid "Copy community ID"
 msgstr "कम्युनिटी आईडी कॉपी करें"
 
+#. Button in the help dialog opened from "My text didn't go through". Copies the account details for a support email to the clipboard.
+#: src/features/user/components/modals/MessagingPausedHelpModal.tsx
+msgid "Copy details"
+msgstr "विवरण कॉपी करें"
+
 #. Developer-mode voice menu action that copies the unique identifier of a voice device or connection.
 #: src/features/ui/action_menu/items/voice_participant_menu_data/shared.ts
 msgid "Copy device ID"
@@ -10199,6 +10267,11 @@ msgstr "सेटिंग्स लोड नहीं हो सकीं"
 msgid "Couldn't load the report form."
 msgstr "रिपोर्ट फ़ॉर्म लोड नहीं हो सका।"
 
+#. Instructions in the desktop app import-template flow shown when looking up the template directly failed, so the user has to fetch the JSON in a browser and paste it instead. "JSON" must not be translated.
+#: src/features/guild/components/modals/add_guild_modal/TemplateImportForm.tsx
+msgid "Couldn't load the template automatically. Open the link below in your browser, then copy the entire JSON response and paste it into the box."
+msgstr "टेम्पलेट स्वचालित रूप से लोड नहीं हो सका। नीचे दिए गए लिंक को अपने ब्राउज़र में खोलें, फिर पूरे JSON रिस्पॉन्स को कॉपी करें और बॉक्स में पेस्ट करें।"
+
 #: src/features/user/components/modals/tabs/applications_tab/ApplicationDetail.tsx
 msgid "Couldn't load this application"
 msgstr "यह ऐप्लिकेशन लोड नहीं हो सका"
@@ -10378,7 +10451,7 @@ msgid "Couldn't send the friend request. Try again."
 msgstr "फ्रेंड रिक्वेस्ट नहीं भेजी जा सकी। फिर से कोशिश करें।"
 
 #. Title of the error modal shown when sending the verification email fails unexpectedly.
-#: src/features/app/components/dialogs/components/EmailVerificationAlert.tsx
+#: src/features/auth/hooks/useVerifyEmailAction.tsx
 msgid "Couldn't send the verification email"
 msgstr "पुष्टि करने वाला ईमेल भेजा नहीं जा सका"
 
@@ -10531,6 +10604,16 @@ msgstr "काउंटडाउन टाइमर"
 #: src/features/moderation/components/report/ReportStepDetails.tsx
 msgid "Country of residence"
 msgstr "निवास का देश"
+
+#. Field label in the help dialog opened from "My text didn't go through". The user types the country they are in so support can help.
+#: src/features/user/components/modals/MessagingPausedHelpModal.tsx
+msgid "Country you're in"
+msgstr "आप किस देश में हैं"
+
+#. One line of the support email written for the user. country is the country the user typed.
+#: src/features/user/utils/MessagingPausedHelpEmail.ts
+msgid "Country: {country}"
+msgstr "देश: {country}"
 
 #. Settings search synonym. Used to match this term when the user types it in the settings search bar.
 #: src/features/user/components/settings_utils/search_index/MyProfileIndex.ts
@@ -11427,11 +11510,6 @@ msgstr "डीफ़ेन किया गया"
 msgid "Deafened by moderators"
 msgstr "मॉडरेटर ने डीफ़ेन किया"
 
-#. Option in the Linux package format dropdown of the desktop updater modal. Keep the format token "DEB" verbatim and translate only the word "package".
-#: src/features/updater/commands/UpdaterModalCommands.tsx
-msgid "DEB package"
-msgstr "DEB पैकेज"
-
 #. Settings search synonym. Used to match this term when the user types it in the settings search bar.
 #. Short label in the settings dialog mobile settings view.
 #: src/features/app/components/dialogs/components/MobileSettingsView.tsx
@@ -11487,6 +11565,11 @@ msgstr "तय करें कि प्रीमियम सीमाएँ �
 #: src/features/user/components/settings_utils/section_registry/NotificationsSections.ts
 msgid "Decide whether replies @mention you by default"
 msgstr "तय करें कि जवाब डिफ़ॉल्ट रूप से आपको @मेंशन करें या नहीं"
+
+#. Reference line on the account restriction screen. People quote this ID when they appeal.
+#: src/features/auth/flow/AccountRestrictionScreen.tsx
+msgid "Decision ID: {decisionId}"
+msgstr "फैसला ID: {decisionId}"
 
 #. Keyboard shortcut action label shown in the shortcuts list and keybind editor. Keep short, sentence case.
 #: src/features/input/state/input_keybind/shared.ts
@@ -11545,6 +11628,10 @@ msgstr "डिफ़ॉल्ट नोटिफ़िकेशन सेटि�
 #: src/features/guild/components/modals/guild_tabs/guild_overview_tab/sections/DefaultNotificationsSection.tsx
 msgid "Default notifications"
 msgstr "डिफ़ॉल्ट नोटिफ़िकेशन"
+
+#: src/features/voice/components/StreamSettingsMenuContent.tsx
+msgid "Default output device"
+msgstr "डिफ़ॉल्ट आउटपुट डिवाइस"
 
 #. Label of the forum setting that picks the reaction button shown on every post.
 #: src/features/forum/utils/ForumMessageDescriptors.ts
@@ -11913,6 +12000,11 @@ msgstr "इस कम्युनिटी में अपने मैसे�
 msgid "Delete your messages in this conversation?"
 msgstr "इस बातचीत में अपने मैसेज मिटाएँ?"
 
+#. Confirmation modal title for the destructive "delete all my messages in this thread" action. Also shown for forum and media posts.
+#: src/features/channel/hooks/useDeleteMyMessagesInChannel.tsx
+msgid "Delete your messages in this thread?"
+msgstr "इस थ्रेड में अपने संदेश हटाएं?"
+
 #. Activity log detail line under a ban, shown when the ban also deleted the messages the banned user sent shortly before it. This matches the "Delete message history" choice in the ban dialog. "The member" is the banned user, a single person. {duration} is how far back from the ban the messages were deleted, shown as a full duration phrase such as "1 hour" or "7 days". The number and unit change at runtime, so do not put an article, adjective or case ending next to {duration} that has to agree with it. It continues the entry summary, so it has no subject. It is a past tense record of a change the actor in the summary already made, never an instruction to the reader. Do not write it as a command, a button label or in first or second person.
 #: src/features/guild/utils/guild_tabs/audit_log/AuditLogMemberMessages.ts
 msgid "Deleted {duration} of the member's recent message history"
@@ -12095,20 +12187,10 @@ msgstr "डेस्कटॉप नोटिफ़िकेशन ब्लॉ�
 msgid "Desktop startup"
 msgstr "डेस्कटॉप स्टार्टअप"
 
-#. Tooltip on the updater icon for a Linux desktop update that requires choosing a package format.
-#: src/features/channel/components/channel_header_components/UpdaterIcon.tsx
-msgid "Desktop update {version} available. Choose a Linux package."
-msgstr "डेस्कटॉप अपडेट {version} उपलब्ध है। एक लिनक्स पैकेज चुनें।"
-
 #. Modal title shown when a new desktop app update can be downloaded.
 #: src/features/updater/commands/UpdaterModalCommands.tsx
 msgid "Desktop update available"
 msgstr "डेस्कटॉप अपडेट उपलब्ध है"
-
-#. Tooltip on the updater icon for a Linux desktop update that requires choosing a package format and no version is known.
-#: src/features/channel/components/channel_header_components/UpdaterIcon.tsx
-msgid "Desktop update available. Choose a Linux package."
-msgstr "डेस्कटॉप अपडेट उपलब्ध है। एक लिनक्स पैकेज चुनें।"
 
 #. Desktop updater modal body. The version placeholder is the target app version; productName is the app name.
 #: src/features/updater/commands/UpdaterModalCommands.tsx
@@ -12229,6 +12311,10 @@ msgstr "डिवाइस ऑडियो ही"
 #: src/features/user/components/modals/tabs/DevicesTab.tsx
 msgid "Device details"
 msgstr "डिवाइस विवरण"
+
+#: src/features/voice/components/StreamSettingsMenuContent.tsx
+msgid "Device not connected"
+msgstr "डिवाइस कनेक्ट नहीं है"
 
 #. Toast shown after a saved login session was signed out.
 #: src/features/auth/components/modals/DeviceRevokeModal.tsx
@@ -12388,6 +12474,16 @@ msgstr "पूरे ऐप में एनिमेशन और ट्रा�
 #: src/features/user/components/modals/tabs/accessibility_tab/MotionTab.tsx
 msgid "Disable animations and transitions. Currently controlled by your system setting."
 msgstr "एनिमेशन और ट्रांज़िशन बंद करें। यह अभी आपकी सिस्टम सेटिंग से कंट्रोल होता है।"
+
+#. Settings search entry label. Names the settings search entry in the settings UI.
+#: src/features/user/utils/UserMessageDescriptors.ts
+msgid "Disable automatic updates"
+msgstr "स्वचालित अपडेट बंद करें"
+
+#. Confirmation prompt in advanced settings.
+#: src/features/user/components/modals/tabs/advanced_settings_tab/AdvancedDesktopControls.tsx
+msgid "Disable automatic updates?"
+msgstr "क्या आप स्वचालित अपडेट बंद करना चाहते हैं?"
 
 #: src/features/channel/components/channel_header_components/developer_tools/AccountPremiumMenu.tsx
 msgid "Disable backend premium perks"
@@ -12959,10 +13055,22 @@ msgstr "हो गया"
 msgid "Double-click"
 msgstr "डबल-क्लिक"
 
+#. Settings search entry label. Names the settings search entry in the settings UI.
+#. Short label for an advanced preference that edits your own message or replies to someone else's when you double-click it.
+#: src/features/user/components/modals/tabs/advanced_settings_tab/AdvancedChatControls.tsx
+#: src/features/user/components/settings_utils/search_index/ChatSettingsIndex.ts
+msgid "Double-click a message to edit or reply"
+msgstr "संदेश को संपादित करने या जवाब देने के लिए डबल-क्लिक करें"
+
 #. Empty / hint text on the screen-share hover card explaining how to start watching a remote stream.
 #: src/features/voice/components/StreamWatchHoverCard.tsx
 msgid "Double-click someone to watch their stream."
 msgstr "किसी की स्ट्रीम देखने के लिए उस पर डबल-क्लिक करें।"
+
+#. Settings search entry description. One-line summary of what the settings search entry controls.
+#: src/features/user/components/settings_utils/search_index/ChatSettingsIndex.ts
+msgid "Double-click your own message to edit it, or someone else's message to reply to it"
+msgstr "अपने संदेश पर डबल-क्लिक करके उसे संपादित करें, या किसी और के संदेश पर डबल-क्लिक करके जवाब दें"
 
 #. Button that downloads account backup codes as a text file.
 #. Generic action label that downloads an attachment / file.
@@ -13048,11 +13156,6 @@ msgstr "इंस्टॉलर डाउनलोड करें"
 #: src/features/ui/action_menu/items/MediaMenuData.tsx
 msgid "Download media"
 msgstr "मीडिया डाउनलोड करें"
-
-#. Button label that downloads a selected Linux desktop update package.
-#: src/features/updater/commands/UpdaterModalCommands.tsx
-msgid "Download package"
-msgstr "पैकेज डाउनलोड करें"
 
 #. Button that downloads the account recovery kit as a PDF file.
 #: src/features/auth/components/modals/RecoveryKitModal.tsx
@@ -13166,6 +13269,11 @@ msgstr "अपने ग्रुप आइकॉन की जगह बदल�
 #: src/features/expressions/components/modals/AssetCropModal.tsx
 msgid "Drag to reposition your invite background and use the scroll wheel or pinch to zoom. The recommended minimum size is {minimumWidth}×{minimumHeight} pixels (16:9)."
 msgstr "अपने इनवाइट बैकग्राउंड की जगह बदलने के लिए खींचें और ज़ूम करने के लिए स्क्रॉल व्हील या पिंच का इस्तेमाल करें। सुझाया गया न्यूनतम साइज़ {minimumWidth}×{minimumHeight} पिक्सल (16:9) है।"
+
+#. Desktop setting description under the dark taskbar badge toggle on Windows.
+#: src/features/user/components/modals/tabs/DesktopSettingsTab.tsx
+msgid "Draw the unread badge on the {productName} taskbar button in dark gray instead of red."
+msgstr "{productName} टास्कबार बटन पर लाल रंग के बजाय गहरे ग्रे रंग में अनरीड बैज दिखाएँ।"
 
 #. Description text in the theme studio assets section.
 #: src/features/theme_studio/sections/AssetsSection.tsx
@@ -13572,6 +13680,11 @@ msgstr "{windowEndsOn} तक रिफंड के लिए पात्र �
 msgid "Email"
 msgstr "ईमेल"
 
+#. Body of the help dialog opened from "My text didn't go through" while messaging is paused on the account. supportEmail is the support email address. Keep it short, calm and neutral.
+#: src/features/user/components/modals/MessagingPausedHelpModal.tsx
+msgid "Email {supportEmail} and a person will check your account. You can also reply to the email we sent you."
+msgstr "{supportEmail} पर ईमेल करें, हमारी टीम का कोई व्यक्ति आपका अकाउंट देखेगा। आप हमारे भेजे गए ईमेल का जवाब भी दे सकते हैं।"
+
 #. Short label in the inputs tab. Keep it concise.
 #. Short label in the moderation report step email. Keep it concise. Keep the tone plain and specific.
 #: src/features/moderation/components/report/ReportStepEmail.tsx
@@ -13598,6 +13711,11 @@ msgstr "ईमेल डिलीवरी"
 #: src/features/moderation/components/report/ReportStepUnavailable.tsx
 msgid "Email reports aren't available here"
 msgstr "ईमेल से रिपोर्ट करना यहाँ उपलब्ध नहीं है"
+
+#. Primary button in the help dialog opened from "My text didn't go through". Opens a new email to support with the account details filled in.
+#: src/features/user/components/modals/MessagingPausedHelpModal.tsx
+msgid "Email support"
+msgstr "सपोर्ट को ईमेल करें"
 
 #. Developer control label for the email-verification banner.
 #: src/features/devtools/components/NagbarControls.ts
@@ -13847,6 +13965,11 @@ msgstr "अटैचमेंट की समाप्ति चालू क�
 #: src/features/voice/components/modals/AudioPlaybackPermissionModal.tsx
 msgid "Enable audio"
 msgstr "ऑडियो चालू करें"
+
+#. Confirmation prompt in advanced settings.
+#: src/features/user/components/modals/tabs/advanced_settings_tab/AdvancedDesktopControls.tsx
+msgid "Enable automatic updates?"
+msgstr "स्वचालित अपडेट सक्षम करें?"
 
 #: src/features/user/components/modals/tabs/component_gallery_tab/index.tsx
 msgid "Enable beta feature"
@@ -14361,6 +14484,11 @@ msgstr "अपना नाम डालें"
 msgid "Enter your password."
 msgstr "अपना पासवर्ड डालें।"
 
+#. Setup wizard title for the step that asks the operator for the setup token of a new instance.
+#: src/features/app/components/setup/SetupWizardSteps.tsx
+msgid "Enter your setup token"
+msgstr "अपना सेटअप टोकन दर्ज करें"
+
 #: src/features/auth/components/pages/RecoverAccountPage.tsx
 msgid "Enter your username and the recovery key from your recovery kit, then choose a new password."
 msgstr "अपना यूज़रनेम और अपनी रिकवरी किट से रिकवरी की दर्ज करें, फिर एक नया पासवर्ड चुनें।"
@@ -14386,6 +14514,7 @@ msgid "Entire system"
 msgstr "पूरा सिस्टम"
 
 #: src/features/voice/components/AudioSourcePickerLinux.tsx
+#: src/features/voice/components/StreamSettingsMenuContent.tsx
 msgid "Entire system audio"
 msgstr "पूरे सिस्टम का ऑडियो"
 
@@ -15611,6 +15740,10 @@ msgstr "फ़ॉलो कर रहे हैं"
 #: src/features/user/components/modals/tabs/notifications_tab/NotificationsTabSounds.tsx
 msgid "Following master • {effectiveValue}"
 msgstr "मास्टर के अनुसार • {effectiveValue}"
+
+#: src/features/voice/components/StreamSettingsMenuContent.tsx
+msgid "Follows your Windows sound settings"
+msgstr "आपके विंडोज ध्वनि सेटिंग्स का अनुसरण करता है"
 
 #. Settings search synonym. Used to match this term when the user types it in the settings search bar.
 #: src/features/user/components/settings_utils/section_registry/AppearanceSections.ts
@@ -17458,10 +17591,20 @@ msgstr "सदस्य की हालिया मैसेज हिस्�
 msgid "How this works"
 msgstr "यह कैसे काम करता है"
 
+#. Heading on the account restriction screen above the appeal instructions.
+#: src/features/auth/flow/AccountRestrictionScreen.tsx
+msgid "How to appeal"
+msgstr "अपील कैसे करें"
+
 #. Heading above the recovery steps in the printed or downloaded recovery kit.
 #: src/features/auth/components/modals/RecoveryKitModal.tsx
 msgid "How to recover your account"
 msgstr "अपना खाता कैसे रिकवर करें"
+
+#. Heading on the account restriction screen above how the case reached the team and who decided it.
+#: src/features/auth/flow/AccountRestrictionScreen.tsx
+msgid "How we decided"
+msgstr "हमने फैसला कैसे लिया"
 
 #. Accessible label in the language and locale names. Keep it concise.
 #: src/features/user/utils/LocaleUtils.ts
@@ -17656,6 +17799,31 @@ msgstr "अगर आप यह यूज़रनेम सेव करते 
 #: src/features/user/components/modals/FluxerTagChangeModal.tsx
 msgid "If you save this username, your tag will reroll randomly when your {PREMIUM_PRODUCT_NAME} expires, unless it renews."
 msgstr "अगर आप यह यूज़रनेम सेव करते हैं, तो आपके {PREMIUM_PRODUCT_NAME} की अवधि खत्म होने पर आपका टैग रैंडमली रीरोल हो जाएगा, बशर्ते कि यह रिन्यू न हो।"
+
+#. Paragraph on the network blocked screen for people who share a network with others. Must read the same as the error message for this block.
+#: src/features/auth/AuthMessageDescriptors.ts
+msgid "If you share this network, for example at school, at work, on public Wi-Fi, through your mobile carrier or a VPN, this block may have nothing to do with you. The quickest fix is to switch networks, for example to mobile data instead of Wi-Fi, or to turn your VPN on or off."
+msgstr "अगर आप यह नेटवर्क दूसरों के साथ शेयर करते हैं, जैसे स्कूल में, ऑफ़िस में, पब्लिक Wi-Fi पर, अपने मोबाइल कैरियर के ज़रिए या VPN से, तो हो सकता है कि इस ब्लॉक का आपसे कोई लेना-देना न हो। सबसे जल्दी हल है नेटवर्क बदलना, जैसे Wi-Fi की जगह मोबाइल डेटा इस्तेमाल करना, या अपना VPN चालू या बंद करना।"
+
+#. Line on the network blocked screen. The link is the contact email address and ip is the blocked IP address.
+#: src/features/auth/flow/AccountRestrictionScreen.tsx
+msgid "If you think this block is a mistake, email <0>{email}</0> and include your IP address, {ip}."
+msgstr "अगर आपको लगता है कि यह ब्लॉक गलती से हुआ है, तो <0>{email}</0> पर ईमेल करें और अपना IP एड्रेस, {ip}, लिखें।"
+
+#. Appeal line for a restriction from before the team recorded decisions, with no appeal deadline. The link is the appeals email address.
+#: src/features/auth/flow/AccountRestrictionScreen.tsx
+msgid "If you think we got this wrong, email <0>{email}</0> and include your username."
+msgstr "अगर आपको लगता है कि हमसे गलती हुई है, तो <0>{email}</0> पर ईमेल करें और अपना यूज़रनेम लिखें।"
+
+#. Appeal line for an account with no email address. The link is the appeals email address and deadline is a date.
+#: src/features/auth/flow/AccountRestrictionScreen.tsx
+msgid "If you think we got this wrong, email <0>{email}</0> by {deadline}. Include the decision ID and your username. Appeals are free, and a person reviews each one."
+msgstr "अगर आपको लगता है कि हमसे गलती हुई है, तो {deadline} तक <0>{email}</0> पर ईमेल करें। फैसला ID और अपना यूज़रनेम लिखें। अपील मुफ़्त है, और हर अपील को एक इंसान रिव्यू करता है।"
+
+#. Appeal line on the account restriction screen. The link is the appeals email address and deadline is a date.
+#: src/features/auth/flow/AccountRestrictionScreen.tsx
+msgid "If you think we got this wrong, email <0>{email}</0> by {deadline}. Write from the email address on your account if you can, and include the decision ID. Appeals are free, and a person reviews each one."
+msgstr "अगर आपको लगता है कि हमसे गलती हुई है, तो {deadline} तक <0>{email}</0> पर ईमेल करें। हो सके तो अपने अकाउंट वाले ईमेल एड्रेस से लिखें, और फैसला ID लिखें। अपील मुफ़्त है, और हर अपील को एक इंसान रिव्यू करता है।"
 
 #: src/features/auth/components/modals/AccountDeleteModal.tsx
 msgid "If you want to export your data or delete your messages first, please visit {privacyDashboardPath} before proceeding."
@@ -17964,10 +18132,6 @@ msgstr "चैनल में"
 msgid "In channels I moderate"
 msgstr "जिन चैनलों का मैं मॉडरेटर हूँ"
 
-#: src/features/channel/components/ChannelWelcomeSection.tsx
-msgid "In the beginning, there was nothing. Then, there was {channelDisplayName}. And it was good."
-msgstr "शुरुआत में कुछ नहीं था। फिर {channelDisplayName} आया। और यह अच्छा था।"
-
 #: src/features/user/components/profile/VoiceActivityCard.tsx
 msgid "In voice"
 msgstr "वॉइस में"
@@ -18274,11 +18438,6 @@ msgstr "अपने ब्राउज़र मेनू से इसे इ�
 #: src/features/app/components/layout/app_layout/nagbars/DomainMovedNagbar.tsx
 msgid "Install the new app"
 msgstr "नया ऐप इंस्टॉल करें"
-
-#. Label for the installed desktop version in the Linux update modal.
-#: src/features/updater/commands/UpdaterModalCommands.tsx
-msgid "Installed"
-msgstr "इंस्टॉल किया गया"
 
 #. Desktop updater modal body. The currentVersion placeholder is the installed app version.
 #: src/features/updater/commands/UpdaterModalCommands.tsx
@@ -19448,7 +19607,7 @@ msgstr "पुरानी दर"
 msgid "Let /tts read your message aloud. Disabling the setting keeps those commands as regular text."
 msgstr "/tts को आपका मैसेज ज़ोर से पढ़ने दें। सेटिंग बंद करने पर ये कमांड सामान्य टेक्स्ट के रूप में दिखेंगे।"
 
-#. Toggle label in the community privacy modal: allow DMs from bots that live in this community.
+#. Toggle label in the community privacy modal: allow DMs from bots that are in this community.
 #: src/features/guild/components/modals/GuildPrivacySettingsModal.tsx
 msgid "Let bots in this community DM you"
 msgstr "इस कम्युनिटी में मौजूद बॉट को आपको DM करने दें"
@@ -19788,11 +19947,6 @@ msgstr "लिनक्स ऐप"
 #: src/features/voice/utils/VoiceMessageDescriptors.ts
 msgid "Linux default"
 msgstr "लिनक्स डिफ़ॉल्ट"
-
-#. Select label for choosing the Linux desktop package format to download.
-#: src/features/updater/commands/UpdaterModalCommands.tsx
-msgid "Linux package"
-msgstr "लिनक्स पैकेज"
 
 #. Forum layout name shown inside an activity log row.
 #. Forum layout option that shows posts as rows.
@@ -20541,6 +20695,10 @@ msgstr "परिवार के अनुकूल जगहों के ल�
 msgid "May cause compatibility issues for viewers. We’re working on improving this."
 msgstr "यह देखने वालों के लिए अनुकूलता समस्याएँ पैदा कर सकता है। हम इसमें सुधार कर रहे हैं।"
 
+#: src/features/voice/components/StreamSettingsMenuContent.tsx
+msgid "May include call audio from mixer apps"
+msgstr "मिक्सर ऐप्स से कॉल ऑडियो शामिल हो सकता है"
+
 #. Short label in the max favorite memes modal.
 #: src/features/app/components/alerts/MaxFavoriteMemesModal.tsx
 #: src/features/expressions/components/modals/GiftAcceptModal.tsx
@@ -20561,12 +20719,6 @@ msgstr "मापा जा रहा है…"
 #. Generic tab / section / category label for media content.
 #: src/features/i18n/utils/CommonMessageDescriptors.ts
 #: src/features/theme_studio/sections/TokenGroups.ts
-msgid "Media"
-msgstr "मीडिया"
-
-#. Chat settings section for image, video, embed, and media preferences.
-#: src/features/user/components/settings_utils/section_registry/ChatSettingsSections.ts
-msgctxt "chat-settings-section"
 msgid "Media"
 msgstr "मीडिया"
 
@@ -20646,11 +20798,6 @@ msgstr "पिछला ट्रैक"
 #: src/features/voice/components/media_player/components/MediaProgressBar.tsx
 msgid "Media progress"
 msgstr "मीडिया प्रगति"
-
-#. Settings search synonym. Used to match this term when the user types it in the settings search bar.
-#: src/features/user/components/settings_utils/section_registry/ChatSettingsSections.ts
-msgid "Media size"
-msgstr "मीडिया का आकार"
 
 #: src/features/input/utils/KeybindUtils.ts
 msgctxt "keyboard-key-name"
@@ -22064,6 +22211,11 @@ msgstr "मेरा रिवर्स इमेज सर्च"
 msgid "My search engine"
 msgstr "मेरा सर्च इंजन"
 
+#. Button shown while messaging is paused on the current account, and the title of the help dialog it opens. The email describing the quick step asks the user to send a text message from their phone. This is for users who could not send that text, and also for users who sent it and nothing happened. The translation should cover both. Also used as the subject of the support email.
+#: src/features/user/utils/MessagingPausedHelpEmail.ts
+msgid "My text didn't go through"
+msgstr "मेरा SMS नहीं गया"
+
 #. Short label in the add custom search engine modal. Keep it concise.
 #: src/features/user/components/modals/tabs/chat_settings_tab/AddCustomSearchEngineModal.tsx
 msgid "My translator"
@@ -22225,6 +22377,11 @@ msgstr "नीदरलैंड"
 #: src/features/voice/components/voice_connection_status/shared.ts
 msgid "Network"
 msgstr "नेटवर्क"
+
+#. Title of the screen and dialog shown when the instance blocks the network a request came from.
+#: src/features/auth/AuthMessageDescriptors.ts
+msgid "Network blocked"
+msgstr "नेटवर्क ब्लॉक किया गया"
 
 #. Error message in the devices tab.
 #: src/features/user/components/modals/tabs/DevicesTab.tsx
@@ -22424,11 +22581,6 @@ msgstr "इस अवधि की निष्क्रियता के ब�
 #: src/features/invite/utils/InviteMessageDescriptors.ts
 msgid "New users can't join right now. You can still create an account or sign in, then try this link again later."
 msgstr "नए यूज़र अभी शामिल नहीं हो सकते। आप अभी भी अकाउंट बना सकते हैं या साइन इन कर सकते हैं, फिर बाद में इस लिंक को दोबारा आज़माएँ।"
-
-#. Fallback version label when the available desktop version is unknown.
-#: src/features/updater/commands/UpdaterModalCommands.tsx
-msgid "New version"
-msgstr "नया वर्ज़न"
 
 #. US state name, shown next to the country name in the mature content gate.
 #: src/features/user/utils/UserGeo.ts
@@ -23298,6 +23450,11 @@ msgstr "नोट"
 msgid "Note (only visible to you)"
 msgstr "नोट (सिर्फ़ आपको दिखेगा)"
 
+#. Line on the account restriction screen with a note the team wrote to the account holder.
+#: src/features/auth/flow/AccountRestrictionScreen.tsx
+msgid "Note from our team: {statement}"
+msgstr "हमारी टीम का नोट: {statement}"
+
 #. Notification level option. Suppresses all pushes for the channel or community. Paired with "All messages" and "Only mentions".
 #: src/features/i18n/utils/CommonMessageDescriptors.ts
 msgid "Nothing"
@@ -24137,6 +24294,8 @@ msgid "Open settings"
 msgstr "सेटिंग्स खोलें"
 
 #. Button label that opens the software center via appstream protocol.
+#. Native desktop dialog button on a Flatpak install that opens the software center page for the desktop app.
+#: src/features/platform/utils/DesktopLocaleBridge.ts
 #: src/features/updater/commands/UpdaterModalCommands.tsx
 msgid "Open software center"
 msgstr "सॉफ़्टवेयर सेंटर खोलें"
@@ -24283,6 +24442,11 @@ msgstr "थ्रेड को फिर से खोला गया"
 #: src/features/moderation/components/report_flow/ReportFlowCopy.ts
 msgid "Opens in a new tab"
 msgstr "एक नए टैब में खुलता है"
+
+#. Screen-reader-only hint on a settings menu entry that opens a web page in the browser instead of a settings page.
+#: src/features/i18n/utils/CommonMessageDescriptors.ts
+msgid "Opens in your browser"
+msgstr "आपके ब्राउज़र में खुलेगा"
 
 #. Screen-reader-only hint for the Members entry in community settings. The entry receives keyboard focus without automatically opening.
 #: src/features/app/components/dialogs/components/DesktopGuildSettingsView.tsx
@@ -25279,8 +25443,8 @@ msgstr "प्लान"
 
 #. Text on the card in settings that links to the Plutonium page.
 #: src/features/premium/components/plutonium_page/PlutoniumPageLinkCard.tsx
-msgid "Plans, perks, gifts and your subscription all live on one page."
-msgstr "योजनाएं, लाभ, उपहार और आपकी सदस्यता - सब एक ही पेज पर उपलब्ध हैं।"
+msgid "Plans, perks, gifts and your subscription are all on one page."
+msgstr "योजनाएं, लाभ, उपहार और आपकी सदस्यता - सब एक ही पेज पर हैं।"
 
 #: src/features/auth/flow/HandoffApprovalFlow.tsx
 msgid "Platform"
@@ -25331,6 +25495,11 @@ msgstr "चलाएँ।"
 #: src/features/user/components/settings_utils/section_registry/NotificationsSections.ts
 msgid "Playback"
 msgstr "प्लेबैक"
+
+#. Submenu label in the stream settings menu of a Windows screen share. Picks which playback devices the shared desktop audio comes from.
+#: src/features/voice/components/StreamSettingsMenuContent.tsx
+msgid "Playback devices"
+msgstr "प्लेबैक डिवाइस"
 
 #. Section / menu header above the playback rate options in the media player.
 #. Settings search synonym. Used to match this term when the user types it in the settings search bar.
@@ -25403,7 +25572,7 @@ msgstr "यूज़र को पॉप आउट करें"
 msgid "Pop out video"
 msgstr "वीडियो पॉप आउट करें"
 
-#. Overlay text shown on a voice participant tile while it lives in a separate popped-out window.
+#. Overlay text shown on a voice participant tile while it is in a separate popped-out window.
 #: src/features/voice/components/popout/PoppedOutOverlay.tsx
 msgid "Popped out"
 msgstr "अलग विंडो में"
@@ -26303,6 +26472,11 @@ msgstr "क्विक CSS को {fileName} से बदल दिया ग�
 msgid "Quick reactions"
 msgstr "क्विक रिएक्शन"
 
+#. Settings search synonym. Used to match this term when the user types it in the settings search bar.
+#: src/features/user/components/settings_utils/search_index/ChatSettingsIndex.ts
+msgid "Quick reply"
+msgstr "त्वरित उत्तर"
+
 #. Accessible label for the desktop quick switcher modal.
 #. Settings search synonym. Used to match this term when the user types it in the settings search bar.
 #: src/features/channel/components/direct_message/DirectMessageList.tsx
@@ -26879,8 +27053,8 @@ msgstr "इंजन में बदलाव लागू करने के 
 
 #. Description text in the text to speech.
 #: src/features/user/components/modals/tabs/notifications_tab/TextToSpeech.tsx
-msgid "Remain silent unless someone runs /tts manually."
-msgstr "जब तक कोई खुद /tts न चलाए, तब तक कुछ नहीं सुनाया जाता।"
+msgid "Remain silent unless someone runs /tts in the channel you're viewing."
+msgstr "जब तक कोई उस चैनल में /tts न चलाए जिसे आप देख रहे हैं, तब तक कुछ नहीं सुनाया जाता।"
 
 #. Settings search entry label. Names the settings search entry in the settings UI.
 #: src/features/user/components/settings_utils/search_index/DesktopSettingsIndex.ts
@@ -27730,8 +27904,10 @@ msgstr "फिर से भेजें ({secondsRemaining}से)"
 msgid "Resend code"
 msgstr "कोड फिर से भेजें"
 
+#. Button label that sends another verification email after one was already sent. Keep it concise.
 #: src/features/app/components/dialogs/components/EmailVerificationAlert.tsx
 #: src/features/auth/flow/IpAuthorizationScreen.tsx
+#: src/features/auth/hooks/useVerifyEmailAction.tsx
 msgid "Resend email"
 msgstr "ईमेल फिर से भेजें"
 
@@ -28459,10 +28635,15 @@ msgstr "गोल स्टाइल चेकबॉक्स"
 msgid "Rows per page"
 msgstr "प्रति पेज पंक्तियाँ"
 
-#. Option in the Linux package format dropdown of the desktop updater modal. Keep the format token "RPM" verbatim and translate only the word "package".
-#: src/features/updater/commands/UpdaterModalCommands.tsx
-msgid "RPM package"
-msgstr "RPM पैकेज"
+#. Names the rule behind a restriction when the instance publishes no link for it. title is the rule title.
+#: src/features/auth/flow/AccountRestrictionScreen.tsx
+msgid "Rule: {title}"
+msgstr "नियम: {title}"
+
+#. Names the rule behind a restriction, with the rule title linked to the rule. title is the rule title.
+#: src/features/auth/flow/AccountRestrictionScreen.tsx
+msgid "Rule: <0>{title}</0>"
+msgstr "नियम: <0>{title}</0>"
 
 #. Settings search entry description. One-line summary of what the settings search entry controls.
 #: src/features/user/components/settings_utils/search_index/DesktopSettingsIndex.ts
@@ -29754,6 +29935,11 @@ msgstr "TTS मैसेज भेजें"
 msgid "Send verification code"
 msgstr "वेरिफ़िकेशन कोड भेजें"
 
+#. Button label on prompts that ask the user to verify their email, such as the add friend form. Sends a verification email right away. Keep it concise.
+#: src/features/auth/hooks/useVerifyEmailAction.tsx
+msgid "Send verification email"
+msgstr "सत्यापन ईमेल भेजें"
+
 #. Accessible label and tooltip for the send button after recording a voice message.
 #. Keyboard shortcut action label that opens the desktop voice message composer.
 #. Plus menu item that opens the desktop voice message composer to record and send a voice clip.
@@ -30119,6 +30305,11 @@ msgstr "सेटिंग्स।"
 #: src/features/auth/components/modals/MfaTotpEnableModal.tsx
 msgid "Setup key"
 msgstr "सेटअप कुंजी"
+
+#. Label for the setup token input in the setup wizard.
+#: src/features/app/components/setup/SetupWizardSteps.tsx
+msgid "Setup token"
+msgstr "सेटअप टोकन"
 
 #. Label in the channel and chat typing users.
 #: src/features/typing/utils/TypingTierText.ts
@@ -30756,6 +30947,11 @@ msgstr "सिस्टम ट्रे आइकॉन दिखाएं"
 #: src/features/user/components/settings_utils/search_index/AdvancedSettingsIndex.ts
 msgid "Show text in Fluxer Sans, the previous default font, instead of the Windows system font"
 msgstr "विंडोज सिस्टम फ़ॉन्ट के बजाय, पिछले डिफ़ॉल्ट फ़ॉन्ट, Fluxer Sans में टेक्स्ट दिखाएं"
+
+#. Desktop setting description under the colored tray icon toggle on Windows and Linux.
+#: src/features/user/components/modals/tabs/DesktopSettingsTab.tsx
+msgid "Show the full-color {productName} icon instead of a monochrome one that matches your taskbar."
+msgstr "टास्कबार से मेल खाने वाले मोनोक्रोम के बजाय, पूरे रंग का {productName} आइकन दिखाएं।"
 
 #. Switch label in the role editor (hoist toggle). When on, members with this role appear in their own member-list section.
 #: src/features/guild/components/modals/guild_tabs/guild_roles_tab/RoleEditor.tsx
@@ -31500,7 +31696,7 @@ msgid "Something went wrong while saving this setting. Please try again in a mom
 msgstr "इस सेटिंग को सेव करते समय कुछ गड़बड़ हो गई। कृपया कुछ देर बाद फिर से कोशिश करें।"
 
 #. Body of the error modal shown when sending the verification email fails unexpectedly.
-#: src/features/app/components/dialogs/components/EmailVerificationAlert.tsx
+#: src/features/auth/hooks/useVerifyEmailAction.tsx
 msgid "Something went wrong while sending your verification email. Please try again in a moment."
 msgstr "आपका वेरिफ़िकेशन ईमेल भेजने में कुछ गड़बड़ हो गई। कृपया कुछ देर बाद फिर से कोशिश करें।"
 
@@ -32539,6 +32735,11 @@ msgstr "सबमेनू"
 msgid "Submit application"
 msgstr "आवेदन जमा करें"
 
+#. Settings menu entry that opens the feedback website, where people suggest features and report problems.
+#: src/features/i18n/utils/CommonMessageDescriptors.ts
+msgid "Submit feedback"
+msgstr "फ़ीडबैक सबमिट करें"
+
 #: src/features/user/components/modals/tabs/component_gallery_tab/ComponentGalleryTabButtonsTab.tsx
 msgid "Submitting"
 msgstr "सबमिट किया जा रहा है"
@@ -33110,11 +33311,6 @@ msgstr "\"शेयर करें\" पर टैप करें, फिर \
 msgid "Tap to add a note"
 msgstr "नोट जोड़ने के लिए टैप करें"
 
-#. Option in the Linux package format dropdown of the desktop updater modal. Keep the format token "tar.gz" verbatim and translate only the word "archive".
-#: src/features/updater/commands/UpdaterModalCommands.tsx
-msgid "tar.gz archive"
-msgstr "tar.gz आर्काइव"
-
 #. Settings search synonym. Used to match this term when the user types it in the settings search bar.
 #: src/features/user/components/settings_utils/section_registry/SharedDescriptors.ts
 msgid "Taskbar badge"
@@ -33428,6 +33624,11 @@ msgstr "#0000 टैग विजनरी सब्सक्राइबर क
 msgid "The API is on a different origin than this page, so setup requests are sent without your session. Check the public origin and port this instance is configured with, then reload."
 msgstr "API इस पेज से अलग ओरिजिन पर है, इसलिए सेटअप अनुरोध आपके सेशन के बिना भेजे जा रहे हैं। इस इंस्टेंस के लिए कॉन्फ़िगर किए गए पब्लिक ओरिजिन और पोर्ट की जाँच करें, फिर रीलोड करें।"
 
+#. Help text under the setup token input in the setup wizard. FLUXER_SETUP_TOKEN is an environment variable name and must not be translated.
+#: src/features/app/components/setup/SetupWizardSteps.tsx
+msgid "The API wrote the token to its log the first time it started. If you set FLUXER_SETUP_TOKEN, use that value."
+msgstr "API ने पहली बार शुरू होने पर टोकन को अपने लॉग में लिख दिया था। यदि आपने FLUXER_SETUP_TOKEN सेट किया है, तो उस मान का उपयोग करें।"
+
 #: src/features/app/components/ErrorFallback.tsx
 msgid "The app crashed"
 msgstr "ऐप क्रैश हो गया"
@@ -33445,6 +33646,11 @@ msgstr "बैन {date} को पहले ही खत्म हो चु�
 #: src/features/guild/utils/guild_tabs/audit_log/AuditLogMemberMessages.ts
 msgid "The ban was scheduled to expire on {date}"
 msgstr "बैन {date} को समाप्त होने वाला था"
+
+#. Line on the network blocked screen for a block with an end. date is a date and time.
+#: src/features/auth/flow/AccountRestrictionScreen.tsx
+msgid "The block ends on {date}."
+msgstr "यह ब्लॉक {date} को खत्म होगा।"
 
 #: src/features/auth/components/pages/oauth_authorize_page/OAuthSuccessState.tsx
 msgid "The bot has been added to <0>{destinationName}</0>."
@@ -33497,11 +33703,6 @@ msgstr "सर्वर द्वारा प्रदान किए जा�
 #: src/features/updater/commands/UpdaterModalCommands.tsx
 msgid "The desktop update could not be downloaded. Try again from the update button when your connection is stable."
 msgstr "डेस्कटॉप अपडेट डाउनलोड नहीं किया जा सका। जब आपका कनेक्शन स्थिर हो, तो अपडेट बटन से फिर से कोशिश करें।"
-
-#. Help text below the Linux package format selector in the desktop updater modal.
-#: src/features/updater/commands/UpdaterModalCommands.tsx
-msgid "The downloaded file is saved to your computer. Install it with your normal package manager."
-msgstr "डाउनलोड की गई फ़ाइल आपके कंप्यूटर पर सेव हो गई है। इसे अपने सामान्य पैकेज मैनेजर से इंस्टॉल करें।"
 
 #. Activity log detail line under a deleted emoji, shown only when someone other than the person who deleted it had uploaded it. {user} is the user who uploaded the emoji, shown as a clickable user chip.
 #: src/features/guild/utils/guild_tabs/audit_log/AuditLogExpressionMessageMessages.ts
@@ -33684,6 +33885,11 @@ msgstr "सिस्टम ने {target} को {role} रोल दिया"
 #: src/features/guild/utils/guild_tabs/audit_log/AuditLogMemberMessages.ts
 msgid "The system removed the role {role} from {target}"
 msgstr "सिस्टम ने {role} रोल {target} से हटा दिया"
+
+#. Setup wizard body explaining why the operator has to enter the setup token.
+#: src/features/app/components/setup/SetupWizardSteps.tsx
+msgid "The token proves that you run this instance. Only the person who has it can create the admin account."
+msgstr "यह टोकन साबित करता है कि आप यह इंस्टेंस चला रहे हैं। केवल वही व्यक्ति एडमिन खाता बना सकता है जिसके पास यह है।"
 
 #. Native desktop dialog body under the headline saying the update did not finish. The buttons are Try again, Download and Later.
 #: src/features/platform/utils/DesktopLocaleBridge.ts
@@ -33898,10 +34104,20 @@ msgstr "तीसरा विकल्प"
 msgid "Third party"
 msgstr "थर्ड पार्टी"
 
+#. Error in the import-template form when the desktop app loaded the template from the third-party platform named by {theOtherPlatform} but its contents were not in the expected shape.
+#: src/features/guild/components/modals/add_guild_modal/shared.ts
+msgid "This {theOtherPlatform} template couldn't be read. It may use a format Fluxer doesn't support yet."
+msgstr "यह {theOtherPlatform} टेम्प्लेट पढ़ा नहीं जा सका। हो सकता है कि यह ऐसे फ़ॉर्मैट का उपयोग कर रहा हो जिसे Fluxer अभी तक सपोर्ट नहीं करता है।"
+
 #. Body of the block-user error modal when the target is a system account that cannot be blocked.
 #: src/features/relationship/components/alerts/RelationshipErrorModalUtils.tsx
 msgid "This account can't be blocked."
 msgstr "इस अकाउंट को ब्लॉक नहीं किया जा सकता।"
+
+#. Error shown in the setup wizard when the signed-in account lacks admin access to the unconfigured instance. A sign out button follows.
+#: src/features/app/components/setup/SelfHostedSetupWizardGate.tsx
+msgid "This account is not an admin of this instance. Sign in with an admin account to finish setup."
+msgstr "यह खाता इस इंस्टेंस का एडमिन नहीं है। सेटअप पूरा करने के लिए एडमिन खाते से साइन इन करें।"
 
 #. Error in the browser when the chosen account belongs to a different server than the app that asked to sign in. accountHost and requestHost are server addresses. productName is the app name, such as Fluxer.
 #: src/features/auth/flow/auth_login_core/useDesktopHandoffFlow.ts
@@ -34382,6 +34598,10 @@ msgstr "यह पहला विकल्प विवरण है"
 msgid "This is the second option description"
 msgstr "यह दूसरा विकल्प विवरण है"
 
+#: src/features/channel/components/ChannelWelcomeSection.tsx
+msgid "This is the start of {channelDisplayName}."
+msgstr "यह {channelDisplayName} की शुरुआत है।"
+
 #: src/features/user/components/modals/tabs/component_gallery_tab/index.tsx
 msgid "This is the third option description"
 msgstr "यह तीसरा विकल्प विवरण है"
@@ -34730,6 +34950,11 @@ msgstr "इससे इस चैनल में इस रोल वाले
 msgid "This will notify up to <0>{memberCount, plural, one {# online member} other {# online members}}</0> in this channel. Are you sure you want to do this?"
 msgstr "इससे इस चैनल के अधिकतम <0>{memberCount, plural, =0 {# ऑनलाइन सदस्यों} one {# ऑनलाइन सदस्य} other {# ऑनलाइन सदस्यों}}</0> को सूचना मिलेगी। क्या आप वाकई ऐसा करना चाहते हैं?"
 
+#. Confirmation modal description warning that every message the caller has sent in this channel and in all of its threads, active or archived, will be deleted. Also shown for forum and media channels, where the threads are their posts. Cannot be undone.
+#: src/features/channel/hooks/useDeleteMyMessagesInChannel.tsx
+msgid "This will permanently delete every message you have ever sent in this channel and its threads. This cannot be undone."
+msgstr "यह चैनल और इसकी थ्रेड्स में आपके द्वारा भेजे गए हर संदेश को स्थायी रूप से हटा देगा। इसे वापस नहीं लाया जा सकता।"
+
 #. Confirmation modal description warning that every message the caller has sent in this channel will be deleted. Cannot be undone.
 #: src/features/channel/hooks/useDeleteMyMessagesInChannel.tsx
 msgid "This will permanently delete every message you have ever sent in this channel. This cannot be undone."
@@ -34739,6 +34964,11 @@ msgstr "इससे इस चैनल में आपके द्वार�
 #: src/features/channel/hooks/useDeleteMyMessagesInChannel.tsx
 msgid "This will permanently delete every message you have ever sent in this conversation. This cannot be undone."
 msgstr "इससे इस बातचीत में आपके द्वारा भेजे गए सभी मैसेज हमेशा के लिए मिट जाएंगे। इसे पहले जैसा नहीं किया जा सकता।"
+
+#. Confirmation modal description warning that every message the caller has sent in this thread will be deleted. Also shown for forum and media posts. Cannot be undone.
+#: src/features/channel/hooks/useDeleteMyMessagesInChannel.tsx
+msgid "This will permanently delete every message you have ever sent in this thread. This cannot be undone."
+msgstr "यह इस थ्रेड में आपके द्वारा भेजे गए हर संदेश को स्थायी रूप से हटा देगा। इसे वापस नहीं लाया जा सकता।"
 
 #: src/features/theme/components/modals/ThemeAcceptModal.tsx
 msgid "This will replace your current custom theme. You can edit it later in {themeSettingsPath}."
@@ -36523,10 +36753,20 @@ msgstr "60 FPS पर 4K तक"
 msgid "Up to 720p at 30 FPS"
 msgstr "30 FPS पर 720p तक"
 
+#. Native desktop dialog body under the headline announcing a new version, shown on a Flatpak install. {appName} is the desktop app name (typically Fluxer).
+#: src/features/platform/utils/DesktopLocaleBridge.ts
+msgid "Update {appName} from your software center."
+msgstr "अपने सॉफ़्टवेयर सेंटर से {appName} अपडेट करें।"
+
 #. Tray menu item shown only while a desktop update is waiting. Clicking it installs the update. {appName} is the desktop app name (typically Fluxer).
 #: src/features/platform/utils/DesktopLocaleBridge.ts
 msgid "Update {appName} now"
 msgstr "{appName} को अभी अपडेट करें"
+
+#. Native desktop dialog body under the headline announcing a new version, shown on a Linux install managed by a package manager such as a deb, rpm or AUR package. {appName} is the desktop app name (typically Fluxer).
+#: src/features/platform/utils/DesktopLocaleBridge.ts
+msgid "Update {appName} with your package manager, or download the new version."
+msgstr "अपने पैकेज मैनेजर से {appName} अपडेट करें, या नया संस्करण डाउनलोड करें।"
 
 #. Linux settings text when the installed desktop app is too old for system-wide shortcuts. {productName} is the app name.
 #: src/features/user/components/modals/tabs/components/SystemShortcutsSection.tsx
@@ -36598,6 +36838,11 @@ msgstr "अपडेट की गई नीतियाँ"
 #: src/features/expressions/commands/FavoriteMemeCommands.tsx
 msgid "Updated saved media"
 msgstr "सेव किया गया मीडिया अपडेट किया गया"
+
+#. Settings search synonym. Used to match this term when the user types it in the settings search bar.
+#: src/features/user/components/settings_utils/search_index/DesktopSettingsIndex.ts
+msgid "Updates"
+msgstr "अपडेट"
 
 #. Heading of the dialog shown after the user follows an announcement channel.
 #: src/features/channel/components/modals/ChannelFollowSuccessModal.tsx
@@ -36965,6 +37210,11 @@ msgstr "चैनल डिफ़ॉल्ट का उपयोग करे�
 msgid "Use coal theme (pitch-black surfaces)"
 msgstr "कोल थीम इस्तेमाल करें (पूरी तरह से काले रंग की सतहें)"
 
+#. Desktop setting toggle label on Windows and Linux. Switches the system tray icon from monochrome to the full-color app icon.
+#: src/features/user/components/modals/tabs/DesktopSettingsTab.tsx
+msgid "Use colored tray icon"
+msgstr "रंगीन ट्रे आइकन का उपयोग करें"
+
 #. Plutonium page comparison row label for global emojis and stickers.
 #: src/features/premium/components/plutonium_page/PlutoniumPageMessages.ts
 msgid "Use custom emojis and stickers in any community"
@@ -36974,6 +37224,11 @@ msgstr "किसी भी समुदाय में कस्टम इम�
 #: src/features/user/utils/UserMessageDescriptors.ts
 msgid "Use custom image"
 msgstr "कस्टम इमेज का इस्तेमाल करें"
+
+#. Desktop setting toggle label on Windows. Switches the unread badge drawn over the taskbar button from red to dark gray.
+#: src/features/user/components/modals/tabs/DesktopSettingsTab.tsx
+msgid "Use dark taskbar badge"
+msgstr "डार्क टास्कबार बैज का उपयोग करें"
 
 #. Short label in the theme tab content. Keep it concise.
 #: src/features/user/components/modals/tabs/appearance_tab/theme/ThemeTabContent.tsx
@@ -37334,11 +37589,6 @@ msgstr "यूज़रनेम कम से कम 1 वर्ण का ह�
 msgid "Username must be at most 32 characters"
 msgstr "यूज़रनेम ज़्यादा से ज़्यादा 32 वर्णों का होना चाहिए"
 
-#. Warning shown in the setup wizard when the username sign-in option is selected. Keep it short and plain.
-#: src/features/app/components/setup/SetupWizardSteps.tsx
-msgid "Username sign-in is still rolling out to the mobile apps. Full support on every platform is coming soon."
-msgstr "यूज़रनेम साइन-इन अभी भी मोबाइल ऐप्स में रोल आउट हो रहा है। हर प्लेटफ़ॉर्म पर पूरा सपोर्ट जल्द ही आ रहा है।"
-
 #. Heading above the choice of how usernames are tagged in the setup wizard.
 #: src/features/app/components/setup/SetupWizardSteps.tsx
 msgid "Username tags"
@@ -37348,6 +37598,11 @@ msgstr "उपयोगकर्ता नाम टैग"
 #: src/features/user/components/modals/FluxerTagChangeModal.tsx
 msgid "Username updated"
 msgstr "यूज़रनेम अपडेट किया गया"
+
+#. One line of the support email written for the user. username is the account username with its tag.
+#: src/features/user/utils/MessagingPausedHelpEmail.ts
+msgid "Username: {username}"
+msgstr "यूज़रनेम: {username}"
 
 #. Summary value on the setup wizard finish step when people sign in with a username.
 #: src/features/app/components/setup/SetupWizardSteps.tsx
@@ -37505,8 +37760,8 @@ msgstr "वेरिफ़िकेशन कोड"
 msgid "Verification code sent"
 msgstr "वेरिफ़िकेशन कोड भेजा गया"
 
-#. Toast confirmation in the email verification alert after a verification email has been sent.
-#: src/features/app/components/dialogs/components/EmailVerificationAlert.tsx
+#. Toast confirmation shown after a verification email has been sent.
+#: src/features/auth/hooks/useVerifyEmailAction.tsx
 msgid "Verification email sent. Check your inbox."
 msgstr "वेरिफ़िकेशन ईमेल भेजा गया है। अपना इनबॉक्स देखें।"
 
@@ -38473,6 +38728,11 @@ msgstr "हमें इस अकाउंट पर रिफ़ंड के 
 msgid "We couldn't find an active subscription on this account. Refresh and try again."
 msgstr "हमें इस अकाउंट पर कोई सक्रिय सदस्यता नहीं मिली। रीफ़्रेश करें और फिर से कोशिश करें।"
 
+#. Error in the import-template form when the desktop app looked up the template and the third-party platform named by {theOtherPlatform} said it does not exist or has expired.
+#: src/features/guild/components/modals/add_guild_modal/shared.ts
+msgid "We couldn't find that {theOtherPlatform} template. Check the link and try again."
+msgstr "हमें वह {theOtherPlatform} टेम्पलेट नहीं मिला। लिंक जांचें और पुनः प्रयास करें।"
+
 #. Error message in the message forward failed modal.
 #: src/features/messaging/components/modals/ForwardModal.tsx
 msgid "We couldn't forward the message at this time."
@@ -38823,6 +39083,11 @@ msgctxt "us-state"
 msgid "West Virginia"
 msgstr "वेस्ट वर्जीनिया"
 
+#. Heading on the account restriction screen above what the team did and what it means.
+#: src/features/auth/flow/AccountRestrictionScreen.tsx
+msgid "What happened"
+msgstr "क्या हुआ"
+
 #. Display-name field placeholder in account registration forms.
 #: src/features/i18n/utils/CommonMessageDescriptors.ts
 msgid "What should people call you?"
@@ -38847,6 +39112,11 @@ msgstr "आप जो शेयर कर रहे हैं वह अपड�
 #: src/features/user/utils/UserMessageDescriptors.ts
 msgid "What's happening?"
 msgstr "क्या चल रहा है?"
+
+#. Settings menu entry that opens the latest patch notes for the app on the website.
+#: src/features/i18n/utils/CommonMessageDescriptors.ts
+msgid "What's new"
+msgstr "नया क्या है"
 
 #. DSA report page: title of the reason step while its questions load or when they could not be loaded.
 #: src/features/moderation/components/report/ReportStepReason.tsx
@@ -38985,6 +39255,11 @@ msgstr "कौन टाइप कर रहा है"
 #: src/features/messaging/components/alerts/TooManyAttachmentsModal.tsx
 msgid "Whoa, this is heavy"
 msgstr "अरे, यह तो बहुत ज़्यादा है"
+
+#. Heading on the account restriction screen above the rule that was broken and the findings.
+#: src/features/auth/flow/AccountRestrictionScreen.tsx
+msgid "Why"
+msgstr "वजह"
 
 #. Developer tools debug menu label. Internal-only surface for developers; translators may keep this terse.
 #: src/features/channel/components/channel_header_components/developer_tools/DeveloperOptionLabels.ts
@@ -39917,7 +40192,7 @@ msgstr "आप बहुत तेज़ी से मैसेज एडिट 
 #. Title of the error modal shown when resending a verification email is rate-limited.
 #. Title of the error modal shown when sharing or sending a theme link is rate limited.
 #: src/features/app/components/alerts/CommonErrorModalDescriptors.ts
-#: src/features/app/components/dialogs/components/EmailVerificationAlert.tsx
+#: src/features/auth/hooks/useVerifyEmailAction.tsx
 #: src/features/discovery/commands/DiscoveryJoinCommands.tsx
 #: src/features/emoji/components/emojis/EmojiListItem.tsx
 #: src/features/theme/components/modals/ShareThemeModal.tsx
@@ -40081,7 +40356,7 @@ msgid "You've received a gift"
 msgstr "आपको एक उपहार मिला है"
 
 #. Body of the error modal shown when resending a verification email is rate-limited.
-#: src/features/app/components/dialogs/components/EmailVerificationAlert.tsx
+#: src/features/auth/hooks/useVerifyEmailAction.tsx
 msgid "You've requested too many verification emails. Please wait a moment and try again."
 msgstr "आपने बहुत ज़्यादा वेरिफ़िकेशन ईमेल का अनुरोध किया है। कृपया कुछ देर इंतज़ार करें और फिर से कोशिश करें।"
 
@@ -40570,6 +40845,11 @@ msgstr "आपकी सदस्यता अगले रिन्यूअल
 #: src/features/app/components/dialogs/components/plutonium/hooks/useSubscriptionActions.ts
 msgid "Your subscription will switch to yearly billing at the next renewal."
 msgstr "आपकी सदस्यता अगले रिन्यूअल पर सालाना बिलिंग में बदल जाएगी।"
+
+#. Inline informational note in the screen share picker on Linux systems where no hardware video encoder is available, for example NVIDIA-only machines. Not an error.
+#: src/features/voice/components/modals/screen_share_picker_modal/SoftwareEncodeNotice.tsx
+msgid "Your system has no hardware video encoder that {productName} can use, so screen sharing uses software encoding."
+msgstr "आपके सिस्टम में कोई हार्डवेयर वीडियो एन्कोडर नहीं है जिसका {productName} उपयोग कर सके, इसलिए स्क्रीन शेयरिंग सॉफ़्टवेयर एन्कोडिंग का उपयोग करती है।"
 
 #. Body of the error modal shown when a theme CSS exceeds the maximum shareable size.
 #: src/features/theme/components/modals/ShareThemeModal.tsx

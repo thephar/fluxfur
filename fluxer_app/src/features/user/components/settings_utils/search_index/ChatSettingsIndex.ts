@@ -10,6 +10,7 @@ import {
 	ANIMATIONS_DESCRIPTOR,
 	COLON_AUTOCOMPLETE_DESCRIPTOR,
 	COMPOSER_BUTTONS_DESCRIPTOR,
+	DOUBLE_CLICK_DESCRIPTOR,
 	EMOTICONS_DESCRIPTOR,
 	EXPRESSION_AUTOCOMPLETE_DESCRIPTOR,
 	INBOX_DESCRIPTOR,
@@ -414,6 +415,19 @@ const CHOOSE_HOW_CHAT_MOVES_AFTER_YOU_SEND_A_MESSAGE_DESCRIPTOR = msg({
 	comment: 'Settings search entry description. One-line summary of what the settings search entry controls.',
 });
 
+const DOUBLE_CLICK_MESSAGE_ACTIONS_DESCRIPTOR = msg({
+	message: 'Double-click a message to edit or reply',
+	comment: 'Settings search entry label. Names the settings search entry in the settings UI.',
+});
+const DOUBLE_CLICK_EDITS_OR_REPLIES_DESCRIPTOR = msg({
+	message: "Double-click your own message to edit it, or someone else's message to reply to it",
+	comment: 'Settings search entry description. One-line summary of what the settings search entry controls.',
+});
+const QUICK_REPLY_DESCRIPTOR = msg({
+	message: 'Quick reply',
+	comment: 'Settings search synonym. Used to match this term when the user types it in the settings search bar.',
+});
+
 const MARK_ALL_AS_READ_DESCRIPTOR = msg({
 	message: 'Mark all as read',
 	comment: 'Settings search synonym. Used to match this term when the user types it in the settings search bar.',
@@ -455,7 +469,6 @@ export const chatSettingsIndex: Array<SearchableSettingDescriptor> = [
 	{
 		id: 'chat-settings-auto-send-gifs',
 		tabType: 'chat_settings',
-		sectionId: 'media',
 		label: AUTOMATICALLY_SEND_GIFS_WHEN_SELECTED_DESCRIPTOR,
 		keywords: [
 			ANIMATION_DESCRIPTOR,
@@ -473,7 +486,6 @@ export const chatSettingsIndex: Array<SearchableSettingDescriptor> = [
 	{
 		id: 'chat-settings-save-gif-favorites',
 		tabType: 'chat_settings',
-		sectionId: 'media',
 		label: SAVE_GIF_FAVORITES_AS_SAVED_MEDIA_DESCRIPTOR,
 		keywords: [
 			ANIMATION_DESCRIPTOR,
@@ -494,7 +506,6 @@ export const chatSettingsIndex: Array<SearchableSettingDescriptor> = [
 	{
 		id: 'chat-settings-media-buttons',
 		tabType: 'chat_settings',
-		sectionId: 'media',
 		label: MEDIA_BUTTONS_DESCRIPTOR,
 		keywords: [
 			MEDIA_ATTACHMENT_BUTTONS_DESCRIPTOR,
@@ -709,6 +720,16 @@ export const chatSettingsIndex: Array<SearchableSettingDescriptor> = [
 		tags: ['chat', 'notifications'],
 	},
 	{
+		id: 'chat-settings-double-click-message-actions',
+		tabType: 'chat_settings',
+		sectionId: 'input',
+		label: DOUBLE_CLICK_MESSAGE_ACTIONS_DESCRIPTOR,
+		keywords: [DOUBLE_CLICK_DESCRIPTOR, QUICK_REPLY_DESCRIPTOR, MESSAGE_EDITING_DESCRIPTOR],
+		description: DOUBLE_CLICK_EDITS_OR_REPLIES_DESCRIPTOR,
+		audience: 'advanced',
+		tags: ['chat'],
+	},
+	{
 		id: 'chat-settings-hide-muted-channels',
 		tabType: 'chat_settings',
 		label: HIDE_MUTED_CHANNELS_BY_DEFAULT_DESCRIPTOR,
@@ -726,7 +747,6 @@ export const chatSettingsIndex: Array<SearchableSettingDescriptor> = [
 	{
 		id: 'chat-settings-sequential-file-send',
 		tabType: 'advanced_settings',
-		sectionId: 'chat',
 		label: SEQUENTIAL_FILE_SEND_DESCRIPTOR,
 		keywords: [
 			SEQUENTIAL_SEND_DESCRIPTOR,

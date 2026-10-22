@@ -196,6 +196,7 @@ $FluxerSecretKeys = @(
 	@{Name = 'FLUXER_ADMIN_SECRET_KEY_BASE'; Kind = 'hex'}
 	@{Name = 'FLUXER_ADMIN_OAUTH_CLIENT_SECRET'; Kind = 'hex'}
 	@{Name = 'LIVEKIT_API_SECRET'; Kind = 'hex'}
+	@{Name = 'FLUXER_SETUP_TOKEN'; Kind = 'hex'}
 	@{Name = 'FLUXER_VAPID_PUBLIC_KEY'; Kind = 'vapid_public'}
 	@{Name = 'FLUXER_VAPID_PRIVATE_KEY'; Kind = 'vapid_private'}
 )
@@ -212,6 +213,13 @@ $FluxerNonSecretKeys = @(
 
 function Write-FluxerLine([string]$Message) {
 	Write-Host $Message
+}
+
+function Write-FluxerFirstRun([string]$EnvPath) {
+	Write-FluxerLine 'Open it and enter this setup token to create the admin account:'
+	Write-FluxerLine ''
+	Write-FluxerLine "  $(Get-FluxerEnvValue $EnvPath 'FLUXER_SETUP_TOKEN')"
+	Write-FluxerLine ''
 }
 
 function Write-FluxerProblem([string]$Message) {
@@ -232,7 +240,7 @@ function Show-FluxerUsage {
 	Write-FluxerLine '  -Domain <host>          Hostname the instance answers on. Prompted when absent.'
 	Write-FluxerLine '  -Email <address>        Contact email for web push. Default: admin@<domain>.'
 	Write-FluxerLine '  -Engine <command>       Container engine to drive. Default: docker, or podman when'
-	Write-FluxerLine '                          docker is absent.'
+	Write-FluxerLine '                          docker is absent or does not answer.'
 	Write-FluxerLine '  -Dir <path>             Working directory. Default: the fluxer folder in the home'
 	Write-FluxerLine '                          directory, or the working directory itself when -Update or'
 	Write-FluxerLine '                          -Rollback is given and it holds an instance.'
@@ -377,6 +385,14 @@ function Invoke-FluxerPreflight {
 		$script:FluxerEngine = $Engine
 	} elseif ($null -ne (Get-Command docker -ErrorAction SilentlyContinue)) {
 		$script:FluxerEngine = 'docker'
+		if ($null -ne (Get-Command podman -ErrorAction SilentlyContinue) -and (Invoke-FluxerCapture @('info')).Code -ne 0) {
+			$script:FluxerEngine = 'podman'
+			if ((Invoke-FluxerCapture @('info')).Code -eq 0) {
+				Write-FluxerLine 'docker does not answer and podman does, so this run drives podman. Pass -Engine docker to use docker instead.'
+			} else {
+				$script:FluxerEngine = 'docker'
+			}
+		}
 	} elseif ($null -ne (Get-Command podman -ErrorAction SilentlyContinue)) {
 		$script:FluxerEngine = 'podman'
 	} else {
@@ -692,7 +708,8 @@ function Move-FluxerStackFiles([string]$StagingDir, [string]$TargetDir) {
 # knows. FLUXER_VAPID_EMAIL is optional, and compose derives admin@FLUXER_DOMAIN while it is unset.
 # The five other non-secret keys in the list above ship correct in .env.example and need no edit.
 #
-# Every secret in .env.example contains the literal CHANGE_ME. A key whose name ends in _BASE64
+# Every secret in .env.example contains the literal CHANGE_ME, apart from FLUXER_SETUP_TOKEN,
+# which sits there as a commented line. A key whose name ends in _BASE64
 # takes 32 random bytes as base64, every other key takes 32 random bytes as hex, and the VAPID pair
 # comes from the generator above.
 #
@@ -1445,6 +1462,17 @@ function Get-FluxerFreeKb([string]$Path) {
 	return [long]($drive.AvailableFreeSpace / 1024)
 }
 
+function Start-FluxerStopped([string[]]$Ids) {
+	if ($Ids.Count -eq 0) {
+		return 0
+	}
+	$result = Invoke-FluxerCapture (@('start') + $Ids)
+	if ($result.Code -ne 0 -and $result.Error.Length -gt 0) {
+		Write-FluxerProblem $result.Error
+	}
+	return $result.Code
+}
+
 # Step 2 continued: the volume copy.
 #
 # A live copy can catch a file mid-write, so the stack stops for it. The stack comes back up on
@@ -1452,12 +1480,13 @@ function Get-FluxerFreeKb([string]$Path) {
 # working instance rather than a stopped one.
 #
 # By hand:
+#   docker compose ps -q > running
 #   docker compose stop
 #   docker run --rm -v fluxer_seaweedfs-data:/data -v "${PWD}\backups:/backup" alpine tar czf /backup/seaweedfs-data.tgz -C /data .
-#   docker compose up -d
+#   docker start (Get-Content running)
 function Copy-FluxerVolumes([string]$Record, [string]$Project, [string]$TargetDir) {
 	if (-not (Test-FluxerStackDefinesService 'seaweedfs' $TargetDir)) {
-		Write-FluxerLine 'Skipping the uploads copy. This stack defines no seaweedfs service, so its objects live outside the stack and only the operator of that store can copy them.'
+		Write-FluxerLine 'Skipping the uploads copy. This stack defines no seaweedfs service, so its objects are outside the stack and only the operator of that store can copy them.'
 		return
 	}
 	$present = @()
@@ -1488,6 +1517,11 @@ function Copy-FluxerVolumes([string]$Record, [string]$Project, [string]$TargetDi
 		$tarExtension = 'tar'
 	}
 	Write-FluxerLine 'Stopping the stack for a consistent copy of the uploads.'
+	$running = Invoke-FluxerCapture @('compose', 'ps', '-q')
+	if ($running.Code -ne 0) {
+		Stop-Fluxer "docker compose ps failed, so the containers to start again after the copy cannot be read. Compose printed:`n$(Get-FluxerIndented $running.Error '  ')" $FluxerExitBackup
+	}
+	$stopped = @($running.Text.Split("`n") | ForEach-Object {$_.Trim()} | Where-Object {$_.Length -gt 0})
 	if ((Invoke-FluxerDocker @('compose', 'stop')) -ne 0) {
 		Stop-Fluxer 'docker compose stop failed.' $FluxerExitBackup
 	}
@@ -1496,13 +1530,13 @@ function Copy-FluxerVolumes([string]$Record, [string]$Project, [string]$TargetDi
 		Write-FluxerLine "Copying $full."
 		$code = Invoke-FluxerDocker @('run', '--rm', '-v', "${full}:/data:ro", '-v', "${Record}:/backup", $FluxerHelperImage, 'tar', $tarFlags, "/backup/$volume.$tarExtension", '-C', '/data', '.')
 		if ($code -ne 0) {
-			[void](Invoke-FluxerDocker @('compose', 'up', '-d', '--remove-orphans'))
+			[void](Start-FluxerStopped $stopped)
 			Stop-Fluxer "Copying $full failed. The stack is started again on the images it was running." $FluxerExitBackup
 		}
 	}
 	Write-FluxerLine 'Starting the stack again before the upgrade continues.'
-	if ((Invoke-FluxerDocker @('compose', 'up', '-d', '--remove-orphans')) -ne 0) {
-		Stop-Fluxer 'docker compose up -d failed after the copy. Read docker compose logs.' $FluxerExitBackup
+	if ((Start-FluxerStopped $stopped) -ne 0) {
+		Stop-Fluxer 'docker start failed after the copy. Read docker compose logs.' $FluxerExitBackup
 	}
 }
 
@@ -2263,7 +2297,8 @@ function Invoke-FluxerInstall {
 
 		if ($NoStart) {
 			Write-FluxerLine "Run docker compose up -d in $targetDir to start the instance."
-			Write-FluxerLine "Secrets live in $envPath. Back that file up."
+			Write-FluxerFirstRun $envPath
+			Write-FluxerLine "Secrets are in $envPath. Back that file up."
 			exit 0
 		}
 
@@ -2281,8 +2316,8 @@ function Invoke-FluxerInstall {
 		}
 		Test-FluxerPublicHealth $readyOrigin
 		Write-FluxerLine "Instance ready at $readyOrigin"
-		Write-FluxerLine 'Open it and create the first admin account. Finish the setup wizard in the same sitting.'
-		Write-FluxerLine "Secrets live in $envPath. Back that file up."
+		Write-FluxerFirstRun $envPath
+		Write-FluxerLine "Secrets are in $envPath. Back that file up."
 	} finally {
 		Pop-Location
 	}

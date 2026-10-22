@@ -11,7 +11,12 @@ import {useContextMenuHoverState} from '@app/features/app/hooks/useContextMenuHo
 import {isMediaOnlyEmbed} from '@app/features/channel/components/embeds/EmbedRenderUtils';
 import {MessageActionBar} from '@app/features/channel/components/MessageActionBar';
 import {MessageActionBottomSheet} from '@app/features/channel/components/MessageActionBottomSheet';
-import {requestDeleteMessage} from '@app/features/channel/components/MessageActionUtils';
+import {
+	getMessagePermissions,
+	requestDeleteMessage,
+	requestMessageReply,
+	startMessageEdit,
+} from '@app/features/channel/components/MessageActionUtils';
 import {useMessageHoverState} from '@app/features/channel/components/MessageHoverState';
 import {MessageViewContextProvider} from '@app/features/channel/components/MessageViewContext';
 import type {Channel} from '@app/features/channel/models/Channel';
@@ -100,6 +105,8 @@ const MOVEMENT_THRESHOLD = 10;
 const HIGHLIGHT_DELAY = 100;
 const SUPPRESS_POST_LONG_PRESS_CLICK_MS = 750;
 const NESTED_LONG_PRESS_OWNER_SELECTOR = '[data-long-press-owner="true"]';
+const DOUBLE_CLICK_INTERACTIVE_TARGET_SELECTOR =
+	'a, button, input, textarea, select, video, audio, [role="button"], [contenteditable="true"]';
 const mobileLongPressScrollCancelHandlers = new Set<() => void>();
 
 let mobileLongPressScrollListenerAttached = false;
@@ -161,6 +168,8 @@ const getElementFromEventTarget = (target: EventTarget | null): Element | null =
 };
 const isNestedLongPressOwnerTarget = (target: EventTarget | null): boolean =>
 	getElementFromEventTarget(target)?.closest(NESTED_LONG_PRESS_OWNER_SELECTOR) != null;
+const isDoubleClickInteractiveTarget = (target: EventTarget | null): boolean =>
+	getElementFromEventTarget(target)?.closest(DOUBLE_CLICK_INTERACTIVE_TARGET_SELECTOR) != null;
 const normalizeAriaLabelText = (text: string): string => text.replace(/\s+/g, ' ').trim();
 const truncateAriaLabelText = (text: string): string => {
 	const normalized = normalizeAriaLabelText(text);
@@ -180,6 +189,7 @@ export type MessageBehaviorOverrides = Partial<{
 	contextMenuOpen: boolean;
 	disableContextMenu: boolean;
 	disableContextMenuTracking: boolean;
+	disableDoubleClick: boolean;
 }>;
 
 interface MessageProps {
@@ -304,6 +314,38 @@ export const Message: React.FC<MessageProps> = observer((props) => {
 			handleAltClickEvent(event, message);
 		},
 		[message],
+	);
+	const handleDoubleClick = useCallback(
+		(event: React.MouseEvent) => {
+			if (
+				behaviorOverrides?.disableDoubleClick ||
+				!Accessibility.messageDoubleClickActions ||
+				mobileLayoutEnabled ||
+				(previewContext && previewContext !== MessagePreviewContext.LIST_POPOUT) ||
+				message.state !== MessageStates.SENT ||
+				!message.isUserMessage() ||
+				isEditing ||
+				isDoubleClickInteractiveTarget(event.target)
+			) {
+				return;
+			}
+			const permissions = getMessagePermissions(message, channel);
+			if (!permissions?.canSendMessages) return;
+			if (permissions.canEditMessage && !message.messageSnapshots) {
+				startMessageEdit(message);
+				return;
+			}
+			if (!isReplying) requestMessageReply(message, {sourceChannel: channel});
+		},
+		[
+			previewContext,
+			message,
+			channel,
+			isEditing,
+			isReplying,
+			mobileLayoutEnabled,
+			behaviorOverrides?.disableDoubleClick,
+		],
 	);
 	const handleAltKeyDown = useCallback(
 		(event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -702,6 +744,7 @@ export const Message: React.FC<MessageProps> = observer((props) => {
 					ref={messageRef}
 					onClickCapture={handleClickCapture}
 					onClick={handleAltClick}
+					onDoubleClick={handleDoubleClick}
 					onKeyDown={handleAltKeyDown}
 					onFocus={handleFocusWithin}
 					onBlur={handleBlurWithin}

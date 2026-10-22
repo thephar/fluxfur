@@ -660,6 +660,20 @@ struct ReleaseSummary {
     #[serde(rename = "draft")]
     is_draft: bool,
     published_at: Option<String>,
+    #[serde(default)]
+    assets: Vec<ReleaseAssetSummary>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ReleaseAssetSummary {
+    name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DesktopPublishedRelease {
+    pub(crate) version: String,
+    pub(crate) tag: String,
+    pub(crate) assets: BTreeSet<String>,
 }
 
 #[derive(Debug)]
@@ -711,29 +725,35 @@ struct GitRef {
     name: String,
 }
 
-const PUBLISH_ATTEMPTS: u64 = 3;
+const GITHUB_ATTEMPTS: u64 = 3;
+
+fn wait_before_retry(attempt: u64) {
+    thread::sleep(Duration::from_secs(attempt * 15));
+}
 
 pub async fn run(args: ReleaseArgs) -> Result<()> {
     match args.command {
-        ReleaseCommand::Publish(args) => retry_publish(
-            PUBLISH_ATTEMPTS,
-            |attempt| thread::sleep(Duration::from_secs(attempt * 15)),
+        ReleaseCommand::Publish(args) => retry(
+            "Release publish",
+            GITHUB_ATTEMPTS,
+            wait_before_retry,
             || publish(args.clone()),
         ),
     }
 }
 
-fn retry_publish(
+fn retry<T>(
+    label: &str,
     attempts: u64,
     mut wait: impl FnMut(u64),
-    mut publish: impl FnMut() -> Result<()>,
-) -> Result<()> {
+    mut operation: impl FnMut() -> Result<T>,
+) -> Result<T> {
     let mut attempt = 1;
     loop {
-        match publish() {
-            Ok(()) => return Ok(()),
+        match operation() {
+            Ok(value) => return Ok(value),
             Err(error) if attempt < attempts => {
-                eprintln!("Release publish attempt {attempt} of {attempts} failed: {error:#}");
+                eprintln!("{label} attempt {attempt} of {attempts} failed: {error:#}");
                 wait(attempt);
                 attempt += 1;
             }
@@ -931,6 +951,78 @@ fn release_summaries() -> Result<Vec<ReleaseSummary>> {
     let pages: Vec<Vec<ReleaseSummary>> =
         serde_json::from_str(&output).context("Failed to parse GitHub Release history")?;
     Ok(pages.into_iter().flatten().collect())
+}
+
+pub(crate) fn desktop_releases(channel: &str) -> Result<Vec<DesktopPublishedRelease>> {
+    let summaries = retry(
+        "Release history read",
+        GITHUB_ATTEMPTS,
+        wait_before_retry,
+        release_summaries,
+    )?;
+    desktop_releases_from(&summaries, channel)
+}
+
+fn desktop_releases_from(
+    summaries: &[ReleaseSummary],
+    channel: &str,
+) -> Result<Vec<DesktopPublishedRelease>> {
+    let prefix = format!("fluxer-desktop-{channel}@");
+    let mut releases = Vec::new();
+    for release in summaries.iter().filter(|release| !release.is_draft) {
+        let Some(version) = release.tag_name.strip_prefix(&prefix) else {
+            continue;
+        };
+        let Ok(instant) = parse_version_instant(version) else {
+            continue;
+        };
+        releases.push((
+            instant,
+            DesktopPublishedRelease {
+                version: version.to_string(),
+                tag: release.tag_name.clone(),
+                assets: release
+                    .assets
+                    .iter()
+                    .map(|asset| asset.name.clone())
+                    .collect(),
+            },
+        ));
+    }
+    releases.sort_by_key(|(instant, _)| *instant);
+    Ok(releases.into_iter().map(|(_, release)| release).collect())
+}
+
+pub(crate) fn download_desktop_release_asset(tag: &str, name: &str) -> Result<Vec<u8>> {
+    let output = CommandSpec::new("gh")
+        .args(["release", "download", tag])
+        .args(["--repo", RELEASE_REPOSITORY])
+        .args(["--pattern", name])
+        .args(["--output", "-"])
+        .to_command()
+        .output()
+        .with_context(|| format!("Failed to download {name} from {tag}"))?;
+    ensure!(
+        output.status.success(),
+        "Failed to download {name} from {tag}: {}",
+        String::from_utf8_lossy(&output.stderr).trim()
+    );
+    Ok(output.stdout)
+}
+
+pub(crate) fn desktop_release_kind(channel: &str, version: &str) -> Result<DesktopReleaseKind> {
+    let tag = format!("fluxer-desktop-{channel}@{version}");
+    let pattern = desktop_release_descriptor_filename(channel, version)?;
+    let descriptor: DesktopReleaseDescriptor =
+        serde_json::from_slice(&download_desktop_release_asset(&tag, &pattern)?)
+            .with_context(|| format!("{pattern} from {tag} is not a release descriptor"))?;
+    ensure!(
+        descriptor.channel == channel && descriptor.version == version,
+        "{pattern} from {tag} describes {} {}",
+        descriptor.channel,
+        descriptor.version
+    );
+    Ok(descriptor.kind)
 }
 
 fn qualified_releases(
@@ -1564,6 +1656,7 @@ mod tests {
                     .map(|(module, entry)| (module.clone(), entry.clone()))
                     .collect(),
                 required_modules: vec![DESKTOP_RENDERER_MODULE.to_string()],
+                shell_compatibility: None,
             };
             let release_asset = desktop_module_manifest_release_asset_name(
                 SAMPLE_CHANNEL,

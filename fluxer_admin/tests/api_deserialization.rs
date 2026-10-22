@@ -261,8 +261,7 @@ fn deserialize_instance_config_response_with_unknown_keys() {
         "registration": {
             "mode": "open",
             "admin_registration_urls_enabled": false,
-            "urls": [],
-            "pending_registrations": []
+            "urls": []
         },
         "self_hosted": false,
         "account_identity": {"mode": "username", "locked": true, "tag_style": "none"},
@@ -1281,4 +1280,29 @@ fn deserialize_guild_threads_response() {
             .as_ref()
             .is_some_and(|m| m.archived && !m.locked)
     );
+}
+
+#[test]
+fn branding_asset_upload_request_matches_the_generated_contract() {
+    for kind in types::BrandingAssetKind::ALL {
+        for image in [Some("data:image/png;base64,iVBORw0KGgo=".to_owned()), None] {
+            let request = types::BrandingAssetUploadRequest {
+                kind,
+                image: image.clone(),
+            };
+            let value = serde_json::to_value(&request).unwrap();
+            assert_eq!(
+                value,
+                serde_json::json!({"kind": kind.as_str(), "image": image})
+            );
+            let generated: generated_types::BrandingAssetUploadRequest =
+                serde_json::from_value(value.clone()).expect("generated branding asset contract");
+            assert_eq!(
+                serde_json::to_value(generated).unwrap()["kind"],
+                value["kind"]
+            );
+            assert_eq!(types::BrandingAssetKind::parse(kind.as_str()), Some(kind));
+        }
+    }
+    assert_eq!(types::BrandingAssetKind::parse("banner"), None);
 }

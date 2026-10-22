@@ -62,6 +62,7 @@ const FEATURE_FLAG_KEYS = Object.freeze([
 	'stripe_serviceable',
 	'phone_verification_enabled',
 	'desktop_modules_enabled',
+	'discovery_enabled',
 ] as const) satisfies ReadonlyArray<keyof InstanceFeatures>;
 
 const BRANDING_URL_KEYS = Object.freeze([
@@ -74,6 +75,16 @@ const BRANDING_URL_KEYS = Object.freeze([
 	'status_page_incident_history_url',
 	'premium_info_url',
 ] as const) satisfies ReadonlyArray<keyof InstanceBranding>;
+
+const SETUP_FLAG_KEYS = Object.freeze([
+	'configured',
+	'account_identity_locked',
+	'setup_token_required',
+] as const) satisfies ReadonlyArray<keyof InstanceSetup>;
+
+const LEGAL_URL_KEYS = Object.freeze(['terms_url', 'privacy_url', 'guidelines_url'] as const) satisfies ReadonlyArray<
+	keyof InstanceLegal
+>;
 
 interface InstanceDiscoveryEndpoints {
 	readonly api: string;
@@ -319,15 +330,51 @@ function withEndpointsOnServingOrigin(url: string, document: InstanceDiscoveryDo
 		return document;
 	}
 	const api = `${servedBy}${INSTANCE_DISCOVERY_CONVENTIONAL_ENDPOINT_PATH}`;
+	const declaredApiHost = hostOfEndpoint(document.endpoints.api);
+	const moveToServingOrigin = <T extends string | null>(endpoint: T): T =>
+		(endpoint == null ? endpoint : (onServingOrigin(endpoint, declaredApiHost, servedBy) ?? endpoint)) as T;
 	return {
 		...document,
 		endpoints: {
 			...document.endpoints,
 			api,
 			api_client: document.endpoints.api_client == null ? null : api,
+			gateway: moveToServingOrigin(document.endpoints.gateway),
+			media: moveToServingOrigin(document.endpoints.media),
+			upload_relay: moveToServingOrigin(document.endpoints.upload_relay),
+			static_cdn: moveToServingOrigin(document.endpoints.static_cdn),
 			webapp: document.endpoints.webapp == null ? null : servedBy,
 		},
 	};
+}
+
+function hostOfEndpoint(value: string): string | null {
+	try {
+		return new URL(value).host;
+	} catch {
+		return null;
+	}
+}
+
+function onServingOrigin(endpoint: string, declaredApiHost: string | null, servedBy: string): string | null {
+	if (declaredApiHost == null) {
+		return null;
+	}
+	let url: URL;
+	let serving: URL;
+	try {
+		url = new URL(endpoint);
+		serving = new URL(servedBy);
+	} catch {
+		return null;
+	}
+	if (url.host !== declaredApiHost) {
+		return null;
+	}
+	const secure = serving.protocol === 'https:';
+	const socket = url.protocol === 'ws:' || url.protocol === 'wss:';
+	const path = url.pathname === '/' && !endpoint.endsWith('/') ? '' : url.pathname;
+	return `${socket ? (secure ? 'wss:' : 'ws:') : serving.protocol}//${serving.host}${path}${url.search}`;
 }
 
 export function requireDiscoveryDeclaresItsOwnOrigin(url: string, document: InstanceDiscoveryDocument): void {
@@ -744,9 +791,11 @@ function parseSetup(value: unknown): Readonly<Partial<InstanceSetup>> {
 		return {};
 	}
 	const setup: Partial<InstanceSetup> = {};
-	const configured = readBoolean(source, 'configured');
-	if (configured != null) {
-		setup.configured = configured;
+	for (const key of SETUP_FLAG_KEYS) {
+		const flag = readBoolean(source, key);
+		if (flag != null) {
+			setup[key] = flag;
+		}
 	}
 	if (Object.hasOwn(source, 'admin_url')) {
 		setup.admin_url = readAbsoluteHTTPURL(source, 'admin_url');
@@ -760,11 +809,10 @@ function parseLegal(value: unknown): Readonly<Partial<InstanceLegal>> {
 		return {};
 	}
 	const legal: Partial<InstanceLegal> = {};
-	if (Object.hasOwn(source, 'terms_url')) {
-		legal.terms_url = readAbsoluteHTTPURL(source, 'terms_url');
-	}
-	if (Object.hasOwn(source, 'privacy_url')) {
-		legal.privacy_url = readAbsoluteHTTPURL(source, 'privacy_url');
+	for (const key of LEGAL_URL_KEYS) {
+		if (Object.hasOwn(source, key)) {
+			legal[key] = readAbsoluteHTTPURL(source, key);
+		}
 	}
 	return legal;
 }

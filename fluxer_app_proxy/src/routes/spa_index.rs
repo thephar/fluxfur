@@ -27,6 +27,7 @@ const SHARED_SHELL_CACHE_CONTROL: &str = "public, max-age=0, s-maxage=1";
 const CSP_NONCE_PLACEHOLDER_ATTRIBUTE: &str = r#" nonce="{{CSP_NONCE_PLACEHOLDER}}""#;
 const MEDIA_PRECONNECT_TAG: &str = r#"<link rel="preconnect" href="{{MEDIA_ENDPOINT}}">"#;
 const SAME_ORIGIN_API_META_TAG: &str = r#"<meta name="fluxer-api-origin" content="self">"#;
+const RELEASE_CHANNEL_META_NAME: &str = "fluxer-release-channel";
 const HEAD_CLOSE_TAG: &str = "</head>";
 const TITLE_START: &str = "<title";
 const TITLE_END: &str = "</title>";
@@ -204,6 +205,10 @@ async fn serve_spa_index(state: &AppState, headers: &HeaderMap, request_path: &s
     } else {
         raw_html
     };
+    let raw_html = match state.config.release_channel {
+        Some(channel) => mark_release_channel(&raw_html, channel),
+        None => raw_html,
+    };
 
     let dev_buster = should_bust_dev_assets.then(current_dev_asset_cache_buster);
     let html = match render_spa_document(
@@ -221,6 +226,7 @@ async fn serve_spa_index(state: &AppState, headers: &HeaderMap, request_path: &s
     let csp = state.csp.spa_headers(
         &inline_script_hashes(&html),
         &state.branding.image_origins(),
+        &state.branding.instance_sources(),
     );
     build_spa_response(html.into_boxed_str(), &csp, should_bust_dev_assets)
 }
@@ -256,6 +262,17 @@ fn mark_same_origin_api(html: &str) -> String {
     html.replacen(
         HEAD_CLOSE_TAG,
         &format!("{SAME_ORIGIN_API_META_TAG}\n{HEAD_CLOSE_TAG}"),
+        1,
+    )
+}
+
+fn mark_release_channel(html: &str, channel: &str) -> String {
+    html.replacen(
+        HEAD_CLOSE_TAG,
+        &format!(
+            r#"<meta name="{RELEASE_CHANNEL_META_NAME}" content="{channel}">
+{HEAD_CLOSE_TAG}"#
+        ),
         1,
     )
 }
@@ -1034,6 +1051,7 @@ mod tests {
             icon_url: Some(Arc::from("https://example.test/icon.png")),
             favicon_url: Some(Arc::from("https://example.test/favicon.png")),
             theme_color: Some(Arc::from("#7b2ce4")),
+            ..BrandingSnapshot::default()
         }
     }
 
@@ -1164,6 +1182,24 @@ mod tests {
         }
         let served = read_document(serve_spa_index(&state, &HeaderMap::new(), "/").await).await;
         assert!(!served.contains(SAME_ORIGIN_API_META_TAG));
+    }
+
+    #[tokio::test]
+    async fn the_configured_release_channel_is_marked_in_the_document() {
+        let mut state = spa_state_serving(SHIPPED_APP_SHELL);
+        let served = read_document(serve_spa_index(&state, &HeaderMap::new(), "/").await).await;
+        assert!(!served.contains(RELEASE_CHANNEL_META_NAME));
+
+        for channel in ["stable", "canary"] {
+            Arc::make_mut(&mut state.config).release_channel = Some(channel);
+            let response = serve_spa_index(&state, &HeaderMap::new(), "/").await;
+            let policy = policy_of(&response);
+            let served = read_document(response).await;
+            let tag = format!(r#"<meta name="fluxer-release-channel" content="{channel}">"#);
+            assert_eq!(served.matches(&tag).count(), 1);
+            assert!(served.find(&tag).unwrap() < served.find("</head>").unwrap());
+            assert_every_inline_script_is_granted(&served, &policy);
+        }
     }
 
     #[tokio::test]
@@ -1310,6 +1346,7 @@ mod tests {
             http_client: reqwest::Client::new(),
             spa_index_source,
             local_asset_prefixes: None,
+            bundled_app_assets: false,
             budgets,
             local_files,
         }

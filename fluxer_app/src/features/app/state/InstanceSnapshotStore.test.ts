@@ -23,6 +23,7 @@ import {
 import type {InstanceDiscoveryResponse} from '@fluxer/instance_bootstrap/src/Types';
 import {computeWireFormat} from '@fluxer/limits/src/LimitDiffer';
 import type {LimitConfigSnapshot} from '@fluxer/limits/src/LimitTypes';
+import {InstanceAppPublicSchema} from '@fluxer/schema/src/domains/instance/InstanceSchemas';
 import {runInAction} from 'mobx';
 import {afterEach, beforeEach, describe, expect, test, vi} from 'vitest';
 
@@ -217,6 +218,45 @@ describe('runtimeSnapshotFromDiscovery', () => {
 		expect(snapshot.appPublic.legal.terms_url).toBe('https://d.test/legal?doc=terms');
 	});
 
+	test('keeps every public app field the discovery schema defines', () => {
+		const document = discoveryDocument('q.test');
+		document.app_public = {
+			branding: {
+				product_name: 'Fluxer q.test',
+				icon_url: 'https://cdn.q.test/icon.png',
+				symbol_url: 'https://cdn.q.test/symbol.png',
+				logo_url: 'https://cdn.q.test/logo.png',
+				wordmark_url: 'https://cdn.q.test/wordmark.png',
+				favicon_url: 'https://cdn.q.test/favicon.png',
+				theme_color: '#4641d9',
+				status_page_url: 'https://status.q.test',
+				status_page_incident_history_url: 'https://status.q.test/history',
+				premium_product_name: 'Supporter',
+				premium_info_url: 'https://q.test/premium',
+			},
+			setup: {
+				configured: false,
+				admin_url: 'https://q.test/admin',
+				account_identity_locked: true,
+				setup_token_required: true,
+			},
+			legal: {
+				terms_url: 'https://q.test/terms',
+				privacy_url: 'https://q.test/privacy',
+				guidelines_url: 'https://q.test/guidelines',
+			},
+			registration: {collect_date_of_birth: true},
+		};
+		const snapshot = runtimeSnapshotFromDiscovery(parseInstanceDiscoveryDocument(document));
+		expect(snapshot.appPublic).toEqual(document.app_public);
+		expect(requireRuntimeConfigSnapshot(JSON.parse(JSON.stringify(snapshot))).appPublic).toEqual(document.app_public);
+		for (const section of ['branding', 'setup', 'legal', 'registration'] as const) {
+			expect(Object.keys(snapshot.appPublic[section]).sort()).toEqual(
+				Object.keys(InstanceAppPublicSchema.shape[section].shape).sort(),
+			);
+		}
+	});
+
 	test('rejects a branding URL that is not an absolute HTTP URL', () => {
 		const snapshot = runtimeSnapshotFromDiscovery(parsedDocument('e.test'));
 		expect(() =>
@@ -228,6 +268,21 @@ describe('runtimeSnapshotFromDiscovery', () => {
 				},
 			}),
 		).toThrow(/appPublic\.branding\.icon_url/u);
+	});
+
+	test('treats a black or malformed theme colour as unset and normalises the rest', () => {
+		const snapshot = runtimeSnapshotFromDiscovery(parsedDocument('t.test'));
+		const themeColorOf = (theme_color: unknown) =>
+			requireRuntimeConfigSnapshot({
+				...snapshot,
+				appPublic: {...snapshot.appPublic, branding: {...snapshot.appPublic.branding, theme_color}},
+			}).appPublic.branding.theme_color;
+		for (const unset of ['#000000', '#000', '000000', '', 'rgb(1, 2, 3)', 'rebeccapurple', 0, null]) {
+			expect(themeColorOf(unset)).toBeNull();
+		}
+		expect(themeColorOf('#FF0000')).toBe('#ff0000');
+		expect(themeColorOf(' f00 ')).toBe('#ff0000');
+		expect(themeColorOf('#000001')).toBe('#000001');
 	});
 
 	test('carries the advertised domain migration', () => {
@@ -423,6 +478,28 @@ describe('InstanceSnapshotStore.resolve on an official web page', () => {
 		const resolution = await InstanceSnapshotStore.resolve({input: 'https://alias.example.test', signal: null});
 		expect(resolution.snapshot.apiEndpoint).toBe('https://alias.example.test/api');
 		expect(resolution.snapshot.webAppEndpoint).toBe('https://alias.example.test');
+	});
+
+	test('an alias host also takes over the gateway and media the canonical host serves', async () => {
+		stubBrowserDocument('https://gateway-alias.example.test', {servesOwnApi: true});
+		const canonical = discoveryDocument('canonical.example.test');
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () =>
+				jsonResponse({
+					...canonical,
+					endpoints: {
+						...canonical.endpoints,
+						gateway: 'wss://canonical.example.test/gateway',
+						media: 'https://canonical.example.test/media',
+					},
+				}),
+			),
+		);
+		const resolution = await InstanceSnapshotStore.resolve({input: 'https://gateway-alias.example.test', signal: null});
+		expect(resolution.snapshot.gatewayEndpoint).toBe('wss://gateway-alias.example.test/gateway');
+		expect(resolution.snapshot.mediaEndpoint).toBe('https://gateway-alias.example.test/media');
+		expect(resolution.snapshot.staticCdnEndpoint).toBe('https://cdn.canonical.example.test');
 	});
 
 	test('a host that is not marked as serving its own API still refuses a foreign API declaration', async () => {

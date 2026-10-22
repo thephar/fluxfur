@@ -2,6 +2,7 @@
 
 import {Routes} from '@app/app/Routes';
 import type {RuntimeConfigSnapshot} from '@app/features/app/state/InstanceSnapshotStore';
+import {usesUsernameSignIn} from '@app/features/app/utils/AccountIdentityFeatures';
 import {AuthBottomLink} from '@app/features/auth/flow/AuthBottomLink';
 import sharedStyles from '@app/features/auth/flow/AuthPageStyles.module.css';
 import {AuthRegisterFormCore} from '@app/features/auth/flow/AuthRegisterFormCore';
@@ -9,6 +10,7 @@ import {AuthRuntimeTargetGate} from '@app/features/auth/flow/AuthRuntimeTargetGa
 import {AuthSsoPanel, resolveAuthPanelSso} from '@app/features/auth/flow/AuthSsoPanel';
 import {DesktopDeepLinkPrompt} from '@app/features/auth/flow/DesktopDeepLinkPrompt';
 import {InviteHeader} from '@app/features/auth/flow/InviteHeader';
+import {linkRegisterFields, readRegistrationUrlCode} from '@app/features/auth/flow/RegisterFormFields';
 import {useAuthPresentation} from '@app/features/auth/flow/useAuthPresentation';
 import {AuthCardVariant} from '@app/features/auth/state/AuthLayoutContext';
 import {useAuthRuntimeTarget} from '@app/features/auth/state/AuthRuntimeTarget';
@@ -92,6 +94,7 @@ const InviteRegisterPageContent = observer(function InviteRegisterPageContent({
 			</>
 		);
 	}
+	const usernameSignIn = usesUsernameSignIn(runtimeSnapshot.features);
 	return (
 		<>
 			<DesktopDeepLinkPrompt
@@ -102,9 +105,10 @@ const InviteRegisterPageContent = observer(function InviteRegisterPageContent({
 			<InviteHeader invite={invite} data-flx="invite.invite-register-page.invite-header" />
 			<div className={sharedStyles.container} data-flx="invite.invite-register-page.div--4">
 				<AuthRegisterFormCore
-					fields={{showUsername: false}}
+					fields={linkRegisterFields(runtimeSnapshot, readRegistrationUrlCode(params))}
 					submitLabel={i18n._(CREATE_ACCOUNT_DESCRIPTOR)}
 					redirectPath="/"
+					offerRecoveryKit={usernameSignIn}
 					inviteCode={code}
 					runtimeSnapshot={runtimeSnapshot}
 					onAuthenticated={runtimeTarget.reset}

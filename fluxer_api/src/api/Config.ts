@@ -8,6 +8,7 @@ import type {WorkerTaskName} from '@app/api/worker/WorkerLaneConfig';
 import type {MasterConfig} from '@fluxer/config/src/MasterConfig';
 import {smtpTlsModeFromSecure} from '@fluxer/constants/src/SmtpConstants';
 import {parseIpAddress} from '@fluxer/ip_utils/src/IpAddress';
+import {normalizeString} from '@fluxer/schema/src/primitives/SchemaPrimitives';
 import {parseGeoipSourceConfig, resolveGeoipRuntimeSourceConfig} from '@pkgs/geoip/src/GeoipStartup';
 
 function extractHostname(url: string): string {
@@ -36,6 +37,18 @@ function resolveEmailAppBaseUrl(master: MasterConfig): string {
 	} catch {
 		throw new Error(`Invalid email app base URL: ${configuredAppBaseUrl}`);
 	}
+}
+
+function toSmtpConfig(
+	smtp: NonNullable<MasterConfig['integrations']['email']['smtp']>,
+): NonNullable<APIConfig['email']['smtp']> {
+	return {
+		host: smtp.host,
+		port: smtp.port,
+		username: smtp.username,
+		password: smtp.password,
+		tlsMode: smtp.tls_mode ?? smtpTlsModeFromSecure(smtp.secure),
+	};
 }
 
 function isBoolean(value: unknown): value is boolean {
@@ -121,6 +134,24 @@ function buildTrustedCallers(master: MasterConfig): Array<TrustedCallerConfig> {
 		});
 	}
 	return trustedCallers;
+}
+
+const SETUP_TOKEN_MIN_LENGTH = 32;
+const SETUP_TOKEN_MAX_LENGTH = 256;
+
+function resolveSetupToken(master: MasterConfig): string | null {
+	const token = master.instance.setup.token?.trim();
+	if (!token) return null;
+	if (
+		token.length < SETUP_TOKEN_MIN_LENGTH ||
+		token.length > SETUP_TOKEN_MAX_LENGTH ||
+		normalizeString(token) !== token
+	) {
+		throw new Error(
+			`FLUXER_SETUP_TOKEN must be ${SETUP_TOKEN_MIN_LENGTH} to ${SETUP_TOKEN_MAX_LENGTH} printable characters`,
+		);
+	}
+	return token;
 }
 
 export function buildAPIConfigFromMaster(master: MasterConfig): APIConfig {
@@ -272,14 +303,14 @@ export function buildAPIConfigFromMaster(master: MasterConfig): APIConfig {
 			fromName: master.integrations.email.from_name,
 			replyToEmail: master.integrations.email.reply_to_email,
 			appBaseUrl: resolveEmailAppBaseUrl(master),
-			smtp: master.integrations.email.smtp
+			smtp: master.integrations.email.smtp ? toSmtpConfig(master.integrations.email.smtp) : undefined,
+			fallback: master.integrations.email.fallback
 				? {
-						host: master.integrations.email.smtp.host,
-						port: master.integrations.email.smtp.port,
-						username: master.integrations.email.smtp.username,
-						password: master.integrations.email.smtp.password,
-						tlsMode:
-							master.integrations.email.smtp.tls_mode ?? smtpTlsModeFromSecure(master.integrations.email.smtp.secure),
+						domains: master.integrations.email.fallback.domains,
+						smtp: {
+							...toSmtpConfig(master.integrations.email.fallback.smtp),
+							headers: master.integrations.email.fallback.smtp.headers,
+						},
 					}
 				: undefined,
 		},
@@ -355,6 +386,11 @@ export function buildAPIConfigFromMaster(master: MasterConfig): APIConfig {
 				token: master.integrations.cache_purge.http.token,
 				timeoutMs: master.integrations.cache_purge.http.timeout_ms,
 			},
+			controller: {
+				endpoint: master.integrations.cache_purge.controller.endpoint,
+				token: master.integrations.cache_purge.controller.token,
+				timeoutMs: master.integrations.cache_purge.controller.timeout_ms,
+			},
 		},
 		clamav: {
 			enabled: master.integrations.clamav.enabled,
@@ -402,6 +438,7 @@ export function buildAPIConfigFromMaster(master: MasterConfig): APIConfig {
 			},
 			setup: {
 				configured: master.instance.setup.configured,
+				token: resolveSetupToken(master),
 			},
 			accountIdentity: master.instance.account_identity,
 			tagStyle: master.instance.tag_style,
@@ -424,7 +461,6 @@ export function buildAPIConfigFromMaster(master: MasterConfig): APIConfig {
 		inactivityDeletionThresholdDays: master.inactivity_deletion_threshold_days,
 		reportRetention: {
 			days: master.report_retention.days,
-			resolvedDays: master.report_retention.resolved_days,
 			dryRun: master.report_retention.dry_run,
 		},
 		push: {

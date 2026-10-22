@@ -27,7 +27,6 @@ export const InstanceConfigAdminAuditCases: ReadonlyArray<AdminAuditCoverageCase
 	{
 		method: 'GET',
 		route: '/admin/instance/config',
-		name: 'admin acl',
 		async prepare({harness, admin}) {
 			await createRegistrationUrl(harness, admin);
 			return {
@@ -36,24 +35,7 @@ export const InstanceConfigAdminAuditCases: ReadonlyArray<AdminAuditCoverageCase
 					action: 'get_instance_config',
 					targetType: 'instance_config',
 					targetId: '0',
-					metadata: {registration_url_count: '1', pending_registration_count: '0'},
-				},
-			};
-		},
-	},
-	{
-		method: 'GET',
-		route: '/admin/instance/config',
-		name: 'setup session',
-		async prepare() {
-			await getInstanceConfigRepository().setAppPublicConfig({setup: {configured: false}});
-			return {
-				request: {path: '/admin/instance/config'},
-				expected: {
-					action: 'get_instance_config',
-					targetType: 'instance_config',
-					targetId: '0',
-					metadata: {registration_url_count: '0', pending_registration_count: '0'},
+					metadata: {registration_url_count: '1'},
 				},
 			};
 		},
@@ -143,6 +125,30 @@ export const InstanceConfigAdminAuditCases: ReadonlyArray<AdminAuditCoverageCase
 					targetType: 'registration_url',
 					targetId: '0',
 					metadata: {},
+				},
+			};
+		},
+	},
+	{
+		method: 'GET',
+		route: '/admin/instance/pending-registrations',
+		async prepare({harness}) {
+			await getInstanceConfigRepository().setRegistrationConfig({mode: 'approval'});
+			await registerUser(harness, {
+				email: createUniqueEmail('coverage-listed'),
+				username: createUniqueUsername('coveragelisted'),
+				global_name: 'Coverage Listed',
+				password: 'coverage-listed-password',
+				date_of_birth: '2000-01-01',
+				consent: true,
+			});
+			return {
+				request: {path: '/admin/instance/pending-registrations'},
+				expected: {
+					action: 'list_pending_registrations',
+					targetType: 'instance_config',
+					targetId: '0',
+					metadata: {pending_registration_count: '1'},
 				},
 			};
 		},

@@ -3,6 +3,7 @@
 import {AdminAuditReadActions} from '@app/api/admin/AdminAuditActions';
 import {recordAdminRead, recordAdminWrite} from '@app/api/admin/AdminAuditRecorder';
 import {createGuildID} from '@app/api/BrandedTypes';
+import {enforcementActor} from '@app/api/enforcement/EnforcementActor';
 import {requireAdminACL, requireAnyAdminACL, requireGrantedAdminACLs} from '@app/api/middleware/AdminMiddleware';
 import {RateLimitMiddleware} from '@app/api/middleware/RateLimitMiddleware';
 import {OpenAPI} from '@app/api/middleware/ResponseTypeMiddleware';
@@ -12,6 +13,7 @@ import {Validator} from '@app/api/Validator';
 import {AdminACLs} from '@fluxer/constants/src/AdminACLs';
 import {UnknownGuildError} from '@fluxer/errors/src/domains/guild/UnknownGuildError';
 import {
+	AdminGuildDeleteRequest,
 	BanGuildMemberBody,
 	ListGuildAuditLogsResponse,
 	ListGuildMembersQuery,
@@ -249,26 +251,26 @@ export function GuildAdminController(app: HonoApp) {
 		RateLimitMiddleware(AdminRateLimitConfigs.ADMIN_GUILD_MODIFY),
 		requireAdminACL(AdminACLs.GUILD_DELETE),
 		Validator('param', GuildIdParam),
+		Validator('json', AdminGuildDeleteRequest),
 		OpenAPI({
 			operationId: 'delete_admin_guild',
 			summary: 'Delete guild',
 			description:
-				'Permanently deletes a guild. The guild becomes unavailable at once, and a background job deletes all channels, messages, and settings. Irreversible operation with no recovery window. Logged to audit log. Requires GUILD_DELETE permission.',
+				'Permanently deletes a guild. The guild becomes unavailable at once, and a background job deletes all channels, messages, and settings. Irreversible operation with no recovery window. The basis is enforcement or holder_request. An enforcement basis records a community removal decision and sends its notice to the owner, and is refused for child safety and violent extremism reasons. Logged to audit log. Requires GUILD_DELETE permission.',
 			responseSchema: SuccessResponse,
 			statusCode: 200,
 			security: 'adminApiKey',
 			tags: 'Admin',
 		}),
 		async (ctx) => {
-			const adminService = ctx.get('adminService');
-			const adminUserId = ctx.get('adminUserId');
-			const auditLogReason = ctx.get('auditLogReason');
 			return ctx.json(
-				await adminService.guildServiceAggregate.managementService.deleteGuild(
-					ctx.req.valid('param').guild_id,
-					adminUserId,
-					auditLogReason,
-				),
+				await ctx
+					.get('adminService')
+					.guildServiceAggregate.managementService.deleteGuild(
+						createGuildID(ctx.req.valid('param').guild_id),
+						ctx.req.valid('json'),
+						enforcementActor(ctx),
+					),
 			);
 		},
 	);
@@ -351,7 +353,7 @@ export function GuildAdminController(app: HonoApp) {
 			operationId: 'kick_admin_guild_member',
 			summary: 'Remove guild member',
 			description:
-				'Temporarily removes a user from a guild. User can rejoin. Logged to audit log. Requires GUILD_KICK_MEMBER permission.',
+				'Removes a user from a guild as the Fluxer system user, without guild membership or guild permissions. User can rejoin. Refuses the guild owner. Logged to audit log. Requires GUILD_KICK_MEMBER permission.',
 			responseSchema: null,
 			statusCode: 204,
 			security: 'adminApiKey',
@@ -380,7 +382,7 @@ export function GuildAdminController(app: HonoApp) {
 			operationId: 'ban_admin_guild_member',
 			summary: 'Ban guild member',
 			description:
-				'Bans a user from a guild, optionally deleting their recent messages. Prevents the user from joining until the ban expires or is removed. Logged to audit log. Requires GUILD_BAN_MEMBER permission.',
+				'Bans a user from a guild as the Fluxer system user, without guild membership or guild permissions, optionally deleting their recent messages. Prevents the user from joining until the ban expires or is removed. Refuses the guild owner. Logged to audit log. Requires GUILD_BAN_MEMBER permission.',
 			responseSchema: null,
 			statusCode: 204,
 			security: 'adminApiKey',
@@ -393,6 +395,34 @@ export function GuildAdminController(app: HonoApp) {
 			const params = ctx.req.valid('param');
 			await adminService.guildServiceAggregate.membershipService.banMember(
 				{...ctx.req.valid('json'), guild_id: params.guild_id, user_id: params.user_id},
+				adminUserId,
+				auditLogReason,
+			);
+			return ctx.body(null, 204);
+		},
+	);
+	app.delete(
+		'/admin/guilds/:guild_id/bans/:user_id',
+		RateLimitMiddleware(AdminRateLimitConfigs.ADMIN_GUILD_MODIFY),
+		requireAdminACL(AdminACLs.GUILD_BAN_MEMBER),
+		Validator('param', GuildIdUserIdParam),
+		OpenAPI({
+			operationId: 'unban_admin_guild_member',
+			summary: 'Unban guild member',
+			description:
+				'Removes a guild ban as the Fluxer system user, without guild membership or guild permissions. Logged to audit log. Requires GUILD_BAN_MEMBER permission.',
+			responseSchema: null,
+			statusCode: 204,
+			security: 'adminApiKey',
+			tags: 'Admin',
+		}),
+		async (ctx) => {
+			const adminService = ctx.get('adminService');
+			const adminUserId = ctx.get('adminUserId');
+			const auditLogReason = ctx.get('auditLogReason');
+			const params = ctx.req.valid('param');
+			await adminService.guildServiceAggregate.membershipService.unbanMember(
+				{guild_id: params.guild_id, user_id: params.user_id},
 				adminUserId,
 				auditLogReason,
 			);

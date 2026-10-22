@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import {Buffer} from 'node:buffer';
 import {createHash} from 'node:crypto';
-import {mkdirSync, mkdtempSync, writeFileSync} from 'node:fs';
+import {mkdirSync, mkdtempSync, rmSync, writeFileSync} from 'node:fs';
 import {rm} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -72,6 +72,8 @@ function manifestBytes(
 		bounds = {},
 		metadataVersion = 1,
 		platform = PLATFORM,
+		buildVersion = SHELL_VERSION,
+		extra = {},
 	} = {},
 ) {
 	return Buffer.from(
@@ -80,7 +82,7 @@ function manifestBytes(
 			release_channel: RELEASE_CHANNEL,
 			platform,
 			arch: ARCH,
-			build_version: SHELL_VERSION,
+			build_version: buildVersion,
 			pub_date: '2026-08-23T00:00:00.000Z',
 			metadata_version: metadataVersion,
 			shell: {latest_version: shellLatest, minimum_version: shellMinimum},
@@ -96,15 +98,16 @@ function manifestBytes(
 				]),
 			),
 			required_modules: required ?? Object.keys(modules),
+			...extra,
 		}),
 		'utf8',
 	);
 }
 
-async function openStore(userDataPath) {
+async function openStore(userDataPath, shellVersion = SHELL_VERSION) {
 	return await ModuleStore.open({
 		root: getModuleStoreRoot(userDataPath),
-		shellVersion: SHELL_VERSION,
+		shellVersion,
 		releaseChannel: RELEASE_CHANNEL,
 	});
 }
@@ -116,7 +119,7 @@ function createUpdater(store, modules, options = {}) {
 	const reports = [];
 	const updater = new ModuleUpdater({
 		store,
-		shellVersion: SHELL_VERSION,
+		shellVersion: options.shellVersion ?? SHELL_VERSION,
 		releaseChannel: RELEASE_CHANNEL,
 		platform: options.platform ?? PLATFORM,
 		arch: ARCH,
@@ -124,12 +127,22 @@ function createUpdater(store, modules, options = {}) {
 		hasOfflineRenderer: options.bundledRendererVersion != null,
 		bundledRendererVersion: options.bundledRendererVersion ?? null,
 		forceStartupUpdate: options.forceStartupUpdate ?? false,
+		startupUpdateRequested: options.startupUpdateRequested ?? false,
+		moduleUpdatesDisabled: options.moduleUpdatesDisabled ?? false,
+		updateOnDemand: options.updateOnDemand ?? false,
 		selfUpdateShellFirst: options.selfUpdateShellFirst,
 		onState: options.onState,
 		fetch: async (url, init) => {
 			requests.push(url);
 			const response = options.respond == null ? null : await options.respond(url, init);
-			return response ?? new Response(bytes, {status: 200, headers: {etag: '"manifest-1"'}});
+			if (response != null) {
+				return response;
+			}
+			if (String(url).endsWith('/latest.json')) {
+				const version = options.shellFeed ?? options.shellLatest ?? SHELL_VERSION;
+				return new Response(JSON.stringify({version}), {status: 200, headers: {etag: `"feed-${version}"`}});
+			}
+			return new Response(bytes, {status: 200, headers: {etag: '"manifest-1"'}});
 		},
 		sleep: async (ms) => {
 			sleeps.push(ms);
@@ -336,7 +349,6 @@ describe('ModuleUpdater.run', () => {
 		assert.equal(outcome.status, 'blocked-shell-update');
 		assert.equal(outcome.latestVersion, '2026.824.0');
 		assert.equal(outcome.minimumVersion, '2026.824.0');
-		assert.equal(outcome.requiredSecurityUpdate, false);
 		assert.deepEqual(requests, [`${PACKAGE_ORIGIN}/desktop/${RELEASE_CHANNEL}/${PLATFORM}/${ARCH}/modules.json`]);
 		assert.deepEqual(store.getCommitted(), {fluxer_renderer: RENDERER_SHA});
 	});
@@ -412,7 +424,7 @@ describe('ModuleUpdater.run', () => {
 		assert.equal(store.getState().boot_attempt, 2);
 	});
 
-	test('a manifest older than the one already seen launches the verified set without retrying', async () => {
+	test('a manifest older than the one already seen launches on the last accepted manifest without retrying', async () => {
 		const userDataPath = createUserData();
 		const store = await openStore(userDataPath);
 		installModuleOnDisk(getModuleStoreRoot(userDataPath), 'fluxer_renderer', RENDERER_SHA, [['index.js', 'renderer']]);
@@ -423,13 +435,30 @@ describe('ModuleUpdater.run', () => {
 
 		const outcome = await updater.run();
 
-		assert.equal(outcome.status, 'unreachable-launch');
+		assert.equal(outcome.status, 'launching');
 		assert.deepEqual(outcome.committed, {fluxer_renderer: RENDERER_SHA});
 		assert.deepEqual(sleeps, []);
-		assert.deepEqual(
-			reports.map((report) => report.type),
-			['manifest-rollback'],
-		);
+		assert.deepEqual(reports, []);
+		assert.equal(store.getState().manifest_high_water[0].metadataVersion, 5);
+	});
+
+	test('an older manifest with no accepted copy to fall back on retries like an outage instead of blocking', async () => {
+		const userDataPath = createUserData();
+		const storeRoot = getModuleStoreRoot(userDataPath);
+		const store = await openStore(userDataPath);
+		installModuleOnDisk(storeRoot, 'fluxer_renderer', RENDERER_SHA, [['index.js', 'renderer']]);
+		await store.commit({fluxer_renderer: RENDERER_SHA});
+		const seen = createUpdater(store, {fluxer_renderer: RENDERER_SHA}, {metadataVersion: 5});
+		assert.equal((await seen.updater.run()).status, 'launching');
+		rmSync(path.join(storeRoot, 'manifest.json'));
+		const {updater, sleeps, reports} = createUpdater(store, {fluxer_renderer: NEXT_RENDERER_SHA}, {metadataVersion: 4});
+
+		const outcome = await updater.run();
+
+		assert.equal(outcome.status, 'unreachable-launch');
+		assert.deepEqual(outcome.committed, {fluxer_renderer: RENDERER_SHA});
+		assert.ok(sleeps.length > 0, 'a stale edge copy clears within a minute, so the launch retries before giving up');
+		assert.ok(reports.every((report) => report.type === 'manifest-rollback'));
 	});
 
 	test('a package the server no longer has demotes an optional module to its committed digest', async () => {
@@ -480,6 +509,178 @@ describe('ModuleUpdater.run', () => {
 	});
 });
 
+describe('ModuleUpdater with module updates disabled', () => {
+	test('launches the verified set without fetching even when the manifest demands a shell update', async () => {
+		const userDataPath = createUserData();
+		const store = await openStore(userDataPath);
+		installModuleOnDisk(getModuleStoreRoot(userDataPath), 'fluxer_renderer', RENDERER_SHA, [['index.js', 'renderer']]);
+		await store.commit({fluxer_renderer: RENDERER_SHA});
+		assert.equal((await createUpdater(store, {fluxer_renderer: RENDERER_SHA}).updater.run()).status, 'launching');
+		const statuses = [];
+		let shellUpdates = 0;
+		const {updater, requests, sleeps} = createUpdater(
+			store,
+			{fluxer_renderer: NEXT_RENDERER_SHA},
+			{
+				shellLatest: '2026.824.0',
+				shellMinimum: '2026.824.0',
+				forceStartupUpdate: true,
+				moduleUpdatesDisabled: true,
+				onState: (state) => statuses.push(state.status),
+				selfUpdateShellFirst: async () => {
+					shellUpdates += 1;
+					return {reason: 'no-update'};
+				},
+			},
+		);
+
+		const outcome = await updater.run();
+
+		assert.equal(outcome.status, 'unreachable-launch');
+		assert.deepEqual(outcome.committed, {fluxer_renderer: RENDERER_SHA});
+		assert.deepEqual(requests, []);
+		assert.deepEqual(sleeps, []);
+		assert.equal(shellUpdates, 0);
+		assert.deepEqual(statuses, ['unreachable-launch']);
+		assert.equal(outcome.launchAttempt.committed.fluxer_renderer, RENDERER_SHA);
+	});
+
+	test('launches the bundled renderer on a fresh store without fetching', async () => {
+		const store = await openStore(createUserData());
+		const {updater, requests} = createUpdater(
+			store,
+			{fluxer_renderer: NEXT_RENDERER_SHA},
+			{bundledRendererVersion: SHELL_VERSION, moduleUpdatesDisabled: true},
+		);
+
+		const outcome = await updater.run();
+
+		assert.equal(outcome.status, 'unreachable-launch');
+		assert.deepEqual(outcome.committed, {});
+		assert.deepEqual(requests, []);
+	});
+
+	test('blocks at once on the unreachable splash without fetching when nothing is installed', async () => {
+		const store = await openStore(createUserData());
+		const {updater, requests, sleeps} = createUpdater(
+			store,
+			{fluxer_renderer: RENDERER_SHA},
+			{moduleUpdatesDisabled: true},
+		);
+
+		const outcome = await updater.run();
+
+		assert.equal(outcome.status, 'blocked-update-required');
+		assert.equal(outcome.reason, 'nothing-installed');
+		assert.equal(outcome.updateServerUnreachable, true);
+		assert.deepEqual(requests, []);
+		assert.deepEqual(sleeps, []);
+	});
+
+	test('ignores an explicit update request', async () => {
+		const userDataPath = createUserData();
+		const store = await openStore(userDataPath);
+		installModuleOnDisk(getModuleStoreRoot(userDataPath), 'fluxer_renderer', RENDERER_SHA, [['index.js', 'renderer']]);
+		await store.commit({fluxer_renderer: RENDERER_SHA});
+		assert.equal((await createUpdater(store, {fluxer_renderer: RENDERER_SHA}).updater.run()).status, 'launching');
+		const {updater, requests} = createUpdater(
+			store,
+			{fluxer_renderer: NEXT_RENDERER_SHA},
+			{moduleUpdatesDisabled: true, startupUpdateRequested: true},
+		);
+
+		const outcome = await updater.run();
+
+		assert.equal(outcome.status, 'unreachable-launch');
+		assert.deepEqual(outcome.committed, {fluxer_renderer: RENDERER_SHA});
+		assert.deepEqual(requests, []);
+	});
+});
+
+describe('ModuleUpdater with updates on demand', () => {
+	async function storeOnRenderer() {
+		const userDataPath = createUserData();
+		const storeRoot = getModuleStoreRoot(userDataPath);
+		const store = await openStore(userDataPath);
+		installModuleOnDisk(storeRoot, 'fluxer_renderer', RENDERER_SHA, [['index.js', 'renderer']]);
+		await store.commit({fluxer_renderer: RENDERER_SHA});
+		return {store, storeRoot};
+	}
+
+	test('launches the verified set without fetching when an automatic check left an update waiting', async () => {
+		const {store} = await storeOnRenderer();
+		assert.equal((await createUpdater(store, {fluxer_renderer: RENDERER_SHA}).updater.run()).status, 'launching');
+		const statuses = [];
+		let shellUpdates = 0;
+		const {updater, requests, sleeps} = createUpdater(
+			store,
+			{fluxer_renderer: NEXT_RENDERER_SHA},
+			{
+				shellLatest: '2026.824.0',
+				forceStartupUpdate: true,
+				updateOnDemand: true,
+				onState: (state) => statuses.push(state.status),
+				selfUpdateShellFirst: async () => {
+					shellUpdates += 1;
+					return {reason: 'no-update'};
+				},
+			},
+		);
+
+		const outcome = await updater.run();
+
+		assert.equal(outcome.status, 'unreachable-launch');
+		assert.deepEqual(outcome.committed, {fluxer_renderer: RENDERER_SHA});
+		assert.deepEqual(requests, []);
+		assert.deepEqual(sleeps, []);
+		assert.equal(shellUpdates, 0);
+		assert.deepEqual(statuses, ['launching']);
+	});
+
+	test('installs the update the user asked for before launch', async () => {
+		const {store, storeRoot} = await storeOnRenderer();
+		installModuleOnDisk(storeRoot, 'fluxer_renderer', NEXT_RENDERER_SHA, [['index.js', 'renderer-two']]);
+		seedCachedPackage(store, NEXT_RENDERER_SHA);
+		const steps = [];
+		const {updater, requests} = createUpdater(
+			recordInstalls(store, steps),
+			{fluxer_renderer: NEXT_RENDERER_SHA},
+			{
+				shellLatest: '2026.824.1',
+				updateOnDemand: true,
+				startupUpdateRequested: true,
+				selfUpdateShellFirst: async (latestVersion) => {
+					steps.push(`shell ${latestVersion}`);
+					return {reason: 'install-failed'};
+				},
+			},
+		);
+
+		const outcome = await updater.run();
+
+		assert.equal(outcome.status, 'launching');
+		assert.deepEqual(outcome.committed, {fluxer_renderer: NEXT_RENDERER_SHA});
+		assert.deepEqual(steps, ['shell 2026.824.1', 'fluxer_renderer']);
+		assert.ok(requests.some((url) => String(url).endsWith('/modules.json')));
+	});
+
+	test('goes to the update server when nothing can launch', async () => {
+		const store = await openStore(createUserData());
+		const {updater, requests} = createUpdater(
+			store,
+			{fluxer_renderer: RENDERER_SHA},
+			{updateOnDemand: true, respond: missingPackages()},
+		);
+
+		const outcome = await updater.run();
+
+		assert.equal(outcome.status, 'blocked-update-required');
+		assert.equal(outcome.reason, 'required-module-unavailable');
+		assert.equal(outcome.updateServerUnreachable, false);
+		assert.ok(requests.some((url) => String(url).endsWith('/modules.json')));
+	});
+});
+
 describe('ModuleUpdater checks without downloading and installs only when asked', () => {
 	async function storeOnRenderer() {
 		const userDataPath = createUserData();
@@ -501,7 +702,7 @@ describe('ModuleUpdater checks without downloading and installs only when asked'
 		assert.deepEqual(check, {shellLatestVersion: SHELL_VERSION, shellNewer: false, modulesChanged: true});
 		assert.deepEqual(
 			requests.map((url) => String(url).split('/').pop()),
-			['modules.json'],
+			['modules.json', 'latest.json'],
 		);
 		assert.deepEqual(installs, []);
 		assert.deepEqual(store.getCommitted(), {fluxer_renderer: RENDERER_SHA});
@@ -519,6 +720,96 @@ describe('ModuleUpdater checks without downloading and installs only when asked'
 			shellNewer: true,
 			modulesChanged: false,
 		});
+	});
+
+	test('a shell feed ahead of the manifest offers the newer shell', async () => {
+		const {store} = await storeOnRenderer();
+		const {updater} = createUpdater(store, {fluxer_renderer: RENDERER_SHA}, {shellFeed: '2026.1012.154032'});
+
+		assert.deepEqual(await updater.checkForUpdate(), {
+			shellLatestVersion: '2026.1012.154032',
+			shellNewer: true,
+			modulesChanged: false,
+		});
+	});
+
+	test('a shell feed behind the manifest never hides the shell the manifest names', async () => {
+		const {store} = await storeOnRenderer();
+		const {updater} = createUpdater(
+			store,
+			{fluxer_renderer: RENDERER_SHA},
+			{shellLatest: '2026.824.1', shellFeed: SHELL_VERSION},
+		);
+
+		assert.deepEqual(await updater.checkForUpdate(), {
+			shellLatestVersion: '2026.824.1',
+			shellNewer: true,
+			modulesChanged: false,
+		});
+	});
+
+	test('an unreachable shell feed still answers from the manifest', async () => {
+		const {store} = await storeOnRenderer();
+		const {updater} = createUpdater(
+			store,
+			{fluxer_renderer: NEXT_RENDERER_SHA},
+			{respond: async (url) => (String(url).endsWith('/latest.json') ? new Response('', {status: 503}) : null)},
+		);
+
+		assert.deepEqual(await updater.checkForUpdate(), {
+			shellLatestVersion: SHELL_VERSION,
+			shellNewer: false,
+			modulesChanged: true,
+		});
+	});
+
+	test('repeat checks revalidate both feeds and reuse them when nothing changed', async () => {
+		const {store} = await storeOnRenderer();
+		const conditions = [];
+		const {updater} = createUpdater(
+			store,
+			{fluxer_renderer: NEXT_RENDERER_SHA},
+			{
+				shellFeed: '2026.824.1',
+				respond: async (url, init) => {
+					const etag = init?.headers?.['if-none-match'] ?? null;
+					conditions.push([String(url).split('/').pop(), etag]);
+					return etag == null ? null : new Response(null, {status: 304});
+				},
+			},
+		);
+		const first = await updater.checkForUpdate();
+
+		const second = await updater.checkForUpdate();
+
+		assert.deepEqual(second, first);
+		assert.deepEqual(second, {shellLatestVersion: '2026.824.1', shellNewer: true, modulesChanged: true});
+		assert.deepEqual(conditions.slice(-2), [
+			['modules.json', '"manifest-1"'],
+			['latest.json', '"feed-2026.824.1"'],
+		]);
+	});
+
+	test('an older manifest during a background check reads as nothing new instead of failing', async () => {
+		const {store} = await storeOnRenderer();
+		let metadataVersion = 6;
+		const {updater} = createUpdater(
+			store,
+			{fluxer_renderer: NEXT_RENDERER_SHA},
+			{
+				respond: async (url) =>
+					String(url).endsWith('/modules.json')
+						? new Response(manifestBytes({fluxer_renderer: NEXT_RENDERER_SHA}, {metadataVersion}), {status: 200})
+						: null,
+			},
+		);
+		const fresh = await updater.checkForUpdate();
+		metadataVersion = 5;
+
+		const stale = await updater.checkForUpdate();
+
+		assert.deepEqual(stale, fresh);
+		assert.deepEqual(stale, {shellLatestVersion: SHELL_VERSION, shellNewer: false, modulesChanged: true});
 	});
 
 	test('a module that needs the next shell reads as a shell update, not as a module update', async () => {
@@ -697,6 +988,7 @@ describe('ModuleUpdater checks without downloading and installs only when asked'
 				forceStartupUpdate: true,
 				selfUpdateShellFirst: async (latestVersion) => {
 					steps.push(`shell ${latestVersion}`);
+					return {reason: 'install-failed'};
 				},
 			},
 		);
@@ -719,6 +1011,7 @@ describe('ModuleUpdater checks without downloading and installs only when asked'
 				forceStartupUpdate: true,
 				selfUpdateShellFirst: async (latestVersion) => {
 					steps.push(`shell ${latestVersion}`);
+					return {reason: 'install-failed'};
 				},
 			},
 		);
@@ -751,7 +1044,7 @@ describe('ModuleUpdater checks without downloading and installs only when asked'
 		assert.ok(requests.some((url) => String(url).endsWith('/modules.json')));
 	});
 
-	test('a Linux boot forced only by a shell change launches the installed set at once when the download fails', async () => {
+	test('a forced Linux boot with a transient package error launches the committed set', async () => {
 		const {store} = await storeOnRenderer();
 		const {updater, sleeps} = createUpdater(
 			store,
@@ -1031,41 +1324,423 @@ describe('ModuleUpdater with a renderer bundled in the shell', () => {
 		assert.equal((await updater.selectServedModules(outcome.committed)).renderer.source, 'bundled');
 		assert.deepEqual(store.getCommitted(), {});
 	});
+});
 
-	test('a Linux launch never waits on a shell download, a required security update still does', async () => {
-		const attempts = [];
-		const selfUpdateShellFirst = async (latestVersion) => {
-			attempts.push(latestVersion);
+describe('ModuleUpdater keeps every shell on modules it can run', () => {
+	const REPORTER_SHELL = '2026.1008.32323';
+	const LIVE_SHELL = '2026.1009.45608';
+	const DICTIONARY_SHA = sha256('dictionary-one');
+	const NEXT_DICTIONARY_SHA = sha256('dictionary-two');
+	const FONT_SHA = sha256('font-one');
+	const AHEAD = {fluxer_renderer: {minimum_shell_version: LIVE_SHELL}};
+
+	function feedAhead(overrides = {}) {
+		return {
+			shellVersion: REPORTER_SHELL,
+			shellLatest: LIVE_SHELL,
+			shellMinimum: '0.0.0',
+			buildVersion: LIVE_SHELL,
+			bounds: AHEAD,
+			...overrides,
 		};
-		const store = await openStore(createUserData());
+	}
+
+	async function storeFor(shellVersion = REPORTER_SHELL) {
+		const userDataPath = createUserData();
+		const store = await openStore(userDataPath, shellVersion);
+		return {store, storeRoot: getModuleStoreRoot(userDataPath)};
+	}
+
+	test('a Linux shell below the renderer floor launches its bundled renderer instead of asking for a shell update', async () => {
+		const {store, storeRoot} = await storeFor();
+		installModuleOnDisk(storeRoot, 'fluxer_dict_en', DICTIONARY_SHA, [['en.dic', 'words']], LIVE_SHELL);
+		seedCachedPackage(store, DICTIONARY_SHA);
+		const statuses = [];
+		const {updater, requests} = createUpdater(
+			store,
+			{fluxer_renderer: NEXT_RENDERER_SHA, fluxer_dict_en: DICTIONARY_SHA},
+			feedAhead({
+				platform: 'linux',
+				bundledRendererVersion: REPORTER_SHELL,
+				forceStartupUpdate: true,
+				onState: (state) => statuses.push(state.status),
+			}),
+		);
+
+		const outcome = await updater.run();
+
+		assert.equal(outcome.status, 'launching');
+		assert.deepEqual(outcome.committed, {fluxer_dict_en: DICTIONARY_SHA});
+		assert.equal(
+			requests.some((url) => String(url).includes(NEXT_RENDERER_SHA)),
+			false,
+		);
+		assert.equal(statuses.includes('blocked-shell-update'), false);
+		assert.equal((await updater.selectServedModules(outcome.committed)).renderer.source, 'bundled');
+	});
+
+	test('a Flatpak shell Flathub has not updated yet keeps its renderer and still takes compatible modules', async () => {
+		const flathubShell = '2026.1012.154028';
+		const liveShell = '2026.1013.15209';
+		const {store, storeRoot} = await storeFor(flathubShell);
+		installModuleOnDisk(storeRoot, 'fluxer_renderer', RENDERER_SHA, [['index.js', 'renderer']], flathubShell);
+		installModuleOnDisk(storeRoot, 'fluxer_dict_en', DICTIONARY_SHA, [['en.dic', 'words']], flathubShell);
+		installModuleOnDisk(storeRoot, 'fluxer_dict_en', NEXT_DICTIONARY_SHA, [['en.dic', 'more words']], liveShell);
+		seedCachedPackage(store, NEXT_DICTIONARY_SHA);
+		await store.commit({fluxer_renderer: RENDERER_SHA, fluxer_dict_en: DICTIONARY_SHA});
+		const statuses = [];
+		const {updater, requests} = createUpdater(
+			store,
+			{fluxer_renderer: NEXT_RENDERER_SHA, fluxer_dict_en: NEXT_DICTIONARY_SHA},
+			feedAhead({
+				shellVersion: flathubShell,
+				shellLatest: liveShell,
+				buildVersion: liveShell,
+				bounds: {fluxer_renderer: {minimum_shell_version: liveShell}},
+				platform: 'linux',
+				forceStartupUpdate: true,
+				required: ['fluxer_renderer'],
+				onState: (state) => statuses.push(state.status),
+			}),
+		);
+
+		const outcome = await updater.run();
+
+		assert.equal(outcome.status, 'launching');
+		assert.deepEqual(outcome.committed, {fluxer_dict_en: NEXT_DICTIONARY_SHA, fluxer_renderer: RENDERER_SHA});
+		assert.equal(
+			requests.some((url) => String(url).includes(NEXT_RENDERER_SHA)),
+			false,
+		);
+		assert.equal(statuses.includes('blocked-shell-update'), false);
+		assert.deepEqual(await updater.checkForUpdate(), {
+			shellLatestVersion: liveShell,
+			shellNewer: true,
+			modulesChanged: false,
+		});
+	});
+
+	test('a Linux shell behind the floor keeps launching its committed compatible renderer', async () => {
+		const {store, storeRoot} = await storeFor();
+		installModuleOnDisk(storeRoot, 'fluxer_renderer', RENDERER_SHA, [['index.js', 'renderer']], REPORTER_SHELL);
+		await store.commit({fluxer_renderer: RENDERER_SHA});
+		const {updater, requests} = createUpdater(
+			store,
+			{fluxer_renderer: NEXT_RENDERER_SHA},
+			feedAhead({platform: 'linux', forceStartupUpdate: true}),
+		);
+
+		const outcome = await updater.run();
+
+		assert.equal(outcome.status, 'launching');
+		assert.deepEqual(outcome.committed, {fluxer_renderer: RENDERER_SHA});
+		assert.equal(
+			requests.some((url) => String(url).endsWith('package.br')),
+			false,
+		);
+	});
+
+	test('a renderer asset module is not replaced while the served renderer is older than the feed', async () => {
+		const {store, storeRoot} = await storeFor();
+		installModuleOnDisk(storeRoot, 'fluxer_renderer', RENDERER_SHA, [['index.js', 'renderer']], REPORTER_SHELL);
+		installModuleOnDisk(storeRoot, 'fluxer_overlay', OVERLAY_SHA, [['overlay.js', 'overlay']], REPORTER_SHELL);
+		await store.commit({fluxer_renderer: RENDERER_SHA, fluxer_overlay: OVERLAY_SHA});
+		const {updater, requests} = createUpdater(
+			store,
+			{fluxer_renderer: NEXT_RENDERER_SHA, fluxer_overlay: NEXT_OVERLAY_SHA},
+			feedAhead({platform: 'linux', forceStartupUpdate: true, required: ['fluxer_renderer']}),
+		);
+
+		const outcome = await updater.run();
+
+		assert.equal(outcome.status, 'launching');
+		assert.deepEqual(outcome.committed, {fluxer_overlay: OVERLAY_SHA, fluxer_renderer: RENDERER_SHA});
+		assert.equal(
+			requests.some((url) => String(url).endsWith('package.br')),
+			false,
+		);
+		assert.deepEqual(await updater.checkForUpdate(), {
+			shellLatestVersion: LIVE_SHELL,
+			shellNewer: true,
+			modulesChanged: false,
+		});
+	});
+
+	test('an on-demand renderer asset is unavailable while the served renderer is older than the feed', async () => {
+		const {store} = await storeFor();
+		const {updater, requests} = createUpdater(
+			store,
+			{fluxer_renderer: NEXT_RENDERER_SHA, fluxer_fonts_jp: FONT_SHA},
+			feedAhead({platform: 'linux', bundledRendererVersion: REPORTER_SHELL, required: ['fluxer_renderer']}),
+		);
+
+		assert.deepEqual(await updater.ensureModule('fluxer_fonts_jp'), {module: 'fluxer_fonts_jp', status: 'unavailable'});
+		assert.equal(
+			requests.some((url) => String(url).endsWith('package.br')),
+			false,
+		);
+	});
+
+	test('a committed renderer asset stays installed while the served renderer is older than the feed', async () => {
+		const {store, storeRoot} = await storeFor();
+		installModuleOnDisk(storeRoot, 'fluxer_renderer', RENDERER_SHA, [['index.js', 'renderer']], REPORTER_SHELL);
+		installModuleOnDisk(storeRoot, 'fluxer_fonts_jp', FONT_SHA, [['font.woff2', 'font']], REPORTER_SHELL);
+		await store.commit({fluxer_renderer: RENDERER_SHA, fluxer_fonts_jp: FONT_SHA});
+		const {updater} = createUpdater(
+			store,
+			{fluxer_renderer: NEXT_RENDERER_SHA, fluxer_fonts_jp: sha256('font-two')},
+			feedAhead({platform: 'linux', required: ['fluxer_renderer']}),
+		);
+
+		assert.deepEqual(await updater.ensureModule('fluxer_fonts_jp'), {
+			module: 'fluxer_fonts_jp',
+			status: 'already-installed',
+		});
+	});
+
+	test('an on-demand dictionary installs while the renderer needs a newer shell', async () => {
+		const {store, storeRoot} = await storeFor();
+		installModuleOnDisk(storeRoot, 'fluxer_dict_en', DICTIONARY_SHA, [['en.dic', 'words']], LIVE_SHELL);
+		seedCachedPackage(store, DICTIONARY_SHA);
+		const {updater} = createUpdater(
+			store,
+			{fluxer_renderer: NEXT_RENDERER_SHA, fluxer_dict_en: DICTIONARY_SHA},
+			feedAhead({platform: 'linux', bundledRendererVersion: REPORTER_SHELL, required: ['fluxer_renderer']}),
+		);
+
+		assert.deepEqual(await updater.ensureModule('fluxer_dict_en'), {module: 'fluxer_dict_en', status: 'installed'});
+		assert.deepEqual(store.getCommitted(), {fluxer_dict_en: DICTIONARY_SHA});
+		assert.deepEqual(store.getShellRange('fluxer_dict_en', DICTIONARY_SHA), {
+			minimum_shell_version: null,
+			maximum_shell_version: null,
+		});
+	});
+
+	test('an AppImage updates its shell first on a forced boot and launches the compatible set when that fails', async () => {
+		const {store, storeRoot} = await storeFor();
+		installModuleOnDisk(storeRoot, 'fluxer_renderer', RENDERER_SHA, [['index.js', 'renderer']], REPORTER_SHELL);
+		await store.commit({fluxer_renderer: RENDERER_SHA});
+		const attempts = [];
+		const {updater} = createUpdater(
+			store,
+			{fluxer_renderer: NEXT_RENDERER_SHA},
+			feedAhead({
+				platform: 'linux',
+				forceStartupUpdate: true,
+				selfUpdateShellFirst: async (latestVersion) => {
+					attempts.push(latestVersion);
+					return {reason: 'download-failed'};
+				},
+			}),
+		);
+
+		const outcome = await updater.run();
+
+		assert.deepEqual(attempts, [LIVE_SHELL]);
+		assert.equal(outcome.status, 'launching');
+		assert.deepEqual(outcome.committed, {fluxer_renderer: RENDERER_SHA});
+	});
+
+	test('a Windows shell below the floor launches the compatible set when the shell feed has no newer shell', async () => {
+		const {store, storeRoot} = await storeFor();
+		installModuleOnDisk(storeRoot, 'fluxer_renderer', RENDERER_SHA, [['index.js', 'renderer']], REPORTER_SHELL);
+		await store.commit({fluxer_renderer: RENDERER_SHA});
+		const {updater} = createUpdater(
+			store,
+			{fluxer_renderer: NEXT_RENDERER_SHA},
+			feedAhead({platform: 'win32', selfUpdateShellFirst: async () => ({reason: 'no-update'})}),
+		);
+
+		const outcome = await updater.run();
+
+		assert.equal(outcome.status, 'launching');
+		assert.deepEqual(outcome.committed, {fluxer_renderer: RENDERER_SHA});
+		assert.deepEqual(store.getState().floor, {});
+	});
+
+	test('a Windows shell below the floor installs a compatible module and launches when the shell feed has no newer shell', async () => {
+		const {store, storeRoot} = await storeFor();
+		installModuleOnDisk(storeRoot, 'fluxer_renderer', RENDERER_SHA, [['index.js', 'renderer']], REPORTER_SHELL);
+		installModuleOnDisk(storeRoot, 'fluxer_dict_en', DICTIONARY_SHA, [['en.dic', 'words']], LIVE_SHELL);
+		seedCachedPackage(store, DICTIONARY_SHA);
+		await store.commit({fluxer_renderer: RENDERER_SHA});
+		const attempts = [];
+		const {updater} = createUpdater(
+			store,
+			{fluxer_renderer: NEXT_RENDERER_SHA, fluxer_dict_en: DICTIONARY_SHA},
+			feedAhead({
+				platform: 'win32',
+				selfUpdateShellFirst: async (latestVersion) => {
+					attempts.push(latestVersion);
+					return {reason: 'no-update'};
+				},
+			}),
+		);
+
+		const outcome = await updater.run();
+
+		assert.deepEqual(attempts, [LIVE_SHELL]);
+		assert.equal(outcome.status, 'launching');
+		assert.deepEqual(outcome.committed, {fluxer_dict_en: DICTIONARY_SHA, fluxer_renderer: RENDERER_SHA});
+	});
+
+	test('a Windows shell below the floor whose self update fails is blocked', async () => {
+		const {store, storeRoot} = await storeFor();
+		installModuleOnDisk(storeRoot, 'fluxer_renderer', RENDERER_SHA, [['index.js', 'renderer']], REPORTER_SHELL);
+		await store.commit({fluxer_renderer: RENDERER_SHA});
+		const {updater} = createUpdater(
+			store,
+			{fluxer_renderer: NEXT_RENDERER_SHA},
+			feedAhead({platform: 'win32', selfUpdateShellFirst: async () => ({reason: 'download-failed'})}),
+		);
+
+		const outcome = await updater.run();
+
+		assert.equal(outcome.status, 'blocked-shell-update');
+		assert.equal(outcome.latestVersion, LIVE_SHELL);
+		assert.deepEqual(store.getCommitted(), {fluxer_renderer: RENDERER_SHA});
+	});
+
+	test('a Windows floor keeps the renderer it already enforced when the feed raises it past this shell', async () => {
+		const {store, storeRoot} = await storeFor();
+		installModuleOnDisk(storeRoot, 'fluxer_renderer', RENDERER_SHA, [['index.js', 'renderer']], REPORTER_SHELL);
+		seedCachedPackage(store, RENDERER_SHA);
+		const first = createUpdater(
+			store,
+			{fluxer_renderer: RENDERER_SHA},
+			feedAhead({
+				platform: 'win32',
+				shellLatest: REPORTER_SHELL,
+				buildVersion: REPORTER_SHELL,
+				bounds: {},
+				required: ['fluxer_renderer'],
+			}),
+		);
+		assert.equal((await first.updater.run()).status, 'launching');
+		assert.deepEqual(store.getState().floor, {fluxer_renderer: RENDERER_SHA});
+		const raised = createUpdater(
+			store,
+			{fluxer_renderer: NEXT_RENDERER_SHA},
+			feedAhead({
+				platform: 'win32',
+				metadataVersion: 2,
+				required: ['fluxer_renderer'],
+				selfUpdateShellFirst: async () => ({reason: 'download-failed'}),
+			}),
+		);
+
+		assert.equal((await raised.updater.run()).status, 'blocked-shell-update');
+		assert.deepEqual(store.getState().floor, {fluxer_renderer: RENDERER_SHA});
+	});
+
+	test('a renderer installed for a newer shell is retired after a shell downgrade and the bundle serves', async () => {
+		const {store, storeRoot} = await storeFor();
+		installModuleOnDisk(storeRoot, 'fluxer_renderer', NEXT_RENDERER_SHA, [['index.js', 'renderer']], LIVE_SHELL);
+		await store.commit({fluxer_renderer: NEXT_RENDERER_SHA});
+		await store.recordShellRanges([
+			{module: 'fluxer_renderer', sha256: NEXT_RENDERER_SHA, minimum: LIVE_SHELL, maximum: null},
+		]);
+		const {updater, reports} = createUpdater(
+			store,
+			{},
+			{shellVersion: REPORTER_SHELL, platform: 'linux', bundledRendererVersion: REPORTER_SHELL},
+		);
+
+		const outcome = await updater.run();
+
+		assert.equal(outcome.status, 'launching');
+		assert.deepEqual(outcome.committed, {});
+		assert.deepEqual(
+			reports.filter((report) => report.type === 'shell-incompatible-retired').map((report) => report.module),
+			['fluxer_renderer'],
+		);
+		assert.equal((await updater.selectServedModules(outcome.committed)).renderer.source, 'bundled');
+	});
+
+	test('a renderer with no recorded range is retired when the cached manifest says this shell cannot run it', async () => {
+		const {store, storeRoot} = await storeFor();
+		installModuleOnDisk(storeRoot, 'fluxer_renderer', NEXT_RENDERER_SHA, [['index.js', 'renderer']], LIVE_SHELL);
+		await store.commit({fluxer_renderer: NEXT_RENDERER_SHA});
+		writeFileSync(
+			path.join(store.root, 'manifest.json'),
+			manifestBytes({fluxer_renderer: NEXT_RENDERER_SHA}, feedAhead({platform: 'linux'})),
+		);
+		const {updater, reports} = createUpdater(
+			store,
+			{},
+			{shellVersion: REPORTER_SHELL, platform: 'linux', bundledRendererVersion: REPORTER_SHELL},
+		);
+
+		const outcome = await updater.run();
+
+		assert.deepEqual(outcome.committed, {});
+		assert.equal(
+			reports.some((report) => report.type === 'shell-incompatible-retired'),
+			true,
+		);
+	});
+
+	test('a crash-loop rollback never restores a renderer this shell cannot run', async () => {
+		const {store, storeRoot} = await storeFor();
+		installModuleOnDisk(storeRoot, 'fluxer_renderer', NEXT_RENDERER_SHA, [['index.js', 'ahead']], LIVE_SHELL);
+		installModuleOnDisk(storeRoot, 'fluxer_renderer', RENDERER_SHA, [['index.js', 'current']], LIVE_SHELL);
+		await store.commit({fluxer_renderer: NEXT_RENDERER_SHA});
+		await store.commit({fluxer_renderer: RENDERER_SHA});
+		await store.recordShellRanges([
+			{module: 'fluxer_renderer', sha256: NEXT_RENDERER_SHA, minimum: LIVE_SHELL, maximum: null},
+		]);
+		await store.recordLaunchAttempt();
+		await store.recordLaunchAttempt();
 		const {updater} = createUpdater(
 			store,
 			{},
-			{
-				bundledRendererVersion: SHELL_VERSION,
+			{shellVersion: REPORTER_SHELL, platform: 'linux', bundledRendererVersion: REPORTER_SHELL},
+		);
+
+		const outcome = await updater.run();
+
+		assert.equal(outcome.status, 'launching');
+		assert.equal(outcome.committed.fluxer_renderer, undefined);
+		assert.equal(store.getState().previous.fluxer_renderer, undefined);
+		assert.equal(store.isRejected('fluxer_renderer', RENDERER_SHA), true);
+	});
+
+	test('a check offers compatible modules while the renderer needs a newer shell', async () => {
+		const {store, storeRoot} = await storeFor();
+		installModuleOnDisk(storeRoot, 'fluxer_dict_en', DICTIONARY_SHA, [['en.dic', 'words']], REPORTER_SHELL);
+		await store.commit({fluxer_dict_en: DICTIONARY_SHA});
+		const {updater} = createUpdater(
+			store,
+			{fluxer_renderer: NEXT_RENDERER_SHA, fluxer_dict_en: NEXT_DICTIONARY_SHA},
+			feedAhead({platform: 'linux', bundledRendererVersion: REPORTER_SHELL}),
+		);
+
+		assert.deepEqual(await updater.checkForUpdate(), {
+			shellLatestVersion: LIVE_SHELL,
+			shellNewer: true,
+			modulesChanged: true,
+		});
+	});
+
+	test('a Linux launch never blocks on linux_security_minimum in the manifest', async () => {
+		const {store, storeRoot} = await storeFor();
+		installModuleOnDisk(storeRoot, 'fluxer_renderer', RENDERER_SHA, [['index.js', 'renderer']], REPORTER_SHELL);
+		await store.commit({fluxer_renderer: RENDERER_SHA});
+		const {updater} = createUpdater(
+			store,
+			{fluxer_renderer: NEXT_RENDERER_SHA},
+			feedAhead({
 				platform: 'linux',
 				forceStartupUpdate: true,
-				shellLatest: '2026.900.1',
-				shellMinimum: '0.0.0',
-				selfUpdateShellFirst,
-			},
+				shellMinimum: LIVE_SHELL,
+				extra: {linux_security_minimum: {version: LIVE_SHELL, required_modules: ['fluxer_renderer']}},
+			}),
 		);
 
-		assert.equal((await updater.run()).status, 'launching');
-		assert.deepEqual(attempts, []);
+		const outcome = await updater.run();
 
-		const mac = createUpdater(
-			await openStore(createUserData()),
-			{},
-			{
-				bundledRendererVersion: SHELL_VERSION,
-				forceStartupUpdate: true,
-				shellLatest: '2026.900.1',
-				shellMinimum: '0.0.0',
-				selfUpdateShellFirst,
-			},
-		);
-		await mac.updater.run();
-		assert.deepEqual(attempts, ['2026.900.1']);
+		assert.equal(outcome.status, 'launching');
+		assert.deepEqual(outcome.committed, {fluxer_renderer: RENDERER_SHA});
+		assert.equal(Object.hasOwn(updater.getLastState(), 'requiredSecurityUpdate'), false);
 	});
 });

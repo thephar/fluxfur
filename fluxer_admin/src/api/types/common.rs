@@ -32,6 +32,7 @@ pub fn deserialize_string_or_u64<'de, D: Deserializer<'de>>(d: D) -> Result<u64,
 #[derive(Clone, Debug, Deserialize)]
 pub struct AdminUserMeResponse {
     pub user: AdminUser,
+    pub pending_registration_count: Option<u32>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -117,6 +118,8 @@ pub struct AdminUser {
     pub deletion_scheduled_by: Option<String>,
     #[serde(default)]
     pub deletion_scheduled_at: Option<String>,
+    #[serde(default)]
+    pub enforcement_decision_id: Option<String>,
     pub last_active_at: Option<String>,
     pub last_active_ip: Option<String>,
     pub last_active_ip_reverse: Option<String>,
@@ -251,6 +254,8 @@ pub struct BanCheckResult {
     pub banned: bool,
     #[serde(default)]
     pub expires_at: Option<String>,
+    #[serde(default)]
+    pub decision_id: Option<String>,
     #[serde(default)]
     pub entries: Vec<serde_json::Value>,
 }

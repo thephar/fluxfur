@@ -33,9 +33,11 @@ pub struct MultiValueForm {
 
 impl MultiValueForm {
     pub async fn from_request(request: Request) -> Option<Self> {
-        let bytes = body::to_bytes(request.into_body(), MAX_FORM_BYTES)
-            .await
-            .ok()?;
+        Self::from_request_with_limit(request, MAX_FORM_BYTES).await
+    }
+
+    pub async fn from_request_with_limit(request: Request, max_bytes: usize) -> Option<Self> {
+        let bytes = body::to_bytes(request.into_body(), max_bytes).await.ok()?;
         Some(Self::parse(bytes.as_ref()))
     }
 
@@ -101,10 +103,6 @@ impl MultiValueForm {
                 .iter()
                 .any(|value| matches!(value.as_str(), "1" | "true" | "on"))
         })
-    }
-
-    pub fn opt_out_value(&self, key: &str) -> bool {
-        !self.contains_key(&format!("{key}_present")) || self.bool_value(key)
     }
 
     pub fn list_values(&self, key: &str) -> Vec<String> {

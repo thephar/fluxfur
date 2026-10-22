@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type {RuntimeConfigSnapshot} from '@app/features/app/state/InstanceSnapshotStore';
+import {usesUsernameSignIn} from '@app/features/app/utils/AccountIdentityFeatures';
 import type * as AuthenticationCommands from '@app/features/auth/commands/AuthenticationCommands';
 import authStyles from '@app/features/auth/components/accounts/account_switcher_modal/AccountSwitcherAuthFlow.module.css';
 import pageStyles from '@app/features/auth/flow/AuthPageStyles.module.css';
 import {AuthRegisterFormCore} from '@app/features/auth/flow/AuthRegisterFormCore';
 import {AuthSsoPanel, isSsoLoginEnforced, resolveAuthPanelSso} from '@app/features/auth/flow/AuthSsoPanel';
+import {credentialRegisterFields} from '@app/features/auth/flow/RegisterFormFields';
 import type {LoginSuccessPayload} from '@app/features/auth/state/AuthFlow';
 import Theme from '@app/features/theme/state/Theme';
 import {flxElementClassName} from '@app/lib/react';
@@ -35,6 +37,7 @@ export const AccountSwitcherRegisterStep = observer(function AccountSwitcherRegi
 			/>
 		);
 	}
+	const usernameSignIn = usesUsernameSignIn(runtimeSnapshot.features);
 	return (
 		<>
 			<h1
@@ -48,14 +51,10 @@ export const AccountSwitcherRegisterStep = observer(function AccountSwitcherRegi
 				data-flx="auth.accounts.account-switcher-modal.account-switcher-register-step.container"
 			>
 				<AuthRegisterFormCore
-					fields={{
-						showEmail: true,
-						showPassword: true,
-						showPasswordConfirmation: true,
-						showUsernameValidation: true,
-					}}
+					fields={credentialRegisterFields(usernameSignIn)}
 					submitLabel={<Trans>Create account</Trans>}
 					redirectPath=""
+					offerRecoveryKit={usernameSignIn}
 					runtimeSnapshot={runtimeSnapshot}
 					onRegister={onRegister}
 					showLegalConsent

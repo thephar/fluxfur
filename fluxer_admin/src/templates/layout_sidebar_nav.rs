@@ -9,6 +9,8 @@ pub struct NavItem {
     pub required_acls: &'static [&'static str],
 }
 
+pub const PENDING_REGISTRATIONS_KEY: &str = "pending-registrations";
+
 pub struct NavSection {
     pub title: &'static str,
     pub items: &'static [NavItem],
@@ -39,10 +41,22 @@ pub const NAV_SECTIONS: &[NavSection] = &[
         items: &[
             item!("Reports", "/reports", "reports", [acl::REPORT_VIEW]),
             item!(
+                "Decisions",
+                "/decisions",
+                "decisions",
+                [acl::ENFORCEMENT_VIEW]
+            ),
+            item!(
                 "Discovery Review",
                 "/discovery",
                 "discovery",
                 [acl::DISCOVERY_REVIEW]
+            ),
+            item!(
+                "Pending Registrations",
+                "/pending-registrations",
+                PENDING_REGISTRATIONS_KEY,
+                [acl::REGISTRATION_REVIEW]
             ),
             item!(
                 "Bulk Actions",

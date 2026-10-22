@@ -23,6 +23,7 @@ import {
 } from '@app/api/channel/services/message/MessageResponseDataService';
 import {resolveNsfwScopeChannel} from '@app/api/channel/utils/ThreadNsfwScope';
 import type {MessageAttachment} from '@app/api/database/types/MessageTypes';
+import type {IARReportNoteRow} from '@app/api/database/types/ReportTypes';
 import type {GuildRepository} from '@app/api/guild/repositories/GuildRepository';
 import type {IStorageService} from '@app/api/infrastructure/IStorageService';
 import type {UserCacheService} from '@app/api/infrastructure/UserCacheService';
@@ -32,6 +33,7 @@ import {createRequestCache} from '@app/api/middleware/RequestCacheMiddleware';
 import {describeReportFlowAnswers} from '@app/api/report/flows/ReportFlowRegistry';
 import {findReportReason, listReportReasons} from '@app/api/report/flows/ReportReasonCatalog';
 import type {IARMessageContext, IARSubmission} from '@app/api/report/ReportModels';
+import type {ReportRepository} from '@app/api/report/ReportRepository';
 import type {ReportService} from '@app/api/report/ReportService';
 import {getReportSearchService} from '@app/api/SearchFactory';
 import {isHiddenPartial} from '@app/api/user/ProfileVisibility';
@@ -39,11 +41,15 @@ import {formatUserTag} from '@app/api/user/UserTag';
 import {assertSafeByteSize} from '@app/api/utils/ByteSizeUtils';
 import {AdminACLs} from '@fluxer/constants/src/AdminACLs';
 import {DELETED_USER_DISCRIMINATOR, DELETED_USER_USERNAME} from '@fluxer/constants/src/UserConstants';
+import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
 import {FeatureTemporarilyDisabledError} from '@fluxer/errors/src/domains/core/FeatureTemporarilyDisabledError';
+import {InputValidationError} from '@fluxer/errors/src/domains/core/InputValidationError';
 import {UnknownReportError} from '@fluxer/errors/src/domains/moderation/UnknownReportError';
 import type {ReportSearchFilters} from '@fluxer/schema/src/contracts/search/SearchDocumentTypes';
+import type {ReportNoteListResponse, ReportNoteResponse} from '@fluxer/schema/src/domains/admin/AdminReportNoteSchemas';
 import type {
 	AdminReportReasonsResponse,
+	ReportItemOutcome,
 	SearchReportsRequest,
 	UpdateReportRequest,
 } from '@fluxer/schema/src/domains/admin/AdminSchemas';
@@ -55,6 +61,7 @@ import {seconds} from 'itty-time';
 interface AdminReportServiceDeps {
 	apiContext: ApiContext;
 	reportService: ReportService;
+	reportRepository: ReportRepository;
 	guildRepository: GuildRepository;
 	channelRepository: ChannelRepository;
 	storageService: IStorageService;
@@ -63,7 +70,39 @@ interface AdminReportServiceDeps {
 	reporterResolutionNotifier: ReporterResolutionNotifier;
 }
 
-type StaffReportResolution = NonNullable<UpdateReportRequest['resolution']>;
+interface StaffReportResolution {
+	adminUserId: UserID;
+	publicComment: string | null;
+	auditLogReason: string | null;
+	notifyReporter: boolean;
+	resolution: UpdateReportRequest['resolution'];
+	outcome?: ReportItemOutcome;
+	duplicateOf?: ReportID;
+}
+
+function refuse(path: 'outcome' | 'duplicate_of'): never {
+	throw InputValidationError.fromCode(path, ValidationErrorCodes.REPORT_OUTCOME_INVALID);
+}
+
+function staffOutcome(
+	resolution: UpdateReportRequest['resolution'],
+	outcome: ReportItemOutcome | undefined,
+	duplicateOf: ReportID | undefined,
+): ReportItemOutcome | null {
+	if (resolution !== 'duplicate' && duplicateOf !== undefined) refuse('duplicate_of');
+	switch (resolution) {
+		case 'no_violation':
+			if (outcome !== undefined && outcome !== 'no_violation') refuse('outcome');
+			return 'no_violation';
+		case 'actioned':
+			if (outcome === undefined || outcome === 'no_violation') refuse('outcome');
+			return outcome;
+		case 'duplicate':
+			if (outcome !== undefined) refuse('outcome');
+			if (duplicateOf === undefined) refuse('duplicate_of');
+			return null;
+	}
+}
 
 interface ReportLookupCache {
 	channelNsfwByChannelId: Map<string, boolean | null>;
@@ -98,6 +137,15 @@ function mapMissingAttachmentToResponse(attachment: MessageAttachment) {
 		width: attachment.width ?? null,
 		height: attachment.height ?? null,
 		size: attachment.size != null ? assertSafeByteSize(attachment.size, 'admin report attachment size') : null,
+	};
+}
+
+function toReportNoteResponse(note: IARReportNoteRow): ReportNoteResponse {
+	return {
+		note_id: note.note_id.toString(),
+		author_id: note.author_id.toString(),
+		body: note.body,
+		created_at: note.created_at.toISOString(),
 	};
 }
 
@@ -162,25 +210,57 @@ export class AdminReportService {
 		const report = await reportService.getReport(reportId);
 		const requestCache = createRequestCache();
 		const reportLookupCache = createReportLookupCache();
-		return this.mapReportToResponse(report, true, requestCache, acls, reportLookupCache);
+		const [response, notes] = await Promise.all([
+			this.mapReportToResponse(report, true, requestCache, acls, reportLookupCache),
+			this.deps.reportRepository.listNotes(reportId),
+		]);
+		return {...response, notes: notes.map(toReportNoteResponse)};
+	}
+
+	async listNotes(reportId: ReportID): Promise<ReportNoteListResponse> {
+		await this.deps.reportService.getReport(reportId);
+		const notes = await this.deps.reportRepository.listNotes(reportId);
+		return {notes: notes.map(toReportNoteResponse)};
+	}
+
+	async addNote(reportId: ReportID, body: string, authorId: UserID): Promise<ReportNoteResponse> {
+		await this.deps.reportService.getReport(reportId);
+		const note: IARReportNoteRow = {
+			report_id: reportId,
+			note_id: await this.deps.apiContext.services.snowflake.generate(),
+			author_id: authorId,
+			body,
+			created_at: new Date(),
+		};
+		await this.deps.reportRepository.addNote(note);
+		return toReportNoteResponse(note);
 	}
 
 	async resolveReport(
 		reportId: ReportID,
-		adminUserId: UserID,
-		publicComment: string | null,
-		auditLogReason: string | null,
-		notifyReporter: boolean,
-		resolution?: StaffReportResolution,
+		{
+			adminUserId,
+			publicComment,
+			auditLogReason,
+			notifyReporter,
+			resolution,
+			outcome,
+			duplicateOf,
+		}: StaffReportResolution,
 	) {
 		const {reportService, auditService, reporterResolutionNotifier} = this.deps;
+		const reporterOutcome =
+			staffOutcome(resolution, outcome, duplicateOf) ?? (await this.duplicatedOutcome(reportId, duplicateOf));
 		const sentComment = notifyReporter ? publicComment : null;
 		const internalComment = notifyReporter ? null : publicComment;
 		const resolvedReport = await reportService.resolveReport(reportId, adminUserId, sentComment, auditLogReason, {
 			outcome: resolution,
 			resolvedBy: 'staff',
+			reporterOutcome,
 		});
-		const notice = await reporterResolutionNotifier.notifyReporterOfResolution(resolvedReport, sentComment);
+		const notice = reporterOutcome
+			? await reporterResolutionNotifier.notifyReporterOfResolution(resolvedReport, sentComment, reporterOutcome)
+			: null;
 		await auditService.createAuditLog({
 			adminUserId,
 			targetType: 'report',
@@ -192,8 +272,12 @@ export class AdminReportService {
 				['report_type', resolvedReport.reportType.toString()],
 				['notify_reporter', notifyReporter ? 'true' : 'false'],
 				...(internalComment ? [['internal_comment', internalComment] as [string, string]] : []),
-				...describeReporterNotice(notice),
-				...(resolution ? [['resolution', resolution] as [string, string]] : []),
+				...(notice
+					? describeReporterNotice(notice)
+					: [['reporter_notice_skipped', 'duplicate_outcome_unknown'] as [string, string]]),
+				['resolution', resolution],
+				...(duplicateOf ? [['duplicate_of', duplicateOf.toString()] as [string, string]] : []),
+				...(reporterOutcome ? [['outcome', reporterOutcome] as [string, string]] : []),
 			]),
 		});
 		return {
@@ -202,6 +286,16 @@ export class AdminReportService {
 			resolved_at: resolvedReport.resolvedAt?.toISOString() ?? null,
 			public_comment: resolvedReport.publicComment,
 		};
+	}
+
+	private async duplicatedOutcome(
+		reportId: ReportID,
+		duplicateOf: ReportID | undefined,
+	): Promise<ReportItemOutcome | null> {
+		if (duplicateOf === undefined) return null;
+		if (duplicateOf === reportId) refuse('duplicate_of');
+		const original = await this.deps.reportService.getReport(duplicateOf);
+		return original.reporterOutcome;
 	}
 
 	async searchReports(data: SearchReportsRequest, acls: ReadonlySet<string>) {

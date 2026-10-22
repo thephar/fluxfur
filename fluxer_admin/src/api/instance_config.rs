@@ -4,9 +4,11 @@ use reqwest::Method;
 
 use super::client::{AdminApiClient, ApiResult};
 use super::types::{
-    AccountIdentitySettings, CreateRegistrationUrlRequest, CreateRegistrationUrlResponse,
-    InstanceAccountIdentityDiscovery, InstanceConfigResponse, InstanceConfigUpdateRequest,
-    InstanceEmailSmtpTestResponse, InstancePremiumDiscovery,
+    AccountIdentitySettings, BrandingAssetKind, BrandingAssetUploadRequest,
+    CreateRegistrationUrlRequest, CreateRegistrationUrlResponse, InstanceAccountIdentityDiscovery,
+    InstanceConfigResponse, InstanceConfigUpdateRequest, InstanceEmailSmtpTestResponse,
+    InstancePremiumDiscovery, PendingRegistrationListResponse, PendingRegistrationResponse,
+    PendingRegistrationStatus,
 };
 
 impl AdminApiClient {
@@ -34,6 +36,20 @@ impl AdminApiClient {
     ) -> ApiResult<InstanceConfigResponse> {
         self.send(Method::PATCH, "/admin/instance/config", Some(update), None)
             .await
+    }
+
+    pub async fn upload_branding_asset(
+        &self,
+        kind: BrandingAssetKind,
+        image: Option<String>,
+    ) -> ApiResult<InstanceConfigResponse> {
+        self.send(
+            Method::POST,
+            "/admin/instance/config/branding-assets",
+            Some(&BrandingAssetUploadRequest { kind, image }),
+            None,
+        )
+        .await
     }
 
     pub async fn test_saved_instance_smtp_config(
@@ -74,35 +90,30 @@ impl AdminApiClient {
         .await
     }
 
-    pub async fn approve_pending_registration(
-        &self,
-        user_id: &str,
-    ) -> ApiResult<InstanceConfigResponse> {
-        self.decide_pending_registration(user_id, "approved").await
+    pub async fn list_pending_registrations(&self) -> ApiResult<Vec<PendingRegistrationResponse>> {
+        let response: PendingRegistrationListResponse = self
+            .get("/admin/instance/pending-registrations", None)
+            .await?;
+        Ok(response.pending_registrations)
     }
 
-    pub async fn reject_pending_registration(
+    pub async fn decide_pending_registration(
         &self,
         user_id: &str,
-    ) -> ApiResult<InstanceConfigResponse> {
-        self.decide_pending_registration(user_id, "rejected").await
-    }
-
-    async fn decide_pending_registration(
-        &self,
-        user_id: &str,
-        status: &str,
-    ) -> ApiResult<InstanceConfigResponse> {
-        let body = serde_json::json!({"status": status});
-        self.send(
-            Method::PATCH,
-            &format!(
-                "/admin/instance/pending-registrations/{}",
-                urlencoding::encode(user_id)
-            ),
-            Some(&body),
-            None,
-        )
-        .await
+        status: PendingRegistrationStatus,
+    ) -> ApiResult<Vec<PendingRegistrationResponse>> {
+        let body = serde_json::json!({"status": status.as_str()});
+        let response: PendingRegistrationListResponse = self
+            .send(
+                Method::PATCH,
+                &format!(
+                    "/admin/instance/pending-registrations/{}",
+                    urlencoding::encode(user_id)
+                ),
+                Some(&body),
+                None,
+            )
+            .await?;
+        Ok(response.pending_registrations)
     }
 }

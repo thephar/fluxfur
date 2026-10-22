@@ -19,6 +19,7 @@ import {Store} from '@app/features/voice/engine/Store';
 import VoiceDevicePermissionState from '@app/features/voice/engine/VoiceDevicePermissionState';
 import type {EffectiveAudioState} from '@app/features/voice/engine/VoiceEffectiveAudioState';
 import {getEffectiveAudioState} from '@app/features/voice/engine/VoiceEffectiveAudioState';
+import {noteLocalVoiceActivity} from '@app/features/voice/engine/VoiceIdleActivityBridge';
 import {acquireVoiceInputContext, type VoiceInputContextLease} from '@app/features/voice/engine/VoiceInputAudioContext';
 import {
 	createVoiceMicrophoneFailureLatchSnapshot,
@@ -28,7 +29,7 @@ import {
 	transitionVoiceMicrophoneFailureLatchSnapshot,
 	type VoiceMicrophoneFailureLatchEvent,
 } from '@app/features/voice/engine/VoiceLocalAudioReconcilePolicy';
-import {resolveLocalSpeakingOverrideState} from '@app/features/voice/engine/VoiceLocalSpeakingGate';
+import {isLocalSpeakingSuppressed} from '@app/features/voice/engine/VoiceLocalSpeakingGate';
 import {
 	getRoomFromMediaEngine,
 	getVoiceConnectionContextFromMediaEngine,
@@ -43,6 +44,7 @@ import {
 	type VoiceMediaEvent,
 	type VoiceMediaSnapshot,
 } from '@app/features/voice/engine/VoiceMediaStateMachine';
+import {VoiceSpeakingMeter} from '@app/features/voice/engine/VoiceSpeakingDetection';
 import type {VoiceStateSyncPartial} from '@app/features/voice/engine/VoiceStateSyncTypes';
 import {
 	enforceLocalMediaPublicationCap,
@@ -231,6 +233,7 @@ function getEffectiveSelfMuteForVoiceStatePayloadFromV2AudioControls(): boolean 
 
 class VoiceEngineV2AppMediaExecutionAdapter extends Store {
 	private speakingDetectorCleanup: (() => void) | null = null;
+	private localSpeakingMeter: VoiceSpeakingMeter | null = null;
 	private mediaStateSnapshot: VoiceMediaSnapshot = createVoiceMediaSnapshot();
 	private microphoneEnablePromise: Promise<void> | null = null;
 	private microphoneRefreshQueue: Promise<void> = Promise.resolve();
@@ -373,7 +376,7 @@ class VoiceEngineV2AppMediaExecutionAdapter extends Store {
 	private async enforceSpeakPermissionMute(room: Room): Promise<void> {
 		await this.disableMicrophone(room);
 		this.syncVoiceState({self_mute: true});
-		this.syncLocalSpeakingOverride(room);
+		this.syncLocalSpeaking(room);
 	}
 
 	async prepareMicrophonePermissionForConnect(): Promise<boolean> {
@@ -485,7 +488,7 @@ class VoiceEngineV2AppMediaExecutionAdapter extends Store {
 			} else {
 				this.syncVoiceState({self_mute: audioState.selfMute});
 			}
-			this.syncLocalSpeakingOverride(room);
+			this.syncLocalSpeaking(room);
 		} catch (e: unknown) {
 			if (isPermissionDeniedError(e)) {
 				this.handleMicrophonePermissionDenied();
@@ -540,17 +543,9 @@ class VoiceEngineV2AppMediaExecutionAdapter extends Store {
 			await this.enforceSpeakPermissionMute(room);
 			return;
 		}
-		const pttActive = isPushToTalkActiveFromAppState();
-		const ptmActive = isPushToMuteActiveFromAppState();
-		const effectiveMute =
-			audioState.effectiveDeaf ||
-			audioState.serverMute ||
-			audioState.selfMute ||
-			(pttActive && !Keybind.pushToTalkHeld) ||
-			(ptmActive && Keybind.pushToMuteHeld);
-		if (effectiveMute) {
+		if (audioState.effectiveDeaf || audioState.serverMute || audioState.selfMute) {
 			this.setAudioPublicationsMuted(room, true, 'voice state update');
-			this.syncLocalSpeakingOverride(room);
+			this.syncLocalSpeaking(room);
 			return;
 		}
 		if (!this.hasLiveMicrophonePublication(room)) {
@@ -570,7 +565,7 @@ class VoiceEngineV2AppMediaExecutionAdapter extends Store {
 			}
 		}
 		this.setAudioPublicationsMuted(room, this.shouldMuteMicrophonePublication(), 'voice state update');
-		this.syncLocalSpeakingOverride(room);
+		this.syncLocalSpeaking(room);
 	}
 
 	private hasMicrophonePublication(room: Room): boolean {
@@ -1506,7 +1501,7 @@ class VoiceEngineV2AppMediaExecutionAdapter extends Store {
 			serverDeaf: serverVoiceState?.deaf,
 		});
 		if (isMutedOrDeafened(audioState)) return;
-		const targetMute = audioState.selfMute || !held;
+		const targetMute = getEffectiveSelfMuteForVoiceStatePayloadFromV2AudioControls();
 		const ok = this.setMicrophonePublicationsMuted(room, targetMute, 'push to talk');
 		if (!ok) {
 			this.syncVoiceState({self_mute: true});
@@ -1514,7 +1509,7 @@ class VoiceEngineV2AppMediaExecutionAdapter extends Store {
 		}
 		this.syncVoiceState({self_mute: targetMute});
 		this.updateMediaAudioControls();
-		this.syncLocalSpeakingOverride(room);
+		this.syncLocalSpeaking(room);
 	}
 
 	applyPushToMuteHold(held: boolean, room: Room | null, getCurrentUserVoiceState: () => VoiceState | null): void {
@@ -1542,14 +1537,10 @@ class VoiceEngineV2AppMediaExecutionAdapter extends Store {
 		}
 		this.syncVoiceState({self_mute: targetMute});
 		this.updateMediaAudioControls();
-		this.syncLocalSpeakingOverride(room);
+		this.syncLocalSpeaking(room);
 	}
 
-	handlePushToTalkModeChange(
-		room: Room | null,
-		getCurrentUserVoiceState: () => VoiceState | null,
-		options: {preserveSelfMute?: boolean} = {},
-	): void {
+	handlePushToTalkModeChange(room: Room | null, getCurrentUserVoiceState: () => VoiceState | null): void {
 		assertNullableObjectLike<Room>(room, 'handlePushToTalkModeChange.room');
 		assert.equal(
 			typeof getCurrentUserVoiceState,
@@ -1558,9 +1549,6 @@ class VoiceEngineV2AppMediaExecutionAdapter extends Store {
 		);
 		Keybind.resetPushToTalkState();
 		Keybind.resetPushToMuteState();
-		if (!options.preserveSelfMute && isPushToTalkActiveFromAppState() && LocalVoiceState.getSelfMute()) {
-			LocalVoiceState.updateSelfMute(false);
-		}
 		const serverVoiceState = getCurrentUserVoiceState();
 		const audioState = this.getEffectiveAudioState({
 			serverMute: serverVoiceState?.mute ?? false,
@@ -1575,7 +1563,7 @@ class VoiceEngineV2AppMediaExecutionAdapter extends Store {
 		}
 		this.syncVoiceState({self_mute: targetMute});
 		this.updateMediaAudioControls();
-		this.syncLocalSpeakingOverride(room);
+		this.syncLocalSpeaking(room);
 	}
 
 	getMuteReason(voiceState: VoiceState | null, guildId?: string | null, channelId?: string | null): VoiceMuteReason {
@@ -1686,13 +1674,9 @@ class VoiceEngineV2AppMediaExecutionAdapter extends Store {
 		return true;
 	}
 
-	private getLocalSpeakingOverrideState(room: Room): boolean | null {
-		if (!room.localParticipant) return false;
+	private shouldSuppressLocalSpeaking(room: Room): boolean {
 		const publication = this.getMicrophonePublication(room);
-		return resolveLocalSpeakingOverrideState({
-			pushToTalkActive: isPushToTalkActiveFromAppState(),
-			pushToMuteActive: isPushToMuteActiveFromAppState(),
-			pushToMuteHeld: Keybind.pushToMuteHeld,
+		return isLocalSpeakingSuppressed({
 			selfDeaf: LocalVoiceState.getSelfDeaf(),
 			effectiveSelfMute: getEffectiveSelfMuteForVoiceStatePayloadFromV2AudioControls(),
 			hasMicrophonePublication: Boolean(publication),
@@ -1718,10 +1702,9 @@ class VoiceEngineV2AppMediaExecutionAdapter extends Store {
 		return selectVoiceEngineV2AppParticipant(snapshot, identity)?.isAudioLevelSpeaking ?? null;
 	}
 
-	private syncLocalSpeakingOverride(room: Room | null): void {
+	private syncLocalSpeaking(room: Room | null): void {
 		if (!room?.localParticipant) return;
-		const speaking = this.getLocalSpeakingOverrideState(room);
-		if (speaking === null) return;
+		const speaking = !this.shouldSuppressLocalSpeaking(room) && (this.localSpeakingMeter?.speaking ?? false);
 		this.setLocalParticipantAudioLevelSpeaking(room, speaking);
 	}
 
@@ -1729,28 +1712,27 @@ class VoiceEngineV2AppMediaExecutionAdapter extends Store {
 		this.stopLocalSpeakingDetector(room);
 		const track = this.getLocalAudioTrack(room);
 		if (!track || !room.localParticipant) return;
-		let stopLevel: (() => void) | null = null;
-		const bind = (): void => {
-			stopLevel?.();
-			stopLevel = null;
-			this.setLocalParticipantAudioLevelSpeaking(room, this.getLocalSpeakingOverrideState(room) ?? false);
+		const meter = new VoiceSpeakingMeter(
+			() => track.mediaStreamTrack,
+			() => {
+				this.syncLocalSpeaking(room);
+				if (meter.speaking) noteLocalVoiceActivity(room.localParticipant, {force: true, speaking: true});
+			},
+		);
+		const reportRuntime = (): void => {
 			const processor = readVoiceInputProcessor(track);
-			if (!processor) {
-				this.reportRawMicrophoneRuntime(track);
-				return;
-			}
-			processor.reportRuntime();
-			stopLevel = processor.onLevel((level) => {
-				this.setLocalParticipantAudioLevelSpeaking(room, this.getLocalSpeakingOverrideState(room) ?? level.speaking);
-			});
+			if (processor) processor.reportRuntime();
+			else this.reportRawMicrophoneRuntime(track);
 		};
-		track.on(TrackEvent.TrackProcessorUpdate, bind);
+		track.on(TrackEvent.TrackProcessorUpdate, reportRuntime);
+		this.localSpeakingMeter = meter;
 		this.speakingDetectorCleanup = () => {
-			track.off(TrackEvent.TrackProcessorUpdate, bind);
-			stopLevel?.();
+			track.off(TrackEvent.TrackProcessorUpdate, reportRuntime);
+			meter.dispose();
 			NoiseSuppressionAvailability.clearVoiceInputRuntime(track);
 		};
-		bind();
+		reportRuntime();
+		meter.tick(performance.now());
 		this.transitionMediaState({type: 'speakingDetector.attach'});
 	}
 
@@ -1758,6 +1740,7 @@ class VoiceEngineV2AppMediaExecutionAdapter extends Store {
 		this.transitionMediaState({type: 'speakingDetector.detach'});
 		this.speakingDetectorCleanup?.();
 		this.speakingDetectorCleanup = null;
+		this.localSpeakingMeter = null;
 		if (room) this.setLocalParticipantAudioLevelSpeaking(room, false);
 	}
 }

@@ -12,6 +12,7 @@ import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
 import {ADMIN_ACL_COUNT, AdminAclType} from '@fluxer/schema/src/domains/admin/AdminAclType';
 import {AdminArchiveResponseSchema} from '@fluxer/schema/src/domains/admin/AdminArchiveSchemas';
 import {GuildAdminResponse} from '@fluxer/schema/src/domains/admin/AdminGuildSchemas';
+import {ReportNoteResponse} from '@fluxer/schema/src/domains/admin/AdminReportNoteSchemas';
 import {UserAdminResponseSchema} from '@fluxer/schema/src/domains/admin/AdminUserSchemas';
 import {CaptchaConfigResponse, CaptchaConfigUpdateRequest} from '@fluxer/schema/src/domains/admin/CaptchaSchemas';
 import {
@@ -246,6 +247,19 @@ const ReportResolutionEnum = createNamedStringLiteralUnion(
 	'How the report was resolved',
 );
 
+const ReportItemOutcomeEnum = createNamedStringLiteralUnion(
+	[
+		['removed', 'removed', 'The reported content, profile field or community was removed'],
+		['warned', 'warned', 'The account responsible for the reported item was warned'],
+		['restricted', 'restricted', 'The reported account was restricted and the content was left up'],
+		['action_taken', 'action_taken', 'Action was taken under the rules, and the reporter is not told which'],
+		['no_violation', 'no_violation', 'The reported content or account does not break the rules and was left as it is'],
+	],
+	'What happened to the reported item',
+);
+
+export type ReportItemOutcome = z.infer<typeof ReportItemOutcomeEnum>;
+
 export const UpdateReportRequest = z.object({
 	status: z.literal('resolved').describe('The status to move the report to'),
 	public_comment: createStringType(0, 512).optional().describe('Public comment to include with the resolution'),
@@ -255,7 +269,13 @@ export const UpdateReportRequest = z.object({
 		.describe(
 			'Whether to include the public comment in the notice sent to the reporter. The reporter is notified either way',
 		),
-	resolution: ReportResolutionEnum.optional().describe('How the report was resolved'),
+	resolution: ReportResolutionEnum.describe('How the report was resolved'),
+	outcome: ReportItemOutcomeEnum.optional().describe(
+		'What happened to the reported content or account. Required for actioned, where no_violation is refused. Optional for no_violation, where it can only be no_violation. Refused for duplicate. The reporter is told it',
+	),
+	duplicate_of: SnowflakeType.optional().describe(
+		'The report this one repeats. Required for duplicate and refused otherwise. The reporter is told the outcome of that report, or nothing while it has none',
+	),
 });
 
 export type UpdateReportRequest = z.infer<typeof UpdateReportRequest>;
@@ -512,7 +532,7 @@ const RegistrationUrlResponse = z.object({
 });
 export type RegistrationUrlResponse = z.infer<typeof RegistrationUrlResponse>;
 
-const PendingRegistrationResponse = z.object({
+export const PendingRegistrationResponse = z.object({
 	user_id: SnowflakeStringType,
 	username: z.string(),
 	discriminator: z.number().int().min(0).max(9999),
@@ -521,12 +541,17 @@ const PendingRegistrationResponse = z.object({
 	requested_at: z.iso.datetime(),
 	registration_url_id: createStringType(1, 128).nullable(),
 	client_ip: z.string().nullable(),
+	invite_code: createStringType(0, 256).nullable(),
 });
 export type PendingRegistrationResponse = z.infer<typeof PendingRegistrationResponse>;
 
+export const PendingRegistrationListResponse = z.object({
+	pending_registrations: z.array(PendingRegistrationResponse),
+});
+export type PendingRegistrationListResponse = z.infer<typeof PendingRegistrationListResponse>;
+
 const InstanceRegistrationResponse = InstanceRegistrationConfigResponse.extend({
 	urls: z.array(RegistrationUrlResponse),
-	pending_registrations: z.array(PendingRegistrationResponse),
 });
 
 const AppPublicConfigResponse = z.object({
@@ -926,14 +951,12 @@ const LimitRuleSchema = z.object({
 	filters: LimitFilterSchema.optional().describe('Optional filters that scope the rule'),
 	limits: z
 		.record(z.string(), NonNegativeSafeIntegerType)
-		.refine(
-			(limits) => {
-				const limitKeys = Object.keys(limits);
-				return limitKeys.every((key) => (LIMIT_KEYS as ReadonlyArray<string>).includes(key));
-			},
-			{error: 'Invalid limit key detected'},
-		)
 		.superRefine((limits, ctx) => {
+			for (const key of Object.keys(limits)) {
+				if (!(LIMIT_KEYS as ReadonlyArray<string>).includes(key)) {
+					ctx.addIssue({code: 'custom', message: ValidationErrorCodes.INVALID_FORMAT, path: [key]});
+				}
+			}
 			for (const key of LIMIT_KEYS) {
 				const value = limits[key];
 				const {min = 0, max} = LIMIT_KEY_METADATA[key];
@@ -1168,6 +1191,9 @@ export const BanCheckResponseSchema = z.object({
 		.describe(
 			'ISO 8601 timestamp when the matching ban expires. Null when the ban is permanent, when nothing matches, and on every blocklist other than ip.',
 		),
+	decision_id: SnowflakeStringType.nullable().describe(
+		'Enforcement decision the matching ip block belongs to. Null for a block added through the blocklist, when nothing matches, and on every blocklist other than ip.',
+	),
 });
 export const BulkJobResponse = z.object({
 	job_id: SnowflakeStringType,
@@ -1645,6 +1671,10 @@ export const ReportAdminResponseSchema = z.object({
 		.nullable()
 		.optional()
 		.describe('Why the report is held. Returned by the report detail only. Null when the report has no hold.'),
+	notes: z
+		.array(ReportNoteResponse)
+		.optional()
+		.describe('Internal staff notes on the report, oldest first. Returned by the report detail only.'),
 	reason: z.string().nullable().optional(),
 	reason_label: z.string().nullable().optional(),
 	reason_highest_priority: z.boolean().nullable().optional(),

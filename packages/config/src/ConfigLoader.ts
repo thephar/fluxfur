@@ -218,6 +218,11 @@ function defaultConfig(): MasterConfig {
 					token: '',
 					timeout_ms: 10_000,
 				},
+				controller: {
+					endpoint: '',
+					token: '',
+					timeout_ms: 10_000,
+				},
 			},
 			blocklist_feeds: {},
 			breached_password_check: {},
@@ -275,7 +280,6 @@ function defaultConfig(): MasterConfig {
 		inactivity_deletion_threshold_days: 365,
 		report_retention: {
 			days: 365,
-			resolved_days: null,
 			dry_run: false,
 		},
 	};
@@ -321,6 +325,71 @@ function validateReplyToEmail(value: string): void {
 	if (value !== '' && !/^[^\s@<>,;"]+@[^\s@<>,;"]+$/.test(value)) {
 		throw new Error('FLUXER_EMAIL_REPLY_TO_EMAIL must be a single email address such as support@example.com');
 	}
+}
+
+const EMAIL_DOMAIN_PATTERN =
+	/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u;
+const DEFAULT_SMTP_PORT = 587;
+const SMTP_HEADER_NAME_PATTERN = /^[\x21-\x39\x3b-\x7e]+$/u;
+const SMTP_HEADER_VALUE_PATTERN = /^[\x20-\x7e\t]*$/u;
+const SMTP_HEADER_MAX_LINE_LENGTH = 998;
+const CORE_SMTP_HEADER_NAMES = new Set([
+	'from',
+	'to',
+	'cc',
+	'bcc',
+	'subject',
+	'reply-to',
+	'message-id',
+	'date',
+	'content-type',
+	'mime-version',
+]);
+
+function validateSmtpHeaders(headers: unknown, envName: string): void {
+	if (headers === undefined) return;
+	if (!isConfigObject(headers)) throw new Error(`${envName} must be a JSON object of header names to strings`);
+	for (const [name, value] of Object.entries(headers)) {
+		if (!SMTP_HEADER_NAME_PATTERN.test(name)) {
+			throw new Error(`${envName} header name ${JSON.stringify(name)} is not a valid header field name`);
+		}
+		if (CORE_SMTP_HEADER_NAMES.has(name.toLowerCase())) {
+			throw new Error(`${envName} must not set the ${name} header`);
+		}
+		if (typeof value !== 'string') throw new Error(`${envName} value of ${name} must be a string`);
+		if (!SMTP_HEADER_VALUE_PATTERN.test(value)) {
+			throw new Error(`${envName} value of ${name} must be printable ASCII without line breaks`);
+		}
+		if (name.length + 2 + value.length > SMTP_HEADER_MAX_LINE_LENGTH) {
+			throw new Error(`${envName} header ${name} must fit on one ${SMTP_HEADER_MAX_LINE_LENGTH} character line`);
+		}
+	}
+}
+
+function normalizeEmailFallbackConfig(config: MasterConfig): void {
+	const email = config.integrations.email;
+	if (!email.fallback) return;
+	const {domains, smtp}: Partial<NonNullable<typeof email.fallback>> = email.fallback;
+	const missing = (envName: string) => new Error(`${envName} is required when an email fallback provider is set`);
+	if (!domains?.length) throw missing('FLUXER_EMAIL_FALLBACK_DOMAINS');
+	if (!smtp?.host?.trim()) throw missing('FLUXER_EMAIL_FALLBACK_SMTP_HOST');
+	if (!smtp.username?.trim()) throw missing('FLUXER_EMAIL_FALLBACK_SMTP_USERNAME');
+	if (!smtp.password?.trim()) throw missing('FLUXER_EMAIL_FALLBACK_SMTP_PASSWORD');
+	const port: unknown = smtp.port ?? DEFAULT_SMTP_PORT;
+	assertIntegerInRange(port, 'FLUXER_EMAIL_FALLBACK_SMTP_PORT', 1, 65_535);
+	validateSmtpHeaders(smtp.headers, 'FLUXER_EMAIL_FALLBACK_SMTP_HEADERS');
+	const normalizedDomains = domains.map((domain) => domain.trim().toLowerCase());
+	if (normalizedDomains.includes('*') && new Set(normalizedDomains).size > 1) {
+		throw new Error('FLUXER_EMAIL_FALLBACK_DOMAINS must be either * or a list of domains');
+	}
+	for (const domain of normalizedDomains) {
+		if (domain !== '*' && !EMAIL_DOMAIN_PATTERN.test(domain)) {
+			throw new Error(
+				`FLUXER_EMAIL_FALLBACK_DOMAINS entry ${JSON.stringify(domain)} must be a domain such as gmail.com`,
+			);
+		}
+	}
+	email.fallback = {domains: [...new Set(normalizedDomains)], smtp: {...smtp, port}};
 }
 
 function validateUploadRelaySecret(value: string): void {
@@ -446,14 +515,6 @@ function validateApiWorkerConfig(config: MasterConfig): void {
 function validateReportRetentionConfig(config: MasterConfig): void {
 	const retention = config.report_retention;
 	assertIntegerInRange(retention.days, 'FLUXER_REPORT_RETENTION_DAYS', 1, MAX_REPORT_RETENTION_DAYS);
-	if (retention.resolved_days !== null) {
-		assertIntegerInRange(
-			retention.resolved_days,
-			'FLUXER_RESOLVED_REPORT_RETENTION_DAYS',
-			1,
-			MAX_REPORT_RETENTION_DAYS,
-		);
-	}
 	assertBoolean(retention.dry_run, 'FLUXER_REPORT_RETENTION_DRY_RUN');
 }
 
@@ -484,26 +545,37 @@ function normalizeAppOriginAliases(config: MasterConfig): void {
 	];
 }
 
-function validateCachePurgeConfig(config: MasterConfig): void {
-	const cachePurge = config.integrations.cache_purge;
-	if (cachePurge.adapter !== 'http') {
-		return;
-	}
-	requireString(cachePurge.http.endpoint, 'FLUXER_CACHE_PURGE_HTTP_ENDPOINT');
-	const endpoint = URL.parse(cachePurge.http.endpoint);
+function validateCachePurgeTarget(
+	target: {endpoint: string; token: string; timeout_ms: number},
+	envPrefix: string,
+	protocols: ReadonlyArray<string>,
+): void {
+	requireString(target.endpoint, `${envPrefix}_ENDPOINT`);
+	const endpoint = URL.parse(target.endpoint);
 	if (
 		endpoint === null ||
-		(endpoint.protocol !== 'http:' && endpoint.protocol !== 'https:') ||
+		!protocols.includes(endpoint.protocol) ||
 		endpoint.username !== '' ||
 		endpoint.password !== ''
 	) {
-		throw new Error('FLUXER_CACHE_PURGE_HTTP_ENDPOINT must be an absolute http or https URL without credentials');
+		const schemes = protocols.map((protocol) => protocol.slice(0, -1)).join(' or ');
+		throw new Error(`${envPrefix}_ENDPOINT must be an absolute ${schemes} URL without credentials`);
 	}
-	requireString(cachePurge.http.token, 'FLUXER_CACHE_PURGE_HTTP_TOKEN');
-	if (!/^[\x21-\x7e]+$/u.test(cachePurge.http.token)) {
-		throw new Error('FLUXER_CACHE_PURGE_HTTP_TOKEN must contain only visible ASCII characters');
+	requireString(target.token, `${envPrefix}_TOKEN`);
+	if (!/^[\x21-\x7e]+$/u.test(target.token)) {
+		throw new Error(`${envPrefix}_TOKEN must contain only visible ASCII characters`);
 	}
-	assertIntegerInRange(cachePurge.http.timeout_ms, 'FLUXER_CACHE_PURGE_HTTP_TIMEOUT_MS', 1_000, 10_000);
+	assertIntegerInRange(target.timeout_ms, `${envPrefix}_TIMEOUT_MS`, 1_000, 10_000);
+}
+
+function validateCachePurgeConfig(config: MasterConfig): void {
+	const cachePurge = config.integrations.cache_purge;
+	if (cachePurge.adapter === 'http') {
+		validateCachePurgeTarget(cachePurge.http, 'FLUXER_CACHE_PURGE_HTTP', ['http:', 'https:']);
+	}
+	if (cachePurge.adapter === 'controller') {
+		validateCachePurgeTarget(cachePurge.controller, 'FLUXER_CACHE_PURGE_CONTROLLER', ['https:']);
+	}
 }
 
 function validateStoreProductSlots(
@@ -619,6 +691,7 @@ function normalizeConfig(config: MasterConfig): MasterConfig {
 	validateCachePurgeConfig(config);
 	validateStoreBillingConfig(config);
 	validateReplyToEmail(config.integrations.email.reply_to_email);
+	normalizeEmailFallbackConfig(config);
 	normalizeAppOriginAliases(config);
 	assertIntegerInRange(config.services.api.max_inflight_requests, 'FLUXER_API_MAX_INFLIGHT_REQUESTS', 1, 100_000);
 	assertIntegerInRange(
@@ -647,6 +720,13 @@ function normalizeConfig(config: MasterConfig): MasterConfig {
 	requireString(config.services.admin.oauth_client_secret, 'FLUXER_ADMIN_OAUTH_CLIENT_SECRET');
 	requireString(config.services.gateway.rpc_auth_token, 'FLUXER_GATEWAY_RPC_AUTH_TOKEN');
 	return config;
+}
+
+function applySelfHostedEnvDefault(config: MasterConfig, explicitEnv: string | undefined): MasterConfig {
+	if (explicitEnv !== undefined || !config.instance.self_hosted) {
+		return config;
+	}
+	return {...config, env: 'production'};
 }
 
 function applyPublicOrigin(config: MasterConfig): MasterConfig {
@@ -771,7 +851,10 @@ export async function loadConfig(): Promise<MasterConfig> {
 		return cachedConfig;
 	}
 	const overrides = buildNamedFluxerEnvOverrides(process.env);
-	const merged = applyPublicOrigin(mergeConfig(defaultConfig(), overrides));
+	const merged = applySelfHostedEnvDefault(
+		applyPublicOrigin(mergeConfig(defaultConfig(), overrides)),
+		readEnvValue(process.env, 'FLUXER_ENV'),
+	);
 	const normalized = normalizeConfig(merged);
 	const derived = deriveEndpointsFromDomain(normalized.domain);
 	const endpoints = {...derived, ...(normalized.endpoint_overrides ?? {})};

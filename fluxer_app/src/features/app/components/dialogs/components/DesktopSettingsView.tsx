@@ -23,11 +23,15 @@ import {
 	SettingsModalSidebarSubItem,
 	SettingsModalSidebarSubItems,
 	SettingsTreeProvider,
+	settingsModalStyles,
 } from '@app/features/app/components/dialogs/shared/SettingsModalLayout';
 import {
 	BACK_TO_SETTINGS_DESCRIPTOR,
+	OPENS_IN_BROWSER_DESCRIPTOR,
 	SEARCH_SETTINGS_PLACEHOLDER_DESCRIPTOR,
 	SIGN_OUT_DESCRIPTOR,
+	SUBMIT_FEEDBACK_DESCRIPTOR,
+	WHATS_NEW_DESCRIPTOR,
 } from '@app/features/i18n/utils/CommonMessageDescriptors';
 import {ComponentBus} from '@app/features/platform/utils/ComponentBus';
 import {remFromPx} from '@app/features/theme/layout/RemFromPx';
@@ -37,6 +41,7 @@ import {modal} from '@app/features/ui/commands/ModalCommands';
 import {MentionBadgeAnimated} from '@app/features/ui/components/MentionBadge';
 import {StatusAwareAvatar} from '@app/features/ui/components/StatusAwareAvatar';
 import SettingsSidebar from '@app/features/ui/state/SettingsSidebar';
+import {openExternalUrl} from '@app/features/ui/utils/NativeUtils';
 import {
 	ADVANCED_SETTINGS_TAG_LABELS,
 	ADVANCED_SETTINGS_TAG_ORDER,
@@ -89,7 +94,15 @@ import {
 } from '@app/features/user/utils/SettingsModalLayoutUtils';
 import type {I18n} from '@lingui/core';
 import {Trans, useLingui} from '@lingui/react/macro';
-import {ArrowLeftIcon, ArrowRightIcon, CaretRightIcon, SignOutIcon} from '@phosphor-icons/react';
+import {
+	ArrowLeftIcon,
+	ArrowRightIcon,
+	ArrowSquareOutIcon,
+	CaretRightIcon,
+	ChatCircleDotsIcon,
+	SignOutIcon,
+	SparkleIcon,
+} from '@phosphor-icons/react';
 import {clsx} from 'clsx';
 import {AnimatePresence, motion} from 'framer-motion';
 import {observer} from 'mobx-react-lite';
@@ -277,6 +290,28 @@ const BreadcrumbTitle: React.FC<BreadcrumbTitleProps> = ({parentLabel, currentLa
 		</span>
 	</span>
 );
+const ExternalSidebarItemLabel: React.FC<{label: React.ReactNode; hint: React.ReactNode; 'data-flx': string}> = ({
+	label,
+	hint,
+	'data-flx': dataFlx,
+}) => (
+	<span className={settingsModalStyles.externalTabLabel} data-flx={dataFlx}>
+		<span className={settingsModalStyles.externalTabLabelText} data-flx={`${dataFlx}-text`}>
+			{label}
+		</span>
+		<span className={settingsModalStyles.srOnly} data-flx={`${dataFlx}-screen-reader-hint`}>
+			{hint}
+		</span>
+		<ArrowSquareOutIcon
+			size={remFromPx(16)}
+			weight="bold"
+			className={settingsModalStyles.externalTabIcon}
+			aria-hidden="true"
+			data-flx={`${dataFlx}-external-icon`}
+		/>
+	</span>
+);
+
 export const DesktopSettingsView: React.FC<DesktopSettingsViewProps> = observer(
 	({
 		groupedSettingsTabs,
@@ -341,6 +376,8 @@ export const DesktopSettingsView: React.FC<DesktopSettingsViewProps> = observer(
 			if (checkUnsavedChanges()) return;
 			ModalCommands.push(modal(() => <LogoutModal data-flx="app.desktop-settings-view.handle-logout.logout-modal" />));
 		};
+		const patchNotesUrl = Routes.patchNotes();
+		const feedbackUrl = Routes.feedback();
 		const handleTabSelect = (tabType: UserSettingsTabType) => {
 			if (checkUnsavedChanges()) return;
 			onTabSelect(tabType);
@@ -609,6 +646,34 @@ export const DesktopSettingsView: React.FC<DesktopSettingsViewProps> = observer(
 													})}
 												</SettingsModalSidebarCategory>
 											))}
+											{patchNotesUrl && (
+												<SettingsModalSidebarItem
+													icon={SparkleIcon}
+													label={
+														<ExternalSidebarItemLabel
+															label={i18n._(WHATS_NEW_DESCRIPTOR)}
+															hint={i18n._(OPENS_IN_BROWSER_DESCRIPTOR)}
+															data-flx="app.desktop-settings-view.whats-new-label"
+														/>
+													}
+													onClick={() => void openExternalUrl(patchNotesUrl)}
+													data-flx="app.desktop-settings-view.settings-modal-sidebar-item.whats-new"
+												/>
+											)}
+											{feedbackUrl && (
+												<SettingsModalSidebarItem
+													icon={ChatCircleDotsIcon}
+													label={
+														<ExternalSidebarItemLabel
+															label={i18n._(SUBMIT_FEEDBACK_DESCRIPTOR)}
+															hint={i18n._(OPENS_IN_BROWSER_DESCRIPTOR)}
+															data-flx="app.desktop-settings-view.submit-feedback-label"
+														/>
+													}
+													onClick={() => void openExternalUrl(feedbackUrl)}
+													data-flx="app.desktop-settings-view.settings-modal-sidebar-item.submit-feedback"
+												/>
+											)}
 											<SettingsModalSidebarItem
 												icon={SignOutIcon}
 												label={i18n._(SIGN_OUT_DESCRIPTOR)}

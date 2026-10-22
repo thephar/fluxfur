@@ -164,6 +164,7 @@ export const LexicalChannelTextareaContent = observer(
 		enableReply = true,
 		enableEditLast = true,
 		enableSlashCommands = true,
+		submitOnEnter = true,
 		draftChannelId,
 		placeholder,
 		bare = false,
@@ -181,6 +182,7 @@ export const LexicalChannelTextareaContent = observer(
 		enableReply?: boolean;
 		enableEditLast?: boolean;
 		enableSlashCommands?: boolean;
+		submitOnEnter?: boolean;
 		draftChannelId?: string;
 		placeholder?: string;
 		bare?: boolean;
@@ -189,8 +191,9 @@ export const LexicalChannelTextareaContent = observer(
 	}) => {
 		const {i18n} = useLingui();
 		const composerKey = draftChannelId ?? channel.id;
-		const editingMessageId = MessageEdit.getEditingMessageId(channel.id);
-		const editingMobileMessageId = MessageEditMobile.getEditingMobileMessageId(channel.id);
+		const ownsChannelEdits = draftChannelId == null;
+		const editingMessageId = ownsChannelEdits ? MessageEdit.getEditingMessageId(channel.id) : null;
+		const editingMobileMessageId = ownsChannelEdits ? MessageEditMobile.getEditingMobileMessageId(channel.id) : null;
 		const isEditingMessageInComposer = editingMobileMessageId != null;
 		let initialDraftDisplay = '';
 		if (!disabled && !isEditingMessageInComposer && draft !== null) {
@@ -810,8 +813,7 @@ export const LexicalChannelTextareaContent = observer(
 			}
 		}, []);
 		const dismissTopmostComposerAffordance = useCallback((): boolean => {
-			const editingInline = MessageEdit.getEditingMessageId(channel.id) !== null;
-			if (editingInline) {
+			if (editingMessageId !== null) {
 				MessageCommands.stopEdit(channel.id);
 				return true;
 			}
@@ -846,6 +848,7 @@ export const LexicalChannelTextareaContent = observer(
 			channel.id,
 			composerKey,
 			editingMessageForComposer,
+			editingMessageId,
 			focusComposer,
 			handleCancelEdit,
 			handleClearSlashCommand,
@@ -1395,7 +1398,7 @@ export const LexicalChannelTextareaContent = observer(
 										specialMentionsAllowed={specialMentionsAllowed}
 										channelId={channel.id}
 										guildId={channel.guildId}
-										submitOnEnter={!mobileLayout.enabled}
+										submitOnEnter={submitOnEnter && !mobileLayout.enabled}
 										maxWireLength={maxMessageLength}
 										silentMessagePrefix={!isEditingMessageOnMobile}
 										focusRingTarget={containerRef}

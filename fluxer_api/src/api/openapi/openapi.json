@@ -3447,7 +3447,7 @@
 						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
 					}
 				},
-				"description": "Deletes every message the caller has authored in the specified channel. Requires sudo mode verification. Returns 202 Accepted once matching messages have been removed.",
+				"description": "Deletes every message the caller has authored in the specified channel and in its threads, active and archived. When the channel is a thread, only that thread is cleared. Requires sudo mode verification. Returns 202 Accepted once matching messages have been removed.",
 				"security": [{"botToken": []}, {"sessionToken": []}],
 				"parameters": [
 					{
@@ -11390,7 +11390,7 @@
 						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
 					}
 				},
-				"description": "Sets how people sign in on a new self-hosted instance, and for email sign-in whether usernames are unique with no tag. Username sign-in always uses unique usernames. It works only before setup is finished and before the first account exists. After that it fails with ACCOUNT_IDENTITY_LOCKED.",
+				"description": "Sets how people sign in on a new self-hosted instance, and for email sign-in whether usernames are unique with no tag. Username sign-in always uses unique usernames. It works only before setup is finished and before the first account exists. After that it fails with ACCOUNT_IDENTITY_LOCKED. While the instance requires a setup token, the request must send it as setup_token.",
 				"requestBody": {
 					"required": true,
 					"content": {
@@ -22857,6 +22857,82 @@
 				}
 			}
 		},
+		"/webhooks/{webhook_id}/{token}/libredesk": {
+			"post": {
+				"operationId": "execute_libredesk_webhook",
+				"summary": "Execute Libredesk webhook",
+				"tags": ["Webhooks"],
+				"responses": {
+					"204": {"description": "No Content"},
+					"400": {
+						"description": "Bad Request - The request was malformed or contained invalid data",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					},
+					"429": {
+						"description": "Too Many Requests - You are being rate limited",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ThrottledError"}}},
+						"headers": {
+							"Retry-After": {
+								"description": "Number of seconds to wait before retrying (only on 429)",
+								"schema": {"type": "integer"}
+							},
+							"X-RateLimit-Limit": {
+								"description": "The number of requests that can be made in the current window",
+								"schema": {"type": "integer"}
+							},
+							"X-RateLimit-Remaining": {
+								"description": "The number of remaining requests that can be made",
+								"schema": {"type": "integer"}
+							},
+							"X-RateLimit-Reset": {
+								"description": "Unix timestamp when the rate limit resets",
+								"schema": {"type": "integer"}
+							}
+						}
+					},
+					"500": {
+						"description": "Internal Server Error - An unexpected error occurred",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					}
+				},
+				"description": "Receives and processes Libredesk help desk webhook events, formatting them as messages in the configured channel.",
+				"parameters": [
+					{
+						"name": "webhook_id",
+						"in": "path",
+						"required": true,
+						"schema": {"description": "The ID of the webhook", "$ref": "#/components/schemas/SnowflakeType"},
+						"description": "The ID of the webhook"
+					},
+					{
+						"name": "token",
+						"in": "path",
+						"required": true,
+						"schema": {"description": "The webhook token", "type": "string"},
+						"description": "The webhook token"
+					},
+					{
+						"name": "thread_id",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"anyOf": [
+								{
+									"type": "string",
+									"description": "ID of a thread in the webhook channel to target instead of the channel itself",
+									"x-fluxer-experiment": "channel_threads"
+								},
+								{"type": "null"}
+							]
+						}
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"content": {"application/json": {"schema": {"$ref": "#/components/schemas/LibredeskWebhook"}}}
+				}
+			}
+		},
 		"/webhooks/{webhook_id}/{token}/messages/{message_id}": {
 			"get": {
 				"operationId": "get_webhook_message",
@@ -23674,6 +23750,93 @@
 					"mention_roles"
 				],
 				"additionalProperties": false
+			},
+			"LibredeskWebhook": {
+				"type": "object",
+				"properties": {
+					"event": {"type": "string"},
+					"payload": {
+						"type": "object",
+						"properties": {
+							"uuid": {"type": ["string", "null"]},
+							"reference_number": {"type": ["string", "null"]},
+							"subject": {"type": ["string", "null"]},
+							"inbox_name": {"type": ["string", "null"]},
+							"contact": {
+								"anyOf": [
+									{
+										"type": "object",
+										"properties": {
+											"first_name": {"type": ["string", "null"]},
+											"last_name": {"type": ["string", "null"]}
+										}
+									},
+									{"type": "null"}
+								]
+							},
+							"conversation_uuid": {"type": ["string", "null"]},
+							"conversation": {
+								"anyOf": [
+									{
+										"type": "object",
+										"properties": {
+											"uuid": {"type": ["string", "null"]},
+											"reference_number": {"type": ["string", "null"]},
+											"subject": {"type": ["string", "null"]},
+											"inbox_name": {"type": ["string", "null"]},
+											"status_category": {"type": ["string", "null"]}
+										}
+									},
+									{"type": "null"}
+								]
+							},
+							"previous_status": {"type": ["string", "null"]},
+							"new_status": {"type": ["string", "null"]},
+							"snooze_until": {"type": ["string", "null"]},
+							"previous_tags": {"anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "null"}]},
+							"new_tags": {"anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "null"}]},
+							"assigned_to": {"anyOf": [{"$ref": "#/components/schemas/NonNegativeSafeIntegerType"}, {"type": "null"}]},
+							"type": {"type": ["string", "null"]},
+							"status": {"type": ["string", "null"]},
+							"text_content": {"type": ["string", "null"]},
+							"private": {"type": ["boolean", "null"]},
+							"sender_type": {"type": ["string", "null"]},
+							"meta": {
+								"anyOf": [
+									{
+										"type": "object",
+										"properties": {
+											"is_automated": {"type": ["boolean", "null"]},
+											"is_csat": {"type": ["boolean", "null"]},
+											"continuity_email": {"type": ["boolean", "null"]}
+										}
+									},
+									{"type": "null"}
+								]
+							},
+							"attachments": {
+								"anyOf": [
+									{"type": "array", "items": {"type": "object", "properties": {"name": {"type": ["string", "null"]}}}},
+									{"type": "null"}
+								]
+							},
+							"author": {
+								"anyOf": [
+									{
+										"type": "object",
+										"properties": {
+											"first_name": {"type": ["string", "null"]},
+											"last_name": {"type": ["string", "null"]}
+										}
+									},
+									{"type": "null"}
+								]
+							},
+							"name": {"type": ["string", "null"]}
+						}
+					}
+				},
+				"required": ["event", "payload"]
 			},
 			"InstatusWebhook": {
 				"type": "object",
@@ -29472,6 +29635,10 @@
 					"tag_style": {
 						"description": "How usernames are tagged. Defaults to none. Username sign-in accepts only none",
 						"$ref": "#/components/schemas/TagStyleSchema"
+					},
+					"setup_token": {
+						"description": "Setup token of a new self-hosted instance. Required until the first admin account exists",
+						"type": ["string", "null"]
 					}
 				},
 				"required": ["mode"]
@@ -32830,6 +32997,10 @@
 						],
 						"enum": ["dark", "dark_legacy", "coal", "light", "system"],
 						"type": "string"
+					},
+					"setup_token": {
+						"description": "Setup token of a new self-hosted instance. Required until the first admin account exists",
+						"type": ["string", "null"]
 					}
 				}
 			},
@@ -33569,6 +33740,10 @@
 					"account_identity_locked": {
 						"description": "Present only while a self-hosted instance is unconfigured. True when the sign-in method can no longer change",
 						"type": "boolean"
+					},
+					"setup_token_required": {
+						"description": "Present only while a self-hosted instance is unconfigured. True when registration needs the setup token",
+						"type": "boolean"
 					}
 				},
 				"required": ["configured", "admin_url"],
@@ -33765,6 +33940,7 @@
 						"description": "Whether desktop clients may load downloadable modules",
 						"type": "boolean"
 					},
+					"discovery_enabled": {"description": "Whether community discovery is enabled", "type": "boolean"},
 					"account_deletion_grace_period_hours": {
 						"description": "Hours between a deletion request and the permanent deletion of the account",
 						"type": "integer",
@@ -36418,13 +36594,16 @@
 						"anyOf": [{"type": "integer", "minimum": 0, "maximum": 9007199254740991}, {"type": "string"}],
 						"description": "The template-local channel ID"
 					},
-					"type": {"type": "number", "description": "The channel type (0 = text, 2 = voice, 4 = category)"},
+					"type": {
+						"type": "number",
+						"description": "The channel type (0 = text, 2 = voice, 4 = category, 5 = announcement, 13 = stage, 15 = forum, 16 = media)"
+					},
 					"name": {
 						"description": "The name of the channel",
 						"anyOf": [{"type": "string", "maxLength": 100}, {"type": "null"}]
 					},
 					"topic": {
-						"description": "The channel topic, shortened to the Fluxer channel topic limit",
+						"description": "The channel topic or forum guidelines, shortened to the limit for the channel type",
 						"anyOf": [{"type": "string", "maxLength": 4096}, {"type": "null"}]
 					},
 					"position": {"description": "The position of the channel", "$ref": "#/components/schemas/Int32Type"},
@@ -36450,38 +36629,129 @@
 						"description": "The per-user voice connection limit for voice channels",
 						"anyOf": [{"type": "integer", "minimum": 1, "maximum": 100}, {"type": "null"}]
 					},
-					"nsfw": {"description": "Whether the channel is NSFW", "type": "boolean"},
+					"nsfw": {"description": "Whether the channel is NSFW", "type": ["boolean", "null"]},
 					"rate_limit_per_user": {
 						"description": "Slowmode rate limit in seconds",
-						"type": "integer",
-						"minimum": 0,
-						"maximum": 21600
+						"anyOf": [{"type": "integer", "minimum": 0, "maximum": 21600}, {"type": "null"}]
 					},
 					"permission_overwrites": {
 						"description": "Permission overwrites for this channel",
-						"type": "array",
-						"items": {
-							"type": "object",
-							"properties": {
-								"id": {
-									"anyOf": [{"type": "integer", "minimum": 0, "maximum": 9007199254740991}, {"type": "string"}],
-									"description": "The ID of the role or user for this overwrite"
-								},
-								"type": {
-									"description": "The type of overwrite (0/role = role, 1/member = member)",
-									"type": ["number", "string"]
-								},
-								"allow": {
-									"anyOf": [{"type": "string"}, {"type": "integer", "minimum": 0, "maximum": 9007199254740991}],
-									"description": "The allowed permissions bitfield as a string"
-								},
-								"deny": {
-									"anyOf": [{"type": "string"}, {"type": "integer", "minimum": 0, "maximum": 9007199254740991}],
-									"description": "The denied permissions bitfield as a string"
+						"anyOf": [
+							{
+								"type": "array",
+								"items": {
+									"type": "object",
+									"properties": {
+										"id": {
+											"anyOf": [{"type": "integer", "minimum": 0, "maximum": 9007199254740991}, {"type": "string"}],
+											"description": "The ID of the role or user for this overwrite"
+										},
+										"type": {
+											"description": "The type of overwrite (0/role = role, 1/member = member)",
+											"type": ["number", "string"]
+										},
+										"allow": {
+											"anyOf": [{"type": "string"}, {"type": "integer", "minimum": 0, "maximum": 9007199254740991}],
+											"description": "The allowed permissions bitfield as a string"
+										},
+										"deny": {
+											"anyOf": [{"type": "string"}, {"type": "integer", "minimum": 0, "maximum": 9007199254740991}],
+											"description": "The denied permissions bitfield as a string"
+										}
+									},
+									"required": ["id", "type", "allow", "deny"]
 								}
 							},
-							"required": ["id", "type", "allow", "deny"]
-						}
+							{"type": "null"}
+						]
+					},
+					"available_tags": {
+						"description": "Tags for forum and media channels",
+						"anyOf": [
+							{
+								"maxItems": 100,
+								"type": "array",
+								"items": {
+									"type": "object",
+									"properties": {
+										"name": {"type": "string", "maxLength": 100, "description": "The name of the tag"},
+										"moderated": {
+											"description": "Whether only moderators can apply the tag",
+											"type": ["boolean", "null"]
+										},
+										"emoji_id": {
+											"description": "A custom emoji reference, ignored on import",
+											"anyOf": [
+												{
+													"anyOf": [
+														{"type": "string", "maxLength": 64},
+														{"type": "integer", "minimum": 0, "maximum": 9007199254740991}
+													]
+												},
+												{"type": "null"}
+											]
+										},
+										"emoji_name": {
+											"description": "The unicode emoji of the tag",
+											"anyOf": [{"type": "string", "maxLength": 64}, {"type": "null"}]
+										}
+									},
+									"required": ["name"]
+								}
+							},
+							{"type": "null"}
+						]
+					},
+					"default_reaction_emoji": {
+						"description": "Default reaction for forum and media posts",
+						"anyOf": [
+							{
+								"type": "object",
+								"properties": {
+									"emoji_id": {
+										"description": "A custom emoji reference, ignored on import",
+										"anyOf": [
+											{
+												"anyOf": [
+													{"type": "string", "maxLength": 64},
+													{"type": "integer", "minimum": 0, "maximum": 9007199254740991}
+												]
+											},
+											{"type": "null"}
+										]
+									},
+									"emoji_name": {
+										"description": "The unicode emoji",
+										"anyOf": [{"type": "string", "maxLength": 64}, {"type": "null"}]
+									}
+								}
+							},
+							{"type": "null"}
+						]
+					},
+					"default_sort_order": {
+						"description": "Default post sort order for forum and media channels",
+						"anyOf": [{"type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991}, {"type": "null"}]
+					},
+					"default_forum_layout": {
+						"description": "Default layout for forum channels",
+						"anyOf": [{"type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991}, {"type": "null"}]
+					},
+					"default_tag_setting": {
+						"description": "How posts are filtered by several tags",
+						"anyOf": [{"type": "string", "maxLength": 32}, {"type": "null"}]
+					},
+					"default_thread_rate_limit_per_user": {
+						"description": "Slowmode in seconds copied onto new threads",
+						"anyOf": [{"type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991}, {"type": "null"}]
+					},
+					"default_auto_archive_duration": {
+						"description": "Default auto archive duration in minutes for new threads",
+						"anyOf": [{"type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991}, {"type": "null"}]
+					},
+					"flags": {
+						"description": "Channel flags",
+						"anyOf": [{"type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991}, {"type": "null"}]
 					}
 				},
 				"required": ["id", "type", "position"]
@@ -39830,6 +40100,11 @@
 					"EMAIL_UNAVAILABLE_ON_INSTANCE",
 					"EMAIL_VERIFICATION_REQUIRED",
 					"DIRECT_MESSAGE_EMAIL_VERIFICATION_REQUIRED",
+					"ENFORCEMENT_ACCOUNT_CLOSED",
+					"ENFORCEMENT_DECISION_ENDED",
+					"ENFORCEMENT_DECISION_OWNS_STATE",
+					"ENFORCEMENT_DECISION_REPLACED",
+					"ENFORCEMENT_DELETION_STARTED",
 					"FOLLOW_TARGET_CONTENT_WARNING_REQUIRED",
 					"FOLLOW_TARGET_NOT_AGE_RESTRICTED",
 					"FRIEND_REQUEST_EMAIL_VERIFICATION_REQUIRED",
@@ -39847,6 +40122,7 @@
 					"REACTION_EMAIL_VERIFICATION_REQUIRED",
 					"REPORT_EMAIL_VERIFICATION_REQUIRED",
 					"REGISTRATION_CLOSED",
+					"REGISTRATION_CREDENTIALS_REQUIRED",
 					"REGISTRATION_PENDING_APPROVAL",
 					"REGISTRATION_REJECTED",
 					"REGISTRATION_URL_INVALID",
@@ -39906,6 +40182,7 @@
 					"GLOBAL_IP_BANNED",
 					"GLOBAL_IP_TEMPORARILY_BANNED",
 					"IP_BAN_DECLINED",
+					"IP_BAN_LINKED_TO_DECISION",
 					"MAX_APPLICATIONS",
 					"MAX_BOOKMARKS",
 					"MAX_ACTIVE_THREADS",
@@ -40020,6 +40297,7 @@
 					"UNCLAIMED_ACCOUNT_CANNOT_SUBMIT_REPORTS",
 					"UNKNOWN_CHANNEL",
 					"UNKNOWN_EMOJI",
+					"UNKNOWN_ENFORCEMENT_DECISION",
 					"UNKNOWN_FAVORITE_MEME",
 					"UNKNOWN_FORUM_TAG",
 					"UNKNOWN_GIFT_CODE",
@@ -40125,6 +40403,11 @@
 					"This instance doesn't use email.",
 					"Email verification is required for this action.",
 					"Email verification is required for this action.",
+					"This account is closed, so it can't be suspended.",
+					"This decision has already ended.",
+					"An enforcement decision owns this restriction. End the decision instead.",
+					"A later decision replaced this one, so it can no longer be ended.",
+					"The deletion of this account has already started, so the decision can no longer be ended.",
 					"Updates from a channel with a content warning can only go to a channel with a content warning or an age restriction.",
 					"Updates from an age-restricted channel can only go to an age-restricted channel.",
 					"Email verification is required for this action.",
@@ -40142,6 +40425,7 @@
 					"Email verification is required for this action.",
 					"Email verification is required for this action.",
 					"Registration is closed on this instance.",
+					"This instance reviews new accounts. Sign up from the sign-up page with a password so you can sign in once approved.",
 					"This registration is waiting for admin approval.",
 					"This registration request was rejected.",
 					"This registration link is invalid or has expired.",
@@ -40198,9 +40482,10 @@
 					"IP authorization is required.",
 					"IP authorization resend is on cooldown.",
 					"IP authorization resend limit exceeded.",
-					"Your IP address {ipAddress} has been permanently blocked from the {product_name} API by platform administrators. {appealEmail, select, null {If you believe this is a mistake, contact the administrators of this instance to appeal.} other {If you believe this is a mistake, contact {appealEmail} to appeal.}} Include this IP address in your appeal.",
-					"Your IP address {ipAddress} has been temporarily blocked from the {product_name} API. The block lifts on its own when it expires. {appealEmail, select, null {If you think this is a mistake, contact the administrators of this instance and include this IP address.} other {If you think this is a mistake, contact {appealEmail} and include this IP address.}}",
+					"{reason, select, shown {{product_name} blocked access from this network because of activity that broke its rules.} other {{product_name} blocked access from this network.}} If you share this network, for example at school, at work, on public Wi-Fi, through your mobile carrier or a VPN, this block may have nothing to do with you. The quickest fix is to switch networks, for example to mobile data instead of Wi-Fi, or to turn your VPN on or off.{appealEmail, select, null {} other { If you think this block is a mistake, email {appealEmail} and include your IP address, {ipAddress}.}}",
+					"{reason, select, shown {{product_name} blocked access from this network because of activity that broke its rules.} other {{product_name} blocked access from this network.}} The block ends on {expiresAt}. If you share this network, for example at school, at work, on public Wi-Fi, through your mobile carrier or a VPN, this block may have nothing to do with you. The quickest fix is to switch networks, for example to mobile data instead of Wi-Fi, or to turn your VPN on or off.{appealEmail, select, null {} other { If you think this block is a mistake, email {appealEmail} and include your IP address, {ipAddress}.}}",
 					"This IP address cannot be added to the blocklist.",
+					"This network block belongs to an enforcement decision. End the decision to remove it.",
 					"You've reached the maximum of {limit, plural, one {# application} other {# applications}}.",
 					"You've reached the maximum of {count, plural, one {# bookmark} other {# bookmarks}}.",
 					"This community has reached its active thread limit of {count}.",
@@ -40315,6 +40600,7 @@
 					"You need to complete your account setup before you can submit reports.",
 					"Channel wasn't found.",
 					"Unknown emoji.",
+					"Unknown enforcement decision.",
 					"Unknown saved media.",
 					"Tag wasn't found.",
 					"Unknown gift code.",

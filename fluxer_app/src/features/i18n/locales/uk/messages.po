@@ -89,7 +89,7 @@ msgstr "{actor} додав(-ла) стікер"
 #. Activity log summary for a custom emoji that was added to the community when its name was not recorded. {actor} is the member who added it, shown as a clickable user chip, or the word System.
 #: src/features/guild/utils/guild_tabs/audit_log/AuditLogExpressionMessageMessages.ts
 msgid "{actor} added an emoji"
-msgstr "{actor} додав(-ла) емодзі"
+msgstr "{actor} додав(-ла) емоджі"
 
 #. Activity log summary for a bot that was added to the community. {actor} is the member who added the bot, shown as a clickable user chip, or the word System. {target} is the bot, shown as a clickable user chip.
 #: src/features/guild/utils/guild_tabs/audit_log/AuditLogMemberMessages.ts
@@ -104,7 +104,7 @@ msgstr "{actor} додав(-ла) бота {target} як тимчасового 
 #. Activity log summary for a custom emoji that was uploaded or copied to the community. {actor} is the member who added it, shown as a clickable user chip, or the word System. {emoji} is the emoji, shown as its image when it still exists, followed by its name between colons, for example :blobcat:.
 #: src/features/guild/utils/guild_tabs/audit_log/AuditLogExpressionMessageMessages.ts
 msgid "{actor} added the emoji {emoji}"
-msgstr "{actor} додав(-ла) емодзі {emoji}"
+msgstr "{actor} додав(-ла) емоджі {emoji}"
 
 #. Activity log summary for a sticker that was uploaded or copied to the community. {actor} is the member who added it, shown as a clickable user chip, or the word System. {name} is the sticker name, shown in bold. The app adds the bold, so do not add ** or <b>.
 #: src/features/guild/utils/guild_tabs/audit_log/AuditLogExpressionMessageMessages.ts
@@ -334,7 +334,7 @@ msgstr "{actor} видалив(-ла) вебхук"
 #. Activity log summary for a custom emoji that was deleted when its name was not recorded. {actor} is the member who deleted it, shown as a clickable user chip, or the word System.
 #: src/features/guild/utils/guild_tabs/audit_log/AuditLogExpressionMessageMessages.ts
 msgid "{actor} deleted an emoji"
-msgstr "{actor} видалив(-ла) емодзі"
+msgstr "{actor} видалив(-ла) емоджі"
 
 #. Activity log summary for several messages that were deleted together when neither their number nor the channel was recorded. {actor} is the member who deleted them, shown as a clickable user chip, or the word System.
 #: src/features/guild/utils/guild_tabs/audit_log/AuditLogExpressionMessageMessages.ts
@@ -364,7 +364,7 @@ msgstr "{actor} видалив(-ла) канал {channel}"
 #. Activity log summary for a custom emoji that was deleted from the community. {actor} is the member who deleted it, shown as a clickable user chip, or the word System. {emoji} is the name of the deleted emoji between colons, for example :blobcat:, shown without an image.
 #: src/features/guild/utils/guild_tabs/audit_log/AuditLogExpressionMessageMessages.ts
 msgid "{actor} deleted the emoji {emoji}"
-msgstr "{actor} видалив(-ла) емодзі {emoji}"
+msgstr "{actor} видалив(-ла) емоджі {emoji}"
 
 #. Activity log summary when a forum channel was deleted. {channel} is the deleted channel, shown as a channel chip with the name it had.
 #: src/features/guild/utils/guild_tabs/audit_log/AuditLogForumPresentation.ts
@@ -629,7 +629,7 @@ msgstr "{actor} перейменував(-ла) спільноту з {oldName} 
 #. Activity log summary for a custom emoji that got a new name. Only the name changed. The emoji was not replaced with a different one. {actor} is the member who renamed it, shown as a clickable user chip, or the word System. {oldEmoji} is the previous name between colons, shown without an image. {newEmoji} is the new name between colons, shown after the emoji image when the emoji still exists.
 #: src/features/guild/utils/guild_tabs/audit_log/AuditLogExpressionMessageMessages.ts
 msgid "{actor} renamed the emoji {oldEmoji} to {newEmoji}"
-msgstr "{actor} перейменував(-ла) емодзі {oldEmoji} на {newEmoji}"
+msgstr "{actor} перейменував(-ла) емоджі {oldEmoji} на {newEmoji}"
 
 #. Activity log summary when the only change to a forum channel was its name. {oldName} and {newName} are shown in bold by the app, so do not add ** or <b>.
 #: src/features/guild/utils/guild_tabs/audit_log/AuditLogForumPresentation.ts
@@ -794,7 +794,7 @@ msgstr "{actor} оновив(-ла) вебхук"
 #. Activity log summary for a custom emoji that was edited when neither a change nor the emoji name is known. {actor} is the member who edited it, shown as a clickable user chip, or the word System.
 #: src/features/guild/utils/guild_tabs/audit_log/AuditLogExpressionMessageMessages.ts
 msgid "{actor} updated an emoji"
-msgstr "{actor} оновив(-ла) емодзі"
+msgstr "{actor} оновив(-ла) емоджі"
 
 #. Activity log summary when settings of an announcement channel were changed. The changes are listed as detail rows below it. {actor} is the member who made the change, shown as a clickable user chip, or the word System. {channel} is the channel, shown as a channel chip with its name.
 #: src/features/guild/utils/guild_tabs/audit_log/AuditLogChannelMessages.ts
@@ -819,7 +819,7 @@ msgstr "{actor} оновив налаштування спільноти"
 #. Activity log summary for a custom emoji that was edited when no change to show was recorded. {actor} is the member who edited it, shown as a clickable user chip, or the word System. {emoji} is the emoji, shown as its image when it still exists, followed by its name between colons, for example :blobcat:.
 #: src/features/guild/utils/guild_tabs/audit_log/AuditLogExpressionMessageMessages.ts
 msgid "{actor} updated the emoji {emoji}"
-msgstr "{actor} оновив(-ла) емодзі {emoji}"
+msgstr "{actor} оновив(-ла) емоджі {emoji}"
 
 #. Activity log summary when settings of a forum channel were changed. The changes are listed as detail rows below it. {channel} is shown as a channel chip.
 #: src/features/guild/utils/guild_tabs/audit_log/AuditLogForumPresentation.ts
@@ -1328,7 +1328,7 @@ msgstr "{count, plural, one {Запрошення використали # ра�
 #. Body text of the emoji upload progress modal. {count} is the number of emojis being uploaded.
 #: src/features/emoji/components/modals/EmojiUploadModal.tsx
 msgid "{count, plural, one {Uploading # emoji. This may take a little while.} other {Uploading # emojis. This may take a little while.}}"
-msgstr "{count, plural, one {Завантажується # емодзі. Це може зайняти трохи часу.} few {Завантажуються # емодзі. Це може зайняти трохи часу.} many {Завантажується # емодзі. Це може зайняти трохи часу.} other {Завантажується # емодзі. Це може зайняти трохи часу.}}"
+msgstr "{count, plural, one {Завантажується # емоджі. Це може зайняти трохи часу.} few {Завантажуються # емоджі. Це може зайняти трохи часу.} many {Завантажується # емоджі. Це може зайняти трохи часу.} other {Завантажується # емоджі. Це може зайняти трохи часу.}}"
 
 #: src/features/messaging/components/alerts/TooManyAttachmentsModal.tsx
 msgid "{count, plural, one {You can only upload # file at a time. Try again with fewer files.} other {You can only upload # files at a time. Try again with fewer files.}}"
@@ -1802,6 +1802,24 @@ msgstr "Щоб зміни в рядку заголовка набули чинн
 msgid "{PRODUCT_NAME} needs to restart to disable Chromium's hardware acceleration. Use this only if you're troubleshooting graphics glitches or high GPU usage."
 msgstr "{PRODUCT_NAME} потрібно перезапустити, щоб вимкнути апаратне прискорення Chromium. Використовуйте це лише для усунення несправностей графіки або високого завантаження графічного процесора."
 
+#: src/features/user/components/modals/tabs/advanced_settings_tab/AdvancedDesktopControls.tsx
+msgid "{PRODUCT_NAME} needs to restart to install updates automatically again."
+msgstr "{PRODUCT_NAME} потрібно перезапустити, щоб знову автоматично встановлювати оновлення."
+
+#: src/features/user/components/modals/tabs/advanced_settings_tab/AdvancedDesktopControls.tsx
+msgid "{PRODUCT_NAME} needs to restart to stop updating while starting. When an update is available, you can install it from the app whenever you like."
+msgstr "{PRODUCT_NAME} потрібно перезапустити, щоб зупинити оновлення під час запуску. Коли оновлення буде доступне, ви зможете встановити його в додатку будь-коли."
+
+#. Desktop updater modal body for a Flatpak install when a newer desktop version exists. The version placeholder is the new app version and productName is the app name.
+#: src/features/updater/commands/UpdaterModalCommands.tsx
+msgid "{productName} {version} is available. Update it from your software center."
+msgstr "{productName} {version} доступно. Оновіть його з вашого програмного центру."
+
+#. Desktop updater modal body for a Linux install managed by a package manager, such as a deb, rpm or AUR package, when a newer desktop version exists. The version placeholder is the new app version and productName is the app name.
+#: src/features/updater/commands/UpdaterModalCommands.tsx
+msgid "{productName} {version} is available. Update it with your package manager, or download the new version."
+msgstr "Доступна нова версія {productName} {version}. Оновіть її за допомогою менеджера пакунків або завантажте нову версію."
+
 #. Accessible label for the Fluxer application icon.
 #: src/features/ui/components/icons/FluxerIconMark.tsx
 msgid "{productName} application icon"
@@ -1811,6 +1829,16 @@ msgstr "Іконка застосунку {productName}"
 #: src/features/user/components/modals/tabs/notifications_tab/PushSettings.tsx
 msgid "{productName} avoids sending push notifications to your mobile devices when you are at your computer. Choose how long you need to be inactive on desktop before you receive push notifications."
 msgstr "{productName} не надсилає push-сповіщення на ваші мобільні пристрої, коли ви за комп'ютером. Виберіть, скільки часу ви маєте бути неактивними на комп'ютері, перш ніж почнете отримувати push-сповіщення."
+
+#. First sentence of the network blocked screen when a rule is shown. productName is the app name. Must read the same as the error message for this block.
+#: src/features/auth/AuthMessageDescriptors.ts
+msgid "{productName} blocked access from this network because of activity that broke its rules."
+msgstr "{productName} заблокував доступ із цієї мережі через дії, що порушили його правила."
+
+#. First sentence of the network blocked screen when no rule is shown. productName is the app name. Must read the same as the error message for this block.
+#: src/features/auth/AuthMessageDescriptors.ts
+msgid "{productName} blocked access from this network."
+msgstr "{productName} заблокував доступ із цієї мережі."
 
 #. Short badge title in the user profile badges popout. Preserve {productName}; it is inserted by code. English locales use Title Case for official badge titles; other locales should use natural local capitalization.
 #: src/features/user/components/popouts/UserProfileBadges.tsx
@@ -1911,6 +1939,16 @@ msgstr "{productName} переїхав на {host}. Установіть нов�
 msgid "{productName} has moved to {host}. Open it in your browser to install the new app."
 msgstr "{productName} переїхав на {host}. Відкрийте його у браузері, щоб установити новий застосунок."
 
+#. Intro in the modal that explains how to install the app from its new domain. productName is the app name. host is the new domain, for example fluxer.com.
+#: src/features/app/domain_migration/DomainMovedStepsModal.tsx
+msgid "{productName} is now at {host}. Install it from there, then sign in with this app."
+msgstr "{productName} тепер за адресою {host}. Встановіть його звідти, а потім увійдіть за допомогою цієї програми."
+
+#. Intro in the modal that explains how to install the app from its new domain when the account already moved. productName is the app name. host is the new domain, for example fluxer.com.
+#: src/features/app/domain_migration/DomainMovedStepsModal.tsx
+msgid "{productName} is now at {host}. Install it from there."
+msgstr "{productName} тепер за адресою {host}. Встановіть звідти."
+
 #. Profile membership label showing when the user account was created.
 #: src/features/user/components/popouts/UserProfileShared.tsx
 msgid "{productName} member since"
@@ -1950,16 +1988,6 @@ msgstr "Щоб переглянути список пристроїв, заст�
 #: src/features/permissions/system/components/MediaPermissionBlockedModal.tsx
 msgid "{productName} needs screen recording access. Allow screen recording in your operating system privacy settings and restart the app."
 msgstr "{productName} потрібен доступ до запису екрана. Увімкніть запис екрана в налаштуваннях конфіденційності вашої операційної системи та перезапустіть застосунок."
-
-#. Intro in the modal that explains how to install the app from its new domain. productName is the app name. host is the new domain, for example fluxer.com.
-#: src/features/app/domain_migration/DomainMovedStepsModal.tsx
-msgid "{productName} now lives at {host}. Install it from there, then sign in with this app."
-msgstr "{productName} тепер доступний на {host}. Встановіть його звідти, а потім увійдіть за допомогою цього застосунку."
-
-#. Intro in the modal that explains how to install the app from its new domain when the account already moved. productName is the app name. host is the new domain, for example fluxer.com.
-#: src/features/app/domain_migration/DomainMovedStepsModal.tsx
-msgid "{productName} now lives at {host}. Install it from there."
-msgstr "{productName} тепер доступний на {host}. Встановіть його звідти."
 
 #. Short badge title in the user profile badges popout. Preserve {productName}; it is inserted by code. English locales use Title Case for official badge titles; other locales should use natural local capitalization.
 #: src/features/user/components/popouts/UserProfileBadges.tsx
@@ -2015,6 +2043,11 @@ msgstr "{productName} Visionary"
 #: src/features/user/components/popouts/UserProfileBadges.tsx
 msgid "{productName} Visionary since {premiumSinceFormatted}"
 msgstr "{productName} Visionary з {premiumSinceFormatted}"
+
+#. Settings search entry description. One-line summary of what the settings search entry controls.
+#: src/features/user/components/settings_utils/search_index/DesktopSettingsIndex.ts
+msgid "{productName} won't update while starting. When an update is available, you can install it from the app whenever you like. Takes effect the next time {productName} starts."
+msgstr "{productName} не оновлюватиметься під час запуску. Коли оновлення буде доступне, ви зможете встановити його в додатку будь-коли. Набере чинності наступного разу, коли запуститься {productName}."
 
 #. Accessible label for the application wordmark.
 #: src/features/ui/components/icons/FluxerWordmark.tsx
@@ -2119,6 +2152,11 @@ msgstr "Екран {streamerDisplayName}"
 msgid "{tenSeconds} seconds"
 msgstr "{tenSeconds} секунд"
 
+#. Template preview summary listing how many text channels, forum channels, voice channels, categories, and roles will be imported. Used when the template has at least one forum or media channel.
+#: src/features/guild/components/modals/add_guild_modal/TemplateImportForm.tsx
+msgid "{textChannelCount, plural, one {# text channel} other {# text channels}}, {forumChannelCount, plural, one {# forum channel} other {# forum channels}}, {voiceChannelCount, plural, one {# voice channel} other {# voice channels}}, {categoryCount, plural, one {# category} other {# categories}}, {roleCount, plural, one {# role} other {# roles}}"
+msgstr "{textChannelCount, plural, one {# текстовий канал} few {# текстові канали} many {# текстових каналів} other {# текстових каналів}}, {forumChannelCount, plural, one {# форумний канал} few {# форумні канали} many {# форумних каналів} other {# форумних каналів}}, {voiceChannelCount, plural, one {# голосовий канал} few {# голосові канали} many {# голосових каналів} other {# голосових каналів}}, {categoryCount, plural, one {# категорія} few {# категорії} many {# категорій} other {# категорій}}, {roleCount, plural, one {# роль} few {# ролі} many {# ролей} other {# ролей}}"
+
 #. Template preview summary listing how many text channels, voice channels, categories, and roles will be imported.
 #: src/features/guild/components/modals/add_guild_modal/TemplateImportForm.tsx
 msgid "{textChannelCount, plural, one {# text channel} other {# text channels}}, {voiceChannelCount, plural, one {# voice channel} other {# voice channels}}, {categoryCount, plural, one {# category} other {# categories}}, {roleCount, plural, one {# role} other {# roles}}"
@@ -2128,6 +2166,11 @@ msgstr "{textChannelCount, plural, one {# текстовий канал} few {# 
 #: src/features/theme/state/ThemeLibrary.ts
 msgid "{themeName} Copy"
 msgstr "Копія {themeName}"
+
+#. Error in the import-template form when the third-party platform named by {theOtherPlatform} temporarily refused the desktop app template lookup because of too many requests.
+#: src/features/guild/components/modals/add_guild_modal/shared.ts
+msgid "{theOtherPlatform} is limiting template lookups right now. Try again in a moment."
+msgstr "{theOtherPlatform} тимчасово обмежує пошук шаблонів. Спробуйте ще раз за мить."
 
 #. Time window preset label shown as a standalone duration in option lists. The number is interpolated.
 #: src/features/app/config/TimeWindowPresets.ts
@@ -2607,12 +2650,12 @@ msgstr "Спільнота, доступ до якої можливий лише
 #. Description of a custom emoji in the emoji info card when the viewer can use it outside the community. productName is the Fluxer product name.
 #: src/features/expressions/components/ExpressionInfoCard.tsx
 msgid "A custom emoji from this community. You can use it anywhere on {productName}."
-msgstr "Власний емодзі з цієї спільноти. Ви можете використовувати його будь-де в {productName}."
+msgstr "Власний емоджі з цієї спільноти. Ви можете використовувати його будь-де в {productName}."
 
 #. Description of a custom emoji in the emoji info card when the viewer can only use it inside the community.
 #: src/features/expressions/components/ExpressionInfoCard.tsx
 msgid "A custom emoji from this community. You can use it in this community."
-msgstr "Власний емодзі з цієї спільноти. Ви можете використовувати його в цій спільноті."
+msgstr "Власний емоджі з цієї спільноти. Ви можете використовувати його в цій спільноті."
 
 #. Description of a custom sticker in the sticker info card when the viewer can use it outside the community. productName is the Fluxer product name.
 #: src/features/expressions/components/ExpressionInfoCard.tsx
@@ -2632,7 +2675,7 @@ msgstr "дата або діапазон дат"
 #. Description of a built-in unicode emoji in the emoji info card. productName is the Fluxer product name.
 #: src/features/expressions/components/ExpressionInfoCard.tsx
 msgid "A default emoji. You can use it anywhere on {productName}."
-msgstr "Стандартний емодзі. Ви можете використовувати його будь-де в {productName}."
+msgstr "Стандартний емоджі. Ви можете використовувати його будь-де в {productName}."
 
 #. Inline validation error on the Discovery application form when the description field is empty.
 #: src/features/guild/components/modals/guild_tabs/GuildDiscoveryTab.tsx
@@ -2668,11 +2711,6 @@ msgstr "Корисний бот, який робить дивовижні реч
 #: src/features/search/utils/SearchUtils.ts
 msgid "a hostname, e.g. {exampleDomain}"
 msgstr "ім'я хоста, наприклад, {exampleDomain}"
-
-#. Linux desktop updater modal body shown before version details and package format selector. productName is the app name.
-#: src/features/updater/commands/UpdaterModalCommands.tsx
-msgid "A Linux desktop update is available. Choose the package format for this system and {productName} will save it locally."
-msgstr "Доступне оновлення для комп'ютера в Linux. Оберіть формат пакета для цієї системи, і {productName} збереже його локально."
 
 #. Plutonium subscription card line offering a move to a lower price. {listPriceEffectiveDate} is a date already formatted and localized by code; never write a date into the translation.
 #: src/features/app/components/dialogs/components/plutonium/SubscriptionCard.tsx
@@ -2861,14 +2899,29 @@ msgstr "Перевизначення облікового запису та пр
 msgid "Account and security details are hidden"
 msgstr "Дані облікового запису та безпеки приховані"
 
+#. Title of the sign-in screen for an account suspended with no end date.
+#: src/features/auth/flow/AccountRestrictionScreen.tsx
+msgid "Account banned"
+msgstr "Акаунт заблоковано"
+
 #. Short label in the authentication claim account modal. Keep the tone plain and specific.
 #: src/features/auth/components/modals/ClaimAccountModal.tsx
 msgid "Account claimed successfully"
 msgstr "Обліковий запис успішно зареєстровано"
 
+#. Title of the sign-in screen for an account the team closed and will delete.
+#: src/features/auth/flow/AccountRestrictionScreen.tsx
+msgid "Account closed"
+msgstr "Акаунт закрито"
+
 #: src/features/connection/components/pages/ConnectionCallbackPage.tsx
 msgid "Account connected"
 msgstr "Обліковий запис підключено"
+
+#. One line of the support email written for the user. createdAt is the account creation time as an ISO 8601 UTC timestamp.
+#: src/features/user/utils/MessagingPausedHelpEmail.ts
+msgid "Account created: {createdAt}"
+msgstr "Обліковий запис створено: {createdAt}"
 
 #. Settings search synonym. Used to match this term when the user types it in the settings search bar.
 #: src/features/user/components/settings_utils/section_registry/PrivacySafetySections.ts
@@ -2880,6 +2933,11 @@ msgstr "Дані облікового запису"
 msgid "Account details unavailable"
 msgstr "Відомості про обліковий запис недоступні"
 
+#. One line of the support email written for the user. accountId is the numeric account ID.
+#: src/features/user/utils/MessagingPausedHelpEmail.ts
+msgid "Account ID: {accountId}"
+msgstr "ID облікового запису: {accountId}"
+
 #. Settings search synonym. Used to match this term when the user types it in the settings search bar.
 #: src/features/user/components/settings_utils/section_registry/AccountSecuritySections.ts
 msgid "Account removal"
@@ -2889,6 +2947,11 @@ msgstr "Видалення облікового запису"
 #: src/features/channel/components/channel_header_components/developer_tools/AccountPremiumMenu.tsx
 msgid "Account state"
 msgstr "Стан облікового запису"
+
+#. Title of the sign-in screen for an account suspended until a set date.
+#: src/features/auth/flow/AccountRestrictionScreen.tsx
+msgid "Account suspended"
+msgstr "Акаунт тимчасово заблоковано"
 
 #. Developer tools debug menu label. Internal-only surface for developers; translators may keep this terse.
 #: src/features/channel/components/channel_header_components/developer_tools/OptionPresets.ts
@@ -3233,7 +3296,7 @@ msgstr "Додати електронну пошту"
 #. Accessible label of the emoji button in the new post composer.
 #: src/features/forum/utils/ForumMessageDescriptors.ts
 msgid "Add emoji"
-msgstr "Додати емодзі"
+msgstr "Додати емоджі"
 
 #. Modal or page title for the add-favorite-channels flow.
 #: src/features/expressions/components/modals/AddFavoriteChannelModal.tsx
@@ -3964,7 +4027,7 @@ msgstr "Кому дозволено запрошувати"
 #. Activity log detail line under a community settings update, shown when the Let others clone your emojis setting was turned on. Members of other communities can now clone the custom emojis of this community into their own communities. Use the same word for clone as the Clone emoji and Clone sticker menu items. It continues the entry summary, so it has no subject. It is a past tense record of a change the actor in the summary already made, never an instruction to the reader. Do not write it as a command, a button label or in first or second person. It is not the label of the setting.
 #: src/features/guild/utils/guild_tabs/audit_log/AuditLogGuildMessages.ts
 msgid "Allowed others to clone this community's emojis"
-msgstr "Дозволено іншим клонувати емодзі цієї спільноти"
+msgstr "Дозволено іншим клонувати емоджі цієї спільноти"
 
 #. Activity log detail line under a community settings update, shown when the Let others clone your stickers setting was turned on. Members of other communities can now clone the stickers of this community into their own communities. Use the same word for clone as the Clone emoji and Clone sticker menu items. It continues the entry summary, so it has no subject. It is a past tense record of a change the actor in the summary already made, never an instruction to the reader. Do not write it as a command, a button label or in first or second person. It is not the label of the setting.
 #: src/features/guild/utils/guild_tabs/audit_log/AuditLogGuildMessages.ts
@@ -6116,7 +6179,7 @@ msgstr "Яскравість"
 #. Plutonium page perk card body about global emojis and stickers.
 #: src/features/premium/components/plutonium_page/PlutoniumPageMessages.ts
 msgid "Bring custom emojis and stickers from any of your communities into every chat and community you're in."
-msgstr "Додавайте власні емодзі та стікери з будь-яких спільнот до кожного чату та спільноти, в яких ви перебуваєте."
+msgstr "Додавайте власні емоджі та стікери з будь-яких спільнот до кожного чату та спільноти, в яких ви перебуваєте."
 
 #. Title of the modal shown when the browser autoplay policy blocks voice audio until the user interacts.
 #: src/features/voice/components/modals/AudioPlaybackPermissionModal.tsx
@@ -6365,7 +6428,7 @@ msgstr "Дзвінок доступний"
 msgid "Call confirmation"
 msgstr "Підтвердження дзвінка"
 
-#. Overlay text shown in the in-app call area while the call view lives in a separate popped-out window.
+#. Overlay text shown in the in-app call area while the call view is in a separate popped-out window.
 #: src/features/voice/components/popout/PoppedOutOverlay.tsx
 msgid "Call is popped out"
 msgstr "Дзвінок відкрито в окремому вікні"
@@ -8293,12 +8356,12 @@ msgstr "Годинник"
 #. Settings search synonym. Used to match this term when the user types it in the settings search bar.
 #: src/features/user/components/settings_utils/search_index/AdvancedSettingsIndex.ts
 msgid "Clone emoji"
-msgstr "Клонувати емодзі"
+msgstr "Клонувати емоджі"
 
 #. Submenu label listing communities the emoji can be cloned to.
 #: src/features/ui/action_menu/items/ExpressionMenuConfig.ts
 msgid "Clone emoji to..."
-msgstr "Клонувати емодзі до..."
+msgstr "Клонувати емоджі до..."
 
 #. Settings search synonym. Used to match this term when the user types it in the settings search bar.
 #: src/features/user/components/settings_utils/search_index/AdvancedSettingsIndex.ts
@@ -9596,6 +9659,11 @@ msgstr "Копіювати код"
 msgid "Copy community ID"
 msgstr "Копіювати ID спільноти"
 
+#. Button in the help dialog opened from "My text didn't go through". Copies the account details for a support email to the clipboard.
+#: src/features/user/components/modals/MessagingPausedHelpModal.tsx
+msgid "Copy details"
+msgstr "Копіювати дані"
+
 #. Developer-mode voice menu action that copies the unique identifier of a voice device or connection.
 #: src/features/ui/action_menu/items/voice_participant_menu_data/shared.ts
 msgid "Copy device ID"
@@ -9604,7 +9672,7 @@ msgstr "Копіювати ID пристрою"
 #. Settings search synonym. Used to match this term when the user types it in the settings search bar.
 #: src/features/user/components/settings_utils/search_index/AdvancedSettingsIndex.ts
 msgid "Copy emoji"
-msgstr "Копіювати емодзі"
+msgstr "Копіювати емоджі"
 
 #. Developer-mode action that copies the emoji ID to the clipboard.
 #: src/features/ui/action_menu/items/ExpressionMenuConfig.ts
@@ -10199,6 +10267,11 @@ msgstr "Не вдалося завантажити налаштування"
 msgid "Couldn't load the report form."
 msgstr "Не вдалося завантажити форму скарги."
 
+#. Instructions in the desktop app import-template flow shown when looking up the template directly failed, so the user has to fetch the JSON in a browser and paste it instead. "JSON" must not be translated.
+#: src/features/guild/components/modals/add_guild_modal/TemplateImportForm.tsx
+msgid "Couldn't load the template automatically. Open the link below in your browser, then copy the entire JSON response and paste it into the box."
+msgstr "Не вдалося автоматично завантажити шаблон. Відкрийте посилання нижче у браузері, скопіюйте всю відповідь JSON і вставте її в поле."
+
 #: src/features/user/components/modals/tabs/applications_tab/ApplicationDetail.tsx
 msgid "Couldn't load this application"
 msgstr "Не вдалося завантажити цей застосунок"
@@ -10378,7 +10451,7 @@ msgid "Couldn't send the friend request. Try again."
 msgstr "Не вдалося надіслати запит на додавання в друзі. Спробуйте ще раз."
 
 #. Title of the error modal shown when sending the verification email fails unexpectedly.
-#: src/features/app/components/dialogs/components/EmailVerificationAlert.tsx
+#: src/features/auth/hooks/useVerifyEmailAction.tsx
 msgid "Couldn't send the verification email"
 msgstr "Не вдалося надіслати лист для підтвердження"
 
@@ -10531,6 +10604,16 @@ msgstr "Таймер зворотного відліку"
 #: src/features/moderation/components/report/ReportStepDetails.tsx
 msgid "Country of residence"
 msgstr "Країна проживання"
+
+#. Field label in the help dialog opened from "My text didn't go through". The user types the country they are in so support can help.
+#: src/features/user/components/modals/MessagingPausedHelpModal.tsx
+msgid "Country you're in"
+msgstr "Країна, де ви перебуваєте"
+
+#. One line of the support email written for the user. country is the country the user typed.
+#: src/features/user/utils/MessagingPausedHelpEmail.ts
+msgid "Country: {country}"
+msgstr "Країна: {country}"
 
 #. Settings search synonym. Used to match this term when the user types it in the settings search bar.
 #: src/features/user/components/settings_utils/search_index/MyProfileIndex.ts
@@ -10996,12 +11079,12 @@ msgstr "Користувацькі дискримінатори недоступ
 #. Accessible label for a custom emoji in the message composer. Preserve {emojiName} and {communityName}.
 #: src/features/lexical/composer/nodes/ComposerCustomEmoji.tsx
 msgid "Custom emoji {emojiName} from {communityName}"
-msgstr "Власний емодзі {emojiName} зі спільноти {communityName}"
+msgstr "Власний емоджі {emojiName} зі спільноти {communityName}"
 
 #. Accessible label for a custom emoji in the message composer when its community name is unavailable. Preserve {emojiName}.
 #: src/features/lexical/composer/nodes/ComposerCustomEmoji.tsx
 msgid "Custom emoji {emojiName} from a community"
-msgstr "Власний емодзі {emojiName} зі спільноти"
+msgstr "Власний емоджі {emojiName} зі спільноти"
 
 #. Error modal body shown when custom entrance sounds are disabled on the instance.
 #: src/features/user/components/modals/tabs/components/EntranceSoundSection.tsx
@@ -11427,11 +11510,6 @@ msgstr "Звук вимкнено"
 msgid "Deafened by moderators"
 msgstr "Звук вимкнено модераторами"
 
-#. Option in the Linux package format dropdown of the desktop updater modal. Keep the format token "DEB" verbatim and translate only the word "package".
-#: src/features/updater/commands/UpdaterModalCommands.tsx
-msgid "DEB package"
-msgstr "Пакет DEB"
-
 #. Settings search synonym. Used to match this term when the user types it in the settings search bar.
 #. Short label in the settings dialog mobile settings view.
 #: src/features/app/components/dialogs/components/MobileSettingsView.tsx
@@ -11488,6 +11566,11 @@ msgstr "Визначте, як преміум-обмеження застосо�
 msgid "Decide whether replies @mention you by default"
 msgstr "Вирішіть, чи згадуватимуть вас відповіді через @ за замовчуванням"
 
+#. Reference line on the account restriction screen. People quote this ID when they appeal.
+#: src/features/auth/flow/AccountRestrictionScreen.tsx
+msgid "Decision ID: {decisionId}"
+msgstr "ID рішення: {decisionId}"
+
 #. Keyboard shortcut action label shown in the shortcuts list and keybind editor. Keep short, sentence case.
 #: src/features/input/state/input_keybind/shared.ts
 msgid "Decline the incoming call"
@@ -11525,7 +11608,7 @@ msgstr "Камера за замовчуванням"
 #. Short label in the channel and chat autocomplete emoji. Keep it concise.
 #: src/features/channel/components/AutocompleteEmoji.tsx
 msgid "Default emoji"
-msgstr "Стандартний емодзі"
+msgstr "Стандартний емоджі"
 
 #. Label of the default auto archive duration for new threads in a text channel.
 #: src/features/threads/utils/ThreadMessageDescriptors.ts
@@ -11545,6 +11628,10 @@ msgstr "Налаштування сповіщень за замовчуванн�
 #: src/features/guild/components/modals/guild_tabs/guild_overview_tab/sections/DefaultNotificationsSection.tsx
 msgid "Default notifications"
 msgstr "Сповіщення за замовчуванням"
+
+#: src/features/voice/components/StreamSettingsMenuContent.tsx
+msgid "Default output device"
+msgstr "Пристрій виведення за замовчуванням"
 
 #. Label of the forum setting that picks the reaction button shown on every post.
 #: src/features/forum/utils/ForumMessageDescriptors.ts
@@ -11913,6 +12000,11 @@ msgstr "Видалити ваші повідомлення в цій спіль�
 msgid "Delete your messages in this conversation?"
 msgstr "Видалити ваші повідомлення в цій розмові?"
 
+#. Confirmation modal title for the destructive "delete all my messages in this thread" action. Also shown for forum and media posts.
+#: src/features/channel/hooks/useDeleteMyMessagesInChannel.tsx
+msgid "Delete your messages in this thread?"
+msgstr "Видалити ваші повідомлення в цьому чаті?"
+
 #. Activity log detail line under a ban, shown when the ban also deleted the messages the banned user sent shortly before it. This matches the "Delete message history" choice in the ban dialog. "The member" is the banned user, a single person. {duration} is how far back from the ban the messages were deleted, shown as a full duration phrase such as "1 hour" or "7 days". The number and unit change at runtime, so do not put an article, adjective or case ending next to {duration} that has to agree with it. It continues the entry summary, so it has no subject. It is a past tense record of a change the actor in the summary already made, never an instruction to the reader. Do not write it as a command, a button label or in first or second person.
 #: src/features/guild/utils/guild_tabs/audit_log/AuditLogMemberMessages.ts
 msgid "Deleted {duration} of the member's recent message history"
@@ -12095,20 +12187,10 @@ msgstr "Сповіщення на комп'ютері заблоковано. В
 msgid "Desktop startup"
 msgstr "Запуск на комп'ютері"
 
-#. Tooltip on the updater icon for a Linux desktop update that requires choosing a package format.
-#: src/features/channel/components/channel_header_components/UpdaterIcon.tsx
-msgid "Desktop update {version} available. Choose a Linux package."
-msgstr "Доступне оновлення для комп'ютера {version}. Виберіть пакет Linux."
-
 #. Modal title shown when a new desktop app update can be downloaded.
 #: src/features/updater/commands/UpdaterModalCommands.tsx
 msgid "Desktop update available"
 msgstr "Доступне оновлення для комп'ютера"
-
-#. Tooltip on the updater icon for a Linux desktop update that requires choosing a package format and no version is known.
-#: src/features/channel/components/channel_header_components/UpdaterIcon.tsx
-msgid "Desktop update available. Choose a Linux package."
-msgstr "Доступне оновлення для комп'ютера. Виберіть пакет Linux."
 
 #. Desktop updater modal body. The version placeholder is the target app version; productName is the app name.
 #: src/features/updater/commands/UpdaterModalCommands.tsx
@@ -12229,6 +12311,10 @@ msgstr "Аудіо пристрою"
 #: src/features/user/components/modals/tabs/DevicesTab.tsx
 msgid "Device details"
 msgstr "Деталі пристрою"
+
+#: src/features/voice/components/StreamSettingsMenuContent.tsx
+msgid "Device not connected"
+msgstr "Пристрій не підключено"
 
 #. Toast shown after a saved login session was signed out.
 #: src/features/auth/components/modals/DeviceRevokeModal.tsx
@@ -12388,6 +12474,16 @@ msgstr "Вимкнути анімації та переходи в усьому 
 #: src/features/user/components/modals/tabs/accessibility_tab/MotionTab.tsx
 msgid "Disable animations and transitions. Currently controlled by your system setting."
 msgstr "Вимкнути анімації та переходи. Наразі керується системними налаштуваннями."
+
+#. Settings search entry label. Names the settings search entry in the settings UI.
+#: src/features/user/utils/UserMessageDescriptors.ts
+msgid "Disable automatic updates"
+msgstr "Вимкнути автоматичні оновлення"
+
+#. Confirmation prompt in advanced settings.
+#: src/features/user/components/modals/tabs/advanced_settings_tab/AdvancedDesktopControls.tsx
+msgid "Disable automatic updates?"
+msgstr "Вимкнути автоматичні оновлення?"
 
 #: src/features/channel/components/channel_header_components/developer_tools/AccountPremiumMenu.tsx
 msgid "Disable backend premium perks"
@@ -12959,10 +13055,22 @@ msgstr "Готово"
 msgid "Double-click"
 msgstr "Подвійне натискання"
 
+#. Settings search entry label. Names the settings search entry in the settings UI.
+#. Short label for an advanced preference that edits your own message or replies to someone else's when you double-click it.
+#: src/features/user/components/modals/tabs/advanced_settings_tab/AdvancedChatControls.tsx
+#: src/features/user/components/settings_utils/search_index/ChatSettingsIndex.ts
+msgid "Double-click a message to edit or reply"
+msgstr "Подвійне натискання на повідомлення для редагування або відповіді"
+
 #. Empty / hint text on the screen-share hover card explaining how to start watching a remote stream.
 #: src/features/voice/components/StreamWatchHoverCard.tsx
 msgid "Double-click someone to watch their stream."
 msgstr "Двічі клацніть на когось, щоб переглянути його трансляцію."
+
+#. Settings search entry description. One-line summary of what the settings search entry controls.
+#: src/features/user/components/settings_utils/search_index/ChatSettingsIndex.ts
+msgid "Double-click your own message to edit it, or someone else's message to reply to it"
+msgstr "Двічі натисніть на своє повідомлення, щоб відредагувати його, або на чуже, щоб відповісти на нього"
 
 #. Button that downloads account backup codes as a text file.
 #. Generic action label that downloads an attachment / file.
@@ -13048,11 +13156,6 @@ msgstr "Завантажити інсталятор"
 #: src/features/ui/action_menu/items/MediaMenuData.tsx
 msgid "Download media"
 msgstr "Завантажити медіа"
-
-#. Button label that downloads a selected Linux desktop update package.
-#: src/features/updater/commands/UpdaterModalCommands.tsx
-msgid "Download package"
-msgstr "Завантажити пакунок"
 
 #. Button that downloads the account recovery kit as a PDF file.
 #: src/features/auth/components/modals/RecoveryKitModal.tsx
@@ -13166,6 +13269,11 @@ msgstr "Перетягніть, щоб змінити положення зна�
 #: src/features/expressions/components/modals/AssetCropModal.tsx
 msgid "Drag to reposition your invite background and use the scroll wheel or pinch to zoom. The recommended minimum size is {minimumWidth}×{minimumHeight} pixels (16:9)."
 msgstr "Перетягніть, щоб змінити положення фону запрошення, і скористайтеся коліщатком прокрутки або жестом зведення/розведення пальців для масштабування. Рекомендований мінімальний розмір: {minimumWidth}×{minimumHeight} пікселів (16:9)."
+
+#. Desktop setting description under the dark taskbar badge toggle on Windows.
+#: src/features/user/components/modals/tabs/DesktopSettingsTab.tsx
+msgid "Draw the unread badge on the {productName} taskbar button in dark gray instead of red."
+msgstr "Відображати значок непрочитаних повідомлень на кнопці панелі завдань {productName} темно-сірим замість червоного."
 
 #. Description text in the theme studio assets section.
 #: src/features/theme_studio/sections/AssetsSection.tsx
@@ -13572,6 +13680,11 @@ msgstr "Маєте право на відшкодування до {windowEndsOn
 msgid "Email"
 msgstr "Електронна пошта"
 
+#. Body of the help dialog opened from "My text didn't go through" while messaging is paused on the account. supportEmail is the support email address. Keep it short, calm and neutral.
+#: src/features/user/components/modals/MessagingPausedHelpModal.tsx
+msgid "Email {supportEmail} and a person will check your account. You can also reply to the email we sent you."
+msgstr "Напишіть на {supportEmail}, і працівник перевірить ваш обліковий запис. Також можна відповісти на лист, який ми вам надіслали."
+
 #. Short label in the inputs tab. Keep it concise.
 #. Short label in the moderation report step email. Keep it concise. Keep the tone plain and specific.
 #: src/features/moderation/components/report/ReportStepEmail.tsx
@@ -13598,6 +13711,11 @@ msgstr "Доставка електронної пошти"
 #: src/features/moderation/components/report/ReportStepUnavailable.tsx
 msgid "Email reports aren't available here"
 msgstr "Скарги електронною поштою тут недоступні"
+
+#. Primary button in the help dialog opened from "My text didn't go through". Opens a new email to support with the account details filled in.
+#: src/features/user/components/modals/MessagingPausedHelpModal.tsx
+msgid "Email support"
+msgstr "Написати в підтримку"
 
 #. Developer control label for the email-verification banner.
 #: src/features/devtools/components/NagbarControls.ts
@@ -13705,7 +13823,7 @@ msgstr "емоджі {emojiName}"
 #. Settings search entry label for opting into the emoji and sticker cloning shortcuts.
 #: src/features/user/components/settings_utils/search_index/AdvancedSettingsIndex.ts
 msgid "Emoji and sticker cloning shortcuts"
-msgstr "Ярлики для клонування емодзі та стікерів"
+msgstr "Ярлики для клонування емоджі та стікерів"
 
 #. Settings search synonym. Used to match this term when the user types it in the settings search bar.
 #: src/features/user/components/settings_utils/search_index/ChatSettingsIndex.ts
@@ -13720,7 +13838,7 @@ msgstr "Кнопка емоджі"
 #. Audit log entry label. A custom emoji was added to the community.
 #: src/features/app/config/AuditLogConstants.ts
 msgid "Emoji created"
-msgstr "Емодзі створено"
+msgstr "Емоджі створено"
 
 #. Audit log entry label. A custom emoji was removed from the community.
 #: src/features/app/config/AuditLogConstants.ts
@@ -13745,7 +13863,7 @@ msgstr "Назва емоджі має бути не довшою ніж 32 си
 #. Description in the community emoji upload section. {maxSize} is the formatted size limit.
 #: src/features/guild/components/modals/guild_tabs/GuildEmojiTab.tsx
 msgid "Emoji names need at least 2 characters and can use letters, numbers, and underscores. Emojis must be under {maxSize}. Static images are resized to 128x128 pixels and compressed automatically. Animated emojis and SVGs must already fit the limit."
-msgstr "Назви емодзі мають містити щонайменше 2 символи та можуть складатися з літер, цифр і підкреслень. Розмір емодзі має бути меншим за {maxSize}. Статичні зображення автоматично змінюються до розміру 128x128 пікселів і стискаються. Анімовані емодзі та SVG мають одразу відповідати обмеженню."
+msgstr "Назви емоджі мають містити щонайменше 2 символи та можуть складатися з літер, цифр і підкреслень. Розмір емоджі має бути меншим за {maxSize}. Статичні зображення автоматично змінюються до розміру 128x128 пікселів і стискаються. Анімовані емоджі та SVG мають одразу відповідати обмеженню."
 
 #. Settings search synonym. Used to match this term when the user types it in the settings search bar.
 #: src/features/user/components/settings_utils/section_registry/ChatSettingsSections.ts
@@ -13848,6 +13966,11 @@ msgstr "Увімкнути термін дії вкладень"
 msgid "Enable audio"
 msgstr "Увімкнути звук"
 
+#. Confirmation prompt in advanced settings.
+#: src/features/user/components/modals/tabs/advanced_settings_tab/AdvancedDesktopControls.tsx
+msgid "Enable automatic updates?"
+msgstr "Увімкнути автоматичні оновлення?"
+
 #: src/features/user/components/modals/tabs/component_gallery_tab/index.tsx
 msgid "Enable beta feature"
 msgstr "Увімкнути бета-функцію"
@@ -13890,7 +14013,7 @@ msgstr "Увімкнути доставку електронної пошти"
 #. Short label for the experimental advanced setting.
 #: src/features/user/components/modals/tabs/advanced_settings_tab/AdvancedExperimentalControls.tsx
 msgid "Enable emoji and sticker cloning shortcuts"
-msgstr "Увімкнути швидкі дії для клонування емодзі та стікерів"
+msgstr "Увімкнути швидкі дії для клонування емоджі та стікерів"
 
 #: src/features/user/components/modals/tabs/component_gallery_tab/index.tsx
 msgid "Enable extra option"
@@ -13958,7 +14081,7 @@ msgstr "Увімкніть сповіщення, щоб бути в курсі �
 #. Button or menu action label in the search engines tab. Keep it concise.
 #: src/features/user/components/modals/tabs/chat_settings_tab/SearchEnginesTab.tsx
 msgid "Enable or disable built-in reverse image search providers. Enabled providers appear in the context menu of images, avatars, banners, stickers, and emoji."
-msgstr "Увімкніть або вимкніть вбудовані сервіси зворотного пошуку зображень. Увімкнені сервіси з'являються в контекстному меню зображень, аватарів, банерів, стікерів та емодзі."
+msgstr "Увімкніть або вимкніть вбудовані сервіси зворотного пошуку зображень. Увімкнені сервіси з'являються в контекстному меню зображень, аватарів, банерів, стікерів та емоджі."
 
 #. Button or menu action label in the search engines tab. Keep it concise.
 #: src/features/user/components/modals/tabs/chat_settings_tab/SearchEnginesTab.tsx
@@ -14361,6 +14484,11 @@ msgstr "Введіть своє ім'я"
 msgid "Enter your password."
 msgstr "Введіть свій пароль."
 
+#. Setup wizard title for the step that asks the operator for the setup token of a new instance.
+#: src/features/app/components/setup/SetupWizardSteps.tsx
+msgid "Enter your setup token"
+msgstr "Введіть ваш токен налаштування"
+
 #: src/features/auth/components/pages/RecoverAccountPage.tsx
 msgid "Enter your username and the recovery key from your recovery kit, then choose a new password."
 msgstr "Введіть ім'я користувача та ключ відновлення з вашого комплекту відновлення, а потім виберіть новий пароль."
@@ -14386,6 +14514,7 @@ msgid "Entire system"
 msgstr "Уся система"
 
 #: src/features/voice/components/AudioSourcePickerLinux.tsx
+#: src/features/voice/components/StreamSettingsMenuContent.tsx
 msgid "Entire system audio"
 msgstr "Весь системний звук"
 
@@ -15195,7 +15324,7 @@ msgstr "Додати приватний чат до вибраного"
 #. Emoji context menu action that adds the emoji to favorites.
 #: src/features/ui/action_menu/items/ExpressionMenuConfig.ts
 msgid "Favorite emoji"
-msgstr "Додати емодзі до вибраного"
+msgstr "Додати емоджі до вибраного"
 
 #. Title of the error modal shown when no more favorite GIFs can be added.
 #: src/features/expressions/commands/FavoriteGifCommands.ts
@@ -15611,6 +15740,10 @@ msgstr "Підписано"
 #: src/features/user/components/modals/tabs/notifications_tab/NotificationsTabSounds.tsx
 msgid "Following master • {effectiveValue}"
 msgstr "За загальною гучністю • {effectiveValue}"
+
+#: src/features/voice/components/StreamSettingsMenuContent.tsx
+msgid "Follows your Windows sound settings"
+msgstr "Відповідно до налаштувань звуку Windows"
 
 #. Settings search synonym. Used to match this term when the user types it in the settings search bar.
 #: src/features/user/components/settings_utils/section_registry/AppearanceSections.ts
@@ -17458,10 +17591,20 @@ msgstr "Скільки останніх повідомлень учасника 
 msgid "How this works"
 msgstr "Як це працює"
 
+#. Heading on the account restriction screen above the appeal instructions.
+#: src/features/auth/flow/AccountRestrictionScreen.tsx
+msgid "How to appeal"
+msgstr "Як оскаржити рішення"
+
 #. Heading above the recovery steps in the printed or downloaded recovery kit.
 #: src/features/auth/components/modals/RecoveryKitModal.tsx
 msgid "How to recover your account"
 msgstr "Як відновити ваш обліковий запис"
+
+#. Heading on the account restriction screen above how the case reached the team and who decided it.
+#: src/features/auth/flow/AccountRestrictionScreen.tsx
+msgid "How we decided"
+msgstr "Як ми ухвалили рішення"
 
 #. Accessible label in the language and locale names. Keep it concise.
 #: src/features/user/utils/LocaleUtils.ts
@@ -17656,6 +17799,31 @@ msgstr "Якщо ви збережете це ім'я користувача, в
 #: src/features/user/components/modals/FluxerTagChangeModal.tsx
 msgid "If you save this username, your tag will reroll randomly when your {PREMIUM_PRODUCT_NAME} expires, unless it renews."
 msgstr "Якщо ви збережете це ім'я користувача, ваш тег буде випадковим чином змінено після закінчення терміну дії вашої підписки {PREMIUM_PRODUCT_NAME}, якщо її не буде поновлено."
+
+#. Paragraph on the network blocked screen for people who share a network with others. Must read the same as the error message for this block.
+#: src/features/auth/AuthMessageDescriptors.ts
+msgid "If you share this network, for example at school, at work, on public Wi-Fi, through your mobile carrier or a VPN, this block may have nothing to do with you. The quickest fix is to switch networks, for example to mobile data instead of Wi-Fi, or to turn your VPN on or off."
+msgstr "Якщо ти користуєшся цією мережею разом з іншими людьми, наприклад у школі, на роботі, у громадській мережі Wi-Fi, через мобільного оператора чи VPN, це блокування може бути ніяк не пов'язане з тобою. Найшвидше змінити мережу, наприклад перейти з Wi-Fi на мобільний інтернет, або ввімкнути чи вимкнути VPN."
+
+#. Line on the network blocked screen. The link is the contact email address and ip is the blocked IP address.
+#: src/features/auth/flow/AccountRestrictionScreen.tsx
+msgid "If you think this block is a mistake, email <0>{email}</0> and include your IP address, {ip}."
+msgstr "Якщо ти вважаєш, що це блокування помилкове, напиши на <0>{email}</0> і вкажи свою IP-адресу: {ip}."
+
+#. Appeal line for a restriction from before the team recorded decisions, with no appeal deadline. The link is the appeals email address.
+#: src/features/auth/flow/AccountRestrictionScreen.tsx
+msgid "If you think we got this wrong, email <0>{email}</0> and include your username."
+msgstr "Якщо ти вважаєш, що ми помилилися, напиши на <0>{email}</0> і вкажи своє ім'я користувача."
+
+#. Appeal line for an account with no email address. The link is the appeals email address and deadline is a date.
+#: src/features/auth/flow/AccountRestrictionScreen.tsx
+msgid "If you think we got this wrong, email <0>{email}</0> by {deadline}. Include the decision ID and your username. Appeals are free, and a person reviews each one."
+msgstr "Якщо ти вважаєш, що ми помилилися, напиши на <0>{email}</0> до {deadline}. Вкажи ID рішення і своє ім'я користувача. Апеляції безкоштовні, і кожну з них розглядає людина."
+
+#. Appeal line on the account restriction screen. The link is the appeals email address and deadline is a date.
+#: src/features/auth/flow/AccountRestrictionScreen.tsx
+msgid "If you think we got this wrong, email <0>{email}</0> by {deadline}. Write from the email address on your account if you can, and include the decision ID. Appeals are free, and a person reviews each one."
+msgstr "Якщо ти вважаєш, що ми помилилися, напиши на <0>{email}</0> до {deadline}. За можливості пиши з електронної адреси, прив'язаної до твого акаунта, і вкажи ID рішення. Апеляції безкоштовні, і кожну з них розглядає людина."
 
 #: src/features/auth/components/modals/AccountDeleteModal.tsx
 msgid "If you want to export your data or delete your messages first, please visit {privacyDashboardPath} before proceeding."
@@ -17964,10 +18132,6 @@ msgstr "У каналі"
 msgid "In channels I moderate"
 msgstr "У каналах, які я модерую"
 
-#: src/features/channel/components/ChannelWelcomeSection.tsx
-msgid "In the beginning, there was nothing. Then, there was {channelDisplayName}. And it was good."
-msgstr "Спочатку не було нічого. Потім з'явився канал «{channelDisplayName}». І це було добре."
-
 #: src/features/user/components/profile/VoiceActivityCard.tsx
 msgid "In voice"
 msgstr "У голосовому чаті"
@@ -18274,11 +18438,6 @@ msgstr "Встановіть його з меню браузера."
 #: src/features/app/components/layout/app_layout/nagbars/DomainMovedNagbar.tsx
 msgid "Install the new app"
 msgstr "Встановити новий застосунок"
-
-#. Label for the installed desktop version in the Linux update modal.
-#: src/features/updater/commands/UpdaterModalCommands.tsx
-msgid "Installed"
-msgstr "Встановлено"
 
 #. Desktop updater modal body. The currentVersion placeholder is the installed app version.
 #: src/features/updater/commands/UpdaterModalCommands.tsx
@@ -19448,7 +19607,7 @@ msgstr "Старий тариф"
 msgid "Let /tts read your message aloud. Disabling the setting keeps those commands as regular text."
 msgstr "Дозволити /tts читати ваші повідомлення вголос. Вимкнення цієї функції залишить ці команди як звичайний текст."
 
-#. Toggle label in the community privacy modal: allow DMs from bots that live in this community.
+#. Toggle label in the community privacy modal: allow DMs from bots that are in this community.
 #: src/features/guild/components/modals/GuildPrivacySettingsModal.tsx
 msgid "Let bots in this community DM you"
 msgstr "Дозволити ботам цієї спільноти надсилати вам особисті повідомлення"
@@ -19465,7 +19624,7 @@ msgstr "Дозволити учасникам цієї спільноти над
 
 #: src/features/guild/components/modals/guild_tabs/CloneAllowedToggle.tsx
 msgid "Let others clone your emojis"
-msgstr "Дозволити іншим клонувати ваші емодзі"
+msgstr "Дозволити іншим клонувати ваші емоджі"
 
 #: src/features/guild/components/modals/guild_tabs/CloneAllowedToggle.tsx
 msgid "Let others clone your stickers"
@@ -19788,11 +19947,6 @@ msgstr "Застосунок для Linux"
 #: src/features/voice/utils/VoiceMessageDescriptors.ts
 msgid "Linux default"
 msgstr "Стандартний аудіопристрій Linux"
-
-#. Select label for choosing the Linux desktop package format to download.
-#: src/features/updater/commands/UpdaterModalCommands.tsx
-msgid "Linux package"
-msgstr "Пакет для Linux"
 
 #. Forum layout name shown inside an activity log row.
 #. Forum layout option that shows posts as rows.
@@ -20176,7 +20330,7 @@ msgstr "Керувати пристроями"
 #. Permission name: allows editing or deleting custom emoji and stickers.
 #: src/features/permissions/utils/PermissionLabelDescriptors.ts
 msgid "Manage emoji & stickers"
-msgstr "Керувати емодзі та стікерами"
+msgstr "Керувати емоджі та стікерами"
 
 #: src/features/channel/components/modals/channel_tabs/ChannelWebhooksTab.tsx
 msgid "Manage incoming webhooks that can post messages into this channel."
@@ -20541,6 +20695,10 @@ msgstr "Максимальний захист для сімейних спіль
 msgid "May cause compatibility issues for viewers. We’re working on improving this."
 msgstr "Може спричинити проблеми сумісності у глядачів. Ми працюємо над покращенням."
 
+#: src/features/voice/components/StreamSettingsMenuContent.tsx
+msgid "May include call audio from mixer apps"
+msgstr "Може включати аудіо виклику з програм-мікшерів"
+
 #. Short label in the max favorite memes modal.
 #: src/features/app/components/alerts/MaxFavoriteMemesModal.tsx
 #: src/features/expressions/components/modals/GiftAcceptModal.tsx
@@ -20561,12 +20719,6 @@ msgstr "Вимірювання…"
 #. Generic tab / section / category label for media content.
 #: src/features/i18n/utils/CommonMessageDescriptors.ts
 #: src/features/theme_studio/sections/TokenGroups.ts
-msgid "Media"
-msgstr "Медіа"
-
-#. Chat settings section for image, video, embed, and media preferences.
-#: src/features/user/components/settings_utils/section_registry/ChatSettingsSections.ts
-msgctxt "chat-settings-section"
 msgid "Media"
 msgstr "Медіа"
 
@@ -20646,11 +20798,6 @@ msgstr "Попередня доріжка"
 #: src/features/voice/components/media_player/components/MediaProgressBar.tsx
 msgid "Media progress"
 msgstr "Прогрес медіа"
-
-#. Settings search synonym. Used to match this term when the user types it in the settings search bar.
-#: src/features/user/components/settings_utils/section_registry/ChatSettingsSections.ts
-msgid "Media size"
-msgstr "Розмір медіафайлів"
 
 #: src/features/input/utils/KeybindUtils.ts
 msgctxt "keyboard-key-name"
@@ -22064,6 +22211,11 @@ msgstr "Мій зворотний пошук зображень"
 msgid "My search engine"
 msgstr "Моя пошукова система"
 
+#. Button shown while messaging is paused on the current account, and the title of the help dialog it opens. The email describing the quick step asks the user to send a text message from their phone. This is for users who could not send that text, and also for users who sent it and nothing happened. The translation should cover both. Also used as the subject of the support email.
+#: src/features/user/utils/MessagingPausedHelpEmail.ts
+msgid "My text didn't go through"
+msgstr "Моє SMS не дійшло"
+
 #. Short label in the add custom search engine modal. Keep it concise.
 #: src/features/user/components/modals/tabs/chat_settings_tab/AddCustomSearchEngineModal.tsx
 msgid "My translator"
@@ -22225,6 +22377,11 @@ msgstr "Нідерланди"
 #: src/features/voice/components/voice_connection_status/shared.ts
 msgid "Network"
 msgstr "Мережа"
+
+#. Title of the screen and dialog shown when the instance blocks the network a request came from.
+#: src/features/auth/AuthMessageDescriptors.ts
+msgid "Network blocked"
+msgstr "Мережу заблоковано"
 
 #. Error message in the devices tab.
 #: src/features/user/components/modals/tabs/DevicesTab.tsx
@@ -22424,11 +22581,6 @@ msgstr "Нові теми перестануть відображатися в �
 #: src/features/invite/utils/InviteMessageDescriptors.ts
 msgid "New users can't join right now. You can still create an account or sign in, then try this link again later."
 msgstr "Нові користувачі зараз не можуть приєднатися. Ви все ще можете створити обліковий запис або ввійти, а потім скористатися цим посиланням пізніше."
-
-#. Fallback version label when the available desktop version is unknown.
-#: src/features/updater/commands/UpdaterModalCommands.tsx
-msgid "New version"
-msgstr "Нова версія"
 
 #. US state name, shown next to the country name in the mature content gate.
 #: src/features/user/utils/UserGeo.ts
@@ -23298,6 +23450,11 @@ msgstr "Примітка"
 msgid "Note (only visible to you)"
 msgstr "Примітка (видно лише вам)"
 
+#. Line on the account restriction screen with a note the team wrote to the account holder.
+#: src/features/auth/flow/AccountRestrictionScreen.tsx
+msgid "Note from our team: {statement}"
+msgstr "Коментар нашої команди: {statement}"
+
 #. Notification level option. Suppresses all pushes for the channel or community. Paired with "All messages" and "Only mentions".
 #: src/features/i18n/utils/CommonMessageDescriptors.ts
 msgid "Nothing"
@@ -24137,6 +24294,8 @@ msgid "Open settings"
 msgstr "Відкрити налаштування"
 
 #. Button label that opens the software center via appstream protocol.
+#. Native desktop dialog button on a Flatpak install that opens the software center page for the desktop app.
+#: src/features/platform/utils/DesktopLocaleBridge.ts
 #: src/features/updater/commands/UpdaterModalCommands.tsx
 msgid "Open software center"
 msgstr "Відкрити центр програм"
@@ -24283,6 +24442,11 @@ msgstr "Знову відкрили гілку"
 #: src/features/moderation/components/report_flow/ReportFlowCopy.ts
 msgid "Opens in a new tab"
 msgstr "Відкривається в новій вкладці"
+
+#. Screen-reader-only hint on a settings menu entry that opens a web page in the browser instead of a settings page.
+#: src/features/i18n/utils/CommonMessageDescriptors.ts
+msgid "Opens in your browser"
+msgstr "Відкриється у вашому браузері"
 
 #. Screen-reader-only hint for the Members entry in community settings. The entry receives keyboard focus without automatically opening.
 #: src/features/app/components/dialogs/components/DesktopGuildSettingsView.tsx
@@ -25084,7 +25248,7 @@ msgstr "Виберіть постачальника вебпошуку"
 #. Button that opens the emoji picker in forum settings.
 #: src/features/forum/utils/ForumMessageDescriptors.ts
 msgid "Pick an emoji"
-msgstr "Виберіть емодзі"
+msgstr "Виберіть емоджі"
 
 #. Validation error when the user advances with all inclusion toggles off in the custom scope.
 #: src/features/user/components/modals/tabs/privacy_safety_tab/data_request_modal/DataRequestModal.tsx
@@ -25279,8 +25443,8 @@ msgstr "План"
 
 #. Text on the card in settings that links to the Plutonium page.
 #: src/features/premium/components/plutonium_page/PlutoniumPageLinkCard.tsx
-msgid "Plans, perks, gifts and your subscription all live on one page."
-msgstr "Тарифи, переваги, подарунки та ваша підписка — усе це на одній сторінці."
+msgid "Plans, perks, gifts and your subscription are all on one page."
+msgstr "Тарифні плани, переваги, подарунки та ваша підписка – усе на одній сторінці."
 
 #: src/features/auth/flow/HandoffApprovalFlow.tsx
 msgid "Platform"
@@ -25331,6 +25495,11 @@ msgstr "Відтворити."
 #: src/features/user/components/settings_utils/section_registry/NotificationsSections.ts
 msgid "Playback"
 msgstr "Відтворення"
+
+#. Submenu label in the stream settings menu of a Windows screen share. Picks which playback devices the shared desktop audio comes from.
+#: src/features/voice/components/StreamSettingsMenuContent.tsx
+msgid "Playback devices"
+msgstr "Пристрої відтворення"
 
 #. Section / menu header above the playback rate options in the media player.
 #. Settings search synonym. Used to match this term when the user types it in the settings search bar.
@@ -25403,7 +25572,7 @@ msgstr "Відкрити користувача в окремому вікні"
 msgid "Pop out video"
 msgstr "Відкрити відео в окремому вікні"
 
-#. Overlay text shown on a voice participant tile while it lives in a separate popped-out window.
+#. Overlay text shown on a voice participant tile while it is in a separate popped-out window.
 #: src/features/voice/components/popout/PoppedOutOverlay.tsx
 msgid "Popped out"
 msgstr "В окремому вікні"
@@ -26303,6 +26472,11 @@ msgstr "Швидкий CSS замінено з {fileName}."
 msgid "Quick reactions"
 msgstr "Швидкі реакції"
 
+#. Settings search synonym. Used to match this term when the user types it in the settings search bar.
+#: src/features/user/components/settings_utils/search_index/ChatSettingsIndex.ts
+msgid "Quick reply"
+msgstr "Швидка відповідь"
+
 #. Accessible label for the desktop quick switcher modal.
 #. Settings search synonym. Used to match this term when the user types it in the settings search bar.
 #: src/features/channel/components/direct_message/DirectMessageList.tsx
@@ -26879,8 +27053,8 @@ msgstr "Перезавантажте, щоб застосувати зміну �
 
 #. Description text in the text to speech.
 #: src/features/user/components/modals/tabs/notifications_tab/TextToSpeech.tsx
-msgid "Remain silent unless someone runs /tts manually."
-msgstr "Нічого не озвучує, доки хтось не запустить /tts вручну."
+msgid "Remain silent unless someone runs /tts in the channel you're viewing."
+msgstr "Залишайтеся мовчазними, доки хтось не введе команду /tts у каналі, який ви переглядаєте."
 
 #. Settings search entry label. Names the settings search entry in the settings UI.
 #: src/features/user/components/settings_utils/search_index/DesktopSettingsIndex.ts
@@ -27730,8 +27904,10 @@ msgstr "Надіслати повторно ({secondsRemaining} с)"
 msgid "Resend code"
 msgstr "Надіслати код повторно"
 
+#. Button label that sends another verification email after one was already sent. Keep it concise.
 #: src/features/app/components/dialogs/components/EmailVerificationAlert.tsx
 #: src/features/auth/flow/IpAuthorizationScreen.tsx
+#: src/features/auth/hooks/useVerifyEmailAction.tsx
 msgid "Resend email"
 msgstr "Надіслати лист повторно"
 
@@ -28459,10 +28635,15 @@ msgstr "Круглий прапорець"
 msgid "Rows per page"
 msgstr "Рядків на сторінку"
 
-#. Option in the Linux package format dropdown of the desktop updater modal. Keep the format token "RPM" verbatim and translate only the word "package".
-#: src/features/updater/commands/UpdaterModalCommands.tsx
-msgid "RPM package"
-msgstr "Пакет RPM"
+#. Names the rule behind a restriction when the instance publishes no link for it. title is the rule title.
+#: src/features/auth/flow/AccountRestrictionScreen.tsx
+msgid "Rule: {title}"
+msgstr "Правило: {title}"
+
+#. Names the rule behind a restriction, with the rule title linked to the rule. title is the rule title.
+#: src/features/auth/flow/AccountRestrictionScreen.tsx
+msgid "Rule: <0>{title}</0>"
+msgstr "Правило: <0>{title}</0>"
 
 #. Settings search entry description. One-line summary of what the settings search entry controls.
 #: src/features/user/components/settings_utils/search_index/DesktopSettingsIndex.ts
@@ -29714,7 +29895,7 @@ msgstr "Надсилати повідомлення в гілках"
 #. One-line description of the text channel type in the create channel modal.
 #: src/features/channel/utils/ChannelCreateModalUtils.ts
 msgid "Send messages, images, GIFs and emoji"
-msgstr "Надсилайте повідомлення, зображення, GIF-файли та емодзі"
+msgstr "Надсилайте повідомлення, зображення, GIF-файли та емоджі"
 
 #. Report flow: footer button on the summary screen that sends the report to the safety team.
 #: src/features/moderation/components/report_flow/ReportFlowCopy.ts
@@ -29753,6 +29934,11 @@ msgstr "Надсилати TTS-повідомлення"
 #: src/features/moderation/components/report/ReportStepEmail.tsx
 msgid "Send verification code"
 msgstr "Надіслати код підтвердження"
+
+#. Button label on prompts that ask the user to verify their email, such as the add friend form. Sends a verification email right away. Keep it concise.
+#: src/features/auth/hooks/useVerifyEmailAction.tsx
+msgid "Send verification email"
+msgstr "Надіслати лист для підтвердження"
 
 #. Accessible label and tooltip for the send button after recording a voice message.
 #. Keyboard shortcut action label that opens the desktop voice message composer.
@@ -30120,6 +30306,11 @@ msgstr "Налаштування."
 msgid "Setup key"
 msgstr "Ключ налаштування"
 
+#. Label for the setup token input in the setup wizard.
+#: src/features/app/components/setup/SetupWizardSteps.tsx
+msgid "Setup token"
+msgstr "Токен налаштування"
+
 #. Label in the channel and chat typing users.
 #: src/features/typing/utils/TypingTierText.ts
 msgid "Several people are typing..."
@@ -30355,7 +30546,7 @@ msgstr "Показувати попередження про вміст у ць�
 #. Settings search entry description. One-line summary of what the setting controls.
 #: src/features/user/components/settings_utils/search_index/AdvancedSettingsIndex.ts
 msgid "Show a one-click shortcut for copying custom emojis and stickers from communities that allow it"
-msgstr "Показувати кнопку копіювання в один клік для власних емодзі та стікерів зі спільнот, які це дозволяють"
+msgstr "Показувати кнопку копіювання в один клік для власних емоджі та стікерів зі спільнот, які це дозволяють"
 
 #. Settings search entry description. One-line summary of what the settings search entry controls.
 #: src/features/user/components/settings_utils/search_index/NotificationsIndex.ts
@@ -30437,7 +30628,7 @@ msgstr "Показувати типовий аватар, ігноруючи в�
 #. Short label for an advanced message input preference.
 #: src/features/user/components/modals/tabs/advanced_settings_tab/AdvancedChatControls.tsx
 msgid "Show default emojis in expression autocomplete"
-msgstr "Показувати стандартні емодзі в автозаповненні виразів"
+msgstr "Показувати стандартні емоджі в автозаповненні виразів"
 
 #. Short label for an advanced media button preference.
 #: src/features/user/components/modals/tabs/advanced_settings_tab/AdvancedChatControls.tsx
@@ -30756,6 +30947,11 @@ msgstr "Показувати іконку в системному треї"
 #: src/features/user/components/settings_utils/search_index/AdvancedSettingsIndex.ts
 msgid "Show text in Fluxer Sans, the previous default font, instead of the Windows system font"
 msgstr "Відображати текст шрифтом Fluxer Sans (попередній стандартний шрифт) замість системного шрифту Windows"
+
+#. Desktop setting description under the colored tray icon toggle on Windows and Linux.
+#: src/features/user/components/modals/tabs/DesktopSettingsTab.tsx
+msgid "Show the full-color {productName} icon instead of a monochrome one that matches your taskbar."
+msgstr "Показувати повноколірний значок {productName} замість монохромного, що відповідає панелі завдань."
 
 #. Switch label in the role editor (hoist toggle). When on, members with this role appear in their own member-list section.
 #: src/features/guild/components/modals/guild_tabs/guild_roles_tab/RoleEditor.tsx
@@ -31500,7 +31696,7 @@ msgid "Something went wrong while saving this setting. Please try again in a mom
 msgstr "Під час збереження цього параметра сталася помилка. Спробуйте ще раз за мить."
 
 #. Body of the error modal shown when sending the verification email fails unexpectedly.
-#: src/features/app/components/dialogs/components/EmailVerificationAlert.tsx
+#: src/features/auth/hooks/useVerifyEmailAction.tsx
 msgid "Something went wrong while sending your verification email. Please try again in a moment."
 msgstr "Під час надсилання листа для підтвердження сталася помилка. Спробуйте ще раз за мить."
 
@@ -32376,7 +32572,7 @@ msgstr "Припинено дозвіл на використання гнучк
 #. Activity log detail line under a community settings update, shown when the Let others clone your emojis setting was turned off. Members of other communities can no longer clone the custom emojis of this community into their own communities. It is the reverse of the line for turning the setting on, so keep the two worded alike. Use the same word for clone as the Clone emoji and Clone sticker menu items. It continues the entry summary, so it has no subject. It is a past tense record of a change the actor in the summary already made, never an instruction to the reader. Do not write it as a command, a button label or in first or second person.
 #: src/features/guild/utils/guild_tabs/audit_log/AuditLogGuildMessages.ts
 msgid "Stopped allowing others to clone this community's emojis"
-msgstr "Більше не дозволено іншим клонувати емодзі цієї спільноти"
+msgstr "Більше не дозволено іншим клонувати емоджі цієї спільноти"
 
 #. Activity log detail line under a community settings update, shown when the Let others clone your stickers setting was turned off. Members of other communities can no longer clone the stickers of this community into their own communities. It is the reverse of the line for turning the setting on, so keep the two worded alike. Use the same word for clone as the Clone emoji and Clone sticker menu items. It continues the entry summary, so it has no subject. It is a past tense record of a change the actor in the summary already made, never an instruction to the reader. Do not write it as a command, a button label or in first or second person.
 #: src/features/guild/utils/guild_tabs/audit_log/AuditLogGuildMessages.ts
@@ -32538,6 +32734,11 @@ msgstr "Підменю"
 #: src/features/guild/components/modals/guild_tabs/GuildDiscoveryTab.tsx
 msgid "Submit application"
 msgstr "Надіслати заявку"
+
+#. Settings menu entry that opens the feedback website, where people suggest features and report problems.
+#: src/features/i18n/utils/CommonMessageDescriptors.ts
+msgid "Submit feedback"
+msgstr "Надіслати відгук"
 
 #: src/features/user/components/modals/tabs/component_gallery_tab/ComponentGalleryTabButtonsTab.tsx
 msgid "Submitting"
@@ -33110,11 +33311,6 @@ msgstr "Торкніться «Поширити», а потім «На Поча
 msgid "Tap to add a note"
 msgstr "Натисніть, щоб додати примітку"
 
-#. Option in the Linux package format dropdown of the desktop updater modal. Keep the format token "tar.gz" verbatim and translate only the word "archive".
-#: src/features/updater/commands/UpdaterModalCommands.tsx
-msgid "tar.gz archive"
-msgstr "Архів tar.gz"
-
 #. Settings search synonym. Used to match this term when the user types it in the settings search bar.
 #: src/features/user/components/settings_utils/section_registry/SharedDescriptors.ts
 msgid "Taskbar badge"
@@ -33428,6 +33624,11 @@ msgstr "Тег #0000 зарезервовано для підписників Vi
 msgid "The API is on a different origin than this page, so setup requests are sent without your session. Check the public origin and port this instance is configured with, then reload."
 msgstr "API знаходиться на іншому домені, ніж ця сторінка, тому запити на налаштування надсилаються без вашої сесії. Перевірте загальнодоступний домен і порт, з якими налаштовано цей екземпляр, а потім перезавантажте."
 
+#. Help text under the setup token input in the setup wizard. FLUXER_SETUP_TOKEN is an environment variable name and must not be translated.
+#: src/features/app/components/setup/SetupWizardSteps.tsx
+msgid "The API wrote the token to its log the first time it started. If you set FLUXER_SETUP_TOKEN, use that value."
+msgstr "API записав токен у свій журнал під час першого запуску. Якщо ви встановили FLUXER_SETUP_TOKEN, використовуйте це значення."
+
 #: src/features/app/components/ErrorFallback.tsx
 msgid "The app crashed"
 msgstr "Сталася помилка в застосунку"
@@ -33445,6 +33646,11 @@ msgstr "Термін дії блокування вже минув {date}"
 #: src/features/guild/utils/guild_tabs/audit_log/AuditLogMemberMessages.ts
 msgid "The ban was scheduled to expire on {date}"
 msgstr "Термін дії блокування мав закінчитися {date}"
+
+#. Line on the network blocked screen for a block with an end. date is a date and time.
+#: src/features/auth/flow/AccountRestrictionScreen.tsx
+msgid "The block ends on {date}."
+msgstr "Блокування діє до {date}."
 
 #: src/features/auth/components/pages/oauth_authorize_page/OAuthSuccessState.tsx
 msgid "The bot has been added to <0>{destinationName}</0>."
@@ -33498,15 +33704,10 @@ msgstr "З'єднання оновлюється до TLS лише тоді, к�
 msgid "The desktop update could not be downloaded. Try again from the update button when your connection is stable."
 msgstr "Не вдалося завантажити оновлення для комп'ютера. Спробуйте ще раз за допомогою кнопки оновлення, коли ваше з'єднання буде стабільним."
 
-#. Help text below the Linux package format selector in the desktop updater modal.
-#: src/features/updater/commands/UpdaterModalCommands.tsx
-msgid "The downloaded file is saved to your computer. Install it with your normal package manager."
-msgstr "Завантажений файл збережено на вашому комп'ютері. Установіть його за допомогою звичайного менеджера пакунків."
-
 #. Activity log detail line under a deleted emoji, shown only when someone other than the person who deleted it had uploaded it. {user} is the user who uploaded the emoji, shown as a clickable user chip.
 #: src/features/guild/utils/guild_tabs/audit_log/AuditLogExpressionMessageMessages.ts
 msgid "The emoji was uploaded by {user}"
-msgstr "Емодзі завантажив(-ла) {user}"
+msgstr "Емоджі завантажив(-ла) {user}"
 
 #: src/features/connection/components/modals/AddConnectionModal.tsx
 msgid "The file contains the verification token we will fetch from <0>{dnsUrl}</0>."
@@ -33684,6 +33885,11 @@ msgstr "Система надала {target} роль {role}"
 #: src/features/guild/utils/guild_tabs/audit_log/AuditLogMemberMessages.ts
 msgid "The system removed the role {role} from {target}"
 msgstr "Система видалила роль {role} у користувача {target}"
+
+#. Setup wizard body explaining why the operator has to enter the setup token.
+#: src/features/app/components/setup/SetupWizardSteps.tsx
+msgid "The token proves that you run this instance. Only the person who has it can create the admin account."
+msgstr "Цей токен підтверджує, що ви керуєте цим екземпляром. Лише особа, яка його має, може створити обліковий запис адміністратора."
 
 #. Native desktop dialog body under the headline saying the update did not finish. The buttons are Try again, Download and Later.
 #: src/features/platform/utils/DesktopLocaleBridge.ts
@@ -33898,10 +34104,20 @@ msgstr "Третій варіант"
 msgid "Third party"
 msgstr "Сторонні"
 
+#. Error in the import-template form when the desktop app loaded the template from the third-party platform named by {theOtherPlatform} but its contents were not in the expected shape.
+#: src/features/guild/components/modals/add_guild_modal/shared.ts
+msgid "This {theOtherPlatform} template couldn't be read. It may use a format Fluxer doesn't support yet."
+msgstr "Цей шаблон від {theOtherPlatform} не вдалося прочитати. Можливо, він використовує формат, який Fluxer ще не підтримує."
+
 #. Body of the block-user error modal when the target is a system account that cannot be blocked.
 #: src/features/relationship/components/alerts/RelationshipErrorModalUtils.tsx
 msgid "This account can't be blocked."
 msgstr "Цей обліковий запис не можна заблокувати."
+
+#. Error shown in the setup wizard when the signed-in account lacks admin access to the unconfigured instance. A sign out button follows.
+#: src/features/app/components/setup/SelfHostedSetupWizardGate.tsx
+msgid "This account is not an admin of this instance. Sign in with an admin account to finish setup."
+msgstr "Цей обліковий запис не є адміністратором цього екземпляра. Увійдіть за допомогою облікового запису адміністратора, щоб завершити налаштування."
 
 #. Error in the browser when the chosen account belongs to a different server than the app that asked to sign in. accountHost and requestHost are server addresses. productName is the app name, such as Fluxer.
 #: src/features/auth/flow/auth_login_core/useDesktopHandoffFlow.ts
@@ -34173,7 +34389,7 @@ msgstr "Цей емоджі не вдалося підготувати. Спро
 #. Label above the community an emoji comes from in the emoji info card.
 #: src/features/expressions/components/ExpressionInfoCard.tsx
 msgid "This emoji is from"
-msgstr "Цей емодзі з"
+msgstr "Цей емоджі з"
 
 #. Title of the error modal shown when a custom emoji was already deleted.
 #. Title of the error modal shown when a custom emoji was deleted before the rename was saved.
@@ -34358,7 +34574,7 @@ msgstr "Це не та спільнота, яку ви шукаєте."
 
 #: src/features/guild/components/modals/guild_tabs/CloneAllowedToggle.tsx
 msgid "This is off until you turn it on. While it is on, members of other communities can use the in-app one-click \"Clone\" shortcut on your custom emojis. Turning it off does not prevent anyone from saving the image and uploading it themselves."
-msgstr "Цю функцію вимкнено, доки ви її не ввімкнете. Коли її ввімкнено, учасники інших спільнот зможуть у один клік використовувати вбудовану кнопку «Клонувати» для ваших власних емодзі. Вимкнення цієї функції не завадить нікому зберегти зображення та завантажити його самостійно."
+msgstr "Цю функцію вимкнено, доки ви її не ввімкнете. Коли її ввімкнено, учасники інших спільнот зможуть у один клік використовувати вбудовану кнопку «Клонувати» для ваших власних емоджі. Вимкнення цієї функції не завадить нікому зберегти зображення та завантажити його самостійно."
 
 #: src/features/guild/components/modals/guild_tabs/CloneAllowedToggle.tsx
 msgid "This is off until you turn it on. While it is on, members of other communities can use the in-app one-click \"Clone\" shortcut on your custom stickers. Turning it off does not prevent anyone from saving the image and uploading it themselves."
@@ -34381,6 +34597,10 @@ msgstr "Це опис першого варіанту"
 #: src/features/user/components/modals/tabs/component_gallery_tab/index.tsx
 msgid "This is the second option description"
 msgstr "Це опис другого варіанту"
+
+#: src/features/channel/components/ChannelWelcomeSection.tsx
+msgid "This is the start of {channelDisplayName}."
+msgstr "Це початок {channelDisplayName}."
 
 #: src/features/user/components/modals/tabs/component_gallery_tab/index.tsx
 msgid "This is the third option description"
@@ -34730,6 +34950,11 @@ msgstr "Це сповістить <0>{memberCount, plural, one {# учасник
 msgid "This will notify up to <0>{memberCount, plural, one {# online member} other {# online members}}</0> in this channel. Are you sure you want to do this?"
 msgstr "Це сповістить до <0>{memberCount, plural, one {# учасника онлайн} few {# учасників онлайн} many {# учасників онлайн} other {# учасника онлайн}}</0> у цьому каналі. Ви впевнені, що хочете це зробити?"
 
+#. Confirmation modal description warning that every message the caller has sent in this channel and in all of its threads, active or archived, will be deleted. Also shown for forum and media channels, where the threads are their posts. Cannot be undone.
+#: src/features/channel/hooks/useDeleteMyMessagesInChannel.tsx
+msgid "This will permanently delete every message you have ever sent in this channel and its threads. This cannot be undone."
+msgstr "Це назавжди видалить усі ваші повідомлення в цьому каналі та його гілках. Цю дію не можна скасувати."
+
 #. Confirmation modal description warning that every message the caller has sent in this channel will be deleted. Cannot be undone.
 #: src/features/channel/hooks/useDeleteMyMessagesInChannel.tsx
 msgid "This will permanently delete every message you have ever sent in this channel. This cannot be undone."
@@ -34739,6 +34964,11 @@ msgstr "Це назавжди видалить усі повідомлення, 
 #: src/features/channel/hooks/useDeleteMyMessagesInChannel.tsx
 msgid "This will permanently delete every message you have ever sent in this conversation. This cannot be undone."
 msgstr "Це назавжди видалить усі повідомлення, які ви коли-небудь надсилали в цій розмові. Цю дію не можна скасувати."
+
+#. Confirmation modal description warning that every message the caller has sent in this thread will be deleted. Also shown for forum and media posts. Cannot be undone.
+#: src/features/channel/hooks/useDeleteMyMessagesInChannel.tsx
+msgid "This will permanently delete every message you have ever sent in this thread. This cannot be undone."
+msgstr "Це назавжди видалить усі ваші повідомлення в цьому чаті. Цю дію не можна скасувати."
 
 #: src/features/theme/components/modals/ThemeAcceptModal.tsx
 msgid "This will replace your current custom theme. You can edit it later in {themeSettingsPath}."
@@ -35952,7 +36182,7 @@ msgstr "Видалити приватний чат з вибраного"
 #. Emoji context menu action that removes the emoji from favorites.
 #: src/features/ui/action_menu/items/ExpressionMenuConfig.ts
 msgid "Unfavorite emoji"
-msgstr "Видалити емодзі з вибраного"
+msgstr "Видалити емоджі з вибраного"
 
 #. Action that removes a group DM from the favorites list.
 #. DM list context menu item that removes a group DM from favorites.
@@ -36164,7 +36394,7 @@ msgstr "Розблокуйте всі власні емоджі та стіке�
 #. Premium upsell shown when sending custom emoji in a DM without a subscription.
 #: src/features/expressions/utils/ExpressionPermissionUtils.ts
 msgid "Unlock custom emojis in DMs with {premiumProductName}"
-msgstr "Розблокуйте власні емодзі у приватних чатах з {premiumProductName}"
+msgstr "Розблокуйте власні емоджі у приватних чатах з {premiumProductName}"
 
 #. Premium upsell title in video settings.
 #: src/features/user/components/modals/tabs/UserVideoTab.tsx
@@ -36523,10 +36753,20 @@ msgstr "До 4K при 60 FPS"
 msgid "Up to 720p at 30 FPS"
 msgstr "До 720p зі швидкістю 30 кадрів/сек"
 
+#. Native desktop dialog body under the headline announcing a new version, shown on a Flatpak install. {appName} is the desktop app name (typically Fluxer).
+#: src/features/platform/utils/DesktopLocaleBridge.ts
+msgid "Update {appName} from your software center."
+msgstr "Оновіть {appName} у своєму центрі програмного забезпечення."
+
 #. Tray menu item shown only while a desktop update is waiting. Clicking it installs the update. {appName} is the desktop app name (typically Fluxer).
 #: src/features/platform/utils/DesktopLocaleBridge.ts
 msgid "Update {appName} now"
 msgstr "Оновити {appName} зараз"
+
+#. Native desktop dialog body under the headline announcing a new version, shown on a Linux install managed by a package manager such as a deb, rpm or AUR package. {appName} is the desktop app name (typically Fluxer).
+#: src/features/platform/utils/DesktopLocaleBridge.ts
+msgid "Update {appName} with your package manager, or download the new version."
+msgstr "Оновіть {appName} за допомогою менеджера пакунків або завантажте нову версію."
 
 #. Linux settings text when the installed desktop app is too old for system-wide shortcuts. {productName} is the app name.
 #: src/features/user/components/modals/tabs/components/SystemShortcutsSection.tsx
@@ -36598,6 +36838,11 @@ msgstr "Оновлені правила"
 #: src/features/expressions/commands/FavoriteMemeCommands.tsx
 msgid "Updated saved media"
 msgstr "Оновлено збережені медіа"
+
+#. Settings search synonym. Used to match this term when the user types it in the settings search bar.
+#: src/features/user/components/settings_utils/search_index/DesktopSettingsIndex.ts
+msgid "Updates"
+msgstr "Оновлення"
 
 #. Heading of the dialog shown after the user follows an announcement channel.
 #: src/features/channel/components/modals/ChannelFollowSuccessModal.tsx
@@ -36736,7 +36981,7 @@ msgstr "Завантажити новий"
 #. Permission description in the role/permission editor for the Create Emoji & Stickers permission. Lets the member upload new custom expressions and edit the ones they uploaded.
 #: src/features/permissions/utils/PermissionLabelDescriptors.ts
 msgid "Upload new emoji and stickers, and manage your own creations."
-msgstr "Завантажувати нові емодзі та стікери, а також керувати власними творіннями."
+msgstr "Завантажувати нові емоджі та стікери, а також керувати власними творіннями."
 
 #. Description for the screen-share preview toggle in the informational modal.
 #: src/features/voice/components/modals/ScreenSharePickerModal.tsx
@@ -36933,7 +37178,7 @@ msgstr "Використовуйте застосунок автентифіка
 #. Plutonium page comparison row label for animated emoji use.
 #: src/features/premium/components/plutonium_page/PlutoniumPageMessages.ts
 msgid "Use animated emojis in messages"
-msgstr "Використовуйте анімовані емодзі в повідомленнях"
+msgstr "Використовуйте анімовані емоджі в повідомленнях"
 
 #. Settings search entry label. Names the settings search entry in the settings UI.
 #: src/features/user/utils/UserMessageDescriptors.ts
@@ -36965,15 +37210,25 @@ msgstr "Використовувати стандартні налаштуван
 msgid "Use coal theme (pitch-black surfaces)"
 msgstr "Використовувати вугільну тему (абсолютно чорні поверхні)"
 
+#. Desktop setting toggle label on Windows and Linux. Switches the system tray icon from monochrome to the full-color app icon.
+#: src/features/user/components/modals/tabs/DesktopSettingsTab.tsx
+msgid "Use colored tray icon"
+msgstr "Використовувати кольорову піктограму в треї"
+
 #. Plutonium page comparison row label for global emojis and stickers.
 #: src/features/premium/components/plutonium_page/PlutoniumPageMessages.ts
 msgid "Use custom emojis and stickers in any community"
-msgstr "Використовуйте власні емодзі та стікери в будь-якій спільноті"
+msgstr "Використовуйте власні емоджі та стікери в будь-якій спільноті"
 
 #. Short label in the banner uploader. Keep it concise. Keep the tone plain and specific.
 #: src/features/user/utils/UserMessageDescriptors.ts
 msgid "Use custom image"
 msgstr "Використати власне зображення"
+
+#. Desktop setting toggle label on Windows. Switches the unread badge drawn over the taskbar button from red to dark gray.
+#: src/features/user/components/modals/tabs/DesktopSettingsTab.tsx
+msgid "Use dark taskbar badge"
+msgstr "Використовувати темну позначку на панелі завдань"
 
 #. Short label in the theme tab content. Keep it concise.
 #: src/features/user/components/modals/tabs/appearance_tab/theme/ThemeTabContent.tsx
@@ -36998,7 +37253,7 @@ msgstr "Використовувати прямий доступ до прист
 #. Permission description in the channel-scoped permissions editor for the Use External Emoji permission. "Other communities" means custom emoji uploaded in a different Fluxer community.
 #: src/features/permissions/utils/PermissionLabelDescriptors.ts
 msgid "Use emoji from other communities in this channel."
-msgstr "Використовувати емодзі з інших спільнот у цьому каналі."
+msgstr "Використовувати емоджі з інших спільнот у цьому каналі."
 
 #. Premium upsell shown when sending external emoji without a subscription.
 #: src/features/expressions/utils/ExpressionPermissionUtils.ts
@@ -37334,11 +37589,6 @@ msgstr "Ім'я користувача має містити щонайменш�
 msgid "Username must be at most 32 characters"
 msgstr "Ім'я користувача має містити не більше 32 символів"
 
-#. Warning shown in the setup wizard when the username sign-in option is selected. Keep it short and plain.
-#: src/features/app/components/setup/SetupWizardSteps.tsx
-msgid "Username sign-in is still rolling out to the mobile apps. Full support on every platform is coming soon."
-msgstr "Вхід за іменем користувача ще розгортається для мобільних додатків. Повна підтримка на всіх платформах з’явиться незабаром."
-
 #. Heading above the choice of how usernames are tagged in the setup wizard.
 #: src/features/app/components/setup/SetupWizardSteps.tsx
 msgid "Username tags"
@@ -37348,6 +37598,11 @@ msgstr "Теги імені користувача"
 #: src/features/user/components/modals/FluxerTagChangeModal.tsx
 msgid "Username updated"
 msgstr "Ім'я користувача оновлено"
+
+#. One line of the support email written for the user. username is the account username with its tag.
+#: src/features/user/utils/MessagingPausedHelpEmail.ts
+msgid "Username: {username}"
+msgstr "Ім'я користувача: {username}"
 
 #. Summary value on the setup wizard finish step when people sign in with a username.
 #: src/features/app/components/setup/SetupWizardSteps.tsx
@@ -37505,8 +37760,8 @@ msgstr "Код підтвердження"
 msgid "Verification code sent"
 msgstr "Код підтвердження надіслано"
 
-#. Toast confirmation in the email verification alert after a verification email has been sent.
-#: src/features/app/components/dialogs/components/EmailVerificationAlert.tsx
+#. Toast confirmation shown after a verification email has been sent.
+#: src/features/auth/hooks/useVerifyEmailAction.tsx
 msgid "Verification email sent. Check your inbox."
 msgstr "Лист із підтвердженням надіслано. Перевірте свою поштову скриньку."
 
@@ -38473,6 +38728,11 @@ msgstr "На цьому обліковому записі не знайдено 
 msgid "We couldn't find an active subscription on this account. Refresh and try again."
 msgstr "На цьому обліковому записі не знайдено активної підписки. Оновіть сторінку та спробуйте ще раз."
 
+#. Error in the import-template form when the desktop app looked up the template and the third-party platform named by {theOtherPlatform} said it does not exist or has expired.
+#: src/features/guild/components/modals/add_guild_modal/shared.ts
+msgid "We couldn't find that {theOtherPlatform} template. Check the link and try again."
+msgstr "Ми не змогли знайти цей шаблон {theOtherPlatform}. Перевірте посилання та спробуйте ще раз."
+
 #. Error message in the message forward failed modal.
 #: src/features/messaging/components/modals/ForwardModal.tsx
 msgid "We couldn't forward the message at this time."
@@ -38528,7 +38788,7 @@ msgstr "Радимо зберегти ці коди зараз, щоб не вт
 #. Error text for static emoji uploads that still exceed the file size limit after resizing. {fileSize} and {maxSize} are formatted file sizes.
 #: src/features/guild/components/modals/guild_tabs/GuildEmojiTab.tsx
 msgid "We resized and compressed this emoji to 128x128 pixels, but it is still {fileSize}. The limit is {maxSize}. Try a simpler image, fewer colors, or a smaller source file."
-msgstr "Ми змінили розмір і стиснули цей емодзі до 128x128 пікселів, але його розмір усе одно становить {fileSize}. Максимальний розмір: {maxSize}. Спробуйте простіше зображення, менше кольорів або менший вихідний файл."
+msgstr "Ми змінили розмір і стиснули цей емоджі до 128x128 пікселів, але його розмір усе одно становить {fileSize}. Максимальний розмір: {maxSize}. Спробуйте простіше зображення, менше кольорів або менший вихідний файл."
 
 #. Body of the sticker upload size error modal when a static image remains too large after resizing. {fileSize} and {maxSize} are formatted file sizes.
 #: src/features/expressions/components/modals/AddGuildStickerModal.tsx
@@ -38823,6 +39083,11 @@ msgctxt "us-state"
 msgid "West Virginia"
 msgstr "Західна Вірджинія"
 
+#. Heading on the account restriction screen above what the team did and what it means.
+#: src/features/auth/flow/AccountRestrictionScreen.tsx
+msgid "What happened"
+msgstr "Що сталося"
+
 #. Display-name field placeholder in account registration forms.
 #: src/features/i18n/utils/CommonMessageDescriptors.ts
 msgid "What should people call you?"
@@ -38847,6 +39112,11 @@ msgstr "Те, чим ви ділитеся, не оновлюється"
 #: src/features/user/utils/UserMessageDescriptors.ts
 msgid "What's happening?"
 msgstr "Що відбувається?"
+
+#. Settings menu entry that opens the latest patch notes for the app on the website.
+#: src/features/i18n/utils/CommonMessageDescriptors.ts
+msgid "What's new"
+msgstr "Новини"
 
 #. DSA report page: title of the reason step while its questions load or when they could not be loaded.
 #: src/features/moderation/components/report/ReportStepReason.tsx
@@ -38985,6 +39255,11 @@ msgstr "Хто набирає"
 #: src/features/messaging/components/alerts/TooManyAttachmentsModal.tsx
 msgid "Whoa, this is heavy"
 msgstr "Ого, це забагато"
+
+#. Heading on the account restriction screen above the rule that was broken and the findings.
+#: src/features/auth/flow/AccountRestrictionScreen.tsx
+msgid "Why"
+msgstr "Чому"
 
 #. Developer tools debug menu label. Internal-only surface for developers; translators may keep this terse.
 #: src/features/channel/components/channel_header_components/developer_tools/DeveloperOptionLabels.ts
@@ -39345,7 +39620,7 @@ msgstr "Ви все одно можете створити обліковий з
 
 #: src/features/user/components/modals/tabs/my_profile_tab/BioEditor.tsx
 msgid "You can use links, emoji, and Markdown."
-msgstr "Можна використовувати посилання, емодзі та Markdown."
+msgstr "Можна використовувати посилання, емоджі та Markdown."
 
 #. Title of the error modal shown when cloning an emoji or sticker is blocked by missing permissions.
 #: src/features/app/components/alerts/ExpressionCloneFailedModal.tsx
@@ -39725,7 +40000,7 @@ msgstr "Щоб переглядати та редагувати вебхуки �
 #. Permission error shown when sending external emoji without the required permission.
 #: src/features/expressions/utils/ExpressionPermissionUtils.ts
 msgid "You need the \"{permissionLabel}\" permission to use emoji from other communities here."
-msgstr "Щоб використовувати тут емодзі з інших спільнот, вам потрібен дозвіл «{permissionLabel}»."
+msgstr "Щоб використовувати тут емоджі з інших спільнот, вам потрібен дозвіл «{permissionLabel}»."
 
 #. Permission error shown when sending external stickers without the required permission.
 #: src/features/expressions/utils/ExpressionPermissionUtils.ts
@@ -39917,7 +40192,7 @@ msgstr "Ви надто швидко редагуєте повідомлення
 #. Title of the error modal shown when resending a verification email is rate-limited.
 #. Title of the error modal shown when sharing or sending a theme link is rate limited.
 #: src/features/app/components/alerts/CommonErrorModalDescriptors.ts
-#: src/features/app/components/dialogs/components/EmailVerificationAlert.tsx
+#: src/features/auth/hooks/useVerifyEmailAction.tsx
 #: src/features/discovery/commands/DiscoveryJoinCommands.tsx
 #: src/features/emoji/components/emojis/EmojiListItem.tsx
 #: src/features/theme/components/modals/ShareThemeModal.tsx
@@ -40081,7 +40356,7 @@ msgid "You've received a gift"
 msgstr "Ви отримали подарунок"
 
 #. Body of the error modal shown when resending a verification email is rate-limited.
-#: src/features/app/components/dialogs/components/EmailVerificationAlert.tsx
+#: src/features/auth/hooks/useVerifyEmailAction.tsx
 msgid "You've requested too many verification emails. Please wait a moment and try again."
 msgstr "Ви надіслали забагато листів для підтвердження. Зачекайте трохи й спробуйте знову."
 
@@ -40259,7 +40534,7 @@ msgstr "Вашу електронну адресу підтверджено. Т�
 #. Plutonium page perk card title about using custom emojis and stickers in every community.
 #: src/features/premium/components/plutonium_page/PlutoniumPageMessages.ts
 msgid "Your emojis, everywhere"
-msgstr "Ваші емодзі — скрізь"
+msgstr "Ваші емоджі — скрізь"
 
 #. Description text in the sounds.
 #: src/features/user/components/modals/tabs/notifications_tab/NotificationsTabSounds.tsx
@@ -40570,6 +40845,11 @@ msgstr "Ваша підписка перейде на щомісячну опл�
 #: src/features/app/components/dialogs/components/plutonium/hooks/useSubscriptionActions.ts
 msgid "Your subscription will switch to yearly billing at the next renewal."
 msgstr "Ваша підписка перейде на річну оплату під час наступного поновлення."
+
+#. Inline informational note in the screen share picker on Linux systems where no hardware video encoder is available, for example NVIDIA-only machines. Not an error.
+#: src/features/voice/components/modals/screen_share_picker_modal/SoftwareEncodeNotice.tsx
+msgid "Your system has no hardware video encoder that {productName} can use, so screen sharing uses software encoding."
+msgstr "Ваша система не має апаратного відеокодера, який може використовувати {productName}, тому для спільного доступу до екрана використовується програмне кодування."
 
 #. Body of the error modal shown when a theme CSS exceeds the maximum shareable size.
 #: src/features/theme/components/modals/ShareThemeModal.tsx

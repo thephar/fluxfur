@@ -14,6 +14,7 @@ import {
 } from '@fluxer/instance_bootstrap/src/Discovery';
 import {InstanceEndpointKind, normalizeInstanceEndpoint} from '@fluxer/instance_bootstrap/src/EndpointNormalization';
 import {CanonicalNetworkProtocol} from '@fluxer/instance_bootstrap/src/NetworkOrigin';
+import {normalizeThemeColor} from '@fluxer/instance_bootstrap/src/ThemeColor';
 import {
 	AGE_POLICY_ACTIONS,
 	type InstanceAgePolicy,
@@ -246,6 +247,10 @@ function readFeatures(value: unknown): InstanceFeatures {
 	if (desktopModulesEnabled !== undefined) {
 		features.desktop_modules_enabled = desktopModulesEnabled;
 	}
+	const discoveryEnabled = readOptionalBoolean(source, 'discovery_enabled', 'features.discovery_enabled');
+	if (discoveryEnabled !== undefined) {
+		features.discovery_enabled = discoveryEnabled;
+	}
 	const deletionGracePeriod = readOptionalBoundedInteger(
 		source,
 		'account_deletion_grace_period_hours',
@@ -399,6 +404,12 @@ function readAppPublic(value: unknown): InstanceAppPublic {
 	const setup = readRecord(source.setup, 'appPublic.setup');
 	const legal = readRecord(source.legal, 'appPublic.legal');
 	const registration = readRecord(source.registration, 'appPublic.registration');
+	const accountIdentityLocked = readOptionalBoolean(
+		setup,
+		'account_identity_locked',
+		'appPublic.setup.account_identity_locked',
+	);
+	const setupTokenRequired = readOptionalBoolean(setup, 'setup_token_required', 'appPublic.setup.setup_token_required');
 	return {
 		branding: {
 			product_name: readNonEmptyString(branding, 'product_name', 'appPublic.branding.product_name'),
@@ -407,7 +418,7 @@ function readAppPublic(value: unknown): InstanceAppPublic {
 			logo_url: readNullableAbsoluteHttpUrl(branding, 'logo_url', 'appPublic.branding.logo_url'),
 			wordmark_url: readNullableAbsoluteHttpUrl(branding, 'wordmark_url', 'appPublic.branding.wordmark_url'),
 			favicon_url: readNullableAbsoluteHttpUrl(branding, 'favicon_url', 'appPublic.branding.favicon_url'),
-			theme_color: readNullableNonEmptyString(branding, 'theme_color', 'appPublic.branding.theme_color'),
+			theme_color: normalizeThemeColor(branding.theme_color),
 			status_page_url: readOptionalText(branding, 'status_page_url'),
 			status_page_incident_history_url: readOptionalText(branding, 'status_page_incident_history_url'),
 			premium_product_name: readOptionalText(branding, 'premium_product_name') ?? DEFAULT_PREMIUM_PRODUCT_NAME,
@@ -418,6 +429,8 @@ function readAppPublic(value: unknown): InstanceAppPublic {
 		setup: {
 			configured: readBoolean(setup, 'configured', 'appPublic.setup.configured'),
 			admin_url: readNullableAbsoluteHttpUrl(setup, 'admin_url', 'appPublic.setup.admin_url'),
+			...(accountIdentityLocked === undefined ? {} : {account_identity_locked: accountIdentityLocked}),
+			...(setupTokenRequired === undefined ? {} : {setup_token_required: setupTokenRequired}),
 		},
 		legal: {
 			terms_url: readNullableAbsoluteHttpUrl(legal, 'terms_url', 'appPublic.legal.terms_url'),

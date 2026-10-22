@@ -404,6 +404,29 @@ describe('Username sign-in', () => {
 			expect(user.username.toLowerCase().startsWith('sharedname')).toBe(true);
 			expect(user.isUnclaimedAccount()).toBe(true);
 		});
+
+		it('refuses a credential-less approval registration on a username instance', async () => {
+			await useUsernameMode();
+			await getInstanceConfigRepository().setRegistrationConfig({mode: 'approval'});
+			await createBuilderWithoutAuth(harness)
+				.post('/auth/register')
+				.body({global_name: 'No Credentials', date_of_birth: '2000-01-01'})
+				.expect(400, APIErrorCodes.REGISTRATION_CREDENTIALS_REQUIRED)
+				.execute();
+			expect(await getInstanceConfigRepository().getPendingRegistrations()).toEqual([]);
+		});
+
+		it('accepts an approval registration with a username and password', async () => {
+			await useUsernameMode();
+			await getInstanceConfigRepository().setRegistrationConfig({mode: 'approval'});
+			const registration = await createBuilderWithoutAuth<{registration_pending_approval: true; user_id: string}>(
+				harness,
+			)
+				.post('/auth/register')
+				.body({username: 'reviewedperson', password: PASSWORD, date_of_birth: '2000-01-01'})
+				.execute();
+			expect(registration).toEqual({registration_pending_approval: true, user_id: expect.any(String)});
+		});
 	});
 
 	describe('login', () => {
@@ -1015,7 +1038,7 @@ describe('Username sign-in', () => {
 			const target = await registerUsernameAccount('PendingGone');
 			await createBuilder(harness, admin.token)
 				.put(`/admin/users/${target.userId}/deletion`)
-				.body({reason_code: 2, days_until_deletion: 30})
+				.body({days_until_deletion: 30, basis: {type: 'holder_request'}})
 				.execute();
 			await expectFieldErrors({path: '/auth/register', body: {username: 'pendinggone', password: PASSWORD}}, [
 				{path: 'username', code: ValidationErrorCodes.USERNAME_ALREADY_TAKEN},

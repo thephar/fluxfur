@@ -4,6 +4,7 @@ use crate::{
     acl,
     api::{
         client::{AdminApiClient, ApiError, ApiResultExt},
+        generated::types::{UpdateReportRequestOutcome, UpdateReportRequestResolution},
         reports::SearchReportsParams,
         types::ReportEntry,
     },
@@ -15,7 +16,7 @@ use crate::{
         htmx,
     },
     state::AppState,
-    templates,
+    templates::{self, components::enforcement_fields::is_snowflake},
     utils::{forms::clean_string, timestamps::format_admin_timestamp},
 };
 use axum::{
@@ -62,6 +63,14 @@ struct LegalHoldForm {
 }
 
 #[derive(Deserialize)]
+struct NoteForm {
+    #[serde(default)]
+    _csrf: Option<String>,
+    #[serde(default)]
+    body: Option<String>,
+}
+
+#[derive(Deserialize)]
 struct DeleteForm {
     #[serde(default)]
     _csrf: Option<String>,
@@ -78,6 +87,10 @@ struct ResolveForm {
     #[serde(default)]
     resolution: Option<String>,
     #[serde(default)]
+    outcome: Option<String>,
+    #[serde(default)]
+    duplicate_of: Option<String>,
+    #[serde(default)]
     public_comment: Option<String>,
     #[serde(default)]
     notify_reporter: Option<String>,
@@ -93,6 +106,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/reports/{report_id}/resolve",
             axum::routing::post(report_resolve),
+        )
+        .route(
+            "/reports/{report_id}/notes",
+            axum::routing::post(report_note),
         )
         .route(
             "/reports/{report_id}/legal-hold",
@@ -210,12 +227,21 @@ async fn report_detail(
         .log_error("load report detail");
     match report {
         Some(report) => {
-            let live = load_live_profile(&client, &auth.0, &report).await;
+            let note_author_ids = note_author_ids(&report);
+            let (live, note_authors) =
+                tokio::join!(load_live_profile(&client, &auth.0, &report), async {
+                    client
+                        .lookup_users_by_ids(&note_author_ids)
+                        .await
+                        .log_error("load report note authors")
+                        .unwrap_or_default()
+                });
             let markup = templates::pages::report_detail::report_detail_page(
                 config,
                 &auth.0,
                 &report,
                 &live,
+                &note_authors,
                 &csrf_token,
                 is_detail_fragment,
             );
@@ -226,6 +252,17 @@ async fn report_detail(
             Redirect::to(&format!("{base}/reports")).into_response()
         }
     }
+}
+
+fn note_author_ids(report: &ReportEntry) -> Vec<String> {
+    let mut ids: Vec<String> = report
+        .notes
+        .iter()
+        .map(|note| note.author_id.clone())
+        .collect();
+    ids.sort_unstable();
+    ids.dedup();
+    ids
 }
 
 async fn load_live_profile(
@@ -323,6 +360,35 @@ async fn report_resolve(
             config.secure_cookies(),
         );
     };
+    let outcome = match resolution {
+        UpdateReportRequestResolution::NoViolation => Some(UpdateReportRequestOutcome::NoViolation),
+        UpdateReportRequestResolution::Actioned => form
+            .outcome
+            .as_deref()
+            .and_then(|value| UpdateReportRequestOutcome::try_from(value).ok())
+            .filter(|outcome| *outcome != UpdateReportRequestOutcome::NoViolation),
+        UpdateReportRequestResolution::Duplicate => None,
+    };
+    let duplicate_of = form
+        .duplicate_of
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| is_snowflake(value))
+        .map(str::to_owned);
+    let missing = match resolution {
+        UpdateReportRequestResolution::Actioned if outcome.is_none() => Some(OUTCOME_REQUIRED),
+        UpdateReportRequestResolution::Duplicate if duplicate_of.is_none() => {
+            Some(DUPLICATE_OF_REQUIRED)
+        }
+        _ => None,
+    };
+    if let Some(message) = missing {
+        return flash::redirect_with_flash(
+            &back,
+            FlashData::error(message),
+            config.secure_cookies(),
+        );
+    }
     let client = AdminApiClient::new(state.http_client(), config, &auth.0.session);
     let public_comment = clean_string(form.public_comment.as_deref().unwrap_or(""));
     let notify_reporter =
@@ -331,9 +397,10 @@ async fn report_resolve(
         .resolve_report(
             &report_id,
             resolution,
+            outcome,
+            duplicate_of.as_deref(),
             public_comment.as_deref(),
             notify_reporter,
-            None,
         )
         .await
     {
@@ -346,7 +413,46 @@ async fn report_resolve(
     flash::redirect_with_flash(&back, flash, config.secure_cookies())
 }
 
+async fn report_note(
+    State(state): State<AppState>,
+    auth: axum::Extension<AuthContext>,
+    Path(report_id): Path<String>,
+    request: Request,
+) -> Response {
+    let config = state.config();
+    let back = format!("{}/reports/{report_id}", config.base_path);
+    let form: NoteForm = match Form::from_request(request, &state).await {
+        Ok(Form(f)) => f,
+        Err(error) => {
+            tracing::warn!(%error, report_id, "failed to parse report note form");
+            return flash::redirect_with_flash(
+                &back,
+                FlashData::error("Invalid form data"),
+                config.secure_cookies(),
+            );
+        }
+    };
+    let Some(body) = clean_string(form.body.as_deref().unwrap_or("")) else {
+        return flash::redirect_with_flash(
+            &back,
+            FlashData::error("Write a note first"),
+            config.secure_cookies(),
+        );
+    };
+    let client = AdminApiClient::new(state.http_client(), config, &auth.0.session);
+    let flash = match client.annotate_report(&report_id, body).await {
+        Ok(_) => FlashData::success("Note added"),
+        Err(error) => {
+            tracing::warn!(%error, report_id, "admin API request failed: add report note");
+            FlashData::error("Failed to add the note")
+        }
+    };
+    flash::redirect_with_flash(&back, flash, config.secure_cookies())
+}
+
 const RESOLUTION_REQUIRED: &str = "Choose a resolution";
+const OUTCOME_REQUIRED: &str = "Choose what happened to the reported content or account";
+const DUPLICATE_OF_REQUIRED: &str = "Enter the ID of the report this one repeats";
 
 async fn report_legal_hold(
     State(state): State<AppState>,

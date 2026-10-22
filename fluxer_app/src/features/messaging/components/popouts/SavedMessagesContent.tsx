@@ -45,6 +45,7 @@ const THERE_S_NOTHING_MORE_TO_SEE_HERE_DESCRIPTOR = msg({
 });
 const readonlyBehaviorOverrides = {
 	disableContextMenu: true,
+	disableDoubleClick: true,
 };
 export const SavedMessagesContent = observer(() => {
 	const {i18n} = useLingui();

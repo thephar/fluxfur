@@ -2,33 +2,27 @@
 
 import {Routes} from '@app/app/Routes';
 import {showGenericErrorModal} from '@app/features/app/components/alerts/GenericErrorModalCommands';
-import {UserSettingsModal} from '@app/features/app/components/dialogs/LoadableSettingsModals';
 import {ExternalLink} from '@app/features/app/components/shared/ExternalLink';
 import {AVATAR_RECOMMENDED_SIZE_LABEL, STATIC_IMAGE_FORMATS} from '@app/features/app/config/I18nDisplayConstants';
 import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
 import {GlobalLimits} from '@app/features/app/utils/GlobalLimits';
 import {openClaimAccountModal} from '@app/features/auth/components/modals/ClaimAccountModal';
+import {useVerifyEmailAction} from '@app/features/auth/hooks/useVerifyEmailAction';
 import {AssetCropModal, AssetType} from '@app/features/expressions/components/modals/AssetCropModal';
 import {openAssetSourceModal} from '@app/features/expressions/components/modals/AssetSourceModal';
 import {isAnimatedFile} from '@app/features/expressions/utils/AnimatedImageUtils';
 import {formatImageUploadRecommendedHint} from '@app/features/expressions/utils/AssetUploadHintCopy';
 import {isSvgFile, readImageFileAsUploadDataUrl} from '@app/features/expressions/utils/ImageUploadFileUtils';
+import {GuildAcronym} from '@app/features/guild/components/GuildAcronym';
 import styles from '@app/features/guild/components/modals/AddGuildModal.module.css';
 import {
 	ANIMATED_ICONS_ARE_NOT_SUPPORTED_WHEN_CREATING_A_DESCRIPTOR,
 	COMMUNITY_NAME_DESCRIPTOR,
 	ICON_FILE_IS_TOO_LARGE_PLEASE_CHOOSE_A_DESCRIPTOR,
 } from '@app/features/guild/components/modals/add_guild_modal/shared';
-import * as StringUtils from '@app/features/guild/utils/GuildInitialsUtils';
-import {
-	getGuildIconDisplayInitials,
-	getGuildInitialsFitStyle,
-	getInitialsLength,
-} from '@app/features/guild/utils/GuildInitialsUtils';
 import {
 	FAILED_TO_PROCESS_CROPPED_IMAGE_DESCRIPTOR,
 	INVALID_IMAGE_TRY_ANOTHER_DESCRIPTOR,
-	VERIFY_EMAIL_DESCRIPTOR,
 } from '@app/features/i18n/utils/CommonMessageDescriptors';
 import {openFilePicker} from '@app/features/messaging/utils/FilePickerUtils';
 import {formatFileSize} from '@app/features/messaging/utils/FileUtils';
@@ -45,7 +39,7 @@ import {ph} from '@lingui/core/macro';
 import {Trans, useLingui} from '@lingui/react/macro';
 import {EnvelopeSimpleIcon} from '@phosphor-icons/react';
 import type React from 'react';
-import {useCallback, useMemo, useState} from 'react';
+import {useCallback, useState} from 'react';
 import type {UseFormReturn} from 'react-hook-form';
 
 interface GuildCreateFormValues {
@@ -72,12 +66,7 @@ export function useGuildCreateIconField({
 }: GuildCreateIconFieldOptions) {
 	const {i18n} = useLingui();
 	const [previewIconUrl, setPreviewIconUrl] = useState<string | null>(null);
-	const initials = useMemo(() => {
-		const raw = (nameValue || '').trim();
-		if (!raw) return '';
-		return getGuildIconDisplayInitials(StringUtils.getInitialsFromName(raw));
-	}, [nameValue]);
-	const initialsLength = initials ? getInitialsLength(initials) : null;
+	const iconName = (nameValue || '').trim();
 	const showIconUploadErrorModal = useCallback(
 		(message: string) => {
 			showGenericErrorModal({
@@ -156,10 +145,24 @@ export function useGuildCreateIconField({
 			showGifOption: false,
 		});
 	}, [handleIconUpload, i18n, messages]);
-	return {previewIconUrl, initials, initialsLength, handleOpenIconUpload, handleClearIcon};
+	return {previewIconUrl, iconName, handleOpenIconUpload, handleClearIcon};
 }
 
-export function renderGuildCreateAccountGate(i18n: I18n, dataFlx: string): React.ReactNode {
+const GuildCreateVerifyEmailButton = ({dataFlx}: {dataFlx: string}) => {
+	const verifyEmailAction = useVerifyEmailAction();
+	return (
+		<Button
+			onClick={verifyEmailAction.onClick}
+			disabled={verifyEmailAction.submitting}
+			submitting={verifyEmailAction.submitting}
+			data-flx={`${dataFlx}.button.push`}
+		>
+			{verifyEmailAction.text}
+		</Button>
+	);
+};
+
+export function renderGuildCreateAccountGate(dataFlx: string): React.ReactNode {
 	const currentUser = Users.currentUser;
 	if (currentUser != null && !currentUser.isClaimed()) {
 		return (
@@ -187,19 +190,10 @@ export function renderGuildCreateAccountGate(i18n: I18n, dataFlx: string): React
 					<p data-flx={`${dataFlx}.p--2`}>
 						<Trans>You need to verify your email address before you can create a community.</Trans>
 					</p>
-					<Button
-						onClick={() =>
-							ModalCommands.push(
-								modal(
-									() => <UserSettingsModal initialTab="account_security" data-flx={`${dataFlx}.user-settings-modal`} />,
-									'user-settings',
-								),
-							)
-						}
-						data-flx={`${dataFlx}.button.push`}
-					>
-						{i18n._(VERIFY_EMAIL_DESCRIPTOR)}
-					</Button>
+					<GuildCreateVerifyEmailButton
+						dataFlx={dataFlx}
+						data-flx="guild.add-guild-modal.guild-create-shared.render-guild-create-account-gate.guild-create-verify-email-button"
+					/>
 				</div>
 			</div>
 		);
@@ -224,8 +218,7 @@ export function renderGuildCreateFields({
 	nameInputDataFlx,
 	showIconError,
 	previewIconUrl,
-	initials,
-	initialsLength,
+	iconName,
 	handleOpenIconUpload,
 	handleClearIcon,
 }: GuildCreateFieldsOptions): React.ReactNode {
@@ -244,20 +237,8 @@ export function renderGuildCreateFields({
 							data-flx={`${dataFlx}.icon-image`}
 						/>
 					) : (
-						<div
-							className={styles.iconPlaceholder}
-							data-initials-length={initialsLength}
-							data-flx={`${dataFlx}.icon-placeholder`}
-						>
-							{initials ? (
-								<span
-									className={styles.iconInitials}
-									style={getGuildInitialsFitStyle(initials)}
-									data-flx={`${dataFlx}.icon-initials`}
-								>
-									{initials}
-								</span>
-							) : null}
+						<div className={styles.iconPlaceholder} data-flx={`${dataFlx}.icon-placeholder`}>
+							{iconName ? <GuildAcronym name={iconName} data-flx={`${dataFlx}.icon-acronym`} /> : null}
 						</div>
 					)}
 					<div className={styles.iconActions} data-flx={`${dataFlx}.icon-actions`}>

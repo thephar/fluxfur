@@ -45,6 +45,8 @@ pub const BULK_UPDATE_GUILD_FEATURES: &str = "bulk:update:guild_features";
 pub const BULK_UPDATE_USER_FLAGS: &str = "bulk:update:user_flags";
 pub const DISCOVERY_REMOVE: &str = "discovery:remove";
 pub const DISCOVERY_REVIEW: &str = "discovery:review";
+pub const ENFORCEMENT_ANNOTATE: &str = "enforcement:annotate";
+pub const ENFORCEMENT_VIEW: &str = "enforcement:view";
 pub const GATEWAY_MEMORY_STATS: &str = "gateway:memory_stats";
 pub const GATEWAY_RELOAD_ALL: &str = "gateway:reload_all";
 pub const GIFT_CODES_GENERATE: &str = "gift_codes:generate";
@@ -70,6 +72,7 @@ pub const MESSAGE_DELETE_ALL: &str = "message:delete_all";
 pub const MESSAGE_DELETE: &str = "message:delete";
 pub const MESSAGE_LOOKUP: &str = "message:lookup";
 pub const MESSAGE_SHRED: &str = "message:shred";
+pub const REGISTRATION_REVIEW: &str = "registration:review";
 pub const REPORT_DELETE: &str = "report:delete";
 pub const REPORT_RESOLVE: &str = "report:resolve";
 pub const REPORT_VIEW: &str = "report:view";
@@ -152,6 +155,8 @@ pub const ALL_ACLS: &[&str] = &[
     BULK_UPDATE_USER_FLAGS,
     DISCOVERY_REMOVE,
     DISCOVERY_REVIEW,
+    ENFORCEMENT_ANNOTATE,
+    ENFORCEMENT_VIEW,
     GATEWAY_MEMORY_STATS,
     GATEWAY_RELOAD_ALL,
     GIFT_CODES_GENERATE,
@@ -177,6 +182,7 @@ pub const ALL_ACLS: &[&str] = &[
     MESSAGE_DELETE,
     MESSAGE_LOOKUP,
     MESSAGE_SHRED,
+    REGISTRATION_REVIEW,
     REPORT_DELETE,
     REPORT_RESOLVE,
     REPORT_VIEW,

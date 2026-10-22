@@ -97,6 +97,9 @@ x-fluxer-env: &fluxer-env
   FLUXER_CACHE_PURGE_HTTP_ENDPOINT: ${FLUXER_CACHE_PURGE_HTTP_ENDPOINT:-}
   FLUXER_CACHE_PURGE_HTTP_TOKEN: ${FLUXER_CACHE_PURGE_HTTP_TOKEN:-}
   FLUXER_CACHE_PURGE_HTTP_TIMEOUT_MS: ${FLUXER_CACHE_PURGE_HTTP_TIMEOUT_MS:-}
+  FLUXER_CACHE_PURGE_CONTROLLER_ENDPOINT: ${FLUXER_CACHE_PURGE_CONTROLLER_ENDPOINT:-}
+  FLUXER_CACHE_PURGE_CONTROLLER_TOKEN: ${FLUXER_CACHE_PURGE_CONTROLLER_TOKEN:-}
+  FLUXER_CACHE_PURGE_CONTROLLER_TIMEOUT_MS: ${FLUXER_CACHE_PURGE_CONTROLLER_TIMEOUT_MS:-}
 
   FLUXER_LIVEKIT_ENABLED: "${FLUXER_LIVEKIT_ENABLED:-true}"
   FLUXER_LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?set LIVEKIT_API_KEY in .env}
@@ -123,6 +126,13 @@ x-fluxer-env: &fluxer-env
   FLUXER_EMAIL_SMTP_PASSWORD: ${FLUXER_EMAIL_SMTP_PASSWORD:-}
   FLUXER_EMAIL_SMTP_TLS_MODE: ${FLUXER_EMAIL_SMTP_TLS_MODE:-}
   FLUXER_EMAIL_SMTP_SECURE: ${FLUXER_EMAIL_SMTP_SECURE:-}
+  FLUXER_EMAIL_FALLBACK_DOMAINS: ${FLUXER_EMAIL_FALLBACK_DOMAINS:-}
+  FLUXER_EMAIL_FALLBACK_SMTP_HOST: ${FLUXER_EMAIL_FALLBACK_SMTP_HOST:-}
+  FLUXER_EMAIL_FALLBACK_SMTP_PORT: ${FLUXER_EMAIL_FALLBACK_SMTP_PORT:-}
+  FLUXER_EMAIL_FALLBACK_SMTP_USERNAME: ${FLUXER_EMAIL_FALLBACK_SMTP_USERNAME:-}
+  FLUXER_EMAIL_FALLBACK_SMTP_PASSWORD: ${FLUXER_EMAIL_FALLBACK_SMTP_PASSWORD:-}
+  FLUXER_EMAIL_FALLBACK_SMTP_TLS_MODE: ${FLUXER_EMAIL_FALLBACK_SMTP_TLS_MODE:-}
+  FLUXER_EMAIL_FALLBACK_SMTP_HEADERS: ${FLUXER_EMAIL_FALLBACK_SMTP_HEADERS:-}
 
   FLUXER_STRIPE_ENABLED: ${FLUXER_STRIPE_ENABLED:-}
   FLUXER_STRIPE_SECRET_KEY: ${FLUXER_STRIPE_SECRET_KEY:-}
@@ -156,7 +166,6 @@ x-fluxer-env: &fluxer-env
   FLUXER_DISCOVERY_MIN_MEMBER_COUNT: ${FLUXER_DISCOVERY_MIN_MEMBER_COUNT:-}
   FLUXER_DELETION_GRACE_PERIOD_HOURS: ${FLUXER_DELETION_GRACE_PERIOD_HOURS:-}
   FLUXER_REPORT_RETENTION_DAYS: ${FLUXER_REPORT_RETENTION_DAYS:-}
-  FLUXER_RESOLVED_REPORT_RETENTION_DAYS: ${FLUXER_RESOLVED_REPORT_RETENTION_DAYS:-}
   FLUXER_REPORT_RETENTION_DRY_RUN: ${FLUXER_REPORT_RETENTION_DRY_RUN:-}
   FLUXER_API_WORKER_LANE_CONCURRENCY_OVERRIDES: ${FLUXER_API_WORKER_LANE_CONCURRENCY_OVERRIDES:-}
 
@@ -208,12 +217,11 @@ x-fluxer-app-healthcheck: &fluxer-app-healthcheck
   timeout: ${FLUXER_HEALTHCHECK_TIMEOUT:-5s}
   retries: ${FLUXER_APP_HEALTHCHECK_RETRIES:-30}
   start_period: ${FLUXER_APP_HEALTHCHECK_START_PERIOD:-90s}
-  start_interval: 1s
 
 x-fluxer-svc-healthcheck: &fluxer-svc-healthcheck
   <<: *fluxer-app-healthcheck
   start_period: ${FLUXER_SVC_HEALTHCHECK_START_PERIOD:-60s}
-  test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8090 && printf 'GET /_health HTTP/1.0\\r\\n\\r\\n' >&3 && head -n 1 <&3 | grep -q ' 200 '"]
+  test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8090 && printf \"GET /_health HTTP/1.0\\r\\n\\r\\n\" >&3 && head -n 1 <&3 | grep -q \" 200 \"'"]
 
 services:
   edge:
@@ -231,6 +239,7 @@ services:
       FLUXER_EDGE_SITE_ADDRESS: ${FLUXER_EDGE_SITE_ADDRESS:-${FLUXER_CADDY_SITE_ADDRESS:-${FLUXER_PUBLIC_SCHEME:-https}://${FLUXER_DOMAIN:?set FLUXER_DOMAIN in .env}}}
       FLUXER_EDGE_TRUSTED_PROXIES: ${FLUXER_EDGE_TRUSTED_PROXIES:-private_ranges}
       FLUXER_EDGE_ENCODE: ${FLUXER_EDGE_ENCODE:-zstd gzip}
+      FLUXER_EDGE_GLOBAL_OPTIONS: ${FLUXER_EDGE_GLOBAL_OPTIONS:-}
       FLUXER_ADMIN_BASE_PATH: ${FLUXER_ADMIN_BASE_PATH:-/admin}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
@@ -465,7 +474,8 @@ services:
     environment:
       <<: *fluxer-env
       FLUXER_API_PORT: "8080"
-      NODE_OPTIONS: --enable-source-maps${FLUXER_API_NODE_HEAP_MB:+ --max-old-space-size=$FLUXER_API_NODE_HEAP_MB}${FLUXER_API_NODE_OPTIONS:+ $FLUXER_API_NODE_OPTIONS}
+      FLUXER_SETUP_TOKEN: ${FLUXER_SETUP_TOKEN:-}
+      NODE_OPTIONS: --enable-source-maps${FLUXER_API_NODE_HEAP_MB:+ --max-old-space-size=${FLUXER_API_NODE_HEAP_MB:-}}${FLUXER_API_NODE_OPTIONS:+ ${FLUXER_API_NODE_OPTIONS:-}}
       NODE_EXTRA_CA_CERTS: ${FLUXER_NODE_EXTRA_CA_CERTS:-/etc/ssl/certs/ca-certificates.crt}
       FLUXER_POSTGRES_MAX_CONNECTIONS: "${FLUXER_API_POSTGRES_MAX_CONNECTIONS:-25}"
       FLUXER_API_PRESIGNED_ATTACHMENT_UPLOADS_ENABLED: "${FLUXER_API_PRESIGNED_ATTACHMENT_UPLOADS_ENABLED:-true}"
@@ -499,13 +509,13 @@ services:
     command: ["node", "dist/WorkerEntrypoint.js"]
     environment:
       <<: *fluxer-env
-      NODE_OPTIONS: --enable-source-maps${FLUXER_WORKER_NODE_HEAP_MB:+ --max-old-space-size=$FLUXER_WORKER_NODE_HEAP_MB}${FLUXER_WORKER_NODE_OPTIONS:+ $FLUXER_WORKER_NODE_OPTIONS}
+      NODE_OPTIONS: --enable-source-maps${FLUXER_WORKER_NODE_HEAP_MB:+ --max-old-space-size=${FLUXER_WORKER_NODE_HEAP_MB:-}}${FLUXER_WORKER_NODE_OPTIONS:+ ${FLUXER_WORKER_NODE_OPTIONS:-}}
       NODE_EXTRA_CA_CERTS: ${FLUXER_NODE_EXTRA_CA_CERTS:-/etc/ssl/certs/ca-certificates.crt}
       FLUXER_API_WORKER_MODE: all_lanes
       FLUXER_API_WORKER_ENABLE_CRON_SCHEDULER: "true"
       FLUXER_POSTGRES_MAX_CONNECTIONS: "${FLUXER_WORKER_POSTGRES_MAX_CONNECTIONS:-25}"
     healthcheck:
-      test: ["CMD", "node", "-e", "const age=Date.now()-require('node:fs').statSync('/tmp/fluxer-worker-heartbeat').mtimeMs;if(age>30000){console.error('worker heartbeat is '+Math.round(age)+'ms old');process.exit(1)}"]
+      test: ["CMD-SHELL", "node -e \"const age=Date.now()-require('node:fs').statSync('/tmp/fluxer-worker-heartbeat').mtimeMs;if(age>30000){console.error('worker heartbeat is '+Math.round(age)+'ms old');process.exit(1)}\""]
       <<: *fluxer-app-healthcheck
       retries: ${FLUXER_WORKER_HEALTHCHECK_RETRIES:-3}
     depends_on:
@@ -863,7 +873,7 @@ services:
       FLUXER_API_ENDPOINT: http://api:8080
       FLUXER_STATIC_CDN_ENDPOINT: ${FLUXER_STATIC_CDN_ENDPOINT:-${FLUXER_PUBLIC_ORIGIN:-${FLUXER_PUBLIC_SCHEME:-https}://${FLUXER_DOMAIN}}}
     healthcheck:
-      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /_health HTTP/1.0\\r\\n\\r\\n' >&3 && head -n 1 <&3 | grep -q ' 200 '"]
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080 && printf \"GET /_health HTTP/1.0\\r\\n\\r\\n\" >&3 && head -n 1 <&3 | grep -q \" 200 \"'"]
       <<: *fluxer-app-healthcheck
       start_period: ${FLUXER_SVC_HEALTHCHECK_START_PERIOD:-60s}
     depends_on:

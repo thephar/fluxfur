@@ -19,13 +19,24 @@ export interface TrustedCallerConfig {
 	buckets: Array<string>;
 }
 
+interface SmtpConfig {
+	host: string;
+	port: number;
+	username: string;
+	password: string;
+	tlsMode: SmtpTlsMode | null;
+}
+
+interface APICachePurgeTarget {
+	endpoint: string;
+	token: string;
+	timeoutMs: number;
+}
+
 export interface APICachePurgeConfig {
 	adapter: CachePurgeAdapterName;
-	http: {
-		endpoint: string;
-		token: string;
-		timeoutMs: number;
-	};
+	http: APICachePurgeTarget;
+	controller: APICachePurgeTarget;
 }
 
 interface APIGeoipFilesystemConfig {
@@ -159,12 +170,10 @@ export interface APIConfig {
 		fromName: string;
 		replyToEmail: string;
 		appBaseUrl: string;
-		smtp?: {
-			host: string;
-			port: number;
-			username: string;
-			password: string;
-			tlsMode: SmtpTlsMode | null;
+		smtp?: SmtpConfig;
+		fallback?: {
+			domains: Array<string>;
+			smtp: SmtpConfig & {headers?: Record<string, string>};
 		};
 	};
 	blocklistFeeds: {
@@ -283,6 +292,7 @@ export interface APIConfig {
 		};
 		setup: {
 			configured: boolean;
+			token: string | null;
 		};
 		accountIdentity: AccountIdentityMode | null;
 		tagStyle: TagStyle | null;
@@ -304,7 +314,6 @@ export interface APIConfig {
 	deletionGracePeriodHours: number;
 	reportRetention: {
 		days: number;
-		resolvedDays: number | null;
 		dryRun: boolean;
 	};
 	inactivityDeletionThresholdDays?: number;
