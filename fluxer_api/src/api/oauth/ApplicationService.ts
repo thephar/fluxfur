@@ -15,6 +15,7 @@ import type {Application} from '@app/api/models/Application';
 import type {User} from '@app/api/models/User';
 import type {BotAuthService} from '@app/api/oauth/BotAuthService';
 import type {ApplicationRepository} from '@app/api/oauth/repositories/ApplicationRepository';
+import {assertTierAllows, NO_TIER_CONTEXT} from '@app/api/user/AccountTier';
 import {enforceFluxerTagChangeRateLimit} from '@app/api/user/FluxerTagChangeRateLimit';
 import {dispatchUserUpdate, hasPartialUserFieldsChanged} from '@app/api/user/UserMappers';
 import {runAllInOrder} from '@app/api/utils/ConcurrencyUtils';
@@ -22,6 +23,7 @@ import {hashPassword} from '@app/api/utils/PasswordUtils';
 import {randomBase64Url} from '@app/api/utils/SecretHash';
 import {generateRandomUsername} from '@app/api/utils/UsernameGenerator';
 import {deriveUsernameFromDisplayName} from '@app/api/utils/UsernameSuggestionUtils';
+import {TierGatedActions} from '@fluxer/constants/src/AccountTierConstants';
 import {APIErrorCodes} from '@fluxer/constants/src/ApiErrorCodes';
 import {
 	DELETED_USER_GLOBAL_NAME,
@@ -35,7 +37,6 @@ import {AccessDeniedError} from '@fluxer/errors/src/domains/core/AccessDeniedErr
 import {InputValidationError} from '@fluxer/errors/src/domains/core/InputValidationError';
 import {InternalServerError} from '@fluxer/errors/src/domains/core/InternalServerError';
 import {BotUserNotFoundError} from '@fluxer/errors/src/domains/oauth/BotUserNotFoundError';
-import {UnclaimedAccountCannotCreateApplicationsError} from '@fluxer/errors/src/domains/oauth/UnclaimedAccountCannotCreateApplicationsError';
 import {UnknownApplicationError} from '@fluxer/errors/src/domains/oauth/UnknownApplicationError';
 import type {BotProfileUpdateRequest} from '@fluxer/schema/src/domains/oauth/OAuthSchemas';
 
@@ -127,9 +128,7 @@ export class ApplicationService {
 		const owner = await this.apiContext.services.users.findUniqueAssert(args.ownerUserId);
 		const botIsPublic = args.botPublic ?? true;
 		const botRequireCodeGrant = args.botRequireCodeGrant ?? false;
-		if (owner.isUnclaimedAccount()) {
-			throw new UnclaimedAccountCannotCreateApplicationsError();
-		}
+		assertTierAllows(owner, TierGatedActions.APPLICATION_CREATE, NO_TIER_CONTEXT);
 		const applicationId: ApplicationID = (await this.apiContext.services.snowflake.generate()) as ApplicationID;
 		const botUserId = applicationIdToUserId(applicationId);
 		const {username, discriminator} = await this.generateBotUsername(args.name);

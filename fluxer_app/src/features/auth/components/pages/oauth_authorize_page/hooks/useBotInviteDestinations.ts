@@ -35,7 +35,7 @@ const UNKNOWN_GROUP_DM_DESCRIPTOR = msg({
 	comment: 'Fallback label in the authentication bot invite destination selector for an unnamed group DM.',
 });
 
-export type BotGuildsStatus = 'idle' | 'loading' | 'ready' | 'error';
+type BotGuildsStatus = 'idle' | 'loading' | 'ready' | 'error';
 export type BotInviteDestinationKind = 'guild' | 'group_dm';
 
 export interface BotInviteDestinationOption extends GuildComboboxOption {
@@ -54,7 +54,7 @@ export interface BotInviteDestinationsResult {
 	error: string | null;
 }
 
-export function mapBotGuilds(
+function mapBotGuilds(
 	guilds: ReadonlyArray<GuildSummary>,
 	requestedPermissions: bigint,
 	unknownCommunityLabel: string,

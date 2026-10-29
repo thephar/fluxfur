@@ -67,11 +67,7 @@ export function useInviteAuthPage(code: string, runtimeSnapshot: RuntimeConfigSn
 		}
 	}, [guildInvite?.guild?.splash_card_alignment, setSplashCardAlignment]);
 	const isGroupDM = inviteData ? isGroupDmInvite(inviteData) : false;
-	const guildFeatures = guildInvite?.guild.features
-		? Array.isArray(guildInvite.guild.features)
-			? guildInvite.guild.features
-			: [...guildInvite.guild.features]
-		: [];
+	const guildFeatures = Array.from(guildInvite?.guild.features ?? []);
 	const isInvitesDisabled = guildFeatures.includes(GuildFeatures.INVITES_DISABLED);
 	const isRaidDetected = guildFeatures.includes(GuildFeatures.RAID_DETECTED);
 

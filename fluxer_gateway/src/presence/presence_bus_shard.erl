@@ -4,8 +4,6 @@
 -typing([eqwalizer]).
 -behaviour(gen_server).
 
--include_lib("fluxer_gateway/include/timeout_config.hrl").
-
 -export([start_link/1]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
@@ -13,7 +11,9 @@
 
 -spec start_link(non_neg_integer()) -> {ok, pid()} | {error, term()}.
 start_link(ShardIndex) ->
-    normalize_start_link(gen_server:start_link(?MODULE, #{shard_index => ShardIndex}, [])).
+    shard_utils:normalize_start_link(
+        gen_server:start_link(?MODULE, #{shard_index => ShardIndex}, [])
+    ).
 
 -spec init(map()) -> {ok, state(), hibernate} | {stop, term()}.
 init(#{shard_index := ShardIndex}) ->
@@ -185,11 +185,3 @@ safe_send_presence(TargetPid, UserId, Payload) ->
         error:_Reason -> ok;
         exit:_Reason -> ok
     end.
-
--spec normalize_start_link(gen_server:start_ret()) -> {ok, pid()} | {error, term()}.
-normalize_start_link({ok, Pid}) ->
-    {ok, Pid};
-normalize_start_link({error, Reason}) ->
-    {error, Reason};
-normalize_start_link(ignore) ->
-    {error, ignore}.

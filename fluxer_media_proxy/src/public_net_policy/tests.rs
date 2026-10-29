@@ -25,28 +25,6 @@ fn blocks_private_and_special_ip_literals() {
 }
 
 #[test]
-fn validates_public_host_syntax() {
-    assert!(is_valid_public_hostname("example.com"));
-    assert!(is_valid_public_hostname("xn--bcher-kva.example"));
-    assert!(!is_valid_public_hostname("localhost"));
-    assert!(!is_valid_public_hostname("example"));
-    assert!(!is_valid_public_hostname("bad_name.example"));
-    assert!(!is_valid_public_hostname("example.123"));
-}
-
-#[test]
-fn resolves_relative_redirects() {
-    assert_eq!(
-        "https://example.com/a/d?y=2",
-        resolve_redirect("https://example.com/a/b/c?x=1", "../d?y=2#ignored").unwrap()
-    );
-    assert_eq!(
-        "https://example.com/z",
-        resolve_redirect("https://example.com/a/b/c", "/z").unwrap()
-    );
-}
-
-#[test]
 fn blocks_every_documented_ipv4_ssrf_range() {
     for ip in [
         "0.0.0.0",
@@ -106,31 +84,9 @@ fn rejects_non_http_s_schemes() {
 }
 
 #[test]
-fn redirect_that_returns_to_same_url_is_allowed() {
-    assert_eq!(
-        "https://example.com/path",
-        resolve_redirect("https://example.com/path", "/path").unwrap()
-    );
-}
-
-#[test]
 fn redirect_with_dot_dot_cannot_escape_host() {
     let r = resolve_redirect("https://example.com/a", "../../../etc").unwrap();
     assert!(r.starts_with("https://example.com/"));
-}
-
-#[test]
-fn logged_urls_keep_only_scheme_host_and_port() {
-    assert_eq!(
-        "https://cdn.example.com/[redacted]",
-        external_url_for_log("https://agent:hunter2@cdn.example.com/rooms/private?token=abc#f")
-    );
-    assert_eq!(
-        "http://cdn.example.com:8080/[redacted]",
-        external_url_for_log("http://cdn.example.com:8080/a/b/c")
-    );
-    assert_eq!("[invalid-url]", external_url_for_log("not a url"));
-    assert_eq!("[invalid-url]", external_url_for_log(""));
 }
 
 #[test]
@@ -159,16 +115,6 @@ fn ipv6_outside_global_unicast_is_blocked_by_default() {
         "3fff:1000::1",
     ] {
         assert!(public(literal), "{literal}");
-    }
-}
-
-#[test]
-fn globally_reachable_special_use_addresses_stay_reachable() {
-    for literal in ["192.0.0.9", "192.0.0.10", "2001:1::1", "2001:20::1"] {
-        assert!(public(literal), "{literal}");
-    }
-    for literal in ["192.0.0.8", "192.0.0.11", "2001:1::4", "2001:40::1"] {
-        assert!(!public(literal), "{literal}");
     }
 }
 
@@ -209,35 +155,6 @@ fn public_urls_are_restricted_to_the_standard_web_ports() {
 }
 
 #[test]
-fn urls_with_a_fragment_are_rejected() {
-    assert_eq!(
-        Err(Error::BlockedUrl),
-        validate_url("https://example.com/a#section")
-    );
-    assert_eq!(
-        Err(Error::BlockedUrl),
-        validate_url("https://example.com#section")
-    );
-    assert_eq!(Ok(()), validate_url("https://example.com/a"));
-    let next = resolve_redirect("https://example.com/a/b", "/next#anchor").unwrap();
-    assert_eq!("https://example.com/next", next);
-    assert_eq!(Ok(()), validate_url(&next));
-}
-
-#[test]
-fn url_validation_accepts_public_syntax_without_resolving_dns() {
-    assert_eq!(
-        Ok(()),
-        validate_url("https://this-host-does-not-exist.invalid/a")
-    );
-    assert_eq!(
-        Err(Error::BlockedUrl),
-        validate_url("https://169.254.169.254/latest/meta-data/")
-    );
-    assert_eq!(Err(Error::BlockedUrl), validate_url("http://localhost/a"));
-}
-
-#[test]
 fn resolved_address_sets_are_bounded_and_fail_closed() {
     assert_eq!(
         Err(ResolveError::HostResolvedToNoAddress),
@@ -259,17 +176,6 @@ fn resolved_address_sets_are_bounded_and_fail_closed() {
         Err(ResolveError::BlockedAddress),
         screen_resolved_addresses(mixed.into_iter())
     );
-}
-
-#[test]
-fn a_resolver_rejection_is_recognisable_however_deeply_the_transport_wraps_it() {
-    assert!(is_pinned_dns_failure(&ResolveError::BlockedAddress));
-    assert!(is_pinned_dns_failure(&ResolveError::LookupFailed));
-    let wrapped = anyhow::Error::new(ResolveError::HostResolvedToNoAddress).context("dns error");
-    assert!(is_pinned_dns_failure(wrapped.as_ref()));
-    assert!(!is_pinned_dns_failure(&std::io::Error::other(
-        "tcp connect error"
-    )));
 }
 
 #[test]

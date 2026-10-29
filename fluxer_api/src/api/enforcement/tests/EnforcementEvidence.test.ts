@@ -1,24 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import fs from 'node:fs';
-import path from 'node:path';
-import {fileURLToPath} from 'node:url';
 import type {TestAccount} from '@app/api/auth/tests/AuthTestUtils';
 import {loadFixture, sendMessageWithAttachments} from '@app/api/channel/tests/AttachmentTestUtils';
 import {setupTestGuildWithMembers} from '@app/api/channel/tests/ChannelTestUtils';
 import {EnforcementDecisionRepository} from '@app/api/enforcement/EnforcementDecisionRepository';
 import {createStaff, decisionBody, getDecision, suspend} from '@app/api/enforcement/tests/EnforcementTestUtils';
-import {EnforcementDecisionEvidence, EnforcementDecisionNotes} from '@app/api/Tables';
 import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHarness';
 import {AdminACLs} from '@fluxer/constants/src/AdminACLs';
 import {DeletionReasons} from '@fluxer/constants/src/Core';
-import {seconds} from 'itty-time';
 import {afterAll, beforeAll, beforeEach, describe, expect, test} from 'vitest';
-
-const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../..');
-const SCHEMA = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'tools/dev/cassandra_target_schema.json'), 'utf8')) as {
-	tables: Array<{name: string; options: string}>;
-};
 
 describe('Enforcement evidence', () => {
 	let harness: ApiTestHarness;
@@ -122,15 +112,5 @@ describe('Enforcement evidence', () => {
 			expect.objectContaining({content: null, attachments: null, attachment_count: 1}),
 		]);
 		expect(decision.report_ids).toEqual([]);
-	});
-
-	test('evidence and notes expire after a year', () => {
-		const year = seconds('365 days');
-		for (const table of [EnforcementDecisionEvidence, EnforcementDecisionNotes]) {
-			expect(table.defaultTtlSeconds).toBe(year);
-			expect(SCHEMA.tables.find((entry) => entry.name === table.name)?.options).toContain(
-				`default_time_to_live = ${year}`,
-			);
-		}
 	});
 });

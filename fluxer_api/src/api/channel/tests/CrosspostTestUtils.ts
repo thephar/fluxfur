@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-export {type RecordedJob, RecordingWorkerService} from '@app/api/test/RecordingWorkerService';
+export {RecordingWorkerService} from '@app/api/test/RecordingWorkerService';
 
 import {createTestAccount, type TestAccount} from '@app/api/auth/tests/AuthTestUtils';
 import {createChannelID, createGuildID, createMessageID} from '@app/api/BrandedTypes';
 import {createApiContext} from '@app/api/CreateApiContext';
 import {ChannelRepository} from '@app/api/channel/ChannelRepository';
 import type {ChannelService} from '@app/api/channel/services/ChannelService';
-import {publishedEditRateLimitIdentifier} from '@app/api/channel/services/message/CrosspostPropagation';
 import {crosspostChannelRateLimitIdentifier} from '@app/api/channel/services/message/MessageCrosspostService';
 import {
 	acceptInvite,
@@ -48,10 +47,7 @@ import {
 import type {Message} from '@app/api/models/Message';
 import type {ApiTestHarness} from '@app/api/test/ApiTestHarness';
 import {createBuilder} from '@app/api/test/TestRequestBuilder';
-import {
-	CROSSPOST_CHANNEL_RATE_LIMIT,
-	PUBLISHED_MESSAGE_EDIT_RATE_LIMIT,
-} from '@fluxer/constants/src/AnnouncementConstants';
+import {CROSSPOST_CHANNEL_RATE_LIMIT} from '@fluxer/constants/src/AnnouncementConstants';
 import {ChannelTypes, Permissions} from '@fluxer/constants/src/ChannelConstants';
 import type {ChannelResponse} from '@fluxer/schema/src/domains/channel/ChannelSchemas';
 import type {GuildResponse} from '@fluxer/schema/src/domains/guild/GuildResponseSchemas';
@@ -156,38 +152,6 @@ export async function channelBudgetRemaining(channelId: string): Promise<number>
 		...CROSSPOST_CHANNEL_RATE_LIMIT,
 	});
 	return result.remaining;
-}
-
-export async function publishedEditBudgetRemaining(messageId: string): Promise<number> {
-	const result = await getRateLimitService().peekLimit({
-		identifier: publishedEditRateLimitIdentifier(createMessageID(BigInt(messageId))),
-		...PUBLISHED_MESSAGE_EDIT_RATE_LIMIT,
-	});
-	return result.remaining;
-}
-
-export interface StallGate {
-	reached: Promise<void>;
-	release: () => void;
-}
-
-export function createStallGate(): StallGate & {hit: () => Promise<void>} {
-	let markReached: () => void = () => {};
-	let release: () => void = () => {};
-	const reached = new Promise<void>((resolve) => {
-		markReached = resolve;
-	});
-	const released = new Promise<void>((resolve) => {
-		release = resolve;
-	});
-	return {
-		reached,
-		release,
-		hit: async () => {
-			markReached();
-			await released;
-		},
-	};
 }
 
 export function createTestGuildStack(): GuildStackServices {

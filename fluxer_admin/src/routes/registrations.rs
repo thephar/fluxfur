@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use crate::{
-    api::{client::AdminApiClient, types::PendingRegistrationStatus},
+    api::{
+        client::{AdminApiClient, ApiResultExt},
+        types::{PendingRegistrationStatus, RegistrationUrlResponse},
+    },
     middleware::{
         auth::AuthContext,
         csrf::CsrfToken,
@@ -40,6 +43,15 @@ pub fn router() -> Router<AppState> {
         )
 }
 
+async fn registration_urls(client: &AdminApiClient) -> Vec<RegistrationUrlResponse> {
+    client
+        .get_instance_config()
+        .await
+        .log_error("load registration URLs for pending registrations")
+        .map(|instance_config| instance_config.registration.urls)
+        .unwrap_or_default()
+}
+
 async fn pending_registrations_page(
     State(state): State<AppState>,
     auth: axum::Extension<AuthContext>,
@@ -47,7 +59,11 @@ async fn pending_registrations_page(
 ) -> Response {
     let config = state.config();
     let client = AdminApiClient::new(state.http_client(), config, &auth.0.session);
-    let pending_registrations = match client.list_pending_registrations().await {
+    let (pending_registrations, registration_urls) = tokio::join!(
+        client.list_pending_registrations(),
+        registration_urls(&client)
+    );
+    let pending_registrations = match pending_registrations {
         Ok(pending_registrations) => Some(pending_registrations),
         Err(error) => {
             tracing::warn!(%error, "admin API request failed: list pending registrations");
@@ -59,6 +75,7 @@ async fn pending_registrations_page(
         &auth.0,
         &csrf.0.0,
         pending_registrations.as_deref(),
+        &registration_urls,
     );
     Html(markup.into_string()).into_response()
 }
@@ -112,9 +129,10 @@ async fn decide_pending_registration(
         PendingRegistrationStatus::Approved => {
             ("Registration approved", "Failed to approve registration")
         }
-        PendingRegistrationStatus::Rejected => {
-            ("Registration rejected", "Failed to reject registration")
-        }
+        PendingRegistrationStatus::Rejected => (
+            "Registration rejected and account deleted",
+            "Failed to reject registration",
+        ),
     };
     let flash = match clean_string(form.user_id.as_deref().unwrap_or("")) {
         None => FlashData::error("User ID is required"),
@@ -124,11 +142,13 @@ async fn decide_pending_registration(
                 Ok(pending_registrations) => {
                     let flash = FlashData::success(success_message);
                     if htmx::targets(&headers, "pending-registration-list") {
+                        let registration_urls = registration_urls(&client).await;
                         let markup = maud::html! {
                             (templates::pages::pending_registrations::pending_registration_list(
                                 config,
                                 &csrf.0.0,
                                 &pending_registrations,
+                                &registration_urls,
                             ))
                             (pending_registration_count_markup(
                                 u32::try_from(pending_registrations.len()).ok(),

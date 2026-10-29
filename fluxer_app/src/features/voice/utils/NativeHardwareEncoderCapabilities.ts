@@ -49,8 +49,3 @@ export function getNativeHardwareEncoderCapabilitiesSync(): VoiceEngineV2Hardwar
 export function hasNativeHardwareEncoder(codec: VideoCodec): boolean {
 	return hasVoiceEngineV2NativeHardwareEncoder(getNativeHardwareEncoderCapabilitiesSync(), codec);
 }
-
-export function resetNativeHardwareEncoderCapabilities(): void {
-	cachedCapabilities = null;
-	pendingPromise = null;
-}

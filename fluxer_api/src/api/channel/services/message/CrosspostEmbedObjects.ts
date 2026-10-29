@@ -48,7 +48,7 @@ export function forEachEmbedMedia(
 	}
 }
 
-export function collectEmbedContentHashes(message: Message): Array<string> {
+function collectEmbedContentHashes(message: Message): Array<string> {
 	const hashes: Array<string> = [];
 	forEachEmbedMedia(
 		message.embeds.map((embed) => embed.toMessageEmbed()),

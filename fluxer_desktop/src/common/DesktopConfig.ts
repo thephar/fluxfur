@@ -1,4 +1,3 @@
-import {isObjectLike as isRecord} from '@fluxer/record_utils/src/RecordGuards';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import fs from 'node:fs';
@@ -11,12 +10,15 @@ import {
 	isGlobalShortcutAction,
 } from '@electron/common/GlobalShortcutActions';
 import type {DesktopTroubleshootingSettings, DesktopWindowBehaviorSettings} from '@electron/common/Types';
+import {readInstanceProductNameReport} from '@fluxer/desktop_ipc/src/InstanceProductNameContract';
 import {InstanceEndpointKind, normalizeInstanceEndpoint} from '@fluxer/instance_bootstrap/src/EndpointNormalization';
+import {isObjectLike as isRecord} from '@fluxer/record_utils/src/RecordGuards';
 import log from 'electron-log';
 
 export type {DesktopTroubleshootingSettings, DesktopWindowBehaviorSettings} from '@electron/common/Types';
 
 const CONFIG_FILE_NAME = 'settings.json';
+export const THEME_FOLDERS_MAX = 20;
 const MINIMIZE_TO_TRAY_STORAGE_KEY_V2 = 'minimizeToTrayV2';
 const CLOSE_TO_TRAY_STORAGE_KEY_V2 = 'closeToTrayV2';
 
@@ -25,10 +27,17 @@ interface DesktopConfig extends Record<string, unknown> {
 	window_behavior?: PersistedDesktopWindowBehaviorSettings;
 	troubleshooting?: PersistedDesktopTroubleshootingSettings;
 	theme_allowed_local_files?: Array<string>;
+	theme_folders?: Array<string>;
 	app_origin?: string;
 	preboot_theme?: string;
+	instance_product_names?: Array<PersistedInstanceProductName>;
 	global_shortcuts?: PersistedGlobalShortcutsSettings;
 	mac_screen_recording_requested?: boolean;
+}
+
+interface PersistedInstanceProductName {
+	instance_key: string;
+	product_name: string;
 }
 
 export type GlobalShortcutsPortalConsent = 'unset' | 'granted' | 'declined';
@@ -77,6 +86,7 @@ interface PersistedDesktopTroubleshootingSettings {
 const INSTANCE_ENDPOINT_ARGS = ['--fluxer-instance'];
 
 const PREBOOT_THEME_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/u;
+const INSTANCE_PRODUCT_NAMES_MAX_ENTRIES = 32;
 
 let config: DesktopConfig = {};
 let configPath: string | null = null;
@@ -210,7 +220,7 @@ function sanitizePersistedGlobalShortcutActions(value: unknown): Array<Persisted
 	return actions.length > 0 ? actions : undefined;
 }
 
-export function sanitizePersistedGlobalShortcutsSettings(value: unknown): PersistedGlobalShortcutsSettings | undefined {
+function sanitizePersistedGlobalShortcutsSettings(value: unknown): PersistedGlobalShortcutsSettings | undefined {
 	if (!isRecord(value)) {
 		return undefined;
 	}
@@ -269,6 +279,23 @@ function sanitizePrebootTheme(value: unknown): string | undefined {
 	return typeof value === 'string' && PREBOOT_THEME_PATTERN.test(value) ? value : undefined;
 }
 
+function sanitizeInstanceProductNames(value: unknown): Array<PersistedInstanceProductName> | undefined {
+	if (!Array.isArray(value)) {
+		return undefined;
+	}
+	const entries: Array<PersistedInstanceProductName> = [];
+	const seen = new Set<string>();
+	for (const item of value) {
+		if (!isRecord(item)) continue;
+		const report = readInstanceProductNameReport({instanceKey: item.instance_key, productName: item.product_name});
+		if (report === null || seen.has(report.instanceKey)) continue;
+		seen.add(report.instanceKey);
+		entries.push({instance_key: report.instanceKey, product_name: report.productName});
+		if (entries.length === INSTANCE_PRODUCT_NAMES_MAX_ENTRIES) break;
+	}
+	return entries.length > 0 ? entries : undefined;
+}
+
 function sanitizeDesktopConfig(value: unknown): DesktopConfig {
 	if (!isRecord(value)) {
 		return {};
@@ -317,93 +344,73 @@ function sanitizeDesktopConfig(value: unknown): DesktopConfig {
 	} else {
 		delete nextConfig.theme_allowed_local_files;
 	}
+	if (Array.isArray(value.theme_folders)) {
+		nextConfig.theme_folders = value.theme_folders
+			.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+			.slice(0, THEME_FOLDERS_MAX);
+	} else {
+		delete nextConfig.theme_folders;
+	}
 	const prebootTheme = sanitizePrebootTheme(value.preboot_theme);
 	if (prebootTheme) {
 		nextConfig.preboot_theme = prebootTheme;
 	} else {
 		delete nextConfig.preboot_theme;
 	}
+	const instanceProductNames = sanitizeInstanceProductNames(value.instance_product_names);
+	if (instanceProductNames) {
+		nextConfig.instance_product_names = instanceProductNames;
+	} else {
+		delete nextConfig.instance_product_names;
+	}
 	return nextConfig;
 }
 
+function firstBoolean(fallback: boolean, ...values: ReadonlyArray<unknown>): boolean {
+	for (const value of values) {
+		if (typeof value === 'boolean') {
+			return value;
+		}
+	}
+	return fallback;
+}
+
 function normalizeDesktopWindowBehaviorSettings(
-	settings?: PersistedDesktopWindowBehaviorSettings | Partial<DesktopWindowBehaviorSettings>,
+	settings?: PersistedDesktopWindowBehaviorSettings & Partial<DesktopWindowBehaviorSettings>,
 ): DesktopWindowBehaviorSettings {
 	const defaults = getDefaultDesktopWindowBehaviorSettings();
-	const normalizedSettings = settings as
-		| (PersistedDesktopWindowBehaviorSettings & Partial<DesktopWindowBehaviorSettings>)
-		| undefined;
 	const normalized = {
-		showTrayIcon:
-			typeof normalizedSettings?.showTrayIcon === 'boolean' ? normalizedSettings.showTrayIcon : defaults.showTrayIcon,
-		coloredTrayIcon:
-			typeof normalizedSettings?.coloredTrayIcon === 'boolean'
-				? normalizedSettings.coloredTrayIcon
-				: defaults.coloredTrayIcon,
-		darkTaskbarBadge:
-			typeof normalizedSettings?.darkTaskbarBadge === 'boolean'
-				? normalizedSettings.darkTaskbarBadge
-				: defaults.darkTaskbarBadge,
-		minimizeToTray:
-			typeof normalizedSettings?.minimizeToTray === 'boolean'
-				? normalizedSettings.minimizeToTray
-				: typeof normalizedSettings?.minimizeToTrayV2 === 'boolean'
-					? normalizedSettings.minimizeToTrayV2
-					: defaults.minimizeToTray,
-		closeToTray:
-			typeof normalizedSettings?.closeToTray === 'boolean'
-				? normalizedSettings.closeToTray
-				: typeof normalizedSettings?.closeToTrayV2 === 'boolean'
-					? normalizedSettings.closeToTrayV2
-					: defaults.closeToTray,
-		startMinimized:
-			typeof normalizedSettings?.startMinimized === 'boolean'
-				? normalizedSettings.startMinimized
-				: defaults.startMinimized,
-		useNativeTitleBar:
-			typeof normalizedSettings?.useNativeTitleBar === 'boolean'
-				? normalizedSettings.useNativeTitleBar
-				: defaults.useNativeTitleBar,
-		activeUseNativeTitleBar:
-			typeof normalizedSettings?.activeUseNativeTitleBar === 'boolean'
-				? normalizedSettings.activeUseNativeTitleBar
-				: typeof normalizedSettings?.useNativeTitleBar === 'boolean'
-					? normalizedSettings.useNativeTitleBar
-					: defaults.useNativeTitleBar,
-		rememberWindowState:
-			typeof normalizedSettings?.rememberWindowState === 'boolean'
-				? normalizedSettings.rememberWindowState
-				: defaults.rememberWindowState,
-		allowTransparency:
-			typeof normalizedSettings?.allowTransparency === 'boolean'
-				? normalizedSettings.allowTransparency
-				: defaults.allowTransparency,
-		activeAllowTransparency:
-			typeof normalizedSettings?.activeAllowTransparency === 'boolean'
-				? normalizedSettings.activeAllowTransparency
-				: typeof normalizedSettings?.allowTransparency === 'boolean'
-					? normalizedSettings.allowTransparency
-					: defaults.allowTransparency,
-		smoothScrolling:
-			typeof normalizedSettings?.smoothScrolling === 'boolean'
-				? normalizedSettings.smoothScrolling
-				: defaults.smoothScrolling,
-		activeSmoothScrolling:
-			typeof normalizedSettings?.activeSmoothScrolling === 'boolean'
-				? normalizedSettings.activeSmoothScrolling
-				: typeof normalizedSettings?.smoothScrolling === 'boolean'
-					? normalizedSettings.smoothScrolling
-					: defaults.smoothScrolling,
-		middleClickAutoscroll:
-			typeof normalizedSettings?.middleClickAutoscroll === 'boolean'
-				? normalizedSettings.middleClickAutoscroll
-				: defaults.middleClickAutoscroll,
-		activeMiddleClickAutoscroll:
-			typeof normalizedSettings?.activeMiddleClickAutoscroll === 'boolean'
-				? normalizedSettings.activeMiddleClickAutoscroll
-				: typeof normalizedSettings?.middleClickAutoscroll === 'boolean'
-					? normalizedSettings.middleClickAutoscroll
-					: defaults.middleClickAutoscroll,
+		showTrayIcon: firstBoolean(defaults.showTrayIcon, settings?.showTrayIcon),
+		coloredTrayIcon: firstBoolean(defaults.coloredTrayIcon, settings?.coloredTrayIcon),
+		darkTaskbarBadge: firstBoolean(defaults.darkTaskbarBadge, settings?.darkTaskbarBadge),
+		minimizeToTray: firstBoolean(defaults.minimizeToTray, settings?.minimizeToTray, settings?.minimizeToTrayV2),
+		closeToTray: firstBoolean(defaults.closeToTray, settings?.closeToTray, settings?.closeToTrayV2),
+		startMinimized: firstBoolean(defaults.startMinimized, settings?.startMinimized),
+		useNativeTitleBar: firstBoolean(defaults.useNativeTitleBar, settings?.useNativeTitleBar),
+		activeUseNativeTitleBar: firstBoolean(
+			defaults.useNativeTitleBar,
+			settings?.activeUseNativeTitleBar,
+			settings?.useNativeTitleBar,
+		),
+		rememberWindowState: firstBoolean(defaults.rememberWindowState, settings?.rememberWindowState),
+		allowTransparency: firstBoolean(defaults.allowTransparency, settings?.allowTransparency),
+		activeAllowTransparency: firstBoolean(
+			defaults.allowTransparency,
+			settings?.activeAllowTransparency,
+			settings?.allowTransparency,
+		),
+		smoothScrolling: firstBoolean(defaults.smoothScrolling, settings?.smoothScrolling),
+		activeSmoothScrolling: firstBoolean(
+			defaults.smoothScrolling,
+			settings?.activeSmoothScrolling,
+			settings?.smoothScrolling,
+		),
+		middleClickAutoscroll: firstBoolean(defaults.middleClickAutoscroll, settings?.middleClickAutoscroll),
+		activeMiddleClickAutoscroll: firstBoolean(
+			defaults.middleClickAutoscroll,
+			settings?.activeMiddleClickAutoscroll,
+			settings?.middleClickAutoscroll,
+		),
 	};
 	if (!normalized.showTrayIcon) {
 		normalized.minimizeToTray = false;
@@ -436,14 +443,11 @@ function normalizeDesktopTroubleshootingSettings(
 ): DesktopTroubleshootingSettings {
 	const defaults = getDefaultDesktopTroubleshootingSettings();
 	return {
-		disableHardwareAcceleration:
-			typeof settings?.disableHardwareAcceleration === 'boolean'
-				? settings.disableHardwareAcceleration
-				: defaults.disableHardwareAcceleration,
-		disableModuleUpdates:
-			typeof settings?.disableModuleUpdates === 'boolean'
-				? settings.disableModuleUpdates
-				: defaults.disableModuleUpdates,
+		disableHardwareAcceleration: firstBoolean(
+			defaults.disableHardwareAcceleration,
+			settings?.disableHardwareAcceleration,
+		),
+		disableModuleUpdates: firstBoolean(defaults.disableModuleUpdates, settings?.disableModuleUpdates),
 	};
 }
 
@@ -585,6 +589,29 @@ export function addAllowedThemeLocalFiles(paths: ReadonlyArray<string>): Array<s
 	return getAllowedThemeLocalFiles();
 }
 
+export function getThemeFolders(): Array<string> {
+	return Array.isArray(config.theme_folders) ? [...config.theme_folders] : [];
+}
+
+export function canAddThemeFolder(folder: string): boolean {
+	const current = getThemeFolders();
+	return current.includes(folder) || current.length < THEME_FOLDERS_MAX;
+}
+
+export function addThemeFolder(folder: string): void {
+	const current = getThemeFolders();
+	if (current.includes(folder) || current.length >= THEME_FOLDERS_MAX) return;
+	config.theme_folders = [...current, folder];
+	saveDesktopConfig();
+}
+
+export function removeThemeFolder(folder: string): void {
+	const current = getThemeFolders();
+	if (!current.includes(folder)) return;
+	config.theme_folders = current.filter((entry) => entry !== folder);
+	saveDesktopConfig();
+}
+
 export function getPrebootTheme(): string | null {
 	return sanitizePrebootTheme(config.preboot_theme) ?? null;
 }
@@ -595,6 +622,27 @@ export function setPrebootTheme(theme: string): void {
 		return;
 	}
 	config.preboot_theme = sanitized;
+	saveDesktopConfig();
+}
+
+export function getLaunchProductName(): string | null {
+	return sanitizeInstanceProductNames(config.instance_product_names)?.[0]?.product_name ?? null;
+}
+
+export function rememberInstanceProductName(report: unknown): void {
+	const accepted = readInstanceProductNameReport(report);
+	if (accepted === null) {
+		return;
+	}
+	const current = sanitizeInstanceProductNames(config.instance_product_names) ?? [];
+	const latest = current[0];
+	if (latest?.instance_key === accepted.instanceKey && latest.product_name === accepted.productName) {
+		return;
+	}
+	config.instance_product_names = [
+		{instance_key: accepted.instanceKey, product_name: accepted.productName},
+		...current.filter((entry) => entry.instance_key !== accepted.instanceKey),
+	].slice(0, INSTANCE_PRODUCT_NAMES_MAX_ENTRIES);
 	saveDesktopConfig();
 }
 
@@ -612,5 +660,6 @@ export function markMacScreenRecordingRequested(): void {
 
 export function clearAllowedThemeLocalFiles(): void {
 	delete config.theme_allowed_local_files;
+	delete config.theme_folders;
 	saveDesktopConfig();
 }

@@ -8,6 +8,7 @@ import {
 import {SETTINGS_FADE_VARIANTS} from '@app/features/app/components/dialogs/shared/SettingsTransitions';
 import {usePreservedScrollerPosition} from '@app/features/app/components/dialogs/shared/UsePreservedScrollerPosition';
 import {Scroller} from '@app/features/ui/components/Scroller';
+import {useToastAnchor} from '@app/features/ui/toast/ToastAnchor';
 import styles from '@app/features/user/components/modals/UserSettingsModal.module.css';
 import type {MobileNavigationState} from '@app/features/user/hooks/useMobileNavigation';
 import {useUnsavedChangesFlash} from '@app/features/user/hooks/useUnsavedChangesFlash';
@@ -15,7 +16,7 @@ import type {Icon, IconWeight} from '@phosphor-icons/react';
 import {AnimatePresence, motion} from 'framer-motion';
 import {observer} from 'mobx-react-lite';
 import type React from 'react';
-import {useCallback} from 'react';
+import {useCallback, useRef} from 'react';
 
 interface MobileEntityTab {
 	type: string;
@@ -71,12 +72,18 @@ export const MobileEntitySettingsView = observer(function MobileEntitySettingsVi
 		},
 		[checkUnsavedChanges, onTabSelect],
 	);
+	const headerRef = useRef<HTMLDivElement>(null);
+	useToastAnchor(headerRef);
 	const showMobileList = mobileNav.isRootView;
 	const showMobileContent = !mobileNav.isRootView;
 	const {scrollerRef: listScrollerRef, handleScroll: handleListScroll} = usePreservedScrollerPosition(showMobileList);
 	return (
 		<div className={styles.mobileWrapper} data-flx="app.mobile-entity-settings-view.mobile-wrapper">
-			<div className={styles.mobileHeaderContainer} data-flx="app.mobile-entity-settings-view.mobile-header-container">
+			<div
+				ref={headerRef}
+				className={styles.mobileHeaderContainer}
+				data-flx="app.mobile-entity-settings-view.mobile-header-container"
+			>
 				<AnimatePresence
 					mode="wait"
 					custom={mobileNav.direction}

@@ -15,7 +15,6 @@ import {reschedulePendingDeletion} from '@app/api/user/services/PendingDeletionC
 import {DeletionReasons} from '@fluxer/constants/src/Core';
 import {UserFlags} from '@fluxer/constants/src/UserConstants';
 import {UserOwnsGuildsError} from '@fluxer/errors/src/domains/guild/UserOwnsGuildsError';
-import {UnknownUserError} from '@fluxer/errors/src/domains/user/UnknownUserError';
 import type {IEmailService} from '@pkgs/email/src/IEmailService';
 import {ms} from 'itty-time';
 
@@ -32,10 +31,7 @@ export class UserAccountLifecycleService {
 	constructor(private readonly deps: UserAccountLifecycleServiceDeps) {}
 
 	async selfDisable(userId: UserID): Promise<void> {
-		const user = await this.deps.userAccountRepository.findUnique(userId);
-		if (!user) {
-			throw new UnknownUserError();
-		}
+		const user = await this.deps.userAccountRepository.findUniqueAssert(userId);
 		const updatedUser = await this.deps.userAccountRepository.updateFlags(
 			userId,
 			(flags) => flags | UserFlags.DISABLED,
@@ -47,10 +43,7 @@ export class UserAccountLifecycleService {
 	}
 
 	async selfDelete(userId: UserID): Promise<void> {
-		const user = await this.deps.userAccountRepository.findUnique(userId);
-		if (!user) {
-			throw new UnknownUserError();
-		}
+		const user = await this.deps.userAccountRepository.findUniqueAssert(userId);
 		const ownedGuildIds = await this.deps.guildRepository.listOwnedGuildIds(userId);
 		if (ownedGuildIds.length > 0) {
 			throw new UserOwnsGuildsError();
@@ -73,10 +66,10 @@ export class UserAccountLifecycleService {
 		});
 		await revokeAllAuthSessions(this.deps.apiContext.services, userId);
 		if (user.email) {
-			await this.deps.emailService.sendSelfDeletionScheduledEmail(
+			await this.deps.emailService.send(
+				'self_deletion_scheduled',
 				user.email,
-				user.username,
-				pendingDeletionAt,
+				{deletionDate: pendingDeletionAt},
 				user.locale,
 			);
 		}

@@ -7,9 +7,17 @@ export interface SudoModeMethods {
 	totp: boolean;
 	webauthn: boolean;
 	backup_codes: boolean;
+	email_code: boolean;
+	password: boolean;
 }
 
-const EMPTY_METHODS: SudoModeMethods = {totp: false, webauthn: false, backup_codes: false};
+const EMPTY_METHODS: SudoModeMethods = {
+	totp: false,
+	webauthn: false,
+	backup_codes: false,
+	email_code: false,
+	password: false,
+};
 
 export class SudoModeRequiredError extends ForbiddenError {
 	constructor(hasMfa: boolean, methods: SudoModeMethods = EMPTY_METHODS) {

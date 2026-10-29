@@ -411,10 +411,14 @@ const LinkedAccountsTab: React.FC = observer(() => {
 								Icon={UserListIcon}
 								title={<Trans>No connections yet</Trans>}
 								description={
-									<Trans>
-										Link your {BLUESKY_PROVIDER_NAME} account or verify domain ownership to display them on your
-										profile.
-									</Trans>
+									RuntimeConfig.blueskyConnectionsEnabled ? (
+										<Trans>
+											Link your {BLUESKY_PROVIDER_NAME} account or verify domain ownership to display them on your
+											profile.
+										</Trans>
+									) : (
+										<Trans>Verify domain ownership to display it on your profile.</Trans>
+									)
 								}
 								data-flx="user.linked-accounts-tab.status-slate"
 							/>

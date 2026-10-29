@@ -4,7 +4,7 @@ import {fetchMany, upsertOne} from '@app/api/database/CassandraQueryExecution';
 import type {CassandraParams, ColumnName, PreparedQuery, Table} from '@app/api/database/CassandraTypes';
 import {buildPatchFromData, executeVersionedUpdate, valuesEqual} from '@app/api/database/CassandraVersionedUpdate';
 
-export function rowsEquivalent<T extends object>(a: T, b: T, ignoreFields: ReadonlyArray<keyof T>): boolean {
+function rowsEquivalent<T extends object>(a: T, b: T, ignoreFields: ReadonlyArray<keyof T>): boolean {
 	const ignore = new Set<keyof T>(ignoreFields);
 	const keys = new Set<keyof T>([...(Object.keys(a) as Array<keyof T>), ...(Object.keys(b) as Array<keyof T>)]);
 	for (const key of keys) {
@@ -14,7 +14,7 @@ export function rowsEquivalent<T extends object>(a: T, b: T, ignoreFields: Reado
 	return true;
 }
 
-export function isExistingNewer(
+function isExistingNewer(
 	existing: {
 		stripe_updated_at?: Date | null;
 	} | null,

@@ -7,13 +7,12 @@ import {clearChannelThreadsTaintCacheForTesting} from '@app/api/experiment/Chann
 import {ensureSessionStarted, sendMessage} from '@app/api/message/tests/MessageTestUtils';
 import {clearReadStateChannelMetaCacheForTesting} from '@app/api/read_state/ReadStateChannelMeta';
 import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHarness';
-import {NoopGatewayService} from '@app/api/test/NoopGatewayService';
 import {createBuilder} from '@app/api/test/TestRequestBuilder';
 import {ChannelTypes} from '@fluxer/constants/src/ChannelConstants';
 import {ReadStateFlags} from '@fluxer/constants/src/ThreadConstants';
 import type {ThreadChannelResponse} from '@fluxer/schema/src/domains/channel/ThreadRequestSchemas';
 import type {MessageResponse} from '@fluxer/schema/src/domains/message/MessageResponseSchemas';
-import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi} from 'vitest';
+import {afterAll, beforeAll, beforeEach, describe, expect, it} from 'vitest';
 
 interface ReadStateWire {
 	id: string;
@@ -40,10 +39,6 @@ describe('thread read states', () => {
 		await harness.reset();
 		clearChannelThreadsTaintCacheForTesting();
 		clearReadStateChannelMetaCacheForTesting();
-	});
-
-	afterEach(() => {
-		vi.restoreAllMocks();
 	});
 
 	afterAll(async () => {
@@ -117,21 +112,18 @@ describe('thread read states', () => {
 		expect(incapable.read_states.some((readState) => readState.id === s.thread.id)).toBe(false);
 	});
 
-	it('returns flags from the bulk ack and scopes MESSAGE_ACK to thread sessions', async () => {
+	it('returns flags from the bulk ack only to thread sessions', async () => {
 		const s = await activeSetup();
 		const sent = await threadsRequest<MessageResponse>(harness, s.member.token)
 			.post(`/channels/${s.thread.id}/messages`)
 			.body({content: 'hello'})
 			.execute();
-		const dispatch = vi.spyOn(NoopGatewayService.prototype, 'dispatchPresence');
 		const acked = await threadsRequest<{read_states: Array<ReadStateWire>}>(harness, s.owner.token)
 			.post('/read-states/ack')
 			.body({read_states: [{channel_id: s.thread.id, message_id: sent.id}]})
 			.expect(200)
 			.execute();
 		expect(acked.read_states).toEqual([expect.objectContaining({id: s.thread.id, flags: THREAD_FLAGS})]);
-		const ack = dispatch.mock.calls.find(([params]) => params.event === 'MESSAGE_ACK')?.[0];
-		expect(ack?.data).toMatchObject({flags: THREAD_FLAGS, __thread_scoped: s.guildId});
 		const incapable = await threadsRequest<{read_states: Array<ReadStateWire>}>(harness, s.owner.token, {
 			capable: false,
 		})

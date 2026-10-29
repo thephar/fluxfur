@@ -38,6 +38,7 @@ describe('limit config across premium model switches on a self-hosted instance',
 
 	beforeEach(async () => {
 		await harness.reset();
+		await getInstanceConfigRepository().setAppPublicConfig({setup: {configured: true}});
 	});
 
 	afterAll(async () => {

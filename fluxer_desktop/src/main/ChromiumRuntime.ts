@@ -250,7 +250,12 @@ export function hasEnabledBlinkFeature(feature: string): boolean {
 }
 
 export function appendConfiguredChromiumSwitches(rawSwitches: unknown): void {
-	const switches = Array.isArray(rawSwitches) ? rawSwitches : isRecord(rawSwitches) ? Object.keys(rawSwitches) : [];
+	let switches: Array<unknown> = [];
+	if (Array.isArray(rawSwitches)) {
+		switches = rawSwitches;
+	} else if (isRecord(rawSwitches)) {
+		switches = Object.keys(rawSwitches);
+	}
 	for (const chromiumSwitch of switches) {
 		if (typeof chromiumSwitch !== 'string') continue;
 		if (!CONFIGURED_CHROMIUM_SWITCH_ALLOWLIST.has(chromiumSwitch)) continue;

@@ -12,13 +12,14 @@ import {DIRECT_MESSAGE_DESCRIPTOR, PERSONAL_NOTES_DESCRIPTOR} from '@app/feature
 import {remFromPx} from '@app/features/theme/layout/RemFromPx';
 import {MentionBadge} from '@app/features/ui/components/MentionBadge';
 import FocusRing from '@app/features/ui/focus_ring/FocusRing';
+import {CaretRightIcon} from '@app/features/ui/icons/DirectionalIcons';
 import Users from '@app/features/user/state/Users';
 import * as AvatarUtils from '@app/features/user/utils/AvatarUtils';
 import {MEDIA_PROXY_ICON_SIZE_DEFAULT} from '@fluxer/constants/src/MediaProxyAssetSizes';
 import type {MediaProxyImageSize} from '@fluxer/constants/src/MediaProxyImageSizes';
 import {msg, plural} from '@lingui/core/macro';
 import {useLingui} from '@lingui/react/macro';
-import {CaretRightIcon, HashIcon, NotePencilIcon, UserIcon, UsersIcon} from '@phosphor-icons/react';
+import {HashIcon, NotePencilIcon, UserIcon, UsersIcon} from '@phosphor-icons/react';
 import {clsx} from 'clsx';
 import {observer} from 'mobx-react-lite';
 import type React from 'react';

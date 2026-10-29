@@ -18,6 +18,3 @@ napi-derive = "3.6.7"
 
 [build-dependencies]
 napi-build = "2.4.3"
-
-[dev-dependencies]
-tempfile = "3.27"

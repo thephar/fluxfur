@@ -109,7 +109,7 @@ export const InviteToCommunityMenuItem: React.FC<InviteToCommunityMenuItemProps>
 		},
 		[onClose, user.id, i18n],
 	);
-	if (user.bot || candidates.length === 0) {
+	if (RuntimeConfig.directMessagesDisabled || user.bot || candidates.length === 0) {
 		return null;
 	}
 	return (

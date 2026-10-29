@@ -75,8 +75,8 @@ export const ClientInfo = observer(() => {
 		return `${parts.join(' ')}${archSuffix}`.trim();
 	};
 	const osDescription = buildOsDescription();
-	const releaseChannel = formatReleaseChannelLabel(Config.PUBLIC_RELEASE_CHANNEL);
-	const buildVersion = Config.PUBLIC_BUILD_VERSION || 'dev';
+	const releaseChannel = formatReleaseChannelLabel(Config.RELEASE_CHANNEL);
+	const buildVersion = Config.BUILD_VERSION || 'dev';
 	const desktopReleaseChannel = desktopChannel ? formatReleaseChannelLabel(desktopChannel) : null;
 	const primaryDesktopReleaseChannel = desktopReleaseChannel ?? releaseChannel;
 	const desktopVersionLabel = desktopVersion;
@@ -86,14 +86,14 @@ export const ClientInfo = observer(() => {
 				desktopVersion: desktopVersionLabel,
 			})
 		: null;
-	const buildLabel = desktopBuildLabel
-		? primaryDesktopReleaseChannel === releaseChannel
-			? i18n._(WEB_BUILD_SECONDARY_DESCRIPTOR, {buildVersion})
-			: i18n._(WEB_BUILD_SECONDARY_WITH_CHANNEL_DESCRIPTOR, {releaseChannel, buildVersion})
-		: i18n._(WEB_BUILD_DESCRIPTOR, {
-				releaseChannel,
-				buildVersion,
-			});
+	let buildLabel: string;
+	if (!desktopBuildLabel) {
+		buildLabel = i18n._(WEB_BUILD_DESCRIPTOR, {releaseChannel, buildVersion});
+	} else if (primaryDesktopReleaseChannel === releaseChannel) {
+		buildLabel = i18n._(WEB_BUILD_SECONDARY_DESCRIPTOR, {buildVersion});
+	} else {
+		buildLabel = i18n._(WEB_BUILD_SECONDARY_WITH_CHANNEL_DESCRIPTOR, {releaseChannel, buildVersion});
+	}
 	const onClick = () => {
 		const justUnlocked = DeveloperMode.registerBuildTap();
 		if (justUnlocked) {

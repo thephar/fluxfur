@@ -72,8 +72,9 @@ export function candidateToResult(candidate: Candidate): QuickSwitcherExecutable
 	}
 }
 
-export function createHeaderResult(id: string, title: string): HeaderResult {
-	return {type: QuickSwitcherResultTypes.HEADER, id, title};
+export function createHeaderResult(id: string, title: string, options: {accountKey?: string} = {}): HeaderResult {
+	if (options.accountKey == null) return {type: QuickSwitcherResultTypes.HEADER, id, title};
+	return {type: QuickSwitcherResultTypes.HEADER, id, title, accountKey: options.accountKey};
 }
 
 export function getFirstSelectableIndex(results: ReadonlyArray<QuickSwitcherResult>): number {

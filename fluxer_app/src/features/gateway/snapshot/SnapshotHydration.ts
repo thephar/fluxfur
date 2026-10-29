@@ -24,10 +24,7 @@ import {
 	type SnapshotUserRow,
 	snapshotUserKey,
 } from '@app/features/gateway/snapshot/SnapshotEntities';
-import SnapshotSync, {
-	disposeAndEvictDesktopSnapshot,
-	isDesktopSnapshotAvailable,
-} from '@app/features/gateway/snapshot/SnapshotSync';
+import SnapshotSync from '@app/features/gateway/snapshot/SnapshotSync';
 import type {StateSnapshotEntries, StateSyncCursor} from '@app/features/gateway/snapshot/SnapshotTypes';
 import type {GuildReadyData} from '@app/features/gateway/types/GatewayGuildTypes';
 import type {VoiceState} from '@app/features/gateway/types/GatewayVoiceTypes';
@@ -86,7 +83,7 @@ interface ParsedSnapshot {
 	readonly voiceStates: Map<string, ReadonlyArray<VoiceState>>;
 }
 
-export interface SnapshotHydrationDependencies {
+interface SnapshotHydrationDependencies {
 	readonly readSnapshot: (storageKey: string) => Promise<StateSnapshotEntries> | null;
 	readonly readCursor: (storageKey: string) => Promise<StateSyncCursor | null> | null;
 	readonly resolveSelfUserId: (storageKey: string) => string | null | Promise<string | null>;
@@ -108,7 +105,7 @@ const defaultDependencies: SnapshotHydrationDependencies = {
 	readCursor: (storageKey) => SnapshotSync.readCursor(storageKey),
 	resolveSelfUserId: (storageKey) => SessionManager.getAccount(storageKey)?.userId ?? null,
 	resolveCheckedSelfUser: (storageKey) => AccountAccess.getCheckedUser(storageKey),
-	evictSnapshot: (storageKey) => disposeAndEvictDesktopSnapshot(storageKey),
+	evictSnapshot: (storageKey) => SnapshotSync.evict(storageKey),
 };
 
 let hydrationEpoch = 0;
@@ -290,11 +287,7 @@ function overlayMentionCounts(
 	return overlaid;
 }
 
-export function captureForegroundMentionCounts(): Map<string, number> {
-	return ReadStates.captureMentionCounts();
-}
-
-export async function runSnapshotScopeHydration(
+async function runSnapshotScopeHydration(
 	storageKey: string,
 	dependencies: SnapshotHydrationDependencies,
 	mentionCounts: ReadonlyMap<string, number> | null,
@@ -349,7 +342,7 @@ export async function hydrateStoresFromSnapshotScope(
 	storageKey: string,
 	mentionCounts: ReadonlyMap<string, number> | null,
 ): Promise<void> {
-	if (!isDesktopSnapshotAvailable()) {
+	if (!SnapshotSync.enabled) {
 		throw new SnapshotHydrationUnavailableError(storageKey);
 	}
 	try {

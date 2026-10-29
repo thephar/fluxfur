@@ -59,7 +59,7 @@ describe('Stripe Webhook Early Fraud Warning', () => {
 		});
 		return account;
 	}
-	test('refunds, reports, blocks, cancels subscription, and limits purchases pending review for actionable fraud warnings', async () => {
+	test('refunds, reports, blocks the card, cancels subscription, and limits purchases pending review for actionable fraud warnings', async () => {
 		const chargeId = 'ch_test_efw_full';
 		const customerId = 'cus_test_efw_full';
 		const paymentIntentId = 'pi_test_efw_full';
@@ -130,14 +130,10 @@ describe('Stripe Webhook Early Fraud Warning', () => {
 		expect(stripeHandlers.spies.updatedCharges).toHaveLength(1);
 		expect(stripeHandlers.spies.createdRefunds).toHaveLength(1);
 		expect(stripeHandlers.spies.cancelledSubscriptions).toEqual([subscriptionId]);
-		expect(stripeHandlers.spies.createdValueLists).toHaveLength(3);
-		expect(stripeHandlers.spies.createdValueListItems).toEqual(
-			expect.arrayContaining([
-				{value: billingEmail, valueListId: expect.any(String)},
-				{value: cardFingerprint, valueListId: expect.any(String)},
-				{value: customerId, valueListId: expect.any(String)},
-			]),
-		);
+		expect(stripeHandlers.spies.createdValueLists).toHaveLength(1);
+		expect(stripeHandlers.spies.createdValueListItems).toEqual([
+			{value: cardFingerprint, valueListId: expect.any(String)},
+		]);
 		const auditRepository = new AdminRepository();
 		const auditLogs = await auditRepository.listAllAuditLogsPaginated(50);
 		const matchingLogs = auditLogs.filter((log) => {

@@ -167,6 +167,7 @@ async function runModuleBootstrap(): Promise<void> {
 	const {
 		armSecondInstanceForwarding,
 		getMainWindowFactory,
+		hasQuitStarted,
 		onMainWindowCreated,
 		onMainWindowReady,
 		setCommittedModuleFiles,
@@ -235,6 +236,10 @@ async function runModuleBootstrap(): Promise<void> {
 
 	await appendWindowsGpuDriverWorkaroundSwitches();
 	await app.whenReady();
+	if (hasQuitStarted()) {
+		logger.info('The app started quitting before it was ready, stopping the bootstrap');
+		return;
+	}
 
 	if (isStartMinimizedLaunch()) {
 		logger.info('Launched at login with start minimized, converging the modules without the splash');
@@ -819,6 +824,10 @@ async function runModuleBootstrap(): Promise<void> {
 		app.once('before-quit', () => {
 			closeSplashWindow();
 		});
+		if (hasQuitStarted()) {
+			logger.info('The app started quitting during module convergence, not launching the main app');
+			return;
+		}
 		await launchMainApp(permit, logger);
 	} catch (error) {
 		logger.error('The module bootstrap failed unexpectedly', error);

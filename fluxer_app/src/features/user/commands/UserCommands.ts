@@ -3,8 +3,6 @@
 import {Endpoints} from '@app/features/app/constants/Endpoints';
 import AuthSession from '@app/features/auth/state/AuthSession';
 import Sudo from '@app/features/auth/state/AuthSudo';
-import SudoPrompt from '@app/features/auth/state/SudoPrompt';
-import type {SudoVerificationPayload} from '@app/features/auth/types/AuthSudoTypes';
 import GatewaySessions from '@app/features/gateway/transport/GatewaySessionPool';
 import Messages from '@app/features/messaging/state/MessagingMessages';
 import SessionManager from '@app/features/platform/state/AuthSession';
@@ -65,10 +63,9 @@ type UserUpdatePayload = Partial<UserPrivate> & {
 	avatar?: string | null;
 	password?: string;
 	new_password?: string;
-	premium_badge_hidden?: boolean;
+	hidden_profile_badges?: ReadonlyArray<string>;
 	premium_badge_masked?: boolean;
 	premium_badge_timestamp_hidden?: boolean;
-	premium_badge_sequence_hidden?: boolean;
 	accent_color?: number | null;
 	has_dismissed_premium_onboarding?: boolean;
 	has_unread_gift_inventory?: boolean;
@@ -325,21 +322,16 @@ export async function deleteAccount(): Promise<void> {
 	logger.info('Account scheduled for deletion');
 }
 
-export async function forgetAuthorizedIps(sudoPayload: SudoVerificationPayload): Promise<void> {
+export async function forgetAuthorizedIps(): Promise<void> {
 	logger.debug('Forgetting authorized IPs');
-	await http.delete(Endpoints.USER_AUTHORIZED_IPS, {body: sudoPayload});
+	await http.delete(Endpoints.USER_AUTHORIZED_IPS, {body: {}});
 	logger.info('Authorised IPs cleared');
 }
 
 export async function bulkDeleteMyMessages(filter: BulkDeleteMyMessagesFilter): Promise<void> {
 	logger.debug('Requesting bulk deletion of my messages', filter);
 	await http.post(Endpoints.USER_BULK_DELETE_MY_MESSAGES, {
-		body: {
-			...filter,
-			...(Sudo.hasValidToken()
-				? {}
-				: await SudoPrompt.requestVerification({method: 'POST', path: Endpoints.USER_BULK_DELETE_MY_MESSAGES})),
-		},
+		body: filter,
 	});
 	logger.info('Bulk message deletion queued');
 }

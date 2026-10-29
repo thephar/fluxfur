@@ -12,8 +12,10 @@ import {RateLimitMiddleware} from '@app/api/middleware/RateLimitMiddleware';
 import {OpenAPI} from '@app/api/middleware/ResponseTypeMiddleware';
 import {RateLimitConfigs} from '@app/api/RateLimitConfig';
 import type {HonoApp, HonoEnv} from '@app/api/types/HonoEnv';
+import {assertTierAllows, NO_TIER_CONTEXT} from '@app/api/user/AccountTier';
 import {parseJsonPreservingLargeIntegers} from '@app/api/utils/LosslessJsonParser';
 import {inputValidationErrorFromZodIssues, Validator} from '@app/api/Validator';
+import {TierGatedActions} from '@fluxer/constants/src/AccountTierConstants';
 import {TEXT_THREAD_PARENT_CHANNEL_TYPES} from '@fluxer/constants/src/ThreadConstants';
 import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
 import {InvalidChannelTypeError} from '@fluxer/errors/src/domains/channel/InvalidChannelTypeError';
@@ -150,6 +152,7 @@ export function ThreadController(app: HonoApp) {
 		async (ctx) => {
 			const {channel_id, message_id} = ctx.req.valid('param');
 			const body = ctx.req.valid('json');
+			assertTierAllows(ctx.get('user'), TierGatedActions.MESSAGE, NO_TIER_CONTEXT);
 			const thread = await ctx.get('threadService').creation.createFromMessage({
 				viewer: viewerFromCtx(ctx),
 				user: ctx.get('user'),
@@ -188,6 +191,7 @@ export function ThreadController(app: HonoApp) {
 		async (ctx) => {
 			const viewer = viewerFromCtx(ctx);
 			const user = ctx.get('user');
+			assertTierAllows(user, TierGatedActions.MESSAGE, NO_TIER_CONTEXT);
 			const channelId = createChannelID(ctx.req.valid('param').channel_id);
 			const creation = ctx.get('threadService').creation;
 			const parentAuth = await creation.authenticateParent(viewer, user.id, channelId);
@@ -394,6 +398,7 @@ export function ThreadController(app: HonoApp) {
 			experiment: EXPERIMENT,
 		}),
 		async (ctx) => {
+			assertTierAllows(ctx.get('user'), TierGatedActions.THREAD_JOIN, NO_TIER_CONTEXT);
 			await ctx.get('threadService').members.join({
 				viewer: viewerFromCtx(ctx),
 				user: ctx.get('user'),

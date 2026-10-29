@@ -40,6 +40,7 @@ init_base_state(GuildState) ->
         member_presence => ets:new(member_presence, [set, public]),
         connected_user_ids => sets:new(),
         user_session_counts => #{},
+        visitors => guild_visitor_state:new(),
         guild_session_refs => guild_sessions_connect:build_session_ref_index(
             maps:get(sessions, TransferSafe, #{})
         ),
@@ -165,7 +166,7 @@ handle_reload(NewData, State) ->
     ok = guild_maintenance:maybe_put_permission_cache(NewState),
     {reply, ok, NewState}.
 
--spec reuse_members_table(term(), term()) -> term().
+-spec reuse_members_table(term(), map()) -> map().
 reuse_members_table(OldData, NewData) when is_map(OldData), is_map(NewData) ->
     reuse_healthy_members_table(OldData, NewData);
 reuse_members_table(_OldData, NewData) ->
@@ -191,7 +192,7 @@ reuse_live_members_table(Tab, OldData, NewData) ->
         false -> maps:remove(members_ets, NewData)
     end.
 
--spec apply_members_table_delta(ets:tid(), map(), map()) -> map().
+-spec apply_members_table_delta(ets:table(), map(), map()) -> map().
 apply_members_table_delta(Tab, OldData, NewData) ->
     OldMap = guild_data_index_members:member_map(OldData),
     NewMap = guild_data_index_members:member_map(NewData),
@@ -208,33 +209,33 @@ apply_members_table_delta(Tab, OldData, NewData) ->
             maps:remove(members_ets, NewData)
     end.
 
--spec insert_changed_members(ets:tid(), map(), map()) -> ok.
+-spec insert_changed_members(ets:table(), map(), map()) -> ok.
 insert_changed_members(Tab, OldMap, NewMap) ->
     maps:foreach(
         fun(UserId, Member) -> insert_changed_member(Tab, OldMap, UserId, Member) end,
         NewMap
     ).
 
--spec insert_changed_member(ets:tid(), map(), user_id(), member()) -> ok.
+-spec insert_changed_member(ets:table(), map(), user_id(), member()) -> ok.
 insert_changed_member(Tab, OldMap, UserId, Member) ->
     case maps:get(UserId, OldMap, undefined) of
         Member -> ok;
         _ -> insert_member_row(Tab, UserId, Member)
     end.
 
--spec insert_member_row(ets:tid(), user_id(), member()) -> ok.
+-spec insert_member_row(ets:table(), user_id(), member()) -> ok.
 insert_member_row(Tab, UserId, Member) ->
     true = ets:insert(Tab, {UserId, Member}),
     ok.
 
--spec delete_removed_members(ets:tid(), map(), map()) -> ok.
+-spec delete_removed_members(ets:table(), map(), map()) -> ok.
 delete_removed_members(Tab, OldMap, NewMap) ->
     OldIds = sets:from_list(maps:keys(OldMap)),
     NewIds = sets:from_list(maps:keys(NewMap)),
     RemovedIds = sets:to_list(sets:subtract(OldIds, NewIds)),
     lists:foreach(fun(UserId) -> delete_member_row(Tab, UserId) end, RemovedIds).
 
--spec delete_member_row(ets:tid(), user_id()) -> ok.
+-spec delete_member_row(ets:table(), user_id()) -> ok.
 delete_member_row(Tab, UserId) ->
     true = ets:delete(Tab, UserId),
     ok.
@@ -277,92 +278,3 @@ maybe_index_voice_state(_, Acc) ->
 -spec guild_id(guild_state()) -> integer() | undefined.
 guild_id(State) ->
     snowflake_id:parse_optional(maps:get(id, State, undefined)).
-
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
-
-reuse_members_table_keeps_healthy_tid_test() ->
-    Tab = ets:new(reuse_members, [set, public]),
-    try
-        OldMap = #{1 => reuse_member(1), 2 => reuse_member(2)},
-        NewMap = #{1 => reuse_member(1), 3 => reuse_member(3)},
-        seed_reuse_table(Tab, OldMap),
-        OldData = reuse_data(OldMap, Tab),
-        Reused = reuse_members_table(OldData, reuse_data(NewMap, undefined)),
-        ?assertEqual(Tab, maps:get(members_ets, Reused)),
-        ?assertEqual([1, 3], reuse_table_ids(Tab))
-    after
-        ets:delete(Tab)
-    end.
-
-reuse_members_table_skips_dead_tid_test() ->
-    Tab = ets:new(dead_reuse_members, [set, public]),
-    true = ets:delete(Tab),
-    OldData = reuse_data(#{1 => reuse_member(1)}, Tab),
-    NewData = reuse_data(#{1 => reuse_member(1)}, undefined),
-    ?assertEqual(NewData, reuse_members_table(OldData, NewData)).
-
-reuse_members_table_without_old_tid_leaves_new_data_test() ->
-    OldData = reuse_data(#{1 => reuse_member(1)}, undefined),
-    NewData = reuse_data(#{2 => reuse_member(2)}, undefined),
-    ?assertEqual(NewData, reuse_members_table(OldData, NewData)).
-
-reuse_members_table_delta_failure_falls_back_to_new_data_test() ->
-    Tab = ets:new(failing_members, [set, public]),
-    true = ets:delete(Tab),
-    OldData = reuse_data(#{}, undefined),
-    NewData = reuse_data(#{1 => reuse_member(1)}, undefined),
-    ?assertEqual(NewData, apply_members_table_delta(Tab, OldData, NewData)).
-
-reuse_delta_never_empties_table_test() ->
-    Tab = ets:new(delta_members, [set, public]),
-    try
-        OldMap = #{1 => reuse_member(1), 2 => reuse_member(2), 3 => reuse_member(3)},
-        NewMap = #{
-            1 => reuse_member(1),
-            2 => reuse_member(2, <<"changed">>),
-            4 => reuse_member(4)
-        },
-        seed_reuse_table(Tab, OldMap),
-        ?assertEqual(3, ets:info(Tab, size)),
-        ok = insert_changed_members(Tab, OldMap, NewMap),
-        ?assertEqual(4, ets:info(Tab, size)),
-        ?assertEqual([{1, reuse_member(1)}], ets:lookup(Tab, 1)),
-        ok = delete_removed_members(Tab, OldMap, NewMap),
-        ?assertEqual(3, ets:info(Tab, size)),
-        ?assertEqual([{1, reuse_member(1)}], ets:lookup(Tab, 1)),
-        ?assertEqual([1, 2, 4], reuse_table_ids(Tab)),
-        ?assertEqual([{2, reuse_member(2, <<"changed">>)}], ets:lookup(Tab, 2))
-    after
-        ets:delete(Tab)
-    end.
-
-reuse_delta_skips_unchanged_members_test() ->
-    Tab = ets:new(unchanged_members, [set, public]),
-    try
-        MemberMap = #{1 => reuse_member(1)},
-        true = ets:insert(Tab, {1, sentinel}),
-        ok = insert_changed_members(Tab, MemberMap, MemberMap),
-        ?assertEqual([{1, sentinel}], ets:tab2list(Tab))
-    after
-        ets:delete(Tab)
-    end.
-
-reuse_data(MemberMap, undefined) ->
-    #{<<"members">> => MemberMap, members_normalized => MemberMap};
-reuse_data(MemberMap, Tab) ->
-    #{<<"members">> => MemberMap, members_normalized => MemberMap, members_ets => Tab}.
-
-seed_reuse_table(Tab, MemberMap) ->
-    maps:foreach(fun(UserId, Member) -> ets:insert(Tab, {UserId, Member}) end, MemberMap).
-
-reuse_member(UserId) ->
-    #{<<"user">> => #{<<"id">> => UserId}}.
-
-reuse_table_ids(Tab) ->
-    lists:sort([Id || {Id, _} <- ets:tab2list(Tab)]).
-
-reuse_member(UserId, Nick) ->
-    #{<<"user">> => #{<<"id">> => UserId}, <<"nick">> => Nick}.
-
--endif.

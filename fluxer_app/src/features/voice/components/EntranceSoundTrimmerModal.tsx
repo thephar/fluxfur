@@ -274,6 +274,73 @@ const EntranceSoundTrimmerModal: React.FC<EntranceSoundTrimmerModalProps> = obse
 	const selectionTooShort = selectionDuration < MIN_DURATION_SECONDS;
 	const selectionTooLong = selectionDuration > MAX_DURATION_SECONDS + 0.001;
 
+	let trimmerBody: React.ReactNode;
+	if (decodeError) {
+		trimmerBody = (
+			<p className={styles.errorText} data-flx="voice.entrance-sound-trimmer-modal.decode-error">
+				{decodeError}
+			</p>
+		);
+	} else if (!audioBuffer || !peaks) {
+		trimmerBody = (
+			<div className={styles.spinnerWrap} data-flx="voice.entrance-sound-trimmer-modal.spinner-wrap">
+				<Spinner data-flx="voice.entrance-sound-trimmer-modal.spinner" />
+			</div>
+		);
+	} else {
+		trimmerBody = (
+			<>
+				<AudioWaveform
+					peaks={peaks}
+					durationSeconds={totalDuration}
+					startSeconds={startSeconds}
+					endSeconds={endSeconds}
+					minSelectionSeconds={MIN_DURATION_SECONDS}
+					maxSelectionSeconds={MAX_DURATION_SECONDS}
+					playheadSeconds={playheadSeconds}
+					onSelectionChange={handleSelectionChange}
+					data-flx="voice.entrance-sound-trimmer-modal.waveform"
+				/>
+				<div className={styles.meta} data-flx="voice.entrance-sound-trimmer-modal.meta">
+					<span
+						className={selectionTooShort || selectionTooLong ? styles.metaWarning : undefined}
+						data-flx="voice.entrance-sound-trimmer-modal.selection-meta"
+					>
+						<Trans>
+							Selection: {formatSeconds(selectionDuration)} (max {formatSeconds(MAX_DURATION_SECONDS)})
+						</Trans>
+					</span>
+					<span data-flx="voice.entrance-sound-trimmer-modal.range-meta">
+						{formatSeconds(startSeconds)} → {formatSeconds(endSeconds)}
+					</span>
+				</div>
+				<div className={styles.controls} data-flx="voice.entrance-sound-trimmer-modal.controls">
+					<Button
+						variant="secondary"
+						small
+						onClick={togglePlayback}
+						data-flx="voice.entrance-sound-trimmer-modal.play-button"
+					>
+						<span className={styles.playButton} data-flx="voice.entrance-sound-trimmer-modal.play-button">
+							{isPlaying ? (
+								<PauseIcon size={14} weight="fill" data-flx="voice.entrance-sound-trimmer-modal.pause-icon" />
+							) : (
+								<PlayIcon size={14} weight="fill" data-flx="voice.entrance-sound-trimmer-modal.play-icon" />
+							)}
+							<flx-i18n data-flx="voice.entrance-sound-trimmer-modal.flx-i18n">
+								{isPlaying ? i18n._(PAUSE_SELECTION_DESCRIPTOR) : i18n._(PLAY_SELECTION_DESCRIPTOR)}
+							</flx-i18n>
+						</span>
+					</Button>
+				</div>
+				{error ? (
+					<p className={styles.errorText} data-flx="voice.entrance-sound-trimmer-modal.error">
+						{error}
+					</p>
+				) : null}
+			</>
+		);
+	}
 	return (
 		<Modal.Root size="small" centered data-flx="voice.entrance-sound-trimmer-modal.modal-root">
 			<Modal.Header
@@ -289,66 +356,7 @@ const EntranceSoundTrimmerModal: React.FC<EntranceSoundTrimmerModalProps> = obse
 					<p className={styles.helpText} data-flx="voice.entrance-sound-trimmer-modal.help-text">
 						{i18n._(TRIMMER_HELP_DESCRIPTOR)}
 					</p>
-					{decodeError ? (
-						<p className={styles.errorText} data-flx="voice.entrance-sound-trimmer-modal.decode-error">
-							{decodeError}
-						</p>
-					) : !audioBuffer || !peaks ? (
-						<div className={styles.spinnerWrap} data-flx="voice.entrance-sound-trimmer-modal.spinner-wrap">
-							<Spinner data-flx="voice.entrance-sound-trimmer-modal.spinner" />
-						</div>
-					) : (
-						<>
-							<AudioWaveform
-								peaks={peaks}
-								durationSeconds={totalDuration}
-								startSeconds={startSeconds}
-								endSeconds={endSeconds}
-								minSelectionSeconds={MIN_DURATION_SECONDS}
-								maxSelectionSeconds={MAX_DURATION_SECONDS}
-								playheadSeconds={playheadSeconds}
-								onSelectionChange={handleSelectionChange}
-								data-flx="voice.entrance-sound-trimmer-modal.waveform"
-							/>
-							<div className={styles.meta} data-flx="voice.entrance-sound-trimmer-modal.meta">
-								<span
-									className={selectionTooShort || selectionTooLong ? styles.metaWarning : undefined}
-									data-flx="voice.entrance-sound-trimmer-modal.selection-meta"
-								>
-									<Trans>
-										Selection: {formatSeconds(selectionDuration)} (max {formatSeconds(MAX_DURATION_SECONDS)})
-									</Trans>
-								</span>
-								<span data-flx="voice.entrance-sound-trimmer-modal.range-meta">
-									{formatSeconds(startSeconds)} → {formatSeconds(endSeconds)}
-								</span>
-							</div>
-							<div className={styles.controls} data-flx="voice.entrance-sound-trimmer-modal.controls">
-								<Button
-									variant="secondary"
-									small
-									onClick={togglePlayback}
-									data-flx="voice.entrance-sound-trimmer-modal.play-button"
-								>
-									<span className={styles.playButton} data-flx="voice.entrance-sound-trimmer-modal.play-button">
-										{isPlaying ? (
-											<PauseIcon size={14} weight="fill" data-flx="voice.entrance-sound-trimmer-modal.pause-icon" />
-										) : (
-											<PlayIcon size={14} weight="fill" data-flx="voice.entrance-sound-trimmer-modal.play-icon" />
-										)}
-										<flx-i18n data-flx="voice.entrance-sound-trimmer-modal.flx-i18n">
-											{isPlaying ? i18n._(PAUSE_SELECTION_DESCRIPTOR) : i18n._(PLAY_SELECTION_DESCRIPTOR)}
-										</flx-i18n>
-									</span>
-								</Button>
-							</div>
-							{error ? (
-								<p className={styles.errorText} data-flx="voice.entrance-sound-trimmer-modal.error">
-									{error}
-								</p>
-							) : null}
-						</>
-					)}
+					{trimmerBody}
 				</div>
 			</Modal.Content>
 			<Modal.Footer data-flx="voice.entrance-sound-trimmer-modal.modal-footer">

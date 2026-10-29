@@ -6,6 +6,7 @@ import {
 	VOICE_P2P_MAX_PARTICIPANTS,
 } from '@fluxer/constants/src/LimitConstants';
 import {FORUM_UNREAD_COUNT_CAP, FORUM_UNREADS_MAX_THREADS} from '@fluxer/constants/src/ThreadConstants';
+import {AccountTierSchema} from '@fluxer/schema/src/domains/account/AccountTierSchemas';
 import {ChannelThreadsConfigResponse} from '@fluxer/schema/src/domains/admin/ChannelThreadsSchemas';
 import {GatewayRolloutConfigResponse} from '@fluxer/schema/src/domains/admin/GatewayRolloutSchemas';
 import {LegacyPushServiceDeliveryWire} from '@fluxer/schema/src/domains/admin/PushRelaySchemas';
@@ -77,6 +78,7 @@ export const RpcRequest = z.discriminatedUnion('type', [
 		latitude: createStringType(1, 32).optional().describe('Client latitude for region selection'),
 		longitude: createStringType(1, 32).optional().describe('Client longitude for region selection'),
 		thread_channels_capable: z.boolean().optional().describe('Whether the session can handle thread channels'),
+		guild_visits_capable: z.boolean().optional().describe('Whether the session can visit guilds without joining'),
 	}),
 	z.object({
 		type: z.literal('guild_collection').describe('Request type for fetching a single guild collection chunk'),
@@ -355,6 +357,17 @@ export const RpcResponseSessionData = z.object({
 		.array(WebAuthnCredentialResponse)
 		.describe('Registered WebAuthn credentials (passkeys) for the authenticated user'),
 	version: z.number().int().describe('Session data version for cache invalidation'),
+	visit_guild_ids: z
+		.array(SnowflakeStringType)
+		.optional()
+		.describe('Guilds the user is visiting, only for sessions that can visit guilds'),
+	operator_visit_guild_ids: z
+		.array(SnowflakeStringType)
+		.optional()
+		.describe('Subset of visit_guild_ids opened by the instance operator entry, which ignore the guild visit setting'),
+	adult_content_allowed: z.boolean().optional().describe('Whether the user may see adult channels while visiting'),
+	account_tier: AccountTierSchema.optional().describe('Account tier of the user'),
+	ip_key: z.string().nullish().describe('Address key of the identifying connection, used to evict visitors on IP bans'),
 });
 
 export type RpcResponseSessionData = z.infer<typeof RpcResponseSessionData>;

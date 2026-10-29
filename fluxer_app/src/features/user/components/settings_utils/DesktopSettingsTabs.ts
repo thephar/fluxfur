@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import {ThemesTab} from '@app/features/theme_settings/ThemesTab';
 import {AccessibilityTab} from '@app/features/user/components/modals/tabs/AccessibilityTab';
 import AccountSecurityTab from '@app/features/user/components/modals/tabs/AccountSecurityTab';
 import AdvancedSettingsTab from '@app/features/user/components/modals/tabs/AdvancedSettingsTab';
@@ -32,6 +33,7 @@ const DESKTOP_TAB_COMPONENTS: Partial<Record<UserSettingsTabType, React.Componen
 	devices: AccountSecurityTab,
 	linked_accounts: LinkedAccountsTab,
 	appearance: AppearanceTab,
+	themes: ThemesTab,
 	accessibility: AccessibilityTab,
 	chat_settings: ChatSettingsTab,
 	voice_video: VoiceVideoTab,

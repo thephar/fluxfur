@@ -2,6 +2,7 @@
 
 import type {ApiContext} from '@app/api/ApiContext';
 import * as AuthMfa from '@app/api/auth/AuthMfa';
+import {hasOwnedEmail} from '@app/api/auth/services/SudoEmailCode';
 import type {User} from '@app/api/models/User';
 import {UserAuthenticatorTypes} from '@fluxer/constants/src/UserConstants';
 import {type SudoModeMethods, SudoModeRequiredError} from '@fluxer/errors/src/domains/auth/SudoModeRequiredError';
@@ -9,6 +10,9 @@ import {type SudoModeMethods, SudoModeRequiredError} from '@fluxer/errors/src/do
 interface SudoMethodsUser {
 	totpSecret?: string | null;
 	authenticatorTypes?: Set<number> | null;
+	passwordHash?: string | null;
+	email?: string | null;
+	emailVerified?: boolean;
 }
 
 function hasTotpEnrolled(user: SudoMethodsUser): boolean {
@@ -26,6 +30,18 @@ export function userHasSudoCapability(user: SudoMethodsUser, hasPasskeyCredentia
 	return hasTotpEnrolled(user) || hasPasskeyCredentials;
 }
 
+export function userHasUsableMfa(user: SudoMethodsUser, hasPasskeyCredentials: boolean): boolean {
+	return userHasMfa(user) && userHasSudoCapability(user, hasPasskeyCredentials);
+}
+
+export function emailCodeSudoAvailable(user: SudoMethodsUser, hasPasskeyCredentials: boolean): boolean {
+	return (
+		!userHasUsableMfa(user, hasPasskeyCredentials) &&
+		(user.passwordHash ?? null) === null &&
+		hasOwnedEmail({email: user.email ?? null, emailVerified: user.emailVerified === true})
+	);
+}
+
 export function deriveSudoMethods(
 	user: SudoMethodsUser,
 	hasPasskeyCredentials: boolean,
@@ -35,6 +51,8 @@ export function deriveSudoMethods(
 		totp: hasTotpEnrolled(user),
 		webauthn: hasPasskeyCredentials,
 		backup_codes: hasBackupCodes,
+		email_code: emailCodeSudoAvailable(user, hasPasskeyCredentials),
+		password: (user.passwordHash ?? null) !== null && !userHasUsableMfa(user, hasPasskeyCredentials),
 	};
 }
 

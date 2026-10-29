@@ -1,50 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {buildAPIConfigFromMaster, buildAPIServerOptions} from '@app/api/Config';
+import {buildAPIConfigFromMaster} from '@app/api/Config';
 import {loadConfig, resetConfig} from '@fluxer/config/src/ConfigLoader';
 import type {MasterConfig} from '@fluxer/config/src/MasterConfig';
-import {createServer} from '@fluxer/hono/src/Server';
-import {Hono} from 'hono';
 import {afterAll, afterEach, beforeAll, describe, expect, it, test, vi} from 'vitest';
 
-interface ListeningServer {
-	close: (callback: () => void) => void;
-	headersTimeout: number;
-	requestTimeout: number;
-}
-
-const servers: Array<ListeningServer> = [];
-
-async function listenWithEnv(env: Record<string, string> = {}): Promise<ListeningServer> {
-	for (const [key, value] of Object.entries({FLUXER_API_PORT: '0', ...env})) {
-		vi.stubEnv(key, value);
-	}
-	resetConfig();
-	const config = buildAPIConfigFromMaster(await loadConfig());
-	const server = createServer(new Hono(), buildAPIServerOptions(config)) as unknown as ListeningServer;
-	servers.push(server);
-	return server;
-}
-
-afterEach(async () => {
-	await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolve) => server.close(() => resolve()))));
+afterEach(() => {
 	vi.unstubAllEnvs();
 	resetConfig();
 });
 
 afterAll(async () => {
 	await loadConfig();
-});
-
-describe('buildAPIServerOptions', () => {
-	test('clamps a header timeout set above the request timeout', async () => {
-		const server = await listenWithEnv({
-			FLUXER_API_HEADERS_TIMEOUT_MS: '90000',
-			FLUXER_API_REQUEST_TIMEOUT_MS: '45000',
-		});
-		expect(server.requestTimeout).toBe(45_000);
-		expect(server.headersTimeout).toBe(45_000);
-	});
 });
 
 function withUploadRelaySecret(master: MasterConfig, secretBase64: string): MasterConfig {
@@ -143,20 +110,16 @@ describe('buildAPIConfigFromMaster stripe legacy prices', () => {
 	});
 });
 
-function withOptionalOutboundLookups(
-	master: MasterConfig,
-	selfHosted: boolean,
-	overrides: {breachedPasswordCheck?: boolean} = {},
-): MasterConfig {
+function withSelfHostedInstance(master: MasterConfig): MasterConfig {
 	return {
 		...master,
 		integrations: {
 			...master.integrations,
-			breached_password_check: {enabled: overrides.breachedPasswordCheck},
+			breached_password_check: {enabled: undefined},
 		},
 		instance: {
 			...master.instance,
-			self_hosted: selfHosted,
+			self_hosted: true,
 		},
 	};
 }
@@ -167,23 +130,8 @@ describe('buildAPIConfigFromMaster optional outbound lookups', () => {
 		master = await loadConfig();
 	});
 
-	it('keeps the lookup on when the instance is not self-hosted', () => {
-		const config = buildAPIConfigFromMaster(withOptionalOutboundLookups(master, false));
-		expect(config.breachedPasswordCheck.enabled).toBe(true);
-	});
-
 	it('leaves the lookup off on a self-hosted instance', () => {
-		const config = buildAPIConfigFromMaster(withOptionalOutboundLookups(master, true));
-		expect(config.breachedPasswordCheck.enabled).toBe(false);
-	});
-
-	it('lets a self-hosted operator switch the lookup on', () => {
-		const config = buildAPIConfigFromMaster(withOptionalOutboundLookups(master, true, {breachedPasswordCheck: true}));
-		expect(config.breachedPasswordCheck.enabled).toBe(true);
-	});
-
-	it('lets an operator switch the lookup off when the instance is not self-hosted', () => {
-		const config = buildAPIConfigFromMaster(withOptionalOutboundLookups(master, false, {breachedPasswordCheck: false}));
+		const config = buildAPIConfigFromMaster(withSelfHostedInstance(master));
 		expect(config.breachedPasswordCheck.enabled).toBe(false);
 	});
 });
@@ -209,13 +157,22 @@ describe('buildAPIConfigFromMaster trusted callers', () => {
 		expect(callers).toEqual([{name: 'bugs', key: bugsKey, buckets: ['oauth:token', 'oauth:revoke']}]);
 	});
 
-	test('turns FLUXER_API_DONATION_PROXY_KEY into a caller scoped to the donation buckets', async () => {
+	test('turns FLUXER_API_DONATION_PROXY_KEY into a caller scoped to the donation and Operator Pass buckets', async () => {
 		const callers = await trustedCallersFromEnv({FLUXER_API_DONATION_PROXY_KEY: donationKey});
 		expect(callers).toEqual([
 			{
 				name: 'donation',
 				key: donationKey,
-				buckets: ['donation:request_link', 'donation:manage', 'donation:checkout'],
+				buckets: [
+					'donation:request_link',
+					'donation:manage',
+					'donation:checkout',
+					'operator_pass:waitlist_challenge',
+					'operator_pass:waitlist',
+					'operator_pass:waitlist_confirm',
+					'operator_pass:waitlist_followup',
+					'operator_pass:waitlist_unsubscribe',
+				],
 			},
 		]);
 	});

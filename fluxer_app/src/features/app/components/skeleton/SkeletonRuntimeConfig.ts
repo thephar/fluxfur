@@ -17,6 +17,11 @@ export function skeletonDirectMessagesDisabled(): boolean {
 	return RuntimeConfig.getSnapshotOrNull()?.community.direct_messages_disabled ?? false;
 }
 
+export function skeletonFriendsDisabled(): boolean {
+	const community = RuntimeConfig.getSnapshotOrNull()?.community;
+	return community?.friends_disabled ?? community?.direct_messages_disabled ?? false;
+}
+
 export function skeletonGifEnabled(): boolean {
 	return RuntimeConfig.getSnapshotOrNull()?.services.gif_enabled ?? true;
 }

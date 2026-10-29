@@ -236,6 +236,8 @@ class VoiceEngineV2AppMediaExecutionAdapter extends Store {
 	private localSpeakingMeter: VoiceSpeakingMeter | null = null;
 	private mediaStateSnapshot: VoiceMediaSnapshot = createVoiceMediaSnapshot();
 	private microphoneEnablePromise: Promise<void> | null = null;
+	private microphoneEnableRoom: Room | null = null;
+	private microphoneEnableGeneration = 0;
 	private microphoneRefreshQueue: Promise<void> = Promise.resolve();
 	private queuedMicrophoneRefresh: QueuedMicrophoneRefresh | null = null;
 	private voiceInputRecovery: {lease: VoiceInputContextLease; cleanup: () => void} | null = null;
@@ -492,6 +494,8 @@ class VoiceEngineV2AppMediaExecutionAdapter extends Store {
 		} catch (e: unknown) {
 			if (isPermissionDeniedError(e)) {
 				this.handleMicrophonePermissionDenied();
+				this.syncVoiceState({self_mute: true});
+			} else if (isMicrophoneEnableFailureLatched()) {
 				this.syncVoiceState({self_mute: true});
 			}
 		}
@@ -877,7 +881,7 @@ class VoiceEngineV2AppMediaExecutionAdapter extends Store {
 		assertObjectLike<Room>(room, 'enableMicrophone.room');
 		assertOptionalNonEmptyString(channelId, 'enableMicrophone.channelId');
 		assertObjectLike<VoiceEngineV2MicrophoneOptions>(options, 'enableMicrophone.options');
-		if (this.microphoneEnablePromise) {
+		if (this.microphoneEnablePromise && this.microphoneEnableRoom === room) {
 			await this.microphoneEnablePromise;
 			if (this.hasLiveMicrophonePublication(room) || this.microphoneEnablePromise !== null) {
 				return;
@@ -886,11 +890,16 @@ class VoiceEngineV2AppMediaExecutionAdapter extends Store {
 				channelId,
 			});
 		}
-		this.microphoneEnablePromise = this.enableMicrophoneNow(room, channelId, options);
+		const enable = this.enableMicrophoneNow(room, channelId, options);
+		this.microphoneEnablePromise = enable;
+		this.microphoneEnableRoom = room;
 		try {
-			await this.microphoneEnablePromise;
+			await enable;
 		} finally {
-			this.microphoneEnablePromise = null;
+			if (this.microphoneEnablePromise === enable) {
+				this.microphoneEnablePromise = null;
+				this.microphoneEnableRoom = null;
+			}
 		}
 	}
 
@@ -926,6 +935,7 @@ class VoiceEngineV2AppMediaExecutionAdapter extends Store {
 		}
 		const ctx: MicrophoneEnableContext = {room, channelId, options};
 		const state: MicrophoneEnableState = createInitialMicrophoneEnableState();
+		const generation = ++this.microphoneEnableGeneration;
 		try {
 			await this.acquireMicrophoneDevice(ctx, state);
 			if (!ctx.room.localParticipant) {
@@ -940,6 +950,10 @@ class VoiceEngineV2AppMediaExecutionAdapter extends Store {
 			this.transitionMicrophoneFailureLatch({type: 'microphone.enableSucceeded'});
 			logger.info('Successfully enabled microphone');
 		} catch (e: unknown) {
+			if (generation !== this.microphoneEnableGeneration) {
+				logger.warn('Microphone enable for a replaced room failed', {channelId, error: e});
+				throw e;
+			}
 			this.transitionMicrophoneFailureLatch({
 				type: 'microphone.enableFailed',
 				channelId: ctx.channelId ?? this.getActiveChannelId(),
@@ -1111,7 +1125,6 @@ class VoiceEngineV2AppMediaExecutionAdapter extends Store {
 			width: options.width,
 			height: options.height,
 			frameRate: options.frameRate,
-			mirror: options.mirror,
 			backgroundMode: options.backgroundMode,
 		});
 	}
@@ -1159,13 +1172,12 @@ class VoiceEngineV2AppMediaExecutionAdapter extends Store {
 		options: VoiceEngineV2CameraEncodingOptions,
 	): Promise<void> {
 		const touchesEffects =
-			options.mirror !== undefined ||
 			options.backgroundMode !== undefined ||
 			options.backgroundBlurStrength !== undefined ||
 			options.backgroundCustomMediaPath !== undefined;
 		if (!touchesEffects) return;
 		try {
-			await applyBackgroundProcessor(track, options.mirror === undefined ? undefined : {mirrorCamera: options.mirror});
+			await applyBackgroundProcessor(track);
 		} catch (error) {
 			logger.warn('Failed to apply in-place camera effects', {error});
 		}

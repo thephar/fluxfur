@@ -7,7 +7,11 @@ import {Config} from '@app/api/Config';
 import {upsertOne} from '@app/api/database/CassandraQueryExecution';
 import {Db} from '@app/api/database/CassandraTypes';
 import {getKVClient} from '@app/api/middleware/ServiceRegistry';
-import {getStoreBillingRepository, getUserRepository} from '@app/api/middleware/ServiceSingletons';
+import {
+	getPaymentDisputeRepository,
+	getStoreBillingRepository,
+	getUserRepository,
+} from '@app/api/middleware/ServiceSingletons';
 import {addGiftCodeDuration} from '@app/api/models/GiftCode';
 import type {User} from '@app/api/models/User';
 import {setInjectedAppleRootCertificates} from '@app/api/store_billing/app_store/AppleRootCertificates';
@@ -19,6 +23,7 @@ import {
 	findUser,
 	getStoreContext,
 	installStoreBillingWorker,
+	seedOpenPaymentDisputeReview,
 	setTestPremium,
 	uninstallStoreBillingWorker,
 } from '@app/api/store_billing/tests/StoreBillingTestUtils';
@@ -252,6 +257,27 @@ describe('App Store purchases', () => {
 			hintAccountToken: null,
 		};
 	}
+
+	it('applies a claim made while a payment dispute is open and flags the review once', async () => {
+		const account = await createTestAccount(harness);
+		const userId = createUserID(BigInt(account.userId));
+		await seedOpenPaymentDisputeReview(userId, 'dp_store_claim_open');
+		await seedOpenPaymentDisputeReview(userId, 'dp_store_claim_closed');
+		const closed = await getPaymentDisputeRepository().findReview('dp_store_claim_closed');
+		await getPaymentDisputeRepository().updateReview(closed!, {closed_at: Db.set(new Date()), outcome: Db.set('won')});
+		const token = await accountToken(account);
+		const originalTransactionId = seedSubscription({expiresDate: Date.now() + ms('30 days'), appAccountToken: token});
+		const jws = await signStoredTransaction('production', originalTransactionId);
+		const first = await claim(account, jws);
+		expect(first.purchase.entitled).toBe(true);
+		const flagged = await getPaymentDisputeRepository().findReview('dp_store_claim_open');
+		expect(flagged?.dispute_purchase_at).toBeInstanceOf(Date);
+		expect((await getPaymentDisputeRepository().findReview('dp_store_claim_closed'))?.dispute_purchase_at).toBeNull();
+		await claim(account, jws);
+		expect((await getPaymentDisputeRepository().findReview('dp_store_claim_open'))?.dispute_purchase_at).toEqual(
+			flagged?.dispute_purchase_at,
+		);
+	});
 
 	it('grants premium for a claim that includes the account token and answers repeats the same way', async () => {
 		const account = await createTestAccount(harness);

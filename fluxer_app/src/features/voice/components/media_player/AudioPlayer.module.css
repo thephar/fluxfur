@@ -44,7 +44,7 @@
 	font-variant-numeric: tabular-nums;
 	white-space: nowrap;
 	min-width: 5.5rem;
-	text-align: right;
+	text-align: end;
 }
 
 .controls {
@@ -142,13 +142,4 @@
 .mobile .seekButton {
 	width: 2.75rem;
 	height: 2.75rem;
-}
-
-@keyframes spin {
-	from {
-		transform: rotate(0deg);
-	}
-	to {
-		transform: rotate(360deg);
-	}
 }

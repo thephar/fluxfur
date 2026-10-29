@@ -37,7 +37,7 @@ export class ThreadMessageActivity {
 		private readonly gatewayService: IGatewayService,
 	) {}
 
-	async assertCanUnarchive(state: ThreadState): Promise<void> {
+	private async assertCanUnarchive(state: ThreadState): Promise<void> {
 		if (!state.archived) return;
 		if ((await this.channelRepository.threads.countActiveThreads(state.guildId)) >= MAX_ACTIVE_THREADS_PER_GUILD) {
 			throw new MaxActiveThreadsError(MAX_ACTIVE_THREADS_PER_GUILD);

@@ -407,10 +407,6 @@ function openNoRolesModal(guildId: string) {
 				description={
 					<NoRolesModalDescription data-flx="guild.role-management.open-no-roles-modal.no-roles-modal-description" />
 				}
-				primaryText={<Trans>OK</Trans>}
-				primaryVariant="primary"
-				secondaryText={false}
-				onPrimary={() => {}}
 				data-flx="guild.role-management.open-no-roles-modal.confirm-modal"
 			/>
 		)),

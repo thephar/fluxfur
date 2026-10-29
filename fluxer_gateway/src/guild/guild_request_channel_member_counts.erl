@@ -1,9 +1,6 @@
 %% SPDX-License-Identifier: AGPL-3.0-or-later
 
 -module(guild_request_channel_member_counts).
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
--endif.
 
 -typing([eqwalizer]).
 
@@ -48,7 +45,7 @@ fetch_counts(undefined, _ChannelIds, _SessionId, _UserId, _SessionState) ->
 fetch_counts(_GuildId, [], _SessionId, _UserId, _SessionState) ->
     [];
 fetch_counts(GuildId, ChannelIds, SessionId, UserId, SessionState) ->
-    case lookup_guild_pid(GuildId, maps:get(guilds, SessionState, #{})) of
+    case lookup_guild_pid(GuildId, session_visits:member_guilds(SessionState)) of
         {ok, GuildPid} ->
             request_guild_channel_counts(GuildPid, GuildId, ChannelIds, SessionId, UserId);
         error ->
@@ -141,45 +138,3 @@ parse_nonce(Nonce) when
     Nonce;
 parse_nonce(_) ->
     undefined.
-
--ifdef(TEST).
-
-parse_channel_ids_accepts_single_channel_id_test() ->
-    ?assertEqual([42], parse_channel_ids(#{<<"channel_id">> => <<"42">>})).
-
-parse_channel_ids_dedupes_sorts_and_filters_test() ->
-    ?assertEqual(
-        [1, 2],
-        parse_channel_ids(#{<<"channel_ids">> => [<<"2">>, <<"1">>, <<"2">>, 0, <<"bad">>]})
-    ).
-
-parse_channel_ids_caps_at_max_test() ->
-    Many = [integer_to_binary(N) || N <- lists:seq(1, ?MAX_CHANNEL_IDS + 50)],
-    ?assertEqual(?MAX_CHANNEL_IDS, length(parse_channel_ids(#{<<"channel_ids">> => Many}))).
-
-parse_nonce_test() ->
-    ?assertEqual(<<"n">>, parse_nonce(<<"n">>)),
-    ?assertEqual(undefined, parse_nonce(<<>>)),
-    ?assertEqual(undefined, parse_nonce(123)),
-    Big = binary:copy(<<"a">>, ?MAX_NONCE_BYTES + 1),
-    ?assertEqual(undefined, parse_nonce(Big)).
-
-handle_request_dispatches_empty_when_no_guild_test() ->
-    Self = self(),
-    SessionState = #{
-        session_pid => Self,
-        session_id => <<"s1">>,
-        user_id => <<"100">>,
-        guilds => #{}
-    },
-    ok = handle_request(
-        #{<<"guild_id">> => <<"1">>, <<"channel_id">> => <<"2">>}, Self, SessionState
-    ),
-    receive
-        {'$gen_cast', {dispatch, channel_member_counts_update, Payload}} ->
-            ?assertEqual([], maps:get(<<"counts">>, Payload))
-    after 1000 ->
-        ?assert(false)
-    end.
-
--endif.

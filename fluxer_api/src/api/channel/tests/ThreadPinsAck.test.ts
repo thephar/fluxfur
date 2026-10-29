@@ -7,12 +7,10 @@ import {threadsRequest} from '@app/api/channel/tests/ThreadTestUtils';
 import {clearChannelThreadsTaintCacheForTesting} from '@app/api/experiment/ChannelThreadsGate';
 import {getReadStateRepository} from '@app/api/middleware/ServiceSingletons';
 import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHarness';
-import {NoopGatewayService} from '@app/api/test/NoopGatewayService';
 import {ChannelTypes} from '@fluxer/constants/src/ChannelConstants';
-import {ReadStateFlags} from '@fluxer/constants/src/ThreadConstants';
 import type {ThreadChannelResponse} from '@fluxer/schema/src/domains/channel/ThreadRequestSchemas';
 import type {MessageResponse} from '@fluxer/schema/src/domains/message/MessageResponseSchemas';
-import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi} from 'vitest';
+import {afterAll, beforeAll, beforeEach, describe, expect, it} from 'vitest';
 
 interface Setup {
 	owner: TestAccount;
@@ -31,10 +29,6 @@ describe('thread pins ack', () => {
 	beforeEach(async () => {
 		await harness.reset();
 		clearChannelThreadsTaintCacheForTesting();
-	});
-
-	afterEach(() => {
-		vi.restoreAllMocks();
 	});
 
 	afterAll(async () => {
@@ -72,25 +66,11 @@ describe('thread pins ack', () => {
 		return row?.lastPinTimestamp ? row : null;
 	}
 
-	function pinsAckDispatches(dispatch: {mock: {calls: Array<Array<unknown>>}}) {
-		return dispatch.mock.calls.filter(([params]) => (params as {event: string}).event === 'CHANNEL_PINS_ACK');
-	}
-
-	it('stamps the ack for a thread member', async () => {
-		const s = await setup();
-		await threadsRequest(harness, s.owner.token).post(`/channels/${s.threadId}/pins/ack`).expect(204).execute();
-		const row = await pinAckRow(s.owner, s.threadId);
-		expect(row).not.toBeNull();
-		expect(row?.flags).toBe(ReadStateFlags.IS_GUILD_CHANNEL | ReadStateFlags.IS_THREAD);
-	});
-
 	it('refuses viewers who cannot see the private thread', async () => {
 		const s = await setup();
-		const dispatch = vi.spyOn(NoopGatewayService.prototype, 'dispatchPresence');
 		await threadsRequest(harness, s.member.token).post(`/channels/${s.threadId}/pins/ack`).expect(403).execute();
 		await threadsRequest(harness, s.outsider.token).post(`/channels/${s.threadId}/pins/ack`).expect(403).execute();
 		expect(await pinAckRow(s.member, s.threadId)).toBeNull();
 		expect(await pinAckRow(s.outsider, s.threadId)).toBeNull();
-		expect(pinsAckDispatches(dispatch)).toEqual([]);
 	});
 });

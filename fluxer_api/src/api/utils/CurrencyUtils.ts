@@ -21,7 +21,7 @@ export function getCurrencyPreferences(
 	return getEnvCurrencyPreferences(countryCode);
 }
 
-function getEnvCurrencyPreferences(countryCode: string | null | undefined): Array<Currency> {
+export function getEnvCurrencyPreferences(countryCode: string | null | undefined): Array<Currency> {
 	if (!countryCode) {
 		return ['USD', 'EUR'];
 	}

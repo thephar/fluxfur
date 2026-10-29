@@ -22,6 +22,7 @@ import {
 import type {ApiTestHarness} from '@app/api/test/ApiTestHarness';
 import {type CaptchaErrorBody, solveCaptchaChallenge, useCheapCaptcha} from '@app/api/test/CaptchaTestUtils';
 import {createBuilder, createBuilderWithoutAuth} from '@app/api/test/TestRequestBuilder';
+import {getAccountTier} from '@app/api/user/AccountTier';
 import {grantPremium} from '@app/api/user/tests/UserTestUtils';
 import {AccountIdentityModes} from '@fluxer/constants/src/AccountIdentityConstants';
 import {AdminACLs} from '@fluxer/constants/src/AdminACLs';
@@ -120,6 +121,11 @@ describe('Username sign-in', () => {
 	async function useUsernameMode(): Promise<void> {
 		config.instance.selfHosted = true;
 		await getInstanceConfigRepository().setAccountIdentityMode(AccountIdentityModes.USERNAME, 'setup');
+		await getInstanceConfigRepository().setAppPublicConfig({setup: {configured: true}});
+	}
+
+	async function allowInstantAccounts(): Promise<void> {
+		await getInstanceConfigRepository().updateAuthConfig({instant_accounts: {enabled: true}});
 	}
 
 	function useInstanceHosts(): void {
@@ -142,11 +148,13 @@ describe('Username sign-in', () => {
 			'existing_instance',
 			'random',
 		);
+		await getInstanceConfigRepository().setAppPublicConfig({setup: {configured: true}});
 	}
 
 	async function useSelfHostedEmailUniqueMode(): Promise<void> {
 		config.instance.selfHosted = true;
 		await getInstanceConfigRepository().setAccountIdentityMode(AccountIdentityModes.EMAIL, 'setup', 'none');
+		await getInstanceConfigRepository().setAppPublicConfig({setup: {configured: true}});
 	}
 
 	async function registerEmailAccount(username: string): Promise<UsernameAccount & {email: string}> {
@@ -394,6 +402,7 @@ describe('Username sign-in', () => {
 
 		it('derives a free username for an unclaimed account', async () => {
 			await useUsernameMode();
+			await allowInstantAccounts();
 			await registerUsernameAccount('sharedname');
 			const unclaimed = await createBuilderWithoutAuth<{user_id: string; token: string}>(harness)
 				.post('/auth/register')
@@ -402,7 +411,7 @@ describe('Username sign-in', () => {
 			const user = await getUserRepository().findUniqueAssert(createUserID(BigInt(unclaimed.user_id)));
 			expect(user.username.toLowerCase()).not.toBe('sharedname');
 			expect(user.username.toLowerCase().startsWith('sharedname')).toBe(true);
-			expect(user.isUnclaimedAccount()).toBe(true);
+			expect(getAccountTier(user)).toBe('unclaimed');
 		});
 
 		it('refuses a credential-less approval registration on a username instance', async () => {
@@ -788,6 +797,7 @@ describe('Username sign-in', () => {
 
 		it('lets an unclaimed account claim with a username and password', async () => {
 			await useUsernameMode();
+			await allowInstantAccounts();
 			const unclaimed = await createBuilderWithoutAuth<{user_id: string; token: string}>(harness)
 				.post('/auth/register')
 				.body({global_name: 'Guest'})
@@ -970,6 +980,25 @@ describe('Username sign-in', () => {
 			expect(await listTestEmails(harness)).toEqual([]);
 		});
 
+		it('issues a working link for an account that kept an email address', async () => {
+			const admin = await setUserACLs(harness, await createTestAccount(harness), [AdminACLs.WILDCARD]);
+			const target = await createTestAccount(harness);
+			await useUsernameMode();
+			const token = (
+				await createBuilder<{url: string}>(harness, admin.token)
+					.post(`/admin/users/${target.userId}/password-reset-link`)
+					.execute()
+			).url.split('/reset#token=')[1]!;
+			expect(
+				(await createBuilderWithoutAuth<{valid: boolean}>(harness).get(`/auth/reset/${token}`).execute()).valid,
+			).toBe(true);
+			const reset = await createBuilderWithoutAuth<LoginSuccessResponse>(harness)
+				.post('/auth/reset')
+				.body({token, password: NEW_PASSWORD})
+				.execute();
+			expect(reset.user_id).toBe(target.userId);
+		});
+
 		it('revokes earlier links when a new one is created', async () => {
 			await useUsernameMode();
 			const admin = await registerUsernameAccount('revokeadmin');
@@ -997,6 +1026,7 @@ describe('Username sign-in', () => {
 		it('keeps unique names when username mode is given a random tag style', async () => {
 			config.instance.selfHosted = true;
 			await getInstanceConfigRepository().setAccountIdentityMode(AccountIdentityModes.USERNAME, 'setup', 'random');
+			await getInstanceConfigRepository().setAppPublicConfig({setup: {configured: true}});
 			expect(await getInstanceConfigRepository().getTagStyle()).toBe('none');
 			const account = await registerUsernameAccount('ForcedUnique');
 			expect((await fetchCurrentUser(account.token)).discriminator).toBe('0000');
@@ -1011,6 +1041,7 @@ describe('Username sign-in', () => {
 
 		it('gives every new person the 0000 tag', async () => {
 			await useUsernameMode();
+			await allowInstantAccounts();
 			const account = await registerUsernameAccount('tagperson');
 			expect((await fetchCurrentUser(account.token)).discriminator).toBe('0000');
 			const unclaimed = await createBuilderWithoutAuth<{user_id: string}>(harness)

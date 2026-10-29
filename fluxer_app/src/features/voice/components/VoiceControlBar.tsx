@@ -641,7 +641,11 @@ const VoiceControlBarInner = observer(function VoiceControlBarInner() {
 	const cameraSettingsLabel = i18n._(VOICE_CAMERA_SETTINGS_DESCRIPTOR);
 	const screenShareSettingsLabel = i18n._(VOICE_SCREEN_SHARE_SETTINGS_DESCRIPTOR);
 	return (
-		<div className={styles.container} data-flx="voice.voice-control-bar.voice-control-bar-inner.container">
+		<div
+			className={styles.container}
+			data-voice-call-control-bar
+			data-flx="voice.voice-control-bar.voice-control-bar-inner.container"
+		>
 			<div
 				className={styles.buttonContainer}
 				data-flx="voice.voice-control-bar.voice-control-bar-inner.button-container"

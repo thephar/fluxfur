@@ -118,11 +118,6 @@ export class GatewayGuildSubscriptionSynchronizer {
 		this.resetSessionTracking();
 	}
 
-	prepareAdoptedSession(): void {
-		this.resetConnectionTracking();
-		this.initialGuildIdAtIdentify = null;
-	}
-
 	clearInitialGuild(): void {
 		this.initialGuildIdAtIdentify = null;
 	}

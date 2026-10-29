@@ -5,7 +5,6 @@ import {StatusSlate} from '@app/features/app/components/dialogs/shared/StatusSla
 import {Endpoints} from '@app/features/app/constants/Endpoints';
 import {useFormSubmit} from '@app/features/app/hooks/useFormSubmit';
 import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
-import {useSudo} from '@app/features/auth/hooks/useSudo';
 import type {DeveloperApplication} from '@app/features/devtools/models/DeveloperApplication';
 import {TRY_AGAIN_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
 import {formatBotPermissionsQuery, getAllBotPermissions} from '@app/features/permissions/utils/PermissionUtils';
@@ -125,7 +124,6 @@ export const ApplicationDetail: React.FC<ApplicationDetailProps> = observer(
 		const [isRotating, setIsRotating] = useState<'client' | 'bot' | null>(null);
 		const clientSecretInputId = useId();
 		const botTokenInputId = useId();
-		const sudo = useSudo();
 		const form = useForm<ApplicationDetailFormValues>({
 			defaultValues: {
 				name: '',
@@ -441,18 +439,16 @@ export const ApplicationDetail: React.FC<ApplicationDetailProps> = observer(
 			if (!application) return;
 			setIsRotating(type);
 			try {
-				const sudoPayload = await sudo.require();
 				const endpoint =
 					type === 'client'
 						? Endpoints.OAUTH_APPLICATION_CLIENT_SECRET_RESET(application.id)
 						: Endpoints.OAUTH_APPLICATION_BOT_TOKEN_RESET(application.id);
-				const res = await http.post<{client_secret?: string; token?: string}>(endpoint, {body: sudoPayload});
+				const res = await http.post<{client_secret?: string; token?: string}>(endpoint, {body: {}});
 				if (type === 'client') {
 					setClientSecret(res.body.client_secret ?? null);
 				} else {
 					setBotToken(res.body.token ?? null);
 				}
-				sudo.finalize();
 				ToastCommands.createToast({
 					type: 'success',
 					children:
@@ -607,13 +603,11 @@ export const ApplicationDetail: React.FC<ApplicationDetailProps> = observer(
 			: null;
 		const displayAvatarUrl = hasClearedAvatar ? defaultAvatarUrl : previewAvatarUrl || avatarUrl || defaultAvatarUrl;
 		const hasAvatar = (!hasClearedAvatar && Boolean(application.bot?.avatar)) || Boolean(previewAvatarUrl);
-		const displayBannerUrl =
-			previewBannerUrl ||
-			(hasClearedBanner
-				? null
-				: application.bot
-					? AvatarUtils.getUserBannerURL({id: application.bot.id, banner: application.bot.banner}, true)
-					: null);
+		const botBannerUrl =
+			!hasClearedBanner && application.bot
+				? AvatarUtils.getUserBannerURL({id: application.bot.id, banner: application.bot.banner}, true)
+				: null;
+		const displayBannerUrl = previewBannerUrl || botBannerUrl;
 		const hasBanner = Boolean(displayBannerUrl || bannerValue);
 		return (
 			<Form form={form} onSubmit={onSubmit} data-flx="user.applications-tab.application-detail.form.submit">

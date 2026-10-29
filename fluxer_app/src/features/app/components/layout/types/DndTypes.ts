@@ -12,6 +12,7 @@ export const DragItemType = Object.freeze({
 	CONNECTION: 'connection',
 	FAVORITES_CHANNEL: 'favorites-channel',
 	FAVORITES_CATEGORY: 'favorites-category',
+	ACCOUNT_TILE: 'account-tile',
 } as const);
 
 export type DragItemType = (typeof DragItemType)[keyof typeof DragItemType];
@@ -72,4 +73,9 @@ export interface ConnectionDragItem {
 	type: typeof DragItemType.CONNECTION;
 	id: string;
 	index: number;
+}
+
+export interface AccountTileDragItem {
+	type: typeof DragItemType.ACCOUNT_TILE;
+	accountKey: string;
 }

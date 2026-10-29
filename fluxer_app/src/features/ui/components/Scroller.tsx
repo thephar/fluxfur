@@ -82,7 +82,6 @@ interface ScrollerProps
 	children: ReactNode;
 	className?: string;
 	contentClassName?: string;
-	dir?: 'ltr' | 'rtl';
 	orientation?: ScrollAxis;
 	overflow?: ScrollOverflow;
 	fade?: boolean;
@@ -204,7 +203,6 @@ export const Scroller = forwardRef<ScrollerHandle, ScrollerProps>(function Scrol
 		children,
 		className,
 		contentClassName,
-		dir = 'ltr',
 		orientation = 'vertical',
 		overflow = 'auto',
 		fade = true,
@@ -716,12 +714,13 @@ export const Scroller = forwardRef<ScrollerHandle, ScrollerProps>(function Scrol
 		estimatedContentSize != null && Number.isFinite(estimatedContentSize)
 			? Math.max(0, Math.floor(estimatedContentSize))
 			: null;
-	const contentStyle: CSSProperties | undefined =
-		normalizedEstimatedContentSize != null
-			? orientation === 'vertical'
+	let contentStyle: CSSProperties | undefined;
+	if (normalizedEstimatedContentSize != null) {
+		contentStyle =
+			orientation === 'vertical'
 				? {minHeight: `${normalizedEstimatedContentSize}px`}
-				: {minWidth: `${normalizedEstimatedContentSize}px`}
-			: undefined;
+				: {minWidth: `${normalizedEstimatedContentSize}px`};
+	}
 	const shouldReserveTrackSpace = scrollbarTrackMode === 'reserve';
 	const containerClassName = clsx(styles.scrollerWrap, {
 		[styles.horizontal]: orientation === 'horizontal',
@@ -751,7 +750,7 @@ export const Scroller = forwardRef<ScrollerHandle, ScrollerProps>(function Scrol
 					data-fluxer-scroll-container="true"
 					className={scrollerClassName}
 					style={scrollerStyle}
-					dir={dir}
+					dir={orientation === 'horizontal' ? 'ltr' : undefined}
 					onScroll={handleScroll}
 					onKeyDown={handleScrollerKeyDown}
 					onTouchStart={handleScrollerTouchStart}

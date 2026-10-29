@@ -1,12 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import {addressLookupCaptchaSteps, budgetEnvFor} from '@app/api/auth/AccountBudgets';
+import {normalizeEmailKey} from '@app/api/auth/AccountCodes';
 import * as AuthEmail from '@app/api/auth/AuthEmail';
 import * as AuthLogin from '@app/api/auth/AuthLogin';
 import * as AuthMfa from '@app/api/auth/AuthMfa';
 import * as AuthPassword from '@app/api/auth/AuthPassword';
+import {
+	assertAccountCreationPastSetup,
+	instantAccountsAvailable,
+	isInstantAccountRequest,
+} from '@app/api/auth/AuthRegistration';
 import * as AuthSession from '@app/api/auth/AuthSession';
-
+import {redeemSignInLink} from '@app/api/auth/SignInLinks';
 import {requireSudoMode} from '@app/api/auth/services/SudoVerificationService';
+import {usesUsernameSignIn} from '@app/api/instance/AccountIdentityModeCache';
 import {
 	onUsernameInstance,
 	RequireEmailAccountIdentity,
@@ -14,13 +22,16 @@ import {
 	RequireUsernameLookup,
 } from '@app/api/middleware/AccountIdentityMiddleware';
 import {DefaultUserOnly, LoginRequired} from '@app/api/middleware/AuthMiddleware';
-import {CaptchaMiddleware} from '@app/api/middleware/CaptchaMiddleware';
-import {LocalAuthMiddleware} from '@app/api/middleware/LocalAuthMiddleware';
+import {CaptchaMiddleware, EscalatingCaptchaMiddleware} from '@app/api/middleware/CaptchaMiddleware';
+import {LocalAuthMiddleware, MfaTicketAuthMiddleware} from '@app/api/middleware/LocalAuthMiddleware';
 import {RateLimitMiddleware} from '@app/api/middleware/RateLimitMiddleware';
 import {OpenAPI} from '@app/api/middleware/ResponseTypeMiddleware';
 import {SudoModeMiddleware} from '@app/api/middleware/SudoModeMiddleware';
 import {RateLimitConfigs} from '@app/api/RateLimitConfig';
-import type {HonoApp} from '@app/api/types/HonoEnv';
+import type {HonoApp, HonoEnv} from '@app/api/types/HonoEnv';
+import {scheduleAbandonedOnLastLogout} from '@app/api/user/AccountCleanup';
+import {tierContextFrom} from '@app/api/user/AccountTier';
+import {isJsonRecord} from '@app/api/utils/JsonBoundaryUtils';
 import {requireRequestClientIp} from '@app/api/utils/RequestClientIp';
 import {Validator} from '@app/api/Validator';
 import {
@@ -51,6 +62,7 @@ import {
 	RegisterRequest,
 	ResetPasswordRequest,
 	ResetPasswordTokenParam,
+	SignInLinkRequest,
 	SsoCompleteRequest,
 	SsoCompleteResponse,
 	SsoStartRequest,
@@ -68,6 +80,33 @@ import {
 	WebAuthnAuthenticationOptionsResponse,
 	WebAuthnMfaRequest,
 } from '@fluxer/schema/src/domains/auth/AuthSchemas';
+import type {Context} from 'hono';
+
+function optionalString(value: unknown): string | null {
+	return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+async function registrationCaptchaSteps(ctx: Context<HonoEnv>): Promise<number> {
+	const body: unknown = await ctx.req.json();
+	const fields = isJsonRecord(body) ? body : {};
+	const data = {email: optionalString(fields.email), password: optionalString(fields.password)};
+	const clientIp = requireRequestClientIp(ctx);
+	if (isInstantAccountRequest(data, {usernameMode: usesUsernameSignIn()})) {
+		const registrationUrlCode = optionalString(fields.registration_url_code);
+		if (!(await instantAccountsAvailable(ctx.get('instanceConfigRepository'), registrationUrlCode))) return 0;
+		if (optionalString(fields.setup_token) === null) {
+			await assertAccountCreationPastSetup(ctx.get('apiContext'), ctx.get('instanceConfigRepository'), clientIp);
+		}
+		return await ctx.get('authRequestService').instantAccountChallengeSteps(ctx.req.raw, clientIp, registrationUrlCode);
+	}
+	if (!data.email || usesUsernameSignIn()) return 0;
+	const lookupSteps = await addressLookupCaptchaSteps(budgetEnvFor(ctx.get('apiContext').services, ctx.req.raw), {
+		clientIp,
+		emailKey: normalizeEmailKey(data.email),
+		requester: 'unknown',
+	});
+	return lookupSteps ?? 0;
+}
 
 export function AuthController(app: HonoApp) {
 	app.get(
@@ -123,7 +162,7 @@ export function AuthController(app: HonoApp) {
 		async (ctx) => {
 			const result = await ctx
 				.get('authRequestService')
-				.completeSso(ctx.req.valid('json'), ctx.req.raw, ctx.get('requestCache'));
+				.completeSso(ctx.req.valid('json'), ctx.req.raw, ctx.get('requestCache'), requireRequestClientIp(ctx));
 			return ctx.json(result);
 		},
 	);
@@ -131,8 +170,8 @@ export function AuthController(app: HonoApp) {
 		'/auth/register',
 		LocalAuthMiddleware,
 		RateLimitMiddleware(RateLimitConfigs.AUTH_REGISTER),
-		CaptchaMiddleware,
 		Validator('json', RegisterRequest, {schemaFor: onUsernameInstance(UsernameInstanceRegisterRequest)}),
+		EscalatingCaptchaMiddleware(registrationCaptchaSteps),
 		OpenAPI({
 			operationId: 'register_account',
 			summary: 'Register account',
@@ -141,13 +180,14 @@ export function AuthController(app: HonoApp) {
 			security: [],
 			tags: ['Auth'],
 			description:
-				'Create a new user account. Email instances take an email and password, and the account must verify its email before logging in. Username instances take a username and password, and an email sent by an older client is discarded. Requires a solved captcha challenge (X-Captcha-Token).',
+				'Create a new user account. A body without an email and a password creates an account without an email from global_name: the username is derived from the display name and given a tag, and the account signs in on this device only until it is claimed (an email on email instances, a password on username instances). On email instances an email sent here is stored on the account and waits for confirmation. An address stored on another account, confirmed or not, answers EMAIL_ALREADY_IN_USE. Username instances take a username and password, and an email sent by an older client is discarded. The date of birth can be left out where the instance collects it, and the app then asks for it before anything else. Requires a solved captcha challenge (X-Captcha-Token), which costs more after recent sign-ups without an email from the same network.',
 		}),
 		async (ctx) => {
 			const result = await ctx.get('authRequestService').register({
 				data: ctx.req.valid('json'),
 				request: ctx.req.raw,
 				requestCache: ctx.get('requestCache'),
+				tierContext: tierContextFrom(ctx),
 			});
 			return ctx.json(result);
 		},
@@ -179,9 +219,9 @@ export function AuthController(app: HonoApp) {
 	);
 	app.post(
 		'/auth/login/mfa/totp',
-		LocalAuthMiddleware,
 		RateLimitMiddleware(RateLimitConfigs.AUTH_LOGIN_MFA),
 		Validator('json', MfaTotpRequest),
+		MfaTicketAuthMiddleware,
 		OpenAPI({
 			operationId: 'login_with_totp',
 			summary: 'Login with TOTP',
@@ -210,12 +250,13 @@ export function AuthController(app: HonoApp) {
 			security: ['botToken', 'bearerToken', 'sessionToken'],
 			tags: ['Auth'],
 			description:
-				'Invalidate the current authentication token and end the session. The auth token in the Authorization header will no longer be valid. A bot token has no session to end, so the call answers 204 and the token stays valid.',
+				'Invalidate the current authentication token and end the session. The auth token in the Authorization header will no longer be valid. A bot token has no session to end, so the call answers 204 and the token stays valid. Ending the last session of an account that cannot sign in again, because it has no email, password or passkey, schedules that account for deletion after 24 hours.',
 		}),
 		async (ctx) => {
 			const authToken = ctx.get('authToken');
 			if (authToken) {
 				await AuthSession.revokeToken(ctx.get('apiContext'), authToken);
+				await scheduleAbandonedOnLastLogout(ctx.get('apiContext'), ctx.get('user'));
 			}
 			return ctx.body(null, 204);
 		},
@@ -447,6 +488,28 @@ export function AuthController(app: HonoApp) {
 		},
 	);
 	app.post(
+		'/auth/sign-in-link',
+		RateLimitMiddleware(RateLimitConfigs.AUTH_AUTHORIZE_IP),
+		Validator('json', SignInLinkRequest),
+		OpenAPI({
+			operationId: 'redeem_sign_in_link',
+			summary: 'Redeem sign-in link',
+			responseSchema: AuthTokenWithUserIdResponse,
+			statusCode: 200,
+			security: [],
+			tags: ['Auth'],
+			description:
+				'Sign in with the token from a one-time sign-in link that the instance operator created for an admin account. Authorizes the IP address of the request and returns an authentication token. The token works once and expires after 15 minutes.',
+		}),
+		async (ctx) => {
+			const result = await redeemSignInLink(ctx.get('apiContext'), ctx.get('adminService').auditService, {
+				token: ctx.req.valid('json').token,
+				request: ctx.req.raw,
+			});
+			return ctx.json(await ctx.get('authRequestService').toAuthTokenResponse(result));
+		},
+	);
+	app.post(
 		'/auth/ip-authorization/resend',
 		LocalAuthMiddleware,
 		RequireEmailAccountIdentity,
@@ -536,9 +599,9 @@ export function AuthController(app: HonoApp) {
 	);
 	app.post(
 		'/auth/login/mfa/webauthn/authentication-options',
-		LocalAuthMiddleware,
 		RateLimitMiddleware(RateLimitConfigs.AUTH_LOGIN_MFA),
 		Validator('json', MfaTicketRequest),
+		MfaTicketAuthMiddleware,
 		OpenAPI({
 			operationId: 'get_webauthn_mfa_options',
 			summary: 'Get WebAuthn MFA options',
@@ -561,9 +624,9 @@ export function AuthController(app: HonoApp) {
 	);
 	app.post(
 		'/auth/login/mfa/webauthn',
-		LocalAuthMiddleware,
 		RateLimitMiddleware(RateLimitConfigs.AUTH_LOGIN_MFA),
 		Validator('json', WebAuthnMfaRequest),
+		MfaTicketAuthMiddleware,
 		OpenAPI({
 			operationId: 'login_with_webauthn_mfa',
 			summary: 'Login with WebAuthn MFA',

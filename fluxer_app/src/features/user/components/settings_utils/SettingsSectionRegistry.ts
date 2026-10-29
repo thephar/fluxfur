@@ -14,6 +14,7 @@ import type {
 	SettingsSectionConfig,
 	UserSettingsTabType,
 } from '@app/features/user/components/settings_utils/section_registry/SectionRegistryTypes';
+import {themesSections} from '@app/features/user/components/settings_utils/section_registry/ThemesSections';
 import {voiceVideoSections} from '@app/features/user/components/settings_utils/section_registry/VoiceVideoSections';
 import type {I18n} from '@lingui/core';
 
@@ -26,6 +27,7 @@ export type {
 const SECTION_REGISTRY = [
 	...generalSettingsSections,
 	...appearanceSections,
+	...themesSections,
 	...accessibilitySections,
 	...chatSettingsSections,
 	...voiceVideoSections,

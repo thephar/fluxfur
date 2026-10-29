@@ -348,12 +348,13 @@ const RecoveryKitModal = observer(
 			ModalCommands.popWithKey(RECOVERY_KIT_MODAL_KEY);
 			onDone?.();
 		}, [acknowledged, onDone]);
-		const description =
-			reason === 'recovered'
-				? i18n._(RECOVERY_KIT_RECOVERED_DESCRIPTOR)
-				: reason === 'replaced'
-					? i18n._(RECOVERY_KIT_REPLACED_DESCRIPTOR)
-					: i18n._(RECOVERY_KIT_CREATED_DESCRIPTOR);
+		let descriptionDescriptor = RECOVERY_KIT_CREATED_DESCRIPTOR;
+		if (reason === 'recovered') {
+			descriptionDescriptor = RECOVERY_KIT_RECOVERED_DESCRIPTOR;
+		} else if (reason === 'replaced') {
+			descriptionDescriptor = RECOVERY_KIT_REPLACED_DESCRIPTOR;
+		}
+		const description = i18n._(descriptionDescriptor);
 		const optionsBusy = loadingBackupCodes || buildingPdf;
 		return (
 			<Modal.Root size="small" centered onClose={handleDone} data-flx="auth.recovery-kit-modal.modal-root">

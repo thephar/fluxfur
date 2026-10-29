@@ -23,10 +23,6 @@ impl TransformMetrics {
     pub fn observe_video_duration(&self, ms: u64) {
         self.transform_video_duration.observe(ms);
     }
-
-    pub fn hdr_tone_map_count(&self) -> u64 {
-        self.hdr_tone_map_count.get()
-    }
 }
 
 pub struct NativeTransformMetrics {

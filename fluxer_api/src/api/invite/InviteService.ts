@@ -13,6 +13,7 @@ import type {ChannelService} from '@app/api/channel/services/ChannelService';
 import {THREAD_FEATURE_CHANNEL_TYPES, type ThreadViewer} from '@app/api/experiment/ChannelThreadsGate';
 import type {GuildAuditLogService} from '@app/api/guild/GuildAuditLogService';
 import type {GuildService} from '@app/api/guild/services/GuildService';
+import {enqueueEndGuildVisitsForCode} from '@app/api/guild/visits/GuildVisitLifecycle';
 import {emitGuildJoinRefused, emitInviteCreated, emitInviteDeleted} from '@app/api/infrastructure/activity/GuildEvents';
 import type {InviteRepository} from '@app/api/invite/InviteRepository';
 import {Logger} from '@app/api/Logger';
@@ -22,13 +23,14 @@ import {createLimitMatchContext} from '@app/api/limits/LimitMatchContextBuilder'
 import type {RequestCache} from '@app/api/middleware/RequestCacheMiddleware';
 import {Invite} from '@app/api/models/Invite';
 import {assertAccountNotLimited} from '@app/api/user/AccountLimit';
+import {assertTierAllows, NO_TIER_CONTEXT, type TierContext} from '@app/api/user/AccountTier';
 import * as RandomUtils from '@app/api/utils/RandomUtils';
+import {TierGatedActions} from '@fluxer/constants/src/AccountTierConstants';
 import {AuditLogActionType} from '@fluxer/constants/src/AuditLogActionType';
 import {ChannelTypes, InviteTypes, Permissions} from '@fluxer/constants/src/ChannelConstants';
 import {GuildFeatures, GuildOperations, JoinSourceTypes} from '@fluxer/constants/src/GuildConstants';
 import {MAX_GUILD_INVITES} from '@fluxer/constants/src/LimitConstants';
 import {InvalidChannelTypeError} from '@fluxer/errors/src/domains/channel/InvalidChannelTypeError';
-import {UnclaimedAccountCannotJoinGroupDmsError} from '@fluxer/errors/src/domains/channel/UnclaimedAccountCannotJoinGroupDmsError';
 import {UnknownChannelError} from '@fluxer/errors/src/domains/channel/UnknownChannelError';
 import {FeatureTemporarilyDisabledError} from '@fluxer/errors/src/domains/core/FeatureTemporarilyDisabledError';
 import {MissingPermissionsError} from '@fluxer/errors/src/domains/core/MissingPermissionsError';
@@ -68,6 +70,7 @@ interface AcceptInviteParams {
 	userId: UserID;
 	inviteCode: InviteCode;
 	requestCache: RequestCache;
+	tierContext: TierContext;
 }
 
 interface DeleteInviteParams {
@@ -107,6 +110,10 @@ export class InviteService {
 		private readonly guildAuditLogService: GuildAuditLogService,
 		private readonly limitConfigService: LimitConfigService,
 	) {}
+
+	async findInvite(inviteCode: InviteCode): Promise<Invite | null> {
+		return this.findInviteWithLowercaseFallback(inviteCode);
+	}
 
 	async getInvite(inviteCode: InviteCode): Promise<Invite> {
 		const invite = await this.findInviteWithLowercaseFallback(inviteCode);
@@ -157,6 +164,8 @@ export class InviteService {
 		invite: Invite;
 		isNew: boolean;
 	}> {
+		const inviter = await this.apiContext.services.users.findUnique(inviterId);
+		if (inviter) assertTierAllows(inviter, TierGatedActions.INVITE_CREATE, NO_TIER_CONTEXT);
 		const channel = await this.channelService.channelData.operations.getChannel({
 			userId: inviterId,
 			viewer,
@@ -249,7 +258,7 @@ export class InviteService {
 		return {invite: newInvite, isNew: true};
 	}
 
-	async acceptInvite({userId, inviteCode, requestCache}: AcceptInviteParams): Promise<Invite> {
+	async acceptInvite({userId, inviteCode, requestCache, tierContext}: AcceptInviteParams): Promise<Invite> {
 		const invite = await this.findInviteWithLowercaseFallback(inviteCode);
 		if (!invite) throw new UnknownInviteError();
 		if (invite.maxUses > 0 && invite.uses >= invite.maxUses) {
@@ -258,6 +267,7 @@ export class InviteService {
 				const vanityCode = guild.vanityUrlCode ? vanityCodeToInviteCode(guild.vanityUrlCode) : null;
 				if (invite.code !== vanityCode) {
 					await this.inviteRepository.delete(invite.code);
+					await enqueueEndGuildVisitsForCode(invite.guildId, invite.code);
 				}
 			} else if (invite.type === InviteTypes.GROUP_DM) {
 				await this.inviteRepository.delete(invite.code);
@@ -267,9 +277,7 @@ export class InviteService {
 		if (invite.type === InviteTypes.GROUP_DM) {
 			if (!invite.channelId) throw new UnknownInviteError();
 			const user = await this.apiContext.services.users.findUnique(userId);
-			if (user?.isUnclaimedAccount()) {
-				throw new UnclaimedAccountCannotJoinGroupDmsError();
-			}
+			if (user) assertTierAllows(user, TierGatedActions.GROUP_DM, tierContext);
 			const channel = await this.channelService.channelData.operations.getChannelSystem(invite.channelId);
 			if (!channel) throw new UnknownInviteError();
 			if (channel.recipientIds.has(userId)) {
@@ -327,6 +335,7 @@ export class InviteService {
 				joinSourceType: isVanityInvite ? JoinSourceTypes.VANITY_URL : JoinSourceTypes.INSTANT_INVITE,
 				sourceInviteCode: isVanityInvite ? undefined : invite.code,
 				inviterId: isVanityInvite ? undefined : (invite.inviterId ?? undefined),
+				tierContext,
 			}),
 		);
 		if (invite.temporary) {
@@ -396,6 +405,7 @@ export class InviteService {
 		}
 		if (params.deleteWhenExhausted && invite.uses >= invite.maxUses) {
 			await this.inviteRepository.delete(invite.code);
+			if (invite.guildId) await enqueueEndGuildVisitsForCode(invite.guildId, invite.code);
 		}
 		return invite;
 	}
@@ -458,6 +468,7 @@ export class InviteService {
 			await checkPermission(Permissions.MANAGE_GUILD);
 		}
 		await this.inviteRepository.delete(invite.code);
+		await enqueueEndGuildVisitsForCode(invite.guildId, invite.code);
 		await this.logGuildInviteAction({
 			invite,
 			userId,

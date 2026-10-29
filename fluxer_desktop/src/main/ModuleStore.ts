@@ -28,17 +28,17 @@ import {parseModuleVersion} from '@electron/main/ModuleVersion';
 import {isDesktopModuleName} from '@fluxer/desktop_ipc/src/ModuleContract';
 
 const MODULE_STORE_DIRECTORY_NAME = 'modules';
-export const MODULE_STATE_FILE_NAME = 'state.json';
-export const MODULE_STATE_VERSION = 3;
+const MODULE_STATE_FILE_NAME = 'state.json';
+const MODULE_STATE_VERSION = 3;
 const MODULE_UNREADABLE_STATE_SUFFIX = '.unreadable';
 const MODULE_DOWNLOAD_DIRECTORY_NAME = 'download';
 const MODULE_DOWNLOAD_INCOMING_DIRECTORY_NAME = 'incoming';
 const MODULE_STORE_TREE_DIRECTORY_NAME = 'store';
 const MODULE_PACKAGE_FILE_EXTENSION = '.br';
 const MODULE_PARTIAL_PACKAGE_FILE_EXTENSION = '.partial';
-export const MODULE_INCOMING_STORE_PREFIX = '.incoming-';
+const MODULE_INCOMING_STORE_PREFIX = '.incoming-';
 const MODULE_REPLACED_STORE_PREFIX = '.replaced-';
-export const MODULE_PACKAGE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const MODULE_PACKAGE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 export const MODULE_BOOT_ATTEMPT_ROLLBACK_THRESHOLD = 2;
 
 const MODULE_STATE_MAX_BYTES = 4 * 1024 * 1024;
@@ -50,7 +50,7 @@ const STATE_FILE_MODE = 0o600;
 const INSTALLED_FILE_HASH_CHUNK_BYTES = 1024 * 1024;
 const INSTALLED_FILE_CHECK_CONCURRENCY = 32;
 const TREE_FSYNC_CONCURRENCY = 4;
-export const MODULE_FILE_STAMPS_NAME = '.installed-files.json';
+const MODULE_FILE_STAMPS_NAME = '.installed-files.json';
 const MODULE_FILE_STAMPS_VERSION = 1;
 const MODULE_FILE_STAMPS_MODE = 0o600;
 const MODULE_FILE_STAMPS_MAX_BYTES = 16 * 1024 * 1024;
@@ -110,7 +110,7 @@ export class ModuleStoreDownloadHashMismatchError extends ModuleStoreError {
 	}
 }
 
-export class ModuleStoreInstallationMissingError extends ModuleStoreError {
+class ModuleStoreInstallationMissingError extends ModuleStoreError {
 	public readonly module: string;
 	public readonly sha256: string;
 	public readonly directory: string;
@@ -124,7 +124,7 @@ export class ModuleStoreInstallationMissingError extends ModuleStoreError {
 	}
 }
 
-export class ModuleStoreGarbageCollectionOrderError extends ModuleStoreError {
+class ModuleStoreGarbageCollectionOrderError extends ModuleStoreError {
 	public constructor() {
 		super('module garbage collection ran before a successful launch');
 		this.name = 'ModuleStoreGarbageCollectionOrderError';
@@ -1088,7 +1088,7 @@ function serializeModuleStoreState(state: ModuleStoreState): string {
 
 export class ModuleStore {
 	public readonly root: string;
-	public readonly statePath: string;
+	private readonly statePath: string;
 	public readonly downloadRoot: string;
 	public readonly incomingDownloadRoot: string;
 	public readonly storeRoot: string;

@@ -127,7 +127,7 @@
 
 .statValue {
 	min-width: 0;
-	text-align: right;
+	text-align: end;
 	font-size: 0.75rem;
 }
 

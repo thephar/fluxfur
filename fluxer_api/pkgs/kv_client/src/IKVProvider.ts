@@ -44,6 +44,7 @@ export interface IKVProvider {
 	exists(key: string): Promise<number>;
 	expire(key: string, ttlSeconds: number): Promise<number>;
 	ttl(key: string): Promise<number>;
+	incr(key: string): Promise<number>;
 	getdel(key: string): Promise<string | null>;
 	sadd(key: string, ...members: Array<string>): Promise<number>;
 	srem(key: string, ...members: Array<string>): Promise<number>;

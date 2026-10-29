@@ -602,11 +602,7 @@ pub fn enforcement_decision_page(
 ) -> Markup {
     let base = &config.base_path;
     let title = format!("Decision {decision_id}");
-    let admin_acls = auth
-        .admin_user
-        .as_ref()
-        .map(|user| user.acls.as_slice())
-        .unwrap_or(&[]);
+    let admin_acls = auth.acls();
     let content = html! {
         (page_header_with_back(&title, None, &format!("{base}/decisions"), Some("Back to decisions")))
         @match decision {

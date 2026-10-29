@@ -15,7 +15,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 		libssl-dev \
 		pkg-config \
 		openssl \
-		libvips-dev \
 		python3 && \
 	rm -rf /var/lib/apt/lists/*
 
@@ -23,7 +22,8 @@ COPY . .
 
 RUN pnpm install --frozen-lockfile
 RUN pnpm --filter fluxer_api run build
-RUN pnpm deploy --legacy --filter=fluxer_api --prod --config.allow-unused-patches=true /out
+RUN pnpm deploy --legacy --filter=fluxer_api --prod --config.allow-unused-patches=true /out && \
+	rm -rf /out/pkgs /out/dist
 
 FROM node:26-trixie-slim
 
@@ -46,29 +46,20 @@ LABEL app.fluxer.build-version="${BUILD_VERSION}"
 WORKDIR /usr/src/app/fluxer_api
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-		ca-certificates \
-		ffmpeg \
-		libimage-exiftool-perl \
-		libwebp7 \
-		libwebpmux3 \
-		libheif1 \
-		libheif-plugin-libde265 \
-		libheif-plugin-dav1d \
-		libvips42t64 && \
+		ca-certificates && \
 	rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g pnpm@11.27.0
+COPY --from=deploy --chown=65532:65532 /out ./
+COPY --from=deploy --chown=65532:65532 /usr/src/app/fluxer_api/dist ./dist
+COPY --from=deploy --chown=65532:65532 /usr/src/app/fluxer_api/bin ./bin
+COPY --from=deploy --chown=65532:65532 /usr/src/app/tsconfigs /usr/src/app/tsconfigs
 
-COPY --from=deploy /out ./
-COPY --from=deploy /usr/src/app/fluxer_api/dist ./dist
-COPY --from=deploy /usr/src/app/tsconfigs /usr/src/app/tsconfigs
-
-RUN rm -rf pkgs && \
-	chown -R 65532:65532 /usr/src/app
+RUN mkdir -p /run/fluxer && \
+	chmod 700 /run/fluxer && \
+	chown 65532:65532 /usr/src/app /usr/src/app/fluxer_api /run/fluxer
 
 ENV HOME=/usr/src/app
 ENV NODE_ENV=production
-ENV NODE_OPTIONS="--enable-source-maps"
 ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
 ENV BUILD_VERSION=${BUILD_VERSION}
 

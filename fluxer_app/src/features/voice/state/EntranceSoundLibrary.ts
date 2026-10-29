@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {Endpoints} from '@app/features/app/constants/Endpoints';
+import {ResettableStates} from '@app/features/app/state/ResettableStates';
 import {
 	type EntranceSoundScope,
 	getEntranceSoundFallbackScopes,
@@ -177,6 +178,18 @@ class EntranceSoundLibrary {
 			this.selections = next;
 		});
 	}
+
+	reset(): void {
+		this.sounds = {};
+		this.selections = {};
+		this.loaded = false;
+		this.loading = false;
+		this.loadPromise = null;
+	}
 }
 
-export default new EntranceSoundLibrary();
+const entranceSoundLibrary = new EntranceSoundLibrary();
+
+ResettableStates.register(entranceSoundLibrary, () => entranceSoundLibrary.reset());
+
+export default entranceSoundLibrary;

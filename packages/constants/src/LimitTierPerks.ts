@@ -27,7 +27,7 @@ export interface NumericTierPerk extends BasePerk {
 	unit?: 'count' | 'bytes' | 'characters';
 }
 
-export interface TextTierPerk extends BasePerk {
+interface TextTierPerk extends BasePerk {
 	type: 'text';
 	restrictedValueI18nKey: string;
 	stockValueI18nKey: string;

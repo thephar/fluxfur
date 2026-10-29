@@ -10,7 +10,11 @@ import {
 } from '@app/features/i18n/utils/CommonMessageDescriptors';
 import {remFromPx} from '@app/features/theme/layout/RemFromPx';
 import * as ThreadCommands from '@app/features/threads/commands/ThreadCommands';
-import {openCreateThread, openThread} from '@app/features/threads/commands/ThreadNavigation';
+import {
+	openCreateThread,
+	openThreadFromEvent,
+	type ThreadOpenEvent,
+} from '@app/features/threads/commands/ThreadNavigation';
 import styles from '@app/features/threads/components/ThreadBrowser.module.css';
 import {ThreadContextMenu} from '@app/features/threads/components/ThreadContextMenu';
 import {reportThreadActionError} from '@app/features/threads/hooks/useThreadMenuData';
@@ -34,15 +38,16 @@ import {useLingui} from '@lingui/react/macro';
 import {ChatsIcon, LockSimpleIcon, MagnifyingGlassIcon, PlusIcon, XIcon} from '@phosphor-icons/react';
 import {clsx} from 'clsx';
 import {observer} from 'mobx-react-lite';
-import {useCallback, useEffect, useState} from 'react';
+import {type ReactNode, useCallback, useEffect, useState} from 'react';
 
 type BrowserTab = 'active' | 'archived' | 'archivedPrivate';
+type ThreadOpenHandler = (thread: Channel, event: ThreadOpenEvent) => void;
 
 function byLastActivity(a: Channel, b: Channel): number {
 	return SnowflakeUtils.compare(lastActivityId(b), lastActivityId(a));
 }
 
-const ThreadBrowserItem = observer(({thread, onOpen}: {thread: Channel; onOpen: (thread: Channel) => void}) => {
+const ThreadBrowserItem = observer(({thread, onOpen}: {thread: Channel; onOpen: ThreadOpenHandler}) => {
 	const {i18n} = useLingui();
 	const lastActivity = new Date(SnowflakeUtils.extractTimestamp(lastActivityId(thread)));
 	return (
@@ -50,7 +55,7 @@ const ThreadBrowserItem = observer(({thread, onOpen}: {thread: Channel; onOpen: 
 			<button
 				type="button"
 				className={styles.item}
-				onClick={() => onOpen(thread)}
+				onClick={(event) => onOpen(thread, event)}
 				onContextMenu={(event) =>
 					ContextMenuCommands.openFromEvent(event, ({onClose}) => (
 						<ThreadContextMenu
@@ -103,17 +108,7 @@ function matchesTab(thread: Channel, tab: BrowserTab): boolean {
 }
 
 const SearchResults = observer(
-	({
-		parent,
-		query,
-		tab,
-		onOpen,
-	}: {
-		parent: Channel;
-		query: string;
-		tab: BrowserTab;
-		onOpen: (thread: Channel) => void;
-	}) => {
+	({parent, query, tab, onOpen}: {parent: Channel; query: string; tab: BrowserTab; onOpen: ThreadOpenHandler}) => {
 		const {i18n} = useLingui();
 		const {state, retry} = useThreadSearch(parent.id, query, tab !== 'active');
 		const threads =
@@ -210,7 +205,7 @@ const ThreadSearchInput = ({value, onChange}: {value: string; onChange: (value: 
 	);
 };
 
-const ActiveThreads = observer(({parent, onOpen}: {parent: Channel; onOpen: (thread: Channel) => void}) => {
+const ActiveThreads = observer(({parent, onOpen}: {parent: Channel; onOpen: ThreadOpenHandler}) => {
 	const {i18n} = useLingui();
 	const threads = [...ChannelThreads.getActiveThreadsForParent(parent.id)].sort(byLastActivity);
 	if (threads.length === 0) return <EmptyState data-flx="threads.thread-browser.active-threads.empty-state" />;
@@ -249,13 +244,16 @@ const ActiveThreads = observer(({parent, onOpen}: {parent: Channel; onOpen: (thr
 });
 
 const ArchivedThreads = observer(
-	({parent, privateOnly, onOpen}: {parent: Channel; privateOnly: boolean; onOpen: (thread: Channel) => void}) => {
+	({parent, privateOnly, onOpen}: {parent: Channel; privateOnly: boolean; onOpen: ThreadOpenHandler}) => {
 		const {i18n} = useLingui();
 		const moderator = isModeratorOfParent(parent);
 		const [threadIds, setThreadIds] = useState<ReadonlyArray<string>>([]);
 		const [hasMore, setHasMore] = useState(false);
 		const [loading, setLoading] = useState(false);
-		const kind: ThreadCommands.ArchivedThreadListKind = !privateOnly ? 'public' : moderator ? 'private' : 'joined';
+		let kind: ThreadCommands.ArchivedThreadListKind = 'public';
+		if (privateOnly) {
+			kind = moderator ? 'private' : 'joined';
+		}
 		const parentId = parent.id;
 		const load = useCallback(
 			(before?: string) => {
@@ -358,9 +356,9 @@ export const ThreadBrowser = observer(
 		const searching = query.trim().length > 0;
 		const current = Channels.getChannel(parent.id) ?? parent;
 		const handleOpen = useCallback(
-			(thread: Channel) => {
+			(thread: Channel, event: ThreadOpenEvent) => {
 				onClose?.();
-				openThread(thread);
+				openThreadFromEvent(thread, event);
 			},
 			[onClose],
 		);
@@ -370,6 +368,34 @@ export const ThreadBrowser = observer(
 		];
 		if (current.type === ChannelTypes.GUILD_TEXT) {
 			tabs.push({id: 'archivedPrivate', label: i18n._(D.ARCHIVED_PRIVATE_THREADS_DESCRIPTOR)});
+		}
+		let threadList: ReactNode;
+		if (searching) {
+			threadList = (
+				<SearchResults
+					parent={current}
+					query={query}
+					tab={tab}
+					onOpen={handleOpen}
+					data-flx="threads.thread-browser.search-results"
+				/>
+			);
+		} else if (tab === 'active') {
+			threadList = (
+				<div className={styles.list} data-flx="threads.thread-browser.list.active">
+					<ActiveThreads parent={current} onOpen={handleOpen} data-flx="threads.thread-browser.active-threads" />
+				</div>
+			);
+		} else {
+			threadList = (
+				<ArchivedThreads
+					key={tab}
+					parent={current}
+					privateOnly={tab === 'archivedPrivate'}
+					onOpen={handleOpen}
+					data-flx="threads.thread-browser.archived-threads"
+				/>
+			);
 		}
 		return (
 			<div
@@ -398,27 +424,7 @@ export const ThreadBrowser = observer(
 					className={styles.tabs}
 					data-flx="threads.thread-browser.segmented-tabs"
 				/>
-				{searching ? (
-					<SearchResults
-						parent={current}
-						query={query}
-						tab={tab}
-						onOpen={handleOpen}
-						data-flx="threads.thread-browser.search-results"
-					/>
-				) : tab === 'active' ? (
-					<div className={styles.list} data-flx="threads.thread-browser.list.active">
-						<ActiveThreads parent={current} onOpen={handleOpen} data-flx="threads.thread-browser.active-threads" />
-					</div>
-				) : (
-					<ArchivedThreads
-						key={tab}
-						parent={current}
-						privateOnly={tab === 'archivedPrivate'}
-						onOpen={handleOpen}
-						data-flx="threads.thread-browser.archived-threads"
-					/>
-				)}
+				{threadList}
 			</div>
 		);
 	},

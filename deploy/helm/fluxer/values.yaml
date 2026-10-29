@@ -106,6 +106,7 @@ secrets:
     # existingSecret, or with generate false and no value here, the API makes
     # one on its first start and writes it to its log once.
     FLUXER_SETUP_TOKEN: ""
+    FLUXER_ACTIVITYPUB_SIGNING_KEY_BASE64: ""
     # LiveKit API key.
     FLUXER_LIVEKIT_API_KEY: fluxer
     # LiveKit API secret, at least 32 characters.
@@ -197,7 +198,7 @@ postgres:
     effective_io_concurrency: "200"
     default_statistics_target: "200"
     jit: "off"
-    min_wal_size: 512MB
+    min_wal_size: 80MB
     max_wal_size: 2GB
     checkpoint_completion_target: "0.9"
     wal_buffers: 16MB
@@ -318,6 +319,15 @@ seaweedfs:
     pullPolicy: IfNotPresent
   # Volumes grown per bucket. 1 keeps the store usable on small disks.
   volumeGrowth: 1
+  # Size in MB at which SeaweedFS stops writing to a volume and opens another.
+  volumeSizeLimitMB: 1024
+  # Most volumes SeaweedFS may hold. It creates one only when a bucket needs
+  # room, so a high count reserves no disk. 0 derives the count from the free
+  # disk, which leaves a small volume with fewer than the four buckets need.
+  volumeMax: 10000
+  # How long a file stays in the uploads bucket. A file moves out when its
+  # message is sent, so this removes uploads nobody sent. off removes the rule.
+  uploadsTtl: 1d
   gomemlimit: 1536MiB
   # Tries, 2 seconds apart, the bucket setup makes before it starts over.
   initAttempts: 60
@@ -595,55 +605,65 @@ svc:
   gifs:
     router:
       replicas: 1
+      terminationGracePeriodSeconds: 35
       resources:
         requests: {cpu: 10m, memory: 32Mi}
         limits: {memory: 128Mi}
     shard:
       replicas: 1
+      terminationGracePeriodSeconds: 35
       resources:
         requests: {cpu: 20m, memory: 64Mi}
         limits: {memory: 256Mi}
   messages:
     router:
       replicas: 1
+      terminationGracePeriodSeconds: 35
       resources:
         requests: {cpu: 10m, memory: 32Mi}
         limits: {memory: 128Mi}
     shard:
       replicas: 1
+      terminationGracePeriodSeconds: 35
       resources:
         requests: {cpu: 20m, memory: 64Mi}
         limits: {memory: 256Mi}
   snowflakes:
     router:
       replicas: 1
+      terminationGracePeriodSeconds: 35
       resources:
         requests: {cpu: 10m, memory: 32Mi}
         limits: {memory: 128Mi}
     shard:
       replicas: 1
+      terminationGracePeriodSeconds: 35
       resources:
         requests: {cpu: 20m, memory: 64Mi}
         limits: {memory: 256Mi}
   unfurl:
     router:
       replicas: 1
+      terminationGracePeriodSeconds: 35
       resources:
         requests: {cpu: 10m, memory: 32Mi}
         limits: {memory: 128Mi}
     shard:
       replicas: 1
+      terminationGracePeriodSeconds: 35
       resources:
         requests: {cpu: 20m, memory: 64Mi}
         limits: {memory: 256Mi}
   users:
     router:
       replicas: 1
+      terminationGracePeriodSeconds: 35
       resources:
         requests: {cpu: 10m, memory: 32Mi}
         limits: {memory: 128Mi}
     shard:
       replicas: 1
+      terminationGracePeriodSeconds: 35
       resources:
         requests: {cpu: 20m, memory: 64Mi}
         limits: {memory: 256Mi}

@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {PRODUCT_NAME} from '@app/features/app/config/ProductConstants';
 import {
 	getNotificationAlertOptions,
 	isMobileOrTabletUserAgent,
@@ -22,6 +21,7 @@ import {getWorkerFetchRoute} from '@app/features/platform/service_worker/WorkerF
 import {
 	getBadgeCount,
 	getPushNotificationClientState,
+	type InstanceManifestSources,
 	isNotificationClearPayload,
 	isPushNotificationReadThrough,
 	matchesPushChannelNotification,
@@ -29,6 +29,7 @@ import {
 	resolvePushChannelId,
 	resolvePushMessageId,
 	resolvePushNotificationTag,
+	resolvePushTitle,
 	shouldRenotifyPushNotification,
 	shouldSilenceNonMobilePushNotification,
 } from '@app/features/platform/service_worker/WorkerPushPayload';
@@ -63,14 +64,16 @@ try {
 const log = async (level: SwLogLevel, message: string, data?: unknown): Promise<void> => {
 	try {
 		if (typeof console !== 'undefined') {
-			const fn =
-				level === 'error'
-					? console.error
-					: level === 'warn'
-						? console.warn
-						: level === 'info'
-							? console.info
-							: console.debug;
+			let fn: typeof console.debug;
+			if (level === 'error') {
+				fn = console.error;
+			} else if (level === 'warn') {
+				fn = console.warn;
+			} else if (level === 'info') {
+				fn = console.info;
+			} else {
+				fn = console.debug;
+			}
 			if (data !== undefined) fn?.call(console, '[SW]', message, data);
 			else fn?.call(console, '[SW]', message);
 		}
@@ -127,6 +130,16 @@ const fetchNetworkFirst = async (request: Request): Promise<Response> => {
 		}
 		throw error;
 	}
+};
+
+const instanceManifestUrl = (): string => new URL('/manifest.json', self.location.origin).href;
+const instanceManifestSources: InstanceManifestSources = {
+	fetchManifest: async (signal) => {
+		const response = await fetch(instanceManifestUrl(), {signal});
+		await cacheRequest(PRECACHE_CACHE, instanceManifestUrl(), response);
+		return response;
+	},
+	readCachedManifest: async () => (await serviceWorkerCaches?.match(instanceManifestUrl())) ?? undefined,
 };
 
 self.addEventListener('install', (event: ExtendableEvent) => {
@@ -344,8 +357,7 @@ self.addEventListener('push', (event: PushEvent) => {
 					rawPreview: rawText?.slice(0, 512) ?? null,
 				});
 			}
-			const payload = normalizePushPayload(raw ?? {title: PRODUCT_NAME});
-			const title = payload.title ?? PRODUCT_NAME;
+			const payload = normalizePushPayload(raw);
 			const tag = resolvePushNotificationTag(payload);
 			const badgeCount = getBadgeCount(payload);
 			if (isNotificationClearPayload(payload)) {
@@ -361,6 +373,7 @@ self.addEventListener('push', (event: PushEvent) => {
 				await log('warn', 'push ignored in native desktop service worker', {badgeCount});
 				return;
 			}
+			const title = await resolvePushTitle(payload, instanceManifestSources);
 			const body = payload.body ?? '';
 			let clientState = getPushNotificationClientState([]);
 			try {
@@ -403,7 +416,7 @@ self.addEventListener('push', (event: PushEvent) => {
 			} catch (error) {
 				await log('error', 'push: showNotification failed, showing fallback', {error: describeError(error)});
 				try {
-					await self.registration.showNotification(PRODUCT_NAME, {body: ''});
+					await self.registration.showNotification(title, {body: ''});
 				} catch (fallbackError) {
 					await log('error', 'push: fallback showNotification also failed', {
 						error: describeError(fallbackError),

@@ -5,9 +5,12 @@ import {AuditLogMiddleware} from '@app/api/middleware/AuditLogMiddleware';
 import {ClientFeaturesMiddleware} from '@app/api/middleware/ClientFeaturesMiddleware';
 import {ConcurrencyLimitMiddleware} from '@app/api/middleware/ConcurrencyLimitMiddleware';
 import ContentFilterMiddleware from '@app/api/middleware/ContentFilterMiddleware';
+import {DateOfBirthGateMiddleware} from '@app/api/middleware/DateOfBirthGateMiddleware';
 import {GuildAvailabilityMiddleware} from '@app/api/middleware/GuildAvailabilityMiddleware';
+import {GuildVisitorRequestContextMiddleware} from '@app/api/middleware/GuildVisitorRequestContextMiddleware';
 import {IpBanMiddleware} from '@app/api/middleware/IpBanMiddleware';
 import {LocaleMiddleware} from '@app/api/middleware/LocaleMiddleware';
+import {RequestBodyLimitMiddleware} from '@app/api/middleware/RequestBodyLimitMiddleware';
 import {RequestCacheMiddleware} from '@app/api/middleware/RequestCacheMiddleware';
 import {RequestErrorTelemetry} from '@app/api/middleware/RequestErrorTelemetry';
 import {RequireClientIpMiddleware} from '@app/api/middleware/RequireClientIpMiddleware';
@@ -16,6 +19,7 @@ import {TrustedClientIpHeaderMiddleware} from '@app/api/middleware/TrustedClient
 import {UserMiddleware} from '@app/api/middleware/UserMiddleware';
 import type {HonoApp} from '@app/api/types/HonoEnv';
 import {PeerAddressMiddleware} from '@app/api/utils/RequestClientIp';
+import {embeddedWorkerStalledComponents} from '@app/api/worker/EmbeddedWorker';
 import {Headers as HttpHeaders} from '@fluxer/constants/src/Headers';
 import {InvalidApiOriginError} from '@fluxer/errors/src/domains/core/InvalidApiOriginError';
 import {cors} from '@fluxer/hono/src/middleware/Cors';
@@ -67,6 +71,7 @@ export function configureMiddleware(routes: HonoApp, options: MiddlewarePipeline
 				HttpHeaders.X_AUDIT_LOG_REASON,
 				HttpHeaders.X_CAPTCHA_ID,
 				HttpHeaders.X_CAPTCHA_TOKEN,
+				HttpHeaders.X_FLUXER_CAPABILITIES,
 				HttpHeaders.X_FLUXER_CLIENT_INSTALLATION_ID,
 				HttpHeaders.X_FLUXER_FEATURES,
 				HttpHeaders.X_FLUXER_PLATFORM,
@@ -76,7 +81,9 @@ export function configureMiddleware(routes: HonoApp, options: MiddlewarePipeline
 		},
 	});
 	routes.use(ConcurrencyLimitMiddleware({maxInflightRequests}));
-	routes.get('/_health', async (ctx) => ctx.text('OK'));
+	routes.get('/_health', async (ctx) =>
+		embeddedWorkerStalledComponents().length > 0 ? ctx.text('Worker stalled', 503) : ctx.text('OK'),
+	);
 	routes.use(IpBanMiddleware);
 	routes.use(
 		requestLogger({
@@ -85,6 +92,7 @@ export function configureMiddleware(routes: HonoApp, options: MiddlewarePipeline
 		}),
 	);
 	routes.use(RequestErrorTelemetry);
+	routes.use(RequestBodyLimitMiddleware);
 	routes.use(RequestCacheMiddleware);
 	routes.use(ClientFeaturesMiddleware);
 	if (nodeEnv === 'production') {
@@ -114,6 +122,8 @@ export function configureMiddleware(routes: HonoApp, options: MiddlewarePipeline
 	routes.use(ActivityContextMiddleware);
 	routes.use(ServiceMiddleware);
 	routes.use(UserMiddleware);
+	routes.use(DateOfBirthGateMiddleware);
+	routes.use(GuildVisitorRequestContextMiddleware);
 	routes.use(ContentFilterMiddleware);
 	routes.use(GuildAvailabilityMiddleware);
 	routes.use(LocaleMiddleware);

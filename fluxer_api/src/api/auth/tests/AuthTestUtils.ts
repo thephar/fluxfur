@@ -305,6 +305,22 @@ export async function setUserACLs(
 	return await loginAccount(harness, account);
 }
 
+export async function createEmailCodeSudoBody(
+	harness: ApiTestHarness,
+	account: {token: string; email: string},
+): Promise<{mfa_method: 'email_code'; email_code_ticket: string; email_code: string}> {
+	const {ticket} = await createBuilder<{ticket: string}>(harness, account.token)
+		.post('/users/@me/sudo/email-code')
+		.body(null)
+		.execute();
+	const email = findLastTestEmail(await listTestEmails(harness, {recipient: account.email}), 'reauth_code');
+	return {mfa_method: 'email_code', email_code_ticket: ticket, email_code: email!.metadata['code']!};
+}
+
+export async function confirmTestEmail(harness: ApiTestHarness, userId: string): Promise<void> {
+	await createBuilder(harness, '').post(`/test/users/${userId}/security-flags`).body({email_verified: true}).execute();
+}
+
 export async function unclaimAccount(harness: ApiTestHarness, userId: string): Promise<void> {
 	await createBuilder(harness, '').post(`/test/users/${userId}/unclaim`).body(null).execute();
 }
@@ -319,8 +335,12 @@ interface SsoConfig {
 	scope: string;
 	allowed_domains: Array<string>;
 	auto_provision: boolean;
+	username_from_provider?: boolean;
 	redirect_uri: string;
 	display_name?: string;
+	button_label?: string;
+	groups_claim?: string | null;
+	group_role_mappings?: Array<{group: string; role_id: string}>;
 }
 
 export async function enableSso(

@@ -27,10 +27,11 @@ import * as D from '@app/features/threads/utils/ThreadMessageDescriptors';
 import * as ContextMenuCommands from '@app/features/ui/commands/ContextMenuCommands';
 import FocusRing from '@app/features/ui/focus_ring/FocusRing';
 import {usePopout} from '@app/features/ui/hooks/usePopout';
+import {ArrowLeftIcon} from '@app/features/ui/icons/DirectionalIcons';
 import {Popout} from '@app/features/ui/popover/PopoverPopout';
 import MobileLayout from '@app/features/ui/state/MobileLayout';
 import {useLingui} from '@lingui/react/macro';
-import {ArrowLeftIcon, ArrowsOutSimpleIcon, ChatsIcon, DotsThreeIcon, UsersIcon, XIcon} from '@phosphor-icons/react';
+import {ArrowsOutSimpleIcon, ChatsIcon, DotsThreeIcon, UsersIcon, XIcon} from '@phosphor-icons/react';
 import {observer} from 'mobx-react-lite';
 import type React from 'react';
 import {useCallback, useRef} from 'react';
@@ -166,7 +167,7 @@ const PanelHeader = observer(({thread, title}: {thread?: Channel; title: string}
 	);
 });
 
-export const ThreadChat = observer(({thread}: {thread: Channel}) => (
+const ThreadChat = observer(({thread}: {thread: Channel}) => (
 	<ChannelChatLayout
 		messages={<Messages key={thread.id} channel={thread} data-flx="threads.thread-chat.messages" />}
 		textarea={<ThreadComposerArea thread={thread} data-flx="threads.thread-chat.thread-composer-area" />}
@@ -186,7 +187,7 @@ export function useThreadPanelState(parent: Channel | undefined): {
 	return {thread: undefined, createMessageId: target ? target.messageId : undefined};
 }
 
-export const ThreadSidePanel = observer(({parent}: {parent: Channel}) => {
+const ThreadSidePanel = observer(({parent}: {parent: Channel}) => {
 	const {i18n} = useLingui();
 	const {thread, createMessageId} = useThreadPanelState(parent);
 	const handleResizeStart = usePanelResize();

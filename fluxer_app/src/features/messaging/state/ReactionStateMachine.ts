@@ -3,7 +3,7 @@
 import type {ReactionEmoji} from '@app/features/messaging/utils/ReactionUtils';
 import type {MessageReaction} from '@fluxer/schema/src/domains/message/MessageResponseSchemas';
 
-export interface ReactionRecord {
+interface ReactionRecord {
 	emoji: ReactionEmoji;
 	count: number;
 	me: boolean;
@@ -29,7 +29,7 @@ export function getEmojiKey(emoji: ReactionEmoji): string {
 	return `${emoji.id ?? ''}:${emoji.name}`;
 }
 
-export function sameEmoji(left: ReactionEmoji, right: ReactionEmoji): boolean {
+function sameEmoji(left: ReactionEmoji, right: ReactionEmoji): boolean {
 	return (left.id ?? null) === (right.id ?? null) && left.name === right.name;
 }
 

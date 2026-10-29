@@ -16,11 +16,12 @@ import {openMessageHistoryThresholdSettings} from '@app/features/guild/utils/gui
 import {BACK_TO_SETTINGS_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
 import {Button} from '@app/features/ui/button/Button';
 import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
+import {ArrowLeftIcon, ArrowRightIcon} from '@app/features/ui/icons/DirectionalIcons';
 import SettingsSidebar from '@app/features/ui/state/SettingsSidebar';
 import {useUnsavedChangesFlash} from '@app/features/user/hooks/useUnsavedChangesFlash';
 import {msg} from '@lingui/core/macro';
 import {useLingui} from '@lingui/react/macro';
-import {ArrowLeftIcon, ArrowRightIcon, type Icon, type IconWeight} from '@phosphor-icons/react';
+import type {Icon, IconWeight} from '@phosphor-icons/react';
 import {AnimatePresence, motion} from 'framer-motion';
 import {observer} from 'mobx-react-lite';
 import type React from 'react';

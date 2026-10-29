@@ -3,6 +3,7 @@
 import type {IMediaService, MediaProxyMetadataResponse} from '@app/api/infrastructure/IMediaService';
 import type {LimitConfigService} from '@app/api/limits/LimitConfigService';
 import {createLimitMatchContext} from '@app/api/limits/LimitMatchContextBuilder';
+import type {User} from '@app/api/models/User';
 import {
 	type AssetKind,
 	formatAssetUploadExtensions,
@@ -19,8 +20,9 @@ export function resolveAssetSizeLimit(
 	key: LimitKey,
 	fallback: number,
 	guildFeatures: Iterable<string> | null = null,
+	user: User | null = null,
 ): number {
-	const ctx = createLimitMatchContext({user: null, guildFeatures});
+	const ctx = createLimitMatchContext({user, guildFeatures});
 	const resolved = resolveLimit(limitConfigService.getConfigSnapshot(), ctx, key, {
 		evaluationContext: guildFeatures ? 'guild' : 'user',
 	});

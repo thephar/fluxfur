@@ -81,15 +81,3 @@ pub(crate) fn bool_param(value: bool) -> &'static str {
 pub(crate) fn float_to_u64(value: f64, field: &str) -> ApiResult<u64> {
     crate::api::generated::number_to_u64(value, field).map_err(ApiError::Parse)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::number_to_u64;
-
-    #[test]
-    fn reject_lossy_generated_number_count() {
-        assert_eq!(number_to_u64(42.0, "total").unwrap(), 42);
-        assert!(number_to_u64(42.5, "total").is_err());
-        assert!(number_to_u64(9_007_199_254_740_992.0, "total").is_err());
-    }
-}

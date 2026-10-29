@@ -53,7 +53,7 @@ function unavailableHardwareEncoderCapability(reason, detail) {
 	};
 }
 
-function getHardwareEncoderCapability() {
+function getHardwareEncoderCapabilities() {
 	if (!binding) {
 		return unavailableHardwareEncoderCapability(
 			'native_binding_unavailable',
@@ -67,10 +67,6 @@ function getHardwareEncoderCapability() {
 		);
 	}
 	return binding.getHardwareEncoderCapability();
-}
-
-function getHardwareEncoderCapabilities() {
-	return getHardwareEncoderCapability();
 }
 
 module.exports = {

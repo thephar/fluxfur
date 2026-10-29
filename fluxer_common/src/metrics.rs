@@ -94,6 +94,11 @@ pub fn render_counter(out: &mut String, name: &str, counter: &AtomicU64) -> fmt:
     writeln!(out, "{name} {}", counter.load(Ordering::Relaxed))
 }
 
+pub fn render_gauge(out: &mut String, name: &str, gauge: &AtomicU64) -> fmt::Result {
+    writeln!(out, "# TYPE {name} gauge")?;
+    writeln!(out, "{name} {}", gauge.load(Ordering::Relaxed))
+}
+
 pub fn is_loopback_peer(peer: &SocketAddr) -> bool {
     peer.ip().to_canonical().is_loopback()
 }

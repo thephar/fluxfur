@@ -12,6 +12,7 @@ import {BottomSheet} from '@app/features/ui/bottom_sheet/BottomSheet';
 import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
 import {Scroller} from '@app/features/ui/components/Scroller';
 import {StatusAwareAvatar} from '@app/features/ui/components/StatusAwareAvatar';
+import {ArrowLeftIcon} from '@app/features/ui/icons/DirectionalIcons';
 import styles from '@app/features/user/components/modals/MutualItemsSheet.module.css';
 import {getMutualItemsDescriptor} from '@app/features/user/components/modals/user_profile_modal/MutualItemsDescriptors';
 import {getMutualCommunityDisplayItems} from '@app/features/user/components/modals/user_profile_modal/MutualItemsUtils';
@@ -25,7 +26,6 @@ import type {UserPartial} from '@fluxer/schema/src/domains/user/UserResponseSche
 import {plural} from '@lingui/core/macro';
 import {useLingui as useLinguiRuntime} from '@lingui/react';
 import {useLingui} from '@lingui/react/macro';
-import {ArrowLeftIcon} from '@phosphor-icons/react';
 import {observer} from 'mobx-react-lite';
 import type React from 'react';
 

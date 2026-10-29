@@ -7,10 +7,12 @@ import {StatusAwareAvatar} from '@app/features/ui/components/StatusAwareAvatar';
 import FocusRing from '@app/features/ui/focus_ring/FocusRing';
 import styles from '@app/features/user/components/profile/profile_card/ProfileCardBanner.module.css';
 import {
+	getBannerCutoutCx,
 	PROFILE_POPOUT_BANNER_AVATAR_CUTOUT,
 	PROFILE_POPOUT_GEOMETRY,
 } from '@app/features/user/constants/UserProfileSurfaceGeometry';
 import type {User} from '@app/features/user/models/User';
+import {useDirection} from '@base-ui/react/direction-provider';
 import {observer} from 'mobx-react-lite';
 import type React from 'react';
 import {useId, useMemo} from 'react';
@@ -47,6 +49,7 @@ export const ProfileCardBanner: React.FC<ProfileCardBannerProps> = observer(
 		const reactId = useId();
 		const safeId = reactId.replace(/[^a-zA-Z0-9_-]/g, '');
 		const maskId = `uid_${safeId}`;
+		const direction = useDirection();
 		const headerStyle = useMemo<React.CSSProperties>(
 			() => ({height: remFromPx(PROFILE_POPOUT_GEOMETRY.headerHeightPx)}),
 			[],
@@ -103,7 +106,7 @@ export const ProfileCardBanner: React.FC<ProfileCardBannerProps> = observer(
 							/>
 							<circle
 								fill="black"
-								cx={PROFILE_POPOUT_BANNER_AVATAR_CUTOUT.cx}
+								cx={getBannerCutoutCx(PROFILE_POPOUT_BANNER_AVATAR_CUTOUT, direction)}
 								cy={PROFILE_POPOUT_BANNER_AVATAR_CUTOUT.cy}
 								r={PROFILE_POPOUT_BANNER_AVATAR_CUTOUT.r}
 								data-flx="user.profile.profile-card.profile-card-banner.circle"

@@ -8,10 +8,8 @@ import type {ChannelRepository} from '@app/api/channel/ChannelRepository';
 import type {EnforcementDecisionRow} from '@app/api/database/types/EnforcementTypes';
 import type {EnforcementActor} from '@app/api/enforcement/EnforcementActor';
 import {decisionAuditMetadata, type EnforcementDecisionService} from '@app/api/enforcement/EnforcementDecisionService';
-import type {User} from '@app/api/models/User';
 import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
 import {InputValidationError} from '@fluxer/errors/src/domains/core/InputValidationError';
-import {UnknownUserError} from '@fluxer/errors/src/domains/user/UnknownUserError';
 import type {DeleteAllUserMessagesResponse} from '@fluxer/schema/src/domains/admin/AdminMessageSchemas';
 import type {ModerationBasis} from '@fluxer/schema/src/domains/admin/EnforcementSchemas';
 
@@ -55,7 +53,7 @@ export class AdminMessageDeletionService {
 			if (basis.type === 'enforcement') {
 				({decision} = await this.deps.enforcement.record(
 					{
-						subject: {type: 'user', user: await this.requireUser(userId)},
+						subject: {type: 'user', user: await this.deps.apiContext.services.users.findUniqueAssert(userId)},
 						kind: 'content_removal',
 						input: basis.decision,
 						removal: {type: 'all_messages'},
@@ -85,14 +83,6 @@ export class AdminMessageDeletionService {
 			]),
 		});
 		return response;
-	}
-
-	private async requireUser(userId: UserID): Promise<User> {
-		const user = await this.deps.apiContext.services.users.findUnique(userId);
-		if (!user) {
-			throw new UnknownUserError();
-		}
-		return user;
 	}
 
 	private async collectMessageRefs(authorId: UserID, includeEntries: boolean) {

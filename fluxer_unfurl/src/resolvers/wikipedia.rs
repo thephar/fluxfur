@@ -2,7 +2,7 @@
 
 use super::{ResolveContext, Resolver, ResolverResult};
 use crate::http_fetch;
-use crate::media_proxy::{MediaMetadata, MediaProxyClient};
+use crate::media_proxy::MediaProxyClient;
 use crate::text_limits;
 use crate::types::{EmbedMedia, MessageEmbed};
 use serde::Deserialize;
@@ -141,25 +141,11 @@ async fn process_thumbnail(
         .media_proxy
         .get_metadata(&thumbnail.source, nsfw_mode)
         .await?;
-    Ok(Some(build_embed_media_payload(
+    Ok(Some(meta.to_embed_media_sized(
         &thumbnail.source,
-        &meta,
         thumbnail.width,
         thumbnail.height,
     )))
-}
-
-fn build_embed_media_payload(
-    url: &str,
-    metadata: &MediaMetadata,
-    width: Option<u32>,
-    height: Option<u32>,
-) -> EmbedMedia {
-    EmbedMedia {
-        width: width.or(metadata.width),
-        height: height.or(metadata.height),
-        ..metadata.to_embed_media(url)
-    }
 }
 
 fn deduplicate_thumbnails(images: Vec<Option<EmbedMedia>>) -> Vec<EmbedMedia> {

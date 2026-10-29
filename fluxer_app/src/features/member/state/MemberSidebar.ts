@@ -324,26 +324,7 @@ class MemberSidebar {
 	}
 
 	handleGuildCreate(guildId: string): void {
-		this.clearPendingListUpdateBatches(guildId);
-		if (this.lists[guildId]) {
-			const {[guildId]: _, ...remainingLists} = this.lists;
-			this.lists = remainingLists;
-		}
-		if (this.wireListChannelIds[guildId]) {
-			const {[guildId]: _, ...remainingWireMappings} = this.wireListChannelIds;
-			this.wireListChannelIds = remainingWireMappings;
-		}
-		if (this.listSubscribedChannelIds[guildId]) {
-			const {[guildId]: _, ...remainingSubscribedChannels} = this.listSubscribedChannelIds;
-			this.listSubscribedChannelIds = remainingSubscribedChannels;
-		}
-		this.syncedMemberListGuildIds.delete(guildId);
-		if (this.sentMemberListGuildId === guildId) {
-			this.clearSentMemberListSubscription();
-		}
-		if (this.activeMemberListSubscription?.guildId === guildId) {
-			this.setActiveMemberListSubscription(null);
-		}
+		this.handleGuildDelete(guildId);
 	}
 
 	handleGuildStorageIdentityChange(guildId: string): void {
@@ -997,6 +978,9 @@ class MemberSidebar {
 		ranges: Array<[number, number]>,
 		forceResend = false,
 	): boolean {
+		if (Guilds.getGuild(guildId)?.visiting === true) {
+			return false;
+		}
 		const normalizedRanges = normalizeMemberListRanges(ranges);
 		const storageKey = this.resolveStorageKey(guildId, channelId);
 		const socket = GatewaySessions.foregroundConnection.socket;

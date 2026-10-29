@@ -2,11 +2,12 @@
 
 import styles from '@app/features/app/components/dialogs/components/plutonium/InvoiceList.module.css';
 import statusStyles from '@app/features/app/components/dialogs/components/plutonium/PurchaseHistoryStatus.module.css';
-import {formatMinorUnitPrice} from '@app/features/premium/utils/PricingUtils';
-import {Button} from '@app/features/ui/button/Button';
+import {PlutoniumPageButton} from '@app/features/premium/components/plutonium_page/PlutoniumPageButton';
+import PremiumState from '@app/features/premium/state/PremiumState';
 import {openExternalUrl} from '@app/features/ui/utils/NativeUtils';
 import {getCurrentLocale} from '@app/features/user/utils/LocaleUtils';
 import {getFormattedShortDate} from '@fluxer/date_utils/src/DateFormatting';
+import {formatMinorUnitPrice} from '@fluxer/number_utils/src/PriceFormatting';
 import type {PremiumBillingInvoiceResponse} from '@fluxer/schema/src/domains/premium/PremiumSchemas';
 import type {I18n} from '@lingui/core';
 import {msg} from '@lingui/core/macro';
@@ -47,6 +48,12 @@ const OPEN_INVOICE_DESCRIPTOR = msg({
 	comment: 'Accessible label for opening a specific billing invoice.',
 });
 
+const AMOUNT_WITH_CURRENCY_DESCRIPTOR = msg({
+	message: '{amount} ({currency})',
+	comment:
+		'Amount of an invoice in the billing history, followed by its three-letter currency code so the receipt always names the currency, for example "9,99 kr (SEK)". {amount} is a price already formatted by code and {currency} is an ISO currency code such as SEK or USD. Keep both placeholders as they are and use the brackets your language normally uses.',
+});
+
 function formatInvoiceDate(invoice: PremiumBillingInvoiceResponse): string | null {
 	const source = invoice.paid_at ?? invoice.created_at;
 	if (!source) return null;
@@ -55,13 +62,20 @@ function formatInvoiceDate(invoice: PremiumBillingInvoiceResponse): string | nul
 	return getFormattedShortDate(date, getCurrentLocale());
 }
 
-function formatInvoiceAmount(invoice: PremiumBillingInvoiceResponse): string {
-	const formattedAmount = formatMinorUnitPrice(
+const SHARED_CURRENCY_SYMBOLS = new Set(['$', 'kr', 'kr.', 'Kr', '¥', 'R', 'Rs', 'fr', 'Fr', 'zł']);
+
+function formatInvoiceAmount(i18n: I18n, invoice: PremiumBillingInvoiceResponse): string {
+	const amount = formatMinorUnitPrice(
 		invoice.amount_paid || invoice.amount_due,
 		invoice.currency,
 		getCurrentLocale(),
+		PremiumState.state?.pricing.country_code,
 	);
-	return formattedAmount ?? '';
+	if (!amount) return '';
+	const currency = invoice.currency.toUpperCase();
+	const symbol = amount.replace(/[\d\s.,'\u00a0\u202f\u2212-]/g, '');
+	if (!SHARED_CURRENCY_SYMBOLS.has(symbol)) return amount;
+	return i18n._(AMOUNT_WITH_CURRENCY_DESCRIPTOR, {amount, currency});
 }
 
 function getInvoiceDateLabel(i18n: I18n, invoice: PremiumBillingInvoiceResponse): string {
@@ -131,9 +145,9 @@ export const InvoiceList: React.FC<InvoiceListProps> = observer(({invoices}) => 
 			</div>
 			{invoices.map((invoice) => {
 				const invoiceDate = getInvoiceDateLabel(i18n, invoice);
-				const amount = formatInvoiceAmount(invoice);
+				const amount = formatInvoiceAmount(i18n, invoice);
 				const invoiceUrl = invoice.hosted_invoice_url ?? invoice.invoice_pdf;
-				const invoiceLabel = invoice.number ?? invoice.id;
+				const invoiceLabel = invoice.number ?? invoiceDate;
 				return (
 					<div className={styles.row} key={invoice.id} data-flx="app.plutonium.invoice-list.row">
 						<span className={styles.date} data-flx="app.plutonium.invoice-list.date">
@@ -145,10 +159,9 @@ export const InvoiceList: React.FC<InvoiceListProps> = observer(({invoices}) => 
 						<span className={getInvoiceStatusClass(invoice.status)} data-flx="app.plutonium.invoice-list.span--5">
 							{formatInvoiceStatus(invoice.status)}
 						</span>
-						<Button
+						<PlutoniumPageButton
 							variant="secondary"
-							superCompact
-							fitContent
+							small
 							disabled={!invoiceUrl}
 							aria-label={i18n._(OPEN_INVOICE_DESCRIPTOR, {invoiceLabel})}
 							onClick={() => {
@@ -157,7 +170,7 @@ export const InvoiceList: React.FC<InvoiceListProps> = observer(({invoices}) => 
 							data-flx="app.plutonium.invoice-list.button"
 						>
 							<Trans comment="Short button that opens a billing invoice or receipt.">Open</Trans>
-						</Button>
+						</PlutoniumPageButton>
 					</div>
 				);
 			})}

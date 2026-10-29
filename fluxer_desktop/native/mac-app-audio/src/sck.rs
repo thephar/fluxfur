@@ -7,8 +7,6 @@ use objc2_core_media::{CMTime, CMTimeFlags};
 use objc2_foundation::NSString;
 use objc2_screen_capture_kit::SCStreamConfiguration;
 
-pub use objc2_screen_capture_kit::SCStreamOutputType;
-
 pub fn cgrect_standardized(r: CGRect) -> CGRect {
     let mut out = r;
     if out.size.width < 0.0 {

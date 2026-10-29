@@ -31,18 +31,8 @@ import {
 } from '@app/api/search/SearchServices';
 import {ThreadSearchIndex} from '@app/api/search/thread/ThreadSearchIndex';
 import {DEFAULT_SEARCH_CLIENT_TIMEOUT_MS} from '@fluxer/constants/src/Timeouts';
-import {ElasticsearchAuditLogAdapter} from '@pkgs/elasticsearch_search/src/adapters/ElasticsearchAuditLogAdapter';
-import {ElasticsearchGuildAdapter} from '@pkgs/elasticsearch_search/src/adapters/ElasticsearchGuildAdapter';
-import {ElasticsearchGuildMemberAdapter} from '@pkgs/elasticsearch_search/src/adapters/ElasticsearchGuildMemberAdapter';
 import type {ElasticsearchDistributedLock} from '@pkgs/elasticsearch_search/src/adapters/ElasticsearchIndexAdapter';
-import {ElasticsearchMessageAdapter} from '@pkgs/elasticsearch_search/src/adapters/ElasticsearchMessageAdapter';
-import {ElasticsearchReportAdapter} from '@pkgs/elasticsearch_search/src/adapters/ElasticsearchReportAdapter';
-import {ElasticsearchThreadAdapter} from '@pkgs/elasticsearch_search/src/adapters/ElasticsearchThreadAdapter';
-import {ElasticsearchUserAdapter} from '@pkgs/elasticsearch_search/src/adapters/ElasticsearchUserAdapter';
-import {
-	createElasticsearchClient,
-	type ElasticsearchClientConfig,
-} from '@pkgs/elasticsearch_search/src/ElasticsearchClient';
+import type {ElasticsearchClientConfig} from '@pkgs/elasticsearch_search/src/ElasticsearchClient';
 
 let searchProvider: ISearchProvider | null = null;
 let injectedSearchProvider: ISearchProvider | undefined;
@@ -57,27 +47,16 @@ function createElasticsearchSearchProvider(lock?: ElasticsearchDistributedLock):
 		node: Config.search.url,
 		auth: Config.search.apiKey
 			? {apiKey: Config.search.apiKey}
-			: Config.search.username
-				? {username: Config.search.username, password: Config.search.password}
-				: undefined,
+			: {username: Config.search.username, password: Config.search.password},
 		requestTimeoutMs: DEFAULT_SEARCH_CLIENT_TIMEOUT_MS,
 		tlsRejectUnauthorized: Config.search.tlsRejectUnauthorized,
 	};
 	return new SearchProvider(
 		async () => {
-			const {GuildDiscoveryRepository} = await import('@app/api/guild/repositories/GuildDiscoveryRepository');
-			const client = createElasticsearchClient(config);
-			const message = new MessageSearchService(new ElasticsearchMessageAdapter({client, lock}));
-			const guild = new GuildSearchService(
-				new ElasticsearchGuildAdapter({client, lock}),
-				new GuildDiscoveryRepository(),
+			const {createElasticsearchSearchServices} = await import(
+				'@app/api/search/elasticsearch/ElasticsearchSearchServices'
 			);
-			const user = new UserSearchService(new ElasticsearchUserAdapter({client, lock}));
-			const report = new ReportSearchService(new ElasticsearchReportAdapter({client, lock}));
-			const auditLog = new AuditLogSearchService(new ElasticsearchAuditLogAdapter({client, lock}));
-			const guildMember = new GuildMemberSearchService(new ElasticsearchGuildMemberAdapter({client, lock}));
-			const thread = new ThreadSearchIndex(new ElasticsearchThreadAdapter({client, lock}));
-			return {message, guild, user, report, auditLog, guildMember, thread};
+			return createElasticsearchSearchServices(config, lock);
 		},
 		() => Logger.info({node: config.node}, 'ElasticsearchSearchProvider initialised'),
 	);
@@ -108,6 +87,10 @@ function createMeilisearchSearchProvider(): ISearchProvider {
 }
 
 function createSearchProvider(lock?: ElasticsearchDistributedLock): ISearchProvider {
+	if (Config.search.engine === 'none') {
+		Logger.info('Search is turned off');
+		return new SearchProvider(null);
+	}
 	if (Config.search.engine === 'meilisearch') {
 		return createMeilisearchSearchProvider();
 	}
@@ -158,18 +141,19 @@ export async function initializeSearch(lock?: ElasticsearchDistributedLock): Pro
 		await searchProvider.initialize();
 		return;
 	}
-	searchProvider = createSearchProvider(lock);
+	const provider = createSearchProvider(lock);
 	try {
-		await searchProvider.initialize();
+		await provider.initialize();
 	} catch (error) {
 		Logger.error({error}, 'Search backend initialisation failed');
 		try {
-			await shutdownSearch();
+			await provider.shutdown();
 		} catch (shutdownError) {
 			Logger.warn({error: shutdownError}, 'Failed to shut down search provider after initialisation failure');
 		}
 		throw error;
 	}
+	searchProvider = provider;
 	Logger.info('Search backend initialized successfully');
 }
 

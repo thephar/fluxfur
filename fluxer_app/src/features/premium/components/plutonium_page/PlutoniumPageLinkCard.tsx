@@ -6,7 +6,7 @@ import {getPremiumProductFullName} from '@app/features/premium/utils/PremiumUtil
 import {Button} from '@app/features/ui/button/Button';
 import {msg} from '@lingui/core/macro';
 import {useLingui} from '@lingui/react/macro';
-import {CrownIcon} from '@phosphor-icons/react';
+import {AtomIcon} from '@phosphor-icons/react';
 
 const LINK_CARD_BODY_DESCRIPTOR = msg({
 	message: 'Plans, perks, gifts and your subscription are all on one page.',
@@ -22,7 +22,7 @@ export function PlutoniumPageLinkCard() {
 	const {i18n} = useLingui();
 	return (
 		<div className={styles.card} data-flx="premium.plutonium-page-link-card.card">
-			<CrownIcon
+			<AtomIcon
 				weight="fill"
 				className={styles.icon}
 				aria-hidden="true"

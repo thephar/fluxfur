@@ -24,7 +24,7 @@ use crate::{
             },
             enforcement_fields::{TakeAction, can_take_action, take_action_href},
             form::{
-                FORM_CONTROL_CLASS, FORM_LABEL_CLASS, checkbox, csrf_input, danger_button,
+                Checkbox, FORM_CONTROL_CLASS, FORM_LABEL_CLASS, csrf_input, danger_button,
                 opt_out_checkbox, select_chevron,
             },
             media::user_avatar_url,
@@ -96,20 +96,12 @@ fn reported_user_label(report: &ReportEntry) -> String {
     )
 }
 
-fn admin_acls(auth: &AuthContext) -> &[String] {
-    auth.admin_user
-        .as_ref()
-        .map(|admin| admin.acls.as_slice())
-        .unwrap_or(&[])
-}
-
 fn has_acl(auth: &AuthContext, permission: &str) -> bool {
-    acl::has_permission(admin_acls(auth), permission)
+    acl::has_permission(auth.acls(), permission)
 }
 
-fn basic_info_section(config: &AdminConfig, auth: &AuthContext, report: &ReportEntry) -> Markup {
+fn basic_info_section(config: &AdminConfig, report: &ReportEntry, show_pii: bool) -> Markup {
     let base = &config.base_path;
-    let show_pii = has_acl(auth, acl::REPORT_VIEW_REPORTER_PII);
     html! {
         (section_card(Some("Basic Information"), None, None, html! {
             div class="grid grid-cols-1 sm:grid-cols-2 gap-4" {
@@ -539,7 +531,7 @@ fn actions_card(
                     (resolve_report_form(base, &report.report_id, csrf_token))
                 }
                 @if let Some(reported_id) = take_action_subject(report) {
-                    @if can_take_action(admin_acls(auth)) {
+                    @if can_take_action(auth.acls()) {
                         (nav_link(
                             &take_action_href(base, reported_id, Some(&report.report_id), reported_message),
                             "Take action",
@@ -1090,7 +1082,13 @@ fn delete_report_card(
                         input type="text" id="delete_audit_log_reason" name="audit_log_reason" maxlength="512"
                             placeholder="Why this report is being deleted"
                             class={(FORM_CONTROL_CLASS) " h-8 px-3 py-1.5"};
-                        (checkbox("confirm", "true", DELETE_REPORT_CONFIRMATION, false, true))
+                        (Checkbox {
+                            name: "confirm",
+                            value: "true",
+                            label: DELETE_REPORT_CONFIRMATION,
+                            checked: false,
+                            enabled: true,
+                        }.render())
                         (danger_button("Delete Report"))
                     }
                 }
@@ -1176,11 +1174,11 @@ pub fn report_detail_page(
             ))
             div class="grid grid-cols-1 gap-6 lg:grid-cols-3" {
             div class="space-y-6 lg:col-span-2" {
-                (basic_info_section(config, auth, report))
+                (basic_info_section(config, report, has_acl(auth, acl::REPORT_VIEW_REPORTER_PII)))
                 (report_answers_section(report))
                 (reported_entity_section(config, report))
                 (profile_snapshot_section(config, report, live))
-                (message_context_section(config, report, can_take_action(admin_acls(auth))))
+                (message_context_section(config, report, can_take_action(auth.acls())))
                 (additional_info_section(report))
                 (notes_card(config, auth, report, note_authors, csrf_token))
             }
@@ -1204,7 +1202,7 @@ pub fn report_detail_fragment(config: &AdminConfig, report: &ReportEntry) -> Mar
     let base = &config.base_path;
     html! {
         div data-report-fragment="" class="space-y-4" {
-            (basic_info_section_fragment(config, report))
+            (basic_info_section(config, report, false))
             (report_answers_section(report))
             (reported_entity_section(config, report))
             (message_context_section(config, report, false))
@@ -1216,26 +1214,5 @@ pub fn report_detail_fragment(config: &AdminConfig, report: &ReportEntry) -> Mar
                 "Open full report"
             }
         }
-    }
-}
-
-fn basic_info_section_fragment(config: &AdminConfig, report: &ReportEntry) -> Markup {
-    let base = &config.base_path;
-    html! {
-        (section_card(Some("Basic Information"), None, None, html! {
-            div class="grid grid-cols-1 sm:grid-cols-2 gap-4" {
-                (data_field_mono("Report ID", &report.report_id))
-                (data_field_text("Reported At", &format_admin_timestamp(&report.reported_at)))
-                (data_field_text("Type", report_type(report.report_type).0))
-                (category_field(report))
-                (reason_field(report))
-                @if let Some(ref reporter_id) = report.reporter_id {
-                    (data_field_link_mono("Reporter", &format!("{base}/users/{reporter_id}"), &reporter_label(report)))
-                } @else {
-                    (data_field_text("Reporter", &reporter_label(report)))
-                }
-                (data_field("Status", status_badge(report.status)))
-            }
-        }))
     }
 }

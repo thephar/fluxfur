@@ -50,8 +50,9 @@ export function useOAuthPublicApp(clientId: string | null): PublicAppState {
 					return;
 				}
 				if (currentUser && currentUser.id === currentUserId && currentAccountKey != null) {
-					const userData = authResponseUserToUserData(currentUser);
-					if (userData) {
+					const freshUserData = authResponseUserToUserData(currentUser);
+					if (freshUserData) {
+						const userData = {...Accounts.getAccount(currentAccountKey)?.userData, ...freshUserData};
 						Accounts.updateAccountUserData(currentAccountKey, userData);
 						void accountStorage.updateAccountUserData(currentAccountKey, userData).catch((error) => {
 							logger.warn(`Failed to persist account user data for ${currentAccountKey}`, error);

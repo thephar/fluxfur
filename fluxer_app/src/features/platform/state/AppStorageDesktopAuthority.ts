@@ -58,7 +58,7 @@ export interface DesktopStorageImport {
 	readonly candidate: DesktopStorageAuthorityCandidate | null;
 }
 
-export class DesktopStorageAuthorityUnavailableError extends Error {
+class DesktopStorageAuthorityUnavailableError extends Error {
 	public constructor(message: string, options?: ErrorOptions) {
 		super(message, options);
 		this.name = 'DesktopStorageAuthorityUnavailableError';
@@ -224,7 +224,7 @@ async function verifyDesktopSession(
 	}
 }
 
-export class DesktopStorageAuthorityCandidate {
+class DesktopStorageAuthorityCandidate {
 	private constructor(
 		public readonly request: DesktopLegacyImportRequest,
 		public readonly result: DesktopLegacyImportResult,

@@ -67,7 +67,7 @@ export async function applySuspension(
 	return updated;
 }
 
-export async function clearSuspensionState(
+async function clearSuspensionState(
 	users: Pick<UserRepository, 'patchUpsert' | 'updateFlags'>,
 	user: User,
 ): Promise<User> {
@@ -84,7 +84,7 @@ export interface ExpiredSuspensionDeps {
 	repository: Pick<EnforcementDecisionRepository, 'get' | 'endIfActive'>;
 }
 
-export function hasExpiredSuspension(user: User, now: Date = new Date()): boolean {
+function hasExpiredSuspension(user: User, now: Date = new Date()): user is User & {readonly tempBannedUntil: Date} {
 	return (
 		(user.flags & UserFlags.DISABLED) !== 0n &&
 		user.tempBannedUntil !== null &&
@@ -104,7 +104,7 @@ export async function clearExpiredSuspension(
 	if (decision?.kind === 'suspension' && decision.status === 'active' && decision.ends_at !== null) {
 		await repository.endIfActive(decision.decision_id, {
 			outcome: 'expired',
-			endedAt: current.tempBannedUntil!,
+			endedAt: current.tempBannedUntil,
 			endedBy: SYSTEM_USER_ID,
 			statement: null,
 		});

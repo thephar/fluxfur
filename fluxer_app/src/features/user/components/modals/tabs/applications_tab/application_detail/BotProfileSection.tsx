@@ -12,6 +12,7 @@ import {SectionCard} from '@app/features/user/components/modals/tabs/application
 import type {ApplicationDetailForm} from '@app/features/user/components/modals/tabs/applications_tab/application_detail/ApplicationDetailTypes';
 import {AvatarUploader} from '@app/features/user/components/modals/tabs/my_profile_tab/AvatarUploader';
 import {BannerUploader} from '@app/features/user/components/modals/tabs/my_profile_tab/BannerUploader';
+import {shouldShowFriendSettings} from '@app/features/user/components/settings_utils/SettingsVisibility';
 import {
 	BOT_AVATAR_DESCRIPTOR,
 	BOT_PROFILE_DESCRIPTOR,
@@ -246,35 +247,39 @@ export const BotProfileSection: React.FC<BotProfileSectionProps> = ({
 					objectFit="contain"
 					data-flx="user.applications-tab.application-detail.bot-profile-section.image-preview-field"
 				/>
-				<Controller
-					name="friendlyBot"
-					control={form.control}
-					render={({field}) => (
-						<Switch
-							label={i18n._(FRIENDLY_BOT_DESCRIPTOR)}
-							description={i18n._(ALLOW_USERS_TO_SEND_THIS_BOT_FRIEND_REQUESTS_DESCRIPTOR)}
-							value={Boolean(field.value)}
-							onChange={field.onChange}
-							data-flx="user.applications-tab.application-detail.bot-profile-section.switch.change"
+				{shouldShowFriendSettings() && (
+					<>
+						<Controller
+							name="friendlyBot"
+							control={form.control}
+							render={({field}) => (
+								<Switch
+									label={i18n._(FRIENDLY_BOT_DESCRIPTOR)}
+									description={i18n._(ALLOW_USERS_TO_SEND_THIS_BOT_FRIEND_REQUESTS_DESCRIPTOR)}
+									value={Boolean(field.value)}
+									onChange={field.onChange}
+									data-flx="user.applications-tab.application-detail.bot-profile-section.switch.change"
+								/>
+							)}
+							data-flx="user.applications-tab.application-detail.bot-profile-section.controller--3"
 						/>
-					)}
-					data-flx="user.applications-tab.application-detail.bot-profile-section.controller--3"
-				/>
-				<Controller
-					name="botManualFriendRequestApproval"
-					control={form.control}
-					render={({field}) => (
-						<Switch
-							label={i18n._(REQUIRE_MANUAL_FRIEND_APPROVAL_DESCRIPTOR)}
-							description={i18n._(WHEN_ENABLED_YOU_MUST_ACCEPT_FRIEND_REQUESTS_TO_DESCRIPTOR)}
-							value={Boolean(field.value)}
-							onChange={field.onChange}
-							disabled={!friendlyFlagEnabled}
-							data-flx="user.applications-tab.application-detail.bot-profile-section.switch.change--2"
+						<Controller
+							name="botManualFriendRequestApproval"
+							control={form.control}
+							render={({field}) => (
+								<Switch
+									label={i18n._(REQUIRE_MANUAL_FRIEND_APPROVAL_DESCRIPTOR)}
+									description={i18n._(WHEN_ENABLED_YOU_MUST_ACCEPT_FRIEND_REQUESTS_TO_DESCRIPTOR)}
+									value={Boolean(field.value)}
+									onChange={field.onChange}
+									disabled={!friendlyFlagEnabled}
+									data-flx="user.applications-tab.application-detail.bot-profile-section.switch.change--2"
+								/>
+							)}
+							data-flx="user.applications-tab.application-detail.bot-profile-section.controller--4"
 						/>
-					)}
-					data-flx="user.applications-tab.application-detail.bot-profile-section.controller--4"
-				/>
+					</>
+				)}
 			</div>
 		</SectionCard>
 	);

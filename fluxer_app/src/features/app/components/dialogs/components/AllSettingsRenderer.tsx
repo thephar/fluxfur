@@ -8,7 +8,10 @@ import {
 	setHighlightRanges,
 } from '@app/features/messaging/utils/CSSHighlightSearch';
 import {remFromPx} from '@app/features/theme/layout/RemFromPx';
+import {ThemesInlineContent} from '@app/features/theme_settings/ThemesTab';
+import {CaretRightIcon} from '@app/features/ui/icons/DirectionalIcons';
 import {AccessibilityInlineContent} from '@app/features/user/components/modals/tabs/AccessibilityTab';
+import {AdvancedSettingsInlineContent} from '@app/features/user/components/modals/tabs/AdvancedSettingsTab';
 import {AppearanceInlineContent} from '@app/features/user/components/modals/tabs/AppearanceTab';
 import {AccountSecurityInlineTab} from '@app/features/user/components/modals/tabs/account_security_tab/AccountSecurityTabInline';
 import ApplicationsTab from '@app/features/user/components/modals/tabs/applications_tab';
@@ -38,7 +41,6 @@ import type {
 import {SettingsItemStatusBadges} from '@app/features/user/components/settings_utils/SettingsStatusBadge';
 import Users from '@app/features/user/state/Users';
 import {Plural, Trans} from '@lingui/react/macro';
-import {CaretRightIcon} from '@phosphor-icons/react';
 import {clsx} from 'clsx';
 import {observer} from 'mobx-react-lite';
 import React, {useCallback, useEffect, useRef, useState} from 'react';
@@ -69,6 +71,7 @@ const INLINE_TAB_COMPONENTS: Partial<Record<UserSettingsTabType, React.Component
 	blocked_users: AccountSecurityInlineTab,
 	devices: AccountSecurityInlineTab,
 	appearance: AppearanceInlineContent,
+	themes: ThemesInlineContent,
 	accessibility: AccessibilityInlineContent,
 	chat_settings: ChatSettingsInlineContent,
 	voice_video: VoiceVideoInlineContent,
@@ -78,6 +81,7 @@ const INLINE_TAB_COMPONENTS: Partial<Record<UserSettingsTabType, React.Component
 	applications: ApplicationsTab,
 	keybinds: KeybindsTab,
 	linked_accounts: LinkedAccountsTab,
+	advanced_settings: AdvancedSettingsInlineContent,
 };
 const getInlineTabComponent = (tab: SettingsTab): React.ComponentType<Record<string, unknown>> | null => {
 	const inlineComponent = INLINE_TAB_COMPONENTS[tab.type as UserSettingsTabType];
@@ -99,7 +103,7 @@ function getAccountSearchTargetSection(matchedItems: Array<SearchableSettingItem
 }
 
 const SettingsSection: React.FC<SettingsSectionProps> = observer(
-	({tab, matchedItems, initialGuildId, isExpanded, onToggleExpand}) => {
+	({tab, matchedItems, searchQuery, initialGuildId, isExpanded, onToggleExpand}) => {
 		const contentRef = useRef<HTMLDivElement>(null);
 		const matchCount = matchedItems.length;
 		const currentUserCreatedAt = Users.currentUser?.createdAt ?? null;
@@ -186,6 +190,7 @@ const SettingsSection: React.FC<SettingsSectionProps> = observer(
 					<div className={styles.sectionContent} data-flx="app.all-settings-renderer.settings-section.section-content">
 						{React.createElement(InlineComponent, {
 							settingsTabType,
+							searchQuery,
 							...(accountTargetSection ? {initialSubtab: accountTargetSection} : {}),
 							...(initialGuildId ? {initialGuildId} : {}),
 						} as Record<string, unknown>)}

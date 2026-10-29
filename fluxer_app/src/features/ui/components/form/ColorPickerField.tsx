@@ -179,6 +179,7 @@ export const ColorPickerField: React.FC<ColorPickerFieldProps> = observer((props
 		if (!popoutOpen) {
 			const effectiveValue = getEffectiveValue();
 			setInputValue(numberToHex(effectiveValue));
+			setShowError(false);
 		}
 	}, [getEffectiveValue, popoutOpen]);
 	const commitFromText = useCallback(() => {

@@ -29,6 +29,7 @@ impl AdminApiClient {
         let response = self
             .generated()
             .list_admin_users(
+                None,
                 nonempty(email),
                 nonempty(last_active_ip),
                 Some(limit.as_str()),
@@ -69,10 +70,7 @@ impl AdminApiClient {
         resp.users
             .into_iter()
             .next()
-            .ok_or_else(|| super::client::ApiError::Http {
-                status: 404,
-                message: "User not found".to_owned(),
-            })
+            .ok_or_else(|| super::client::ApiError::http(404, "User not found"))
     }
 
     pub async fn get_current_admin(&self) -> ApiResult<AdminUser> {

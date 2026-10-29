@@ -55,11 +55,12 @@ function selectForwardAttachments(
 	if (!hasForwardMediaSelection(selection)) {
 		return [...attachments];
 	}
-	if (!selection?.attachmentIds?.size) {
+	const attachmentIds = selection?.attachmentIds;
+	if (!attachmentIds?.size) {
 		return [];
 	}
-	const selected = attachments.filter((attachment) => selection.attachmentIds!.has(attachment.id));
-	if (selected.length !== selection.attachmentIds.size) {
+	const selected = attachments.filter((attachment) => attachmentIds.has(attachment.id));
+	if (selected.length !== attachmentIds.size) {
 		throw InputValidationError.fromCode(
 			'message_reference.attachment_ids',
 			ValidationErrorCodes.REFERENCED_ATTACHMENT_NOT_FOUND,
@@ -309,19 +310,12 @@ export async function createMessageSnapshotsForForward(
 		content: isMediaOnlyForward ? null : referencedMessage.content,
 		timestamp: snowflakeToDate(referencedMessage.id),
 		edited_timestamp: isMediaOnlyForward ? null : referencedMessage.editedTimestamp,
-		mention_users: isMediaOnlyForward
-			? null
-			: referencedMessage.mentionedUserIds.size > 0
-				? referencedMessage.mentionedUserIds
-				: null,
-		mention_roles: isMediaOnlyForward
-			? null
-			: referencedMessage.mentionedRoleIds.size > 0
-				? referencedMessage.mentionedRoleIds
-				: null,
-		mention_channels: isMediaOnlyForward
-			? null
-			: referencedMessage.mentionedChannelIds.size > 0
+		mention_users:
+			!isMediaOnlyForward && referencedMessage.mentionedUserIds.size > 0 ? referencedMessage.mentionedUserIds : null,
+		mention_roles:
+			!isMediaOnlyForward && referencedMessage.mentionedRoleIds.size > 0 ? referencedMessage.mentionedRoleIds : null,
+		mention_channels:
+			!isMediaOnlyForward && referencedMessage.mentionedChannelIds.size > 0
 				? referencedMessage.mentionedChannelIds
 				: null,
 		attachments: clonedAttachments.length > 0 ? clonedAttachments : null,
@@ -478,7 +472,7 @@ export function attachmentDecayPayloadsForMessage(message: Message): Array<Attac
 	}));
 }
 
-export function countedThreadMessages(channel: Channel, messageIds: Array<MessageID>): number {
+function countedThreadMessages(channel: Channel, messageIds: Array<MessageID>): number {
 	if (!channel.isThread()) return 0;
 	const starterId = channel.id.toString();
 	return messageIds.filter((messageId) => messageId.toString() !== starterId).length;

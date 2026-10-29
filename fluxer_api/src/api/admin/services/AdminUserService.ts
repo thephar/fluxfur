@@ -4,6 +4,7 @@ import type {ApiContext} from '@app/api/ApiContext';
 import {mapUserToAdminResponse, resolveAdminUsers} from '@app/api/admin/models/UserTypes';
 import type {AdminAuditService} from '@app/api/admin/services/AdminAuditService';
 import type {AdminBanManagementService} from '@app/api/admin/services/AdminBanManagementService';
+import {AdminUserCreationService} from '@app/api/admin/services/AdminUserCreationService';
 import {AdminUserDeletionService} from '@app/api/admin/services/AdminUserDeletionService';
 import {AdminUserLookupService} from '@app/api/admin/services/AdminUserLookupService';
 import {AdminUserProfileService} from '@app/api/admin/services/AdminUserProfileService';
@@ -27,7 +28,6 @@ import type {UserRepository} from '@app/api/user/repositories/UserRepository';
 import type {PartialUserChangePropagationDeps} from '@app/api/user/services/PartialUserChangePropagation';
 import type {UserContactChangeLogService} from '@app/api/user/services/UserContactChangeLogService';
 import {AdminACLs} from '@fluxer/constants/src/AdminACLs';
-import {UnknownUserError} from '@fluxer/errors/src/domains/user/UnknownUserError';
 import type {
 	CancelBulkMessageDeletionRequest,
 	ListUserChangeLogRequest,
@@ -61,6 +61,7 @@ export class AdminUserService {
 	readonly profileService: AdminUserProfileService;
 	readonly securityService: AdminUserSecurityService;
 	readonly deletionService: AdminUserDeletionService;
+	readonly creationService: AdminUserCreationService;
 	private readonly userUpdateDeps: PartialUserChangePropagationDeps;
 	private readonly contactChangeLogService: UserContactChangeLogService;
 	private readonly auditService: AdminAuditService;
@@ -101,6 +102,12 @@ export class AdminUserService {
 			auditService: deps.auditService,
 			userUpdateDeps: this.userUpdateDeps,
 		});
+		this.creationService = new AdminUserCreationService({
+			apiContext: deps.apiContext,
+			auditService: deps.auditService,
+			discriminatorService: deps.discriminatorService,
+			securityService: this.securityService,
+		});
 		this.deletionService = new AdminUserDeletionService({
 			apiContext: deps.apiContext,
 			auditService: deps.auditService,
@@ -121,10 +128,7 @@ export class AdminUserService {
 
 	async listUserDmChannels(data: ListUserDmChannelsRequest) {
 		const userId = createUserID(data.user_id);
-		const user = await this.userRepository.findUnique(userId);
-		if (!user) {
-			throw new UnknownUserError();
-		}
+		await this.userRepository.findUniqueAssert(userId);
 		const channels = await this.userRepository.listHistoricalDmChannelsPaginated(userId, {
 			limit: data.limit,
 			beforeChannelId: data.before ? createChannelID(data.before) : undefined,
@@ -187,10 +191,7 @@ export class AdminUserService {
 
 	async listUserGroupDmChannels(data: ListUserGroupDmChannelsRequest) {
 		const userId = createUserID(data.user_id);
-		const user = await this.userRepository.findUnique(userId);
-		if (!user) {
-			throw new UnknownUserError();
-		}
+		await this.userRepository.findUniqueAssert(userId);
 		const summaries = await this.userRepository.listPrivateChannelSummaries(userId);
 		const groupDmSummaries = summaries.filter((s) => s.isGroupDm);
 		if (groupDmSummaries.length === 0) {
@@ -271,10 +272,7 @@ export class AdminUserService {
 		acls: ReadonlySet<string>,
 	) {
 		const userId = createUserID(data.user_id);
-		const user = await this.userRepository.findUnique(userId);
-		if (!user) {
-			throw new UnknownUserError();
-		}
+		const user = await this.userRepository.findUniqueAssert(userId);
 		const updatedUser = await this.userRepository.patchUpsert(
 			userId,
 			{

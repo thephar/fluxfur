@@ -7,9 +7,10 @@ import {DefaultUserOnly, LoginRequired} from '@app/api/middleware/AuthMiddleware
 import {HostedOnlyRoute} from '@app/api/middleware/BillingRouteAvailability';
 import {RateLimitMiddleware} from '@app/api/middleware/RateLimitMiddleware';
 import {OpenAPI} from '@app/api/middleware/ResponseTypeMiddleware';
-import {getGooglePlayPushVerifier} from '@app/api/middleware/ServiceSingletons';
+import {getGooglePlayPushVerifier, getPaymentDisputeRepository} from '@app/api/middleware/ServiceSingletons';
 import {SudoModeMiddleware} from '@app/api/middleware/SudoModeMiddleware';
 import type {User} from '@app/api/models/User';
+import {hasOpenPaymentDispute} from '@app/api/payment_disputes/PaymentDisputeReviews';
 import {RateLimitConfigs} from '@app/api/RateLimitConfig';
 import {AppStoreJwsVerificationError, verifyNotification} from '@app/api/store_billing/app_store/AppStoreJwsVerifier';
 import {parseGooglePlayPushEnvelope} from '@app/api/store_billing/google_play/GooglePlayPushVerifier';
@@ -23,6 +24,7 @@ import {mapStorePurchaseToResponse} from '@app/api/store_billing/StoreBillingMap
 import type {StoreEntitlementService} from '@app/api/store_billing/StoreEntitlementService';
 import {isStripeSubscriptionActive} from '@app/api/store_billing/StoreEntitlementWriter';
 import type {HonoApp} from '@app/api/types/HonoEnv';
+import {PAYMENT_DISPUTE_REASON_CAPABILITY, type TierContext, tierContextFrom} from '@app/api/user/AccountTier';
 import {Validator} from '@app/api/Validator';
 import {PremiumFlags, UserPremiumTypes} from '@fluxer/constants/src/UserConstants';
 import {StoreBillingUnavailableError} from '@fluxer/errors/src/domains/payment/StoreBillingUnavailableError';
@@ -43,6 +45,7 @@ const AppStoreNotificationBody = z.object({signedPayload: z.string().min(1)});
 async function buildStoreBillingContext(
 	user: User,
 	storeEntitlementService: StoreEntitlementService,
+	tierContext: TierContext,
 ): Promise<StoreBillingContextResponse> {
 	const appStoreEnabled = isAppStoreConfigured();
 	const googlePlayEnabled = isGooglePlayConfigured();
@@ -56,6 +59,10 @@ async function buildStoreBillingContext(
 		purchaseBlockedReason = 'lifetime';
 	} else if ((user.premiumFlags & PremiumFlags.PURCHASE_DISABLED) !== 0) {
 		purchaseBlockedReason = 'purchase_disabled';
+	} else if (await hasOpenPaymentDispute(getPaymentDisputeRepository(), user.id)) {
+		purchaseBlockedReason = tierContext.capabilities.has(PAYMENT_DISPUTE_REASON_CAPABILITY)
+			? 'payment_dispute_open'
+			: 'purchase_disabled';
 	} else if (storeEntitlement) {
 		purchaseBlockedReason = 'existing_subscription';
 		blockingProvider = storeEntitlement.provider;
@@ -106,7 +113,9 @@ export function StoreBillingController(app: HonoApp) {
 			tags: 'Premium',
 		}),
 		async (ctx) => {
-			return ctx.json(await buildStoreBillingContext(ctx.get('user'), ctx.get('storeEntitlementService')));
+			return ctx.json(
+				await buildStoreBillingContext(ctx.get('user'), ctx.get('storeEntitlementService'), tierContextFrom(ctx)),
+			);
 		},
 	);
 	app.post(

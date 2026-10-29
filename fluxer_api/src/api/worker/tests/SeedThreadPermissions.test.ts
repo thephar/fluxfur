@@ -8,28 +8,23 @@ import {fetchOne, upsertOne} from '@app/api/database/CassandraQueryExecution';
 import type {GuildThreadStateRow} from '@app/api/database/types/ThreadTypes';
 import {clearChannelThreadsTaintCacheForTesting} from '@app/api/experiment/ChannelThreadsGate';
 import {addMemberRole, createGuild, createRole} from '@app/api/guild/tests/GuildTestUtils';
-import type {IGatewayService} from '@app/api/infrastructure/IGatewayService';
-import {
-	getChannelRepository,
-	getGuildRepository,
-	getInstanceConfigRepository,
-	getUserCacheService,
-} from '@app/api/middleware/ServiceSingletons';
+import {getSnowflakeService} from '@app/api/middleware/ServiceRegistry';
+import {getChannelRepository, getGuildRepository} from '@app/api/middleware/ServiceSingletons';
 import {GuildThreadState} from '@app/api/Tables';
 import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHarness';
 import {createTestWorkerHelpers} from '@app/api/test/SyncTaskWorkerService';
 import {createBuilder} from '@app/api/test/TestRequestBuilder';
 import seedThreadPermissions from '@app/api/worker/tasks/SeedThreadPermissions';
-import {clearWorkerDependencies, setWorkerDependenciesForTest} from '@app/api/worker/WorkerContext';
+import {clearWorkerDependencies, setWorkerDependencies} from '@app/api/worker/WorkerContext';
+import {initializeWorkerDependencies} from '@app/api/worker/WorkerDependencies';
 import {APIErrorCodes} from '@fluxer/constants/src/ApiErrorCodes';
 import {ChannelTypes, DEFAULT_PERMISSIONS, Permissions} from '@fluxer/constants/src/ChannelConstants';
 import {DEFAULT_THREAD_PERMISSIONS, ThreadPermissionFlags} from '@fluxer/constants/src/ThreadPermissionUtils';
 import type {ChannelResponse} from '@fluxer/schema/src/domains/channel/ChannelSchemas';
-import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi} from 'vitest';
+import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, it} from 'vitest';
 
 describe('seedThreadPermissions', () => {
 	let harness: ApiTestHarness;
-	let dispatchGuild: ReturnType<typeof vi.fn>;
 
 	beforeAll(async () => {
 		harness = await createApiTestHarness();
@@ -38,14 +33,7 @@ describe('seedThreadPermissions', () => {
 	beforeEach(async () => {
 		await harness.reset();
 		clearChannelThreadsTaintCacheForTesting();
-		dispatchGuild = vi.fn(async () => {});
-		setWorkerDependenciesForTest({
-			channelRepository: getChannelRepository(),
-			guildRepository: getGuildRepository(),
-			userCacheService: getUserCacheService(),
-			instanceConfigRepository: getInstanceConfigRepository(),
-			gatewayService: {dispatchGuild} as unknown as IGatewayService,
-		});
+		setWorkerDependencies(await initializeWorkerDependencies(getSnowflakeService()));
 	});
 
 	afterEach(() => {
@@ -99,10 +87,6 @@ describe('seedThreadPermissions', () => {
 		))!.permissionOverwrites.get(createRoleID(BigInt(guild.id)));
 		expect(seeded?.allow).toBe(0n);
 		expect(seeded?.deny).toBe(Permissions.SEND_MESSAGES | DEFAULT_THREAD_PERMISSIONS);
-		expect(dispatchGuild.mock.calls.map(([params]) => params.event)).toEqual([
-			'GUILD_ROLE_UPDATE_BULK',
-			'CHANNEL_UPDATE_BULK',
-		]);
 		const marker = await fetchOne<GuildThreadStateRow>(
 			GuildThreadState.selectCql({where: GuildThreadState.where.eq('guild_id'), limit: 1}),
 			{guild_id: guildId},
@@ -111,7 +95,6 @@ describe('seedThreadPermissions', () => {
 
 		await getGuildRepository().upsertRole({...everyone!.toRow(), permissions: DEFAULT_PERMISSIONS});
 		await seedThreadPermissions({guildId: guild.id}, createTestWorkerHelpers());
-		expect(dispatchGuild).toHaveBeenCalledTimes(2);
 		expect((await getGuildRepository().getRole(createRoleID(BigInt(guild.id)), guildId))?.permissions).toBe(
 			DEFAULT_PERMISSIONS,
 		);

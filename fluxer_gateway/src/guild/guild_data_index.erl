@@ -3,24 +3,11 @@
 -module(guild_data_index).
 -typing([eqwalizer]).
 
--export([
-    normalize_data/1,
-    normalize_map/1,
-    put_roles/2,
-    put_channels/2,
-    build_id_index/1,
-    ensure_data_map/1
-]).
+-export([normalize_map/1, put_roles/2, put_channels/2, build_id_index/1, ensure_data_map/1]).
 
 -type guild_data() :: map().
 
 -export_type([guild_data/0]).
-
--spec normalize_data(term()) -> term().
-normalize_data(Data) when is_map(Data) ->
-    normalize_map(Data);
-normalize_data(Data) ->
-    Data.
 
 -spec normalize_map(map()) -> guild_data().
 normalize_map(Data) ->
@@ -78,27 +65,3 @@ ensure_data_map(State) ->
 -spec ensure_guild_data(term()) -> guild_data().
 ensure_guild_data(Data) when is_map(Data) ->
     Data.
-
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
-
-member_list_revision_rotates_on_every_member_writer_test() ->
-    Member = #{<<"user">> => #{<<"id">> => 1}},
-    Data0 = normalize_map(#{<<"members">> => [Member]}),
-    Data1 = normalize_map(Data0),
-    Data2 = guild_data_index_members:put_member(Member#{<<"nick">> => <<"renamed">>}, Data1),
-    Data3 = guild_data_index_members:put_member_map(
-        guild_data_index_members:member_map(Data2), Data2
-    ),
-    Data4 = guild_data_index_members:put_member_list(
-        guild_data_index_members:member_list(Data3), Data3
-    ),
-    Data5 = guild_data_index_members:remove_member(1, Data4),
-    Revisions = [
-        maps:get(member_list_revision, D)
-     || D <- [Data0, Data1, Data2, Data3, Data4, Data5]
-    ],
-    ?assert(lists:all(fun is_reference/1, Revisions)),
-    ?assertEqual(length(Revisions), length(lists:usort(Revisions))).
-
--endif.

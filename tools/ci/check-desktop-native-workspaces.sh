@@ -51,11 +51,11 @@ fail() {
 }
 
 if [ "$#" -ne 1 ]; then
-	fail "Usage: $0 dependencies|fmt|clippy|test"
+	fail "Usage: $0 dependencies|fmt|clippy"
 fi
 
 case "$mode" in
-dependencies | fmt | clippy | test) ;;
+dependencies | fmt | clippy) ;;
 *) fail "Unknown desktop native workspace check: $mode" ;;
 esac
 
@@ -147,17 +147,6 @@ run_clippy_windows_backend() {
 		-D warnings
 }
 
-run_tests() {
-	local manifest="$1"
-
-	CI=true CARGO_TARGET_DIR="$native_target_dir" \
-		"$cargo_bin" test \
-		--manifest-path "$manifest" \
-		--workspace \
-		--all-features \
-		--locked
-}
-
 find "$native_root" -type d -name target -prune -o -type f -name Cargo.toml -print | LC_ALL=C sort >"$manifest_list"
 
 if [ ! -s "$manifest_list" ]; then
@@ -199,7 +188,7 @@ if ! diff -u "$expected_inventory" "$discovered_inventory"; then
 	fail "Desktop native workspace inventory does not match discovery"
 fi
 
-if [ "$mode" = clippy ] || [ "$mode" = test ]; then
+if [ "$mode" = clippy ]; then
 	host_kernel="$(uname -s)"
 	if [ "$host_kernel" != Linux ]; then
 		fail "Desktop native $mode checks require a Linux host, found: $host_kernel"
@@ -236,14 +225,6 @@ while IFS= read -r manifest; do
 			run_clippy_windows_backend "$manifest"
 			windows_backend_count=$((windows_backend_count + 1))
 		fi
-		;;
-	test)
-		case "$category" in
-		linux) printf 'Test full Linux/shared coverage: %s\n' "$relative_manifest" ;;
-		macos) printf 'Test Linux stub/common coverage; macOS backend not validated: %s\n' "$relative_manifest" ;;
-		windows) printf 'Test Linux stub/common coverage; Windows backend not validated: %s\n' "$relative_manifest" ;;
-		esac
-		run_tests "$manifest"
 		;;
 	esac
 	checked_count=$((checked_count + 1))

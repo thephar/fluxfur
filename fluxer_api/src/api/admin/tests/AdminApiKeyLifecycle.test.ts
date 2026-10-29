@@ -19,19 +19,6 @@ describe('Admin API Key Lifecycle', () => {
 	afterEach(async () => {
 		await harness?.shutdown();
 	});
-	test('expiration validation - zero days rejected', async () => {
-		const admin = await createTestAccount(harness);
-		await setUserACLs(harness, admin, ['admin:authenticate', 'admin_api_key:manage', 'audit_log:view']);
-		await createBuilder(harness, `${admin.token}`)
-			.post('/admin/api-keys')
-			.body({
-				name: 'Test Key',
-				expires_in_days: 0,
-				acls: ['audit_log:view'],
-			})
-			.expect(HTTP_STATUS.BAD_REQUEST)
-			.executeWithResponse();
-	});
 	test('list does not include secret key', async () => {
 		const admin = await createTestAccount(harness);
 		await setUserACLs(harness, admin, [

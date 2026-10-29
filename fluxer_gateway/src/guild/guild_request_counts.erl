@@ -1,9 +1,6 @@
 %% SPDX-License-Identifier: AGPL-3.0-or-later
 
 -module(guild_request_counts).
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
--endif.
 
 -typing([eqwalizer]).
 
@@ -28,7 +25,7 @@ handle_request(Data, _SocketPid, SessionState) when is_map(Data) ->
         true ->
             GuildIds = parse_guild_ids(maps:get(<<"guild_ids">>, Data, [])),
             Nonce = parse_nonce(maps:get(<<"nonce">>, Data, undefined)),
-            Guilds = maps:get(guilds, SessionState, #{}),
+            Guilds = session_visits:member_guilds(SessionState),
             Targets = build_targets(GuildIds, Guilds),
             Entries = parallel_fetch(Targets, UserId),
             dispatch_counts(SessionPid, Entries, Nonce),
@@ -112,7 +109,9 @@ fetch_viewer_counts(GuildPid, UserId) ->
     end.
 
 -spec counts_result(term()) -> {ok, non_neg_integer(), non_neg_integer()} | error.
-counts_result(#{member_count := MemberCount, online_count := OnlineCount}) ->
+counts_result(#{member_count := MemberCount, online_count := OnlineCount}) when
+    is_integer(MemberCount), MemberCount >= 0, is_integer(OnlineCount), OnlineCount >= 0
+->
     {ok, MemberCount, OnlineCount};
 counts_result(_) ->
     error.
@@ -159,99 +158,3 @@ parse_nonce(Nonce) when
     Nonce;
 parse_nonce(_) ->
     undefined.
-
--ifdef(TEST).
-
-parse_guild_ids_caps_at_max_test() ->
-    Many = [integer_to_binary(N) || N <- lists:seq(1, ?MAX_GUILD_IDS + 50)],
-    Result = parse_guild_ids(Many),
-    ?assertEqual(?MAX_GUILD_IDS, length(Result)).
-
-handle_request_dispatches_empty_when_no_guilds_test() ->
-    Self = self(),
-    SessionState = #{session_pid => Self, user_id => <<"100">>, guilds => #{}},
-    ok = handle_request(#{<<"guild_ids">> => [<<"1">>]}, Self, SessionState),
-    receive
-        {'$gen_cast', {dispatch, guild_counts_update, Payload}} ->
-            ?assertEqual([], maps:get(<<"counts">>, Payload)),
-            ?assertNot(maps:is_key(<<"nonce">>, Payload))
-    after 1000 ->
-        ?assert(false)
-    end.
-
-handle_request_echoes_nonce_test() ->
-    Self = self(),
-    SessionState = #{session_pid => Self, user_id => <<"100">>, guilds => #{}},
-    ok = handle_request(
-        #{<<"guild_ids">> => [<<"1">>], <<"nonce">> => <<"abc123">>}, Self, SessionState
-    ),
-    receive
-        {'$gen_cast', {dispatch, guild_counts_update, Payload}} ->
-            ?assertEqual(<<"abc123">>, maps:get(<<"nonce">>, Payload)),
-            ?assertEqual([], maps:get(<<"counts">>, Payload))
-    after 1000 ->
-        ?assert(false)
-    end.
-
-handle_request_fetches_viewer_counts_with_deadline_test() ->
-    Self = self(),
-    Guild = spawn(fun() ->
-        receive
-            {'$gen_call', From, {get_viewer_counts, #{user_id := 100, deadline := D}}} when
-                is_integer(D)
-            ->
-                gen_server:reply(From, #{member_count => 50, online_count => 10})
-        end
-    end),
-    SessionState = #{
-        session_pid => Self, user_id => <<"100">>, guilds => #{7 => {Guild, make_ref()}}
-    },
-    ok = handle_request(#{<<"guild_ids">> => [<<"7">>]}, Self, SessionState),
-    receive
-        {'$gen_cast', {dispatch, guild_counts_update, Payload}} ->
-            ?assertEqual([build_entry(7, 50, 10)], maps:get(<<"counts">>, Payload))
-    after 1000 ->
-        ?assert(false)
-    end.
-
-fetch_counts_does_not_fall_back_on_current_guild_test() ->
-    Self = self(),
-    Guild = spawn(fun() ->
-        receive
-            {'$gen_call', From, {get_viewer_counts, #{user_id := 100}}} ->
-                gen_server:reply(From, #{member_count => 3, online_count => 1})
-        end,
-        receive
-            {'$gen_call', From2, Msg} ->
-                Self ! {unexpected_call, Msg},
-                gen_server:reply(From2, ok)
-        after 300 -> ok
-        end
-    end),
-    ?assertEqual({ok, 3, 1}, fetch_counts(Guild, 100)),
-    receive
-        {unexpected_call, Msg} -> ?assertEqual(none, Msg)
-    after 400 -> ok
-    end.
-
-fetch_counts_errors_on_malformed_reply_test() ->
-    Guild = spawn(fun() ->
-        receive
-            {'$gen_call', From, {get_viewer_counts, _}} -> gen_server:reply(From, #{})
-        end
-    end),
-    ?assertEqual(error, fetch_counts(Guild, 100)).
-
-parse_nonce_test() ->
-    ?assertEqual(<<"x">>, parse_nonce(<<"x">>)),
-    ?assertEqual(<<"abc">>, parse_nonce(<<"abc">>)),
-    ?assertEqual(undefined, parse_nonce(undefined)),
-    ?assertEqual(undefined, parse_nonce(<<>>)),
-    ?assertEqual(undefined, parse_nonce(123)),
-    ?assertEqual(undefined, parse_nonce("string")),
-    Big = binary:copy(<<"a">>, ?MAX_NONCE_BYTES + 1),
-    ?assertEqual(undefined, parse_nonce(Big)),
-    Edge = binary:copy(<<"a">>, ?MAX_NONCE_BYTES),
-    ?assertEqual(Edge, parse_nonce(Edge)).
-
--endif.

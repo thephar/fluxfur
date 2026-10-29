@@ -11,6 +11,7 @@ import {
 import * as AuthenticationCommands from '@app/features/auth/commands/AuthenticationCommands';
 import styles from '@app/features/auth/flow/AccountRestrictionScreen.module.css';
 import {useAuthPresentation} from '@app/features/auth/flow/useAuthPresentation';
+import {type StepTitleChangeHandler, useReportStepTitle} from '@app/features/auth/flow/useReportStepTitle';
 import type {AccountRestriction} from '@app/features/auth/state/AccountRestriction';
 import Authentication from '@app/features/auth/state/Authentication';
 import {AuthCardVariant} from '@app/features/auth/state/AuthLayoutContext';
@@ -194,7 +195,15 @@ function ScreenRoot({children, footer}: {children: ReactNode; footer: ReactNode}
 	);
 }
 
-function NoticeView({notice, onBackToSignIn}: {notice: EnforcementNotice; onBackToSignIn: () => void}) {
+function NoticeView({
+	notice,
+	showTitle,
+	onBackToSignIn,
+}: {
+	notice: EnforcementNotice;
+	showTitle: boolean;
+	onBackToSignIn: () => void;
+}) {
 	const {i18n} = useLingui();
 	const showWhy = notice.rule != null || notice.facts.length > 0 || notice.statement != null;
 	return (
@@ -210,9 +219,11 @@ function NoticeView({notice, onBackToSignIn}: {notice: EnforcementNotice; onBack
 			}
 			data-flx="auth.flow.account-restriction-screen.notice-view.screen-root"
 		>
-			<h1 className={styles.title} data-flx="auth.flow.account-restriction-screen.notice.title">
-				{i18n._(resolveNoticeTitle(notice))}
-			</h1>
+			{showTitle ? (
+				<h1 className={styles.title} data-flx="auth.flow.account-restriction-screen.notice.title">
+					{i18n._(resolveNoticeTitle(notice))}
+				</h1>
+			) : null}
 			<Section
 				heading={i18n._(WHAT_HAPPENED_DESCRIPTOR)}
 				data-flx="auth.flow.account-restriction-screen.notice-view.section"
@@ -320,15 +331,27 @@ interface AccountRestrictionScreenProps {
 	restriction: AccountRestriction;
 	onBackToSignIn: () => void;
 	onTryAgain: () => void;
+	onStepTitleChange?: StepTitleChangeHandler | null;
 }
 
-export function AccountRestrictionScreen({restriction, onBackToSignIn, onTryAgain}: AccountRestrictionScreenProps) {
+export function AccountRestrictionScreen({
+	restriction,
+	onBackToSignIn,
+	onTryAgain,
+	onStepTitleChange = null,
+}: AccountRestrictionScreenProps) {
 	const {i18n} = useLingui();
 	useAuthPresentation({variant: AuthCardVariant.STANDARD});
+	useReportStepTitle(
+		onStepTitleChange,
+		i18n._(restriction.type === 'notice' ? resolveNoticeTitle(restriction.notice) : NETWORK_BLOCKED_DESCRIPTOR),
+	);
+	const showTitle = onStepTitleChange == null;
 	if (restriction.type === 'notice') {
 		return (
 			<NoticeView
 				notice={restriction.notice}
+				showTitle={showTitle}
 				onBackToSignIn={onBackToSignIn}
 				data-flx="auth.flow.account-restriction-screen.notice-view"
 			/>
@@ -347,9 +370,11 @@ export function AccountRestrictionScreen({restriction, onBackToSignIn, onTryAgai
 			}
 			data-flx="auth.flow.account-restriction-screen.network-blocked"
 		>
-			<h1 className={styles.title} data-flx="auth.flow.account-restriction-screen.network-blocked.title">
-				{i18n._(NETWORK_BLOCKED_DESCRIPTOR)}
-			</h1>
+			{showTitle ? (
+				<h1 className={styles.title} data-flx="auth.flow.account-restriction-screen.network-blocked.title">
+					{i18n._(NETWORK_BLOCKED_DESCRIPTOR)}
+				</h1>
+			) : null}
 			<NetworkBlockDetails
 				block={restriction.block}
 				data-flx="auth.flow.account-restriction-screen.network-block-details"

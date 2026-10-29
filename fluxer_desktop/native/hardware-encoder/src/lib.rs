@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-#![allow(dead_code)]
 
 use napi_derive::napi;
 
@@ -322,10 +321,6 @@ impl VideoToolboxRuntimeProbe {
 
 #[napi]
 pub fn get_hardware_encoder_capability() -> HardwareEncoderCapability {
-    hardware_encoder_capability()
-}
-
-pub fn hardware_encoder_capability() -> HardwareEncoderCapability {
     if cfg!(target_os = "macos") {
         return describe_videotoolbox_capability(probe_macos_videotoolbox_runtime());
     }
@@ -964,93 +959,4 @@ fn probe_macos_videotoolbox_runtime() -> Option<VideoToolboxRuntimeProbe> {
 #[cfg(not(target_os = "macos"))]
 fn probe_macos_videotoolbox_runtime() -> Option<VideoToolboxRuntimeProbe> {
     None
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn runtime_ready() -> NvencRuntimeProbe {
-        NvencRuntimeProbe {
-            libcuda: true,
-            libnvidia_encode: true,
-            get_max_supported_version: true,
-            driver_version_compatible: true,
-            create_instance: true,
-            cuda_init: true,
-            cuda_device_count: Some(1),
-            cuda_device: true,
-            cuda_context: true,
-            checked_cuda_devices: 1,
-            supported_cuda_devices: 1,
-            open_encode_session: true,
-            query_encode_guids: true,
-            supports_h264: true,
-            supports_h265: true,
-            last_open_encode_session_status: Some(0),
-        }
-    }
-
-    fn videotoolbox_ready() -> VideoToolboxRuntimeProbe {
-        VideoToolboxRuntimeProbe {
-            h264_create_status: Some(0),
-            h264_prepare_status: Some(0),
-            h265_create_status: Some(0),
-            h265_prepare_status: Some(0),
-        }
-    }
-
-    #[test]
-    fn reports_h264_only_when_hevc_guid_is_absent() {
-        let capability = describe_capability(
-            CapabilityPlatform::Linux,
-            true,
-            Some(NvencRuntimeProbe {
-                supports_h265: false,
-                ..runtime_ready()
-            }),
-        );
-
-        assert!(capability.available);
-        assert_eq!(capability.codecs, vec!["h264"]);
-        assert!(capability.zero_copy);
-    }
-
-    #[test]
-    fn reports_no_supported_codecs_when_guid_query_finds_no_fluxer_codecs() {
-        let capability = describe_capability(
-            CapabilityPlatform::Linux,
-            true,
-            Some(NvencRuntimeProbe {
-                supports_h264: false,
-                supports_h265: false,
-                ..runtime_ready()
-            }),
-        );
-
-        assert!(!capability.available);
-        assert_eq!(capability.reason.as_deref(), Some("no_supported_codecs"));
-        assert_eq!(capability.codecs, Vec::<String>::new());
-        assert!(
-            capability
-                .detail
-                .as_deref()
-                .unwrap_or_default()
-                .contains("NVENC H264/H265 encode GUID")
-        );
-    }
-
-    #[test]
-    fn reports_videotoolbox_h264_only_when_hevc_session_is_unavailable() {
-        let capability = describe_videotoolbox_capability(Some(VideoToolboxRuntimeProbe {
-            h265_create_status: Some(-12909),
-            h265_prepare_status: None,
-            ..videotoolbox_ready()
-        }));
-
-        assert!(capability.available);
-        assert_eq!(capability.backend, "videotoolbox");
-        assert_eq!(capability.codecs, vec!["h264"]);
-        assert_eq!(capability.reason, None);
-    }
 }

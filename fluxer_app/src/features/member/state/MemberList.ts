@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import AppStorage from '@app/features/platform/state/PersistentStorage';
+import AppStorage, {subscribeAppStorageScope} from '@app/features/platform/state/PersistentStorage';
 import {Logger} from '@app/features/platform/utils/AppLogger';
 import {initializeStore} from '@app/features/platform/utils/StoreInitialization';
 import {makeSyncedField} from '@app/features/user/state/SyncedField';
@@ -102,6 +102,14 @@ class MemberList {
 		AppStorage.setJSON(DEFAULT_HIDDEN_CHANNEL_MEMBER_LIST_STORAGE_KEY, next);
 		logger.debug(`Toggled default-hidden channel members list: channel=${channelId}, open=${isOpen}`);
 	}
+
+	reloadDefaultHiddenChannelState(): void {
+		this.defaultHiddenChannelMembersOpenByChannelId = getInitialDefaultHiddenChannelState();
+	}
 }
 
-export default new MemberList();
+const memberList = new MemberList();
+
+subscribeAppStorageScope(memberList.reloadDefaultHiddenChannelState);
+
+export default memberList;

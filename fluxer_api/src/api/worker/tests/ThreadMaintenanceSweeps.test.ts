@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import fs from 'node:fs';
+import assert from 'node:assert/strict';
 import {createTestAccount, setUserACLs, type TestAccount} from '@app/api/auth/tests/AuthTestUtils';
 import {createChannelID, createGuildID, createUserID} from '@app/api/BrandedTypes';
 import {acceptInvite, createChannel, createChannelInvite, createGuild} from '@app/api/channel/tests/ChannelTestUtils';
@@ -8,16 +8,15 @@ import {threadsRequest} from '@app/api/channel/tests/ThreadTestUtils';
 import {deleteOneOrMany, upsertOne} from '@app/api/database/CassandraQueryExecution';
 import {clearChannelThreadsTaintCacheForTesting, isTainted} from '@app/api/experiment/ChannelThreadsGate';
 import {ensureSessionStarted} from '@app/api/message/tests/MessageTestUtils';
-import {getSnowflakeService} from '@app/api/middleware/ServiceRegistry';
+import {getSnowflakeService, setInjectedWorkerService} from '@app/api/middleware/ServiceRegistry';
 import {getChannelRepository} from '@app/api/middleware/ServiceSingletons';
 import {GuildThreadState} from '@app/api/Tables';
 import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHarness';
-import {NoopWorkerService} from '@app/api/test/NoopWorkerService';
-import {createTestWorkerHelpers} from '@app/api/test/SyncTaskWorkerService';
+import {SyncTaskWorkerService} from '@app/api/test/SyncTaskWorkerService';
 import {createBuilder} from '@app/api/test/TestRequestBuilder';
+import {HarvestedMessagesSchema, harvestUserArchive, readStoredArchive} from '@app/api/test/UserArchiveTestUtils';
 import deleteUserMessagesInGuildByTime from '@app/api/worker/tasks/DeleteUserMessagesInGuildByTime';
 import harvestGuildData from '@app/api/worker/tasks/HarvestGuildData';
-import {harvestMessages} from '@app/api/worker/tasks/HarvestUserData';
 import {clearWorkerDependencies, setWorkerDependencies} from '@app/api/worker/WorkerContext';
 import {initializeWorkerDependencies, type WorkerDependencies} from '@app/api/worker/WorkerDependencies';
 import {AdminACLs} from '@fluxer/constants/src/AdminACLs';
@@ -25,7 +24,7 @@ import {ChannelTypes} from '@fluxer/constants/src/ChannelConstants';
 import type {ChannelResponse} from '@fluxer/schema/src/domains/channel/ChannelSchemas';
 import type {ThreadChannelResponse} from '@fluxer/schema/src/domains/channel/ThreadRequestSchemas';
 import type {MessageResponse} from '@fluxer/schema/src/domains/message/MessageResponseSchemas';
-import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi} from 'vitest';
+import {afterAll, beforeAll, beforeEach, describe, expect, it} from 'vitest';
 
 interface Setup {
 	owner: TestAccount;
@@ -39,7 +38,7 @@ interface Setup {
 describe('thread maintenance sweeps', () => {
 	let harness: ApiTestHarness;
 	let deps: WorkerDependencies;
-	let jobs: Array<{task: string; payload: Record<string, unknown>}>;
+	let worker: SyncTaskWorkerService;
 
 	beforeAll(async () => {
 		harness = await createApiTestHarness();
@@ -48,25 +47,16 @@ describe('thread maintenance sweeps', () => {
 	beforeEach(async () => {
 		await harness.reset();
 		clearChannelThreadsTaintCacheForTesting();
+		worker = new SyncTaskWorkerService({deleteUserMessagesInGuildByTime, harvestGuildData}, {deferred: true});
+		setInjectedWorkerService(worker);
 		deps = await initializeWorkerDependencies(getSnowflakeService());
 		setWorkerDependencies(deps);
-		jobs = [];
-		const addJob = async (task: string, payload: Record<string, unknown>) => {
-			jobs.push({task, payload});
-			if (task === 'deleteUserMessagesInGuildByTime')
-				await deleteUserMessagesInGuildByTime(payload, createTestWorkerHelpers({attempt: {isLastAttempt: true}}));
-			return 0n;
-		};
-		vi.spyOn(NoopWorkerService.prototype, 'addJob').mockImplementation(addJob as () => Promise<bigint>);
-	});
-
-	afterEach(() => {
-		vi.restoreAllMocks();
 	});
 
 	afterAll(async () => {
 		clearWorkerDependencies();
 		clearChannelThreadsTaintCacheForTesting();
+		setInjectedWorkerService(undefined);
 		await harness.shutdown();
 	});
 
@@ -109,6 +99,7 @@ describe('thread maintenance sweeps', () => {
 			.body({delete_message_seconds: 3600})
 			.expect(204)
 			.execute();
+		expect((await worker.drain()).failed).toBe(0);
 	}
 
 	it('removes thread messages inside the ban delete window and decrements the count', async () => {
@@ -143,7 +134,8 @@ describe('thread maintenance sweeps', () => {
 		await deleteOneOrMany(GuildThreadState.deleteByPk({guild_id: guildId}));
 		clearChannelThreadsTaintCacheForTesting();
 		expect(await isTainted(guildId)).toBe(false);
-		await upsertOne(GuildThreadState.upsertAll(marker!));
+		assert(marker);
+		await upsertOne(GuildThreadState.upsertAll(marker));
 		await ban(s);
 		expect(await remaining(post.id)).toBe(0);
 		expect(await remaining(s.threadId)).toBe(0);
@@ -161,30 +153,30 @@ describe('thread maintenance sweeps', () => {
 
 	it('includes thread messages in user and guild harvests', async () => {
 		const s = await setup();
-		const harvested = await harvestMessages(
-			getChannelRepository().messages,
-			createUserID(BigInt(s.member.userId)),
-			Date.now(),
-			null,
-		);
+		const userArchive = await harvestUserArchive(harness, deps, createUserID(BigInt(s.member.userId)));
 		expect(
-			harvested.channelMessagesMap
-				.get(s.threadId)
-				?.map((message) => message.id)
+			HarvestedMessagesSchema.parse(userArchive.readJson(`channels/${s.threadId}/messages.json`))
+				.map((message) => message.id)
 				.sort(),
 		).toEqual([...s.messageIds].sort());
 		const admin = await setUserACLs(harness, await createTestAccount(harness), [AdminACLs.WILDCARD]);
-		await createBuilder(harness, admin.token).post(`/admin/guilds/${s.guildId}/archives`).body({}).execute();
-		const payload = jobs.find((job) => job.task === 'harvestGuildData')?.payload;
-		expect(payload).toBeDefined();
-		vi.spyOn(deps.storageService, 'uploadObjectFromFile').mockResolvedValue(undefined as never);
-		const writeFile = vi.spyOn(fs.promises, 'writeFile');
-		await harvestGuildData(payload!, createTestWorkerHelpers({attempt: {isLastAttempt: true}}));
-		const threadFile = writeFile.mock.calls.find(([file]) =>
-			String(file).endsWith(`channels/${s.threadId}/messages.json`),
+		const requested = await createBuilder<{archive_id: string}>(harness, admin.token)
+			.post(`/admin/guilds/${s.guildId}/archives`)
+			.body({})
+			.execute();
+		const drained = await worker.drain();
+		expect(drained.failed).toBe(0);
+		const completed = await deps.adminArchiveRepository.findBySubjectAndArchiveId(
+			'guild',
+			BigInt(s.guildId),
+			BigInt(requested.archive_id),
 		);
-		expect(threadFile).toBeDefined();
-		const written = JSON.parse(String(threadFile![1])) as Array<{id: string}>;
-		expect(written.map((message) => message.id).sort()).toEqual([...s.messageIds].sort());
+		assert(completed?.storageKey);
+		const guildArchive = await readStoredArchive(harness, completed.storageKey);
+		expect(
+			HarvestedMessagesSchema.parse(guildArchive.readJson(`channels/${s.threadId}/messages.json`))
+				.map((message) => message.id)
+				.sort(),
+		).toEqual([...s.messageIds].sort());
 	});
 });

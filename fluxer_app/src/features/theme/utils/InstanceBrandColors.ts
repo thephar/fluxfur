@@ -26,10 +26,10 @@ export const INSTANCE_BRAND_VARIABLES = [
 
 type InstanceBrandVariable = (typeof INSTANCE_BRAND_VARIABLES)[number];
 
-export const MIN_TEXT_CONTRAST = 4.5;
+const MIN_TEXT_CONTRAST = 4.5;
 const TARGET_CONTRAST = MIN_TEXT_CONTRAST + 0.05;
-export const FOREGROUND_SELF_TINT_RATIO = 15;
-export const FOREGROUND_BRAND_TINT_RATIO = 22;
+const FOREGROUND_SELF_TINT_RATIO = 15;
+const FOREGROUND_BRAND_TINT_RATIO = 22;
 
 type Rgb = readonly [number, number, number];
 
@@ -89,29 +89,27 @@ function rgbToHsl([red, green, blue]: Rgb): Hsl {
 	return {hue: (hue * 60 + 360) % 360, saturation: saturation * 100, lightness: lightness * 100};
 }
 
-export function hslToRgb(hue: number, saturation: number, lightness: number): Rgb {
+function hueSectorComponents(h: number, chroma: number, x: number): Rgb {
+	if (h < 1) return [chroma, x, 0];
+	if (h < 2) return [x, chroma, 0];
+	if (h < 3) return [0, chroma, x];
+	if (h < 4) return [0, x, chroma];
+	if (h < 5) return [x, 0, chroma];
+	return [chroma, 0, x];
+}
+
+function hslToRgb(hue: number, saturation: number, lightness: number): Rgb {
 	const s = Math.min(100, Math.max(0, saturation)) / 100;
 	const l = Math.min(100, Math.max(0, lightness)) / 100;
 	const chroma = (1 - Math.abs(2 * l - 1)) * s;
 	const h = (((hue % 360) + 360) % 360) / 60;
 	const x = chroma * (1 - Math.abs((h % 2) - 1));
 	const m = l - chroma / 2;
-	const [r, g, b] =
-		h < 1
-			? [chroma, x, 0]
-			: h < 2
-				? [x, chroma, 0]
-				: h < 3
-					? [0, chroma, x]
-					: h < 4
-						? [0, x, chroma]
-						: h < 5
-							? [x, 0, chroma]
-							: [chroma, 0, x];
+	const [r, g, b] = hueSectorComponents(h, chroma, x);
 	return [(r + m) * 255, (g + m) * 255, (b + m) * 255];
 }
 
-export function mixRgb(first: Rgb, second: Rgb, firstPercent: number): Rgb {
+function mixRgb(first: Rgb, second: Rgb, firstPercent: number): Rgb {
 	const ratio = firstPercent / 100;
 	return [
 		first[0] * ratio + second[0] * (1 - ratio),
@@ -163,7 +161,7 @@ export function resolveThemeSurface(theme: string, name: string, saturationFacto
 	return resolveTone({family: scale.family, lightness: scaleStopLightness(scale, index)}, saturationFactor);
 }
 
-export function resolveThemeSurfaces(theme: string, saturationFactor: number): Array<Rgb> {
+function resolveThemeSurfaces(theme: string, saturationFactor: number): Array<Rgb> {
 	const palette = getThemePalette(theme);
 	const scale = COLOR_SCALES[palette.surfaceScale];
 	const overlay = resolveTone(palette.selectedOverlay, saturationFactor);

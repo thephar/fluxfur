@@ -16,6 +16,7 @@ import {profileSubstringBlocklistCache} from '@app/api/middleware/ProfileSubstri
 import {getInstanceConfigRepository} from '@app/api/middleware/ServiceSingletons';
 import type {AuthSession as AuthSessionModel} from '@app/api/models/AuthSession';
 import type {User} from '@app/api/models/User';
+import {getAccountTier} from '@app/api/user/AccountTier';
 import {enforceFluxerTagChangeRateLimit} from '@app/api/user/FluxerTagChangeRateLimit';
 import type {UserRepository} from '@app/api/user/repositories/UserRepository';
 import {assertNoDiscriminatorChange, reserveUsername, type UsernameReservation} from '@app/api/user/UniqueUsernames';
@@ -23,6 +24,7 @@ import {isProfileSubstringExempt} from '@app/api/user/UserHelpers';
 import {USERNAME_MODE_DISCRIMINATOR} from '@app/api/user/UserTag';
 import {hashPassword} from '@app/api/utils/PasswordUtils';
 import {AccountIdentityModes, TagStyles} from '@fluxer/constants/src/AccountIdentityConstants';
+import {AccountTiers} from '@fluxer/constants/src/AccountTierConstants';
 import {PremiumFlags, UserPremiumTypes} from '@fluxer/constants/src/UserConstants';
 import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
 import {ContentBlockedError} from '@fluxer/errors/src/domains/content/ContentBlockedError';
@@ -72,8 +74,9 @@ export class UserAccountSecurityService {
 		const metadata: UserUpdateMetadata = {
 			invalidateAuthSessions: false,
 		};
-		const isUnclaimedAccount = user.isUnclaimedAccount();
-		const identityVerifiedViaSudo = sudoContext?.method === 'mfa' || sudoContext?.method === 'sudo_token';
+		const isUnclaimedAccount = getAccountTier(user) === AccountTiers.UNCLAIMED;
+		const identityVerifiedViaSudo =
+			sudoContext?.method === 'mfa' || sudoContext?.method === 'sudo_token' || sudoContext?.method === 'email_code';
 		const identityVerifiedViaPassword = sudoContext?.method === 'password';
 		const rawEmail = data.email?.trim();
 		const normalizedEmail = rawEmail?.toLowerCase();
@@ -98,7 +101,7 @@ export class UserAccountSecurityService {
 			updates.password_last_changed_at = new Date();
 			metadata.invalidateAuthSessions = false;
 		} else if (data.new_password) {
-			if (!data.password) {
+			if (!data.password && user.passwordHash !== null) {
 				throw InputValidationError.fromCode('password', ValidationErrorCodes.PASSWORD_NOT_SET);
 			}
 			if (!identityVerifiedViaSudo && !identityVerifiedViaPassword) {

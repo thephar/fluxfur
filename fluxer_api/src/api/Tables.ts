@@ -39,12 +39,14 @@ import {
 	type AttachmentUploadTraceByKeyRow,
 } from '@app/api/database/types/AttachmentUploadTypes';
 import {
+	AUTH_SESSION_BY_APP_CHANNEL_COLUMNS,
 	AUTH_SESSION_COLUMNS,
 	AUTH_SESSION_TOMBSTONE_COLUMNS,
 	AUTHORIZED_IP_COLUMNS,
 	AUTHORIZED_IP_TRUST_KEY_COLUMNS,
 	type AuthorizedIpRow,
 	type AuthorizedIpTrustKeyRow,
+	type AuthSessionByAppChannelRow,
 	type AuthSessionRow,
 	type AuthSessionTombstoneRow,
 	EMAIL_CHANGE_TICKET_COLUMNS,
@@ -175,6 +177,7 @@ import {
 	type GuildRow,
 	type GuildStickerRow,
 } from '@app/api/database/types/GuildTypes';
+import {GUILD_VISIT_COLUMNS, type GuildVisitRow} from '@app/api/database/types/GuildVisitTypes';
 import {
 	INSTANCE_CONFIGURATION_COLUMNS,
 	type InstanceConfigurationRow,
@@ -218,6 +221,12 @@ import {
 	type OAuth2RefreshTokenByUserRow,
 	type OAuth2RefreshTokenRow,
 } from '@app/api/database/types/OAuth2Types';
+import {
+	PAYMENT_DISPUTE_REVIEW_BY_PURCHASER_COLUMNS,
+	PAYMENT_DISPUTE_REVIEW_COLUMNS,
+	type PaymentDisputeReviewByPurchaserRow,
+	type PaymentDisputeReviewRow,
+} from '@app/api/database/types/PaymentDisputeTypes';
 import {
 	GIFT_CODE_BY_CREATOR_COLUMNS,
 	GIFT_CODE_BY_PAYMENT_INTENT_COLUMNS,
@@ -301,6 +310,7 @@ import {
 	type RelationshipRow,
 	SAVED_MESSAGE_COLUMNS,
 	type SavedMessageRow,
+	USER_BY_ACL_COLUMNS,
 	USER_BY_EMAIL_COLUMNS,
 	USER_BY_LAST_ACTIVE_IP_COLUMNS,
 	USER_BY_LAST_ACTIVE_IP_TRUST_KEY_COLUMNS,
@@ -316,6 +326,7 @@ import {
 	USER_GUILD_SETTINGS_COLUMNS,
 	USER_HARVEST_COLUMNS,
 	USER_SETTINGS_COLUMNS,
+	type UserByAclRow,
 	type UserByEmailRow,
 	type UserByLastActiveIpRow,
 	type UserByLastActiveIpTrustKeyRow,
@@ -337,6 +348,7 @@ import {
 	type VoiceP2pConnectionReportRow,
 } from '@app/api/database/types/VoiceTypes';
 import {ATTACHMENT_DECAY_COLUMNS, type AttachmentDecayRow} from '@app/api/types/AttachmentDecayTypes';
+import {GUILD_VISIT_TTL_SECONDS} from '@fluxer/constants/src/GuildVisitConstants';
 import {seconds} from 'itty-time';
 
 export const Users = defineTable<UserRow, 'user_id'>({
@@ -370,6 +382,22 @@ export const UserSsoIdentities = defineTable<UserSsoIdentityRow, 'provider_id' |
 	columns: USER_SSO_IDENTITY_COLUMNS,
 	primaryKey: ['provider_id', 'subject'],
 	partitionKey: ['provider_id'],
+});
+export const UserSsoIdentitiesByUser = defineTable<
+	UserSsoIdentityRow,
+	'user_id' | 'provider_id' | 'subject',
+	'user_id'
+>({
+	name: 'user_sso_identities_by_user',
+	columns: USER_SSO_IDENTITY_COLUMNS,
+	primaryKey: ['user_id', 'provider_id', 'subject'],
+	partitionKey: ['user_id'],
+});
+export const UserByAcl = defineTable<UserByAclRow, 'acl' | 'user_id', 'acl'>({
+	name: 'users_by_acl',
+	columns: USER_BY_ACL_COLUMNS,
+	primaryKey: ['acl', 'user_id'],
+	partitionKey: ['acl'],
 });
 export const UserByStripeCustomerId = defineTable<UserByStripeCustomerIdRow, 'stripe_customer_id' | 'user_id'>({
 	name: 'users_by_stripe_customer_id',
@@ -484,6 +512,20 @@ export const GuildBansByUserId = defineTable<GuildBanByUserIdRow, 'user_id' | 'g
 	columns: GUILD_BAN_BY_USER_ID_COLUMNS,
 	primaryKey: ['user_id', 'guild_id'],
 	partitionKey: ['user_id'],
+});
+export const GuildVisitsByUser = defineTable<GuildVisitRow, 'user_id' | 'guild_id', 'user_id'>({
+	name: 'guild_visits_by_user',
+	columns: GUILD_VISIT_COLUMNS,
+	primaryKey: ['user_id', 'guild_id'],
+	partitionKey: ['user_id'],
+	defaultTtlSeconds: GUILD_VISIT_TTL_SECONDS,
+});
+export const GuildVisitsByGuild = defineTable<GuildVisitRow, 'guild_id' | 'user_id', 'guild_id'>({
+	name: 'guild_visits_by_guild',
+	columns: GUILD_VISIT_COLUMNS,
+	primaryKey: ['guild_id', 'user_id'],
+	partitionKey: ['guild_id'],
+	defaultTtlSeconds: GUILD_VISIT_TTL_SECONDS,
 });
 export const GuildAuditLogs = defineTable<GuildAuditLogRow, 'guild_id' | 'log_id'>({
 	name: 'guild_audit_logs_v2',
@@ -1040,6 +1082,16 @@ export const AuthSessionsByUserId = defineTable<
 	columns: ['user_id', 'session_id_hash'],
 	primaryKey: ['user_id', 'session_id_hash'],
 });
+export const AuthSessionsByAppChannel = defineTable<
+	AuthSessionByAppChannelRow,
+	'app_platform' | 'app_release_channel' | 'session_id_hash',
+	'app_platform' | 'app_release_channel'
+>({
+	name: 'auth_sessions_by_app_channel',
+	columns: AUTH_SESSION_BY_APP_CHANNEL_COLUMNS,
+	primaryKey: ['app_platform', 'app_release_channel', 'session_id_hash'],
+	partitionKey: ['app_platform', 'app_release_channel'],
+});
 export const AuthSessionTombstones = defineTable<AuthSessionTombstoneRow, 'user_id' | 'session_id_hash'>({
 	name: 'auth_session_tombstones',
 	columns: AUTH_SESSION_TOMBSTONE_COLUMNS,
@@ -1443,6 +1495,21 @@ export const BillingRefundsByInvoice = defineTable<
 	columns: BILLING_REFUND_BY_INVOICE_COLUMNS,
 	primaryKey: ['invoice_id', 'stripe_created_at', 'provider_id'],
 	partitionKey: ['invoice_id'],
+});
+export const PaymentDisputeReviews = defineTable<PaymentDisputeReviewRow, 'dispute_id'>({
+	name: 'payment_dispute_reviews',
+	columns: PAYMENT_DISPUTE_REVIEW_COLUMNS,
+	primaryKey: ['dispute_id'],
+});
+export const PaymentDisputeReviewsByPurchaser = defineTable<
+	PaymentDisputeReviewByPurchaserRow,
+	'purchaser_id' | 'dispute_id',
+	'purchaser_id'
+>({
+	name: 'payment_dispute_reviews_by_purchaser',
+	columns: PAYMENT_DISPUTE_REVIEW_BY_PURCHASER_COLUMNS,
+	primaryKey: ['purchaser_id', 'dispute_id'],
+	partitionKey: ['purchaser_id'],
 });
 export const VoiceP2pConnectionReports = defineTable<VoiceP2pConnectionReportRow, 'user_id' | 'report_id'>({
 	name: 'voice_p2p_connection_reports',

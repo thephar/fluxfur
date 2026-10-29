@@ -27,14 +27,14 @@ import type {
 	VoiceEngineV2Stats,
 } from '@fluxer/voice_engine_v2/src/protocol/types';
 
-export interface VoiceEngineV2CommandSuccess {
+interface VoiceEngineV2CommandSuccess {
 	ok: true;
 	stats?: VoiceEngineV2Stats;
 	permissionResult?: VoiceEngineV2PermissionResult;
 	deviceInventory?: VoiceEngineV2DeviceInventory;
 }
 
-export interface VoiceEngineV2CommandFailure {
+interface VoiceEngineV2CommandFailure {
 	ok: false;
 	error: VoiceEngineV2Error;
 }
@@ -93,7 +93,7 @@ export interface VoiceEngineV2Driver {
 	subscribe?(listener: VoiceEngineV2ExternalEventListener): () => void;
 }
 
-export type VoiceEngineV2CommandOfType<Type extends VoiceEngineV2Command['type']> = Extract<
+type VoiceEngineV2CommandOfType<Type extends VoiceEngineV2Command['type']> = Extract<
 	VoiceEngineV2Command,
 	{type: Type}
 >;

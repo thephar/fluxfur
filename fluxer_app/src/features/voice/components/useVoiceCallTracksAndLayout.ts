@@ -395,7 +395,14 @@ export function useVoiceCallTracksAndLayout({channel, expandedUserIds}: UseVoice
 				activityStates.delete(key);
 				activityState = undefined;
 			}
-			const priority = isStreaming ? 3 : isSpeaking ? 2 : activityState ? 1 : 0;
+			let priority = 0;
+			if (isStreaming) {
+				priority = 3;
+			} else if (isSpeaking) {
+				priority = 2;
+			} else if (activityState) {
+				priority = 1;
+			}
 			activeKeys.add(key);
 			activityByKey.set(key, {priority, promotedOrder: activityState?.promotedOrder ?? Number.MAX_SAFE_INTEGER});
 		}

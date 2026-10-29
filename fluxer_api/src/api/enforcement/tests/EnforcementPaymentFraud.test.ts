@@ -16,6 +16,7 @@ import {
 	warn,
 } from '@app/api/enforcement/tests/EnforcementTestUtils';
 import {getUserRepository} from '@app/api/middleware/ServiceSingletons';
+import {PaymentDisputeRepository} from '@app/api/payment_disputes/PaymentDisputeRepository';
 import {
 	createTestPayment,
 	mockStripeWebhookSecret,
@@ -74,6 +75,26 @@ describe('Enforcement for payment fraud signals', () => {
 		});
 	}
 
+	async function fraudWarning(paymentIntentId: string) {
+		const chargeId = `ch_${paymentIntentId}`;
+		server.use(...createStripeApiHandlers({charges: {[chargeId]: {payment_intent: paymentIntentId}}}).handlers);
+		await sendStripeWebhook(harness, {
+			type: 'radar.early_fraud_warning.created',
+			data: {
+				object: {
+					actionable: true,
+					charge: chargeId,
+					created: Math.floor(Date.now() / 1000),
+					fraud_type: 'made_with_stolen_card',
+					id: `issfr_${paymentIntentId}`,
+					livemode: false,
+					object: 'radar.early_fraud_warning',
+					payment_intent: paymentIntentId,
+				},
+			},
+		});
+	}
+
 	async function reviewQueue(): Promise<Array<EnforcementDecisionResponse>> {
 		const {decisions} = await createBuilder<{decisions: Array<EnforcementDecisionResponse>}>(harness, staff.token)
 			.get('/admin/enforcement-decisions?review_queue=true')
@@ -88,11 +109,31 @@ describe('Enforcement for payment fraud signals', () => {
 		return getDecision(harness, staff, decisions[0]!.decision_id);
 	}
 
-	test('a chargeback records an automated purchase limit and never suspends, closes or bans', async () => {
+	test('a chargeback opens a dispute review and records no decision', async () => {
 		const target = await createTestAccount(harness);
-		const paidAt = await purchase(target, 'pi_enforcement_chargeback');
+		await purchase(target, 'pi_enforcement_chargeback');
 		await clearTestEmails(harness);
 		await chargeback('pi_enforcement_chargeback');
+		const user = await loadUser(target);
+		expect(user.premiumFlags & PremiumFlags.PURCHASE_DISABLED).toBe(0);
+		expect(user.flags & (UserFlags.DISABLED | UserFlags.DELETED)).toBe(0n);
+		expect(user.tempBannedUntil).toBeNull();
+		expect(user.pendingDeletionAt).toBeNull();
+		expect(user.enforcementDecisionId).toBeNull();
+		expect(await new AdminRepository().isEmailBanned(target.email)).toBe(false);
+		expect(await listDecisions(harness, staff, target.userId)).toEqual([]);
+		expect(await reviewQueue()).toEqual([]);
+		expect(await emailsTo(harness, target, 'enforcement_notice')).toEqual([]);
+		expect(await new PaymentDisputeRepository().findReview('dp_pi_enforcement_chargeback')).toMatchObject({
+			status: 'open',
+		});
+	});
+
+	test('an early fraud warning records an automated purchase limit and never suspends, closes or bans', async () => {
+		const target = await createTestAccount(harness);
+		const paidAt = await purchase(target, 'pi_enforcement_efw');
+		await clearTestEmails(harness);
+		await fraudWarning('pi_enforcement_efw');
 		const user = await loadUser(target);
 		expect(user.premiumFlags & PremiumFlags.PURCHASE_DISABLED).toBe(PremiumFlags.PURCHASE_DISABLED);
 		expect(user.flags & (UserFlags.DISABLED | UserFlags.DELETED)).toBe(0n);
@@ -111,39 +152,14 @@ describe('Enforcement for payment fraud signals', () => {
 			payment_at: paidAt.toISOString(),
 			notice_status: 'sent',
 		});
-		expect(decision.notes[0]?.body).toContain('Stripe chargeback');
+		expect(decision.notes[0]?.body).toContain('Stripe early fraud warning');
 		expect(decision.notice_text).toContain(
-			'This is a temporary limit applied automatically while a person on our team reviews it.',
+			'Our automated tools applied this temporary limit, and a person on our team is reviewing it.',
 		);
 		expect(decision.notice_text).toContain('A payment on your account on ');
 		expect(decision.notice_text).not.toContain('fraud');
 		expect((await reviewQueue()).map((queued) => queued.decision_id)).toEqual([decision.decision_id]);
 		expect(await emailsTo(harness, target, 'enforcement_notice')).toHaveLength(1);
-	});
-
-	test('an early fraud warning records the same automated limit', async () => {
-		const chargeId = 'ch_enforcement_efw';
-		server.use(...createStripeApiHandlers({charges: {[chargeId]: {payment_intent: 'pi_enforcement_efw'}}}).handlers);
-		const target = await createTestAccount(harness);
-		const paidAt = await purchase(target, 'pi_enforcement_efw');
-		await sendStripeWebhook(harness, {
-			type: 'radar.early_fraud_warning.created',
-			data: {
-				object: {
-					actionable: true,
-					charge: chargeId,
-					created: Math.floor(Date.now() / 1000),
-					fraud_type: 'made_with_stolen_card',
-					id: 'issfr_enforcement',
-					livemode: false,
-					object: 'radar.early_fraud_warning',
-					payment_intent: 'pi_enforcement_efw',
-				},
-			},
-		});
-		const decision = await onlyDecision(target);
-		expect(decision).toMatchObject({automation: 'automated', limit: 'purchases', payment_at: paidAt.toISOString()});
-		expect((await loadUser(target)).pendingDeletionAt).toBeNull();
 	});
 
 	test.each([
@@ -153,7 +169,7 @@ describe('Enforcement for payment fraud signals', () => {
 	])('a %s by a person takes the account out of the review queue', async (_label, decide) => {
 		const target = await createTestAccount(harness);
 		await purchase(target, `pi_queue_${_label}`);
-		await chargeback(`pi_queue_${_label}`);
+		await fraudWarning(`pi_queue_${_label}`);
 		expect(await reviewQueue()).toHaveLength(1);
 		await decide(target);
 		expect(await reviewQueue()).toEqual([]);
@@ -166,7 +182,7 @@ describe('Enforcement for payment fraud signals', () => {
 	test('a person ending the limit clears the flag and the review queue', async () => {
 		const target = await createTestAccount(harness);
 		await purchase(target, 'pi_queue_end');
-		await chargeback('pi_queue_end');
+		await fraudWarning('pi_queue_end');
 		const decision = await onlyDecision(target);
 		await endDecision(harness, staff, decision.decision_id, 'lifted').expect(HTTP_STATUS.OK).execute();
 		expect(await reviewQueue()).toEqual([]);
@@ -176,6 +192,7 @@ describe('Enforcement for payment fraud signals', () => {
 	test('a won dispute reverses the limit as the system', async () => {
 		const target = await createTestAccount(harness);
 		await purchase(target, 'pi_dispute_won');
+		await fraudWarning('pi_dispute_won');
 		await chargeback('pi_dispute_won');
 		await clearTestEmails(harness);
 		await chargeback('pi_dispute_won', 'won');
@@ -190,6 +207,7 @@ describe('Enforcement for payment fraud signals', () => {
 	test('a lost dispute leaves the limit in place', async () => {
 		const target = await createTestAccount(harness);
 		await purchase(target, 'pi_dispute_lost');
+		await fraudWarning('pi_dispute_lost');
 		await chargeback('pi_dispute_lost');
 		await chargeback('pi_dispute_lost', 'lost');
 		expect((await onlyDecision(target)).status).toBe('active');

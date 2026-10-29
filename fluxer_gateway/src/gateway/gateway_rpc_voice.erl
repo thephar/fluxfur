@@ -4,7 +4,6 @@
 -typing([eqwalizer]).
 
 -export([execute_method/2]).
--export([normalize_voice_states/1, validate_voice_channel_read_params/1]).
 
 -spec execute_method(binary(), map()) -> term().
 execute_method(<<"voice.confirm_connection">>, P) ->

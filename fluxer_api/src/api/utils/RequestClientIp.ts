@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import {isOperatorRequest, OPERATOR_PEER_ADDRESS} from '@app/api/admin/operator/OperatorRequests';
 import {Config} from '@app/api/Config';
 import type {APIConfig} from '@app/api/config/APIConfig';
 import type {HonoEnv} from '@app/api/types/HonoEnv';
@@ -35,6 +36,9 @@ export const PeerAddressMiddleware = createMiddleware<HonoEnv>(async (ctx, next)
 });
 
 function withPeerAddress(request: Request, options: ClientIpResolutionOptions) {
+	if (isOperatorRequest(request)) {
+		return {...options, trustClientIpHeader: false, peerAddress: OPERATOR_PEER_ADDRESS};
+	}
 	return {...options, peerAddress: peerAddresses.get(request) ?? null};
 }
 

@@ -4,6 +4,8 @@ import crypto from 'node:crypto';
 import {createTestAccount} from '@app/api/auth/tests/AuthTestUtils';
 import {createUserID} from '@app/api/BrandedTypes';
 import {Config} from '@app/api/Config';
+import {setCachedAccountIdentity} from '@app/api/instance/AccountIdentityModeCache';
+import {setCachedEmailDeliveryState} from '@app/api/instance/AccountsConfigCache';
 import {getCachedInstancePremiumMode, setCachedInstancePremiumMode} from '@app/api/limits/InstancePremiumModeCache';
 import {getBillingRepository} from '@app/api/middleware/ServiceRegistry';
 import {getUserRepository} from '@app/api/middleware/ServiceSingletons';
@@ -15,25 +17,26 @@ import {
 	setStoredBillingConfig,
 } from '@app/api/stripe/BillingConfigCache';
 import {getProductRegistry, ProductRegistry, ProductType} from '@app/api/stripe/ProductRegistry';
-import {getStripeClient} from '@app/api/stripe/StripeClient';
 import {setupSyncStripeWebhookWorker, signStripeWebhook} from '@app/api/stripe/tests/StripeWebhookTestUtils';
 import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHarness';
-import {NoopLogger} from '@app/api/test/mocks/NoopLogger';
 import {
 	createMockWebhookPayload,
 	createStripeApiHandlers,
 	type StripeApiHandlers,
 } from '@app/api/test/msw/handlers/StripeApiHandlers';
 import {server} from '@app/api/test/msw/server';
+import {createTestWorkerHelpers} from '@app/api/test/SyncTaskWorkerService';
 import {HTTP_STATUS} from '@app/api/test/TestConstants';
 import {createBuilder} from '@app/api/test/TestRequestBuilder';
+import {fetchUserMe} from '@app/api/user/tests/UserTestUtils';
 import {getCurrencyPreferences, getGiftCurrencyPreferences, isLocalizedCurrency} from '@app/api/utils/CurrencyUtils';
 import processStripeWebhook from '@app/api/worker/tasks/ProcessStripeWebhook';
 import {setWorkerDependenciesForTest} from '@app/api/worker/WorkerContext';
+import {EmailDeliveryStates} from '@fluxer/constants/src/AccountConfigConstants';
+import {AccountIdentityModes, TagStyles} from '@fluxer/constants/src/AccountIdentityConstants';
 import {APIErrorCodes} from '@fluxer/constants/src/ApiErrorCodes';
+import {PremiumFlags, UserPremiumTypes} from '@fluxer/constants/src/UserConstants';
 import type {PremiumStateResponse, PriceIdsResponse} from '@fluxer/schema/src/domains/premium/PremiumSchemas';
-import type {WorkerTaskHelpers} from '@pkgs/worker/src/contracts/WorkerTask';
-import {HttpResponse, http} from 'msw';
 import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, test} from 'vitest';
 
 const ENV_CURRENCIES = ['USD', 'EUR', 'BRL', 'DKK', 'INR', 'ISK', 'NOK', 'PLN', 'SEK', 'TRY'] as const;
@@ -83,6 +86,7 @@ function operatorBilling(overrides: Partial<StoredBillingConfig> = {}): StoredBi
 		automatic_tax: null,
 		tax_id_collection: null,
 		terms_consent_required: null,
+		billing_emails: null,
 		default_currency: 'GBP',
 		prices: OPERATOR_PRICES,
 		country_currencies: {SE: 'SEK', CH: 'CHF'},
@@ -120,7 +124,7 @@ function restoreGlobalState(state: GlobalState): void {
 	setStoredBillingConfig(state.storedBilling);
 }
 
-const WORKER_HELPERS = {logger: new NoopLogger()} as unknown as WorkerTaskHelpers;
+const WORKER_HELPERS = createTestWorkerHelpers();
 
 function useOperatorBilling(overrides: Partial<StoredBillingConfig> = {}): void {
 	Config.instance.selfHosted = true;
@@ -242,6 +246,16 @@ describe('operator billing catalog', () => {
 			expect(session?.consent_collection?.terms_of_service).toBe('required');
 			expect(sessionField(session, 'automatic_tax')).toEqual({enabled: 'true'});
 			expect(sessionField(session, 'tax_id_collection')).toEqual({enabled: 'true'});
+		});
+
+		test('leaves a premium checkout at the lifetime Stripe gives it by default', async () => {
+			const token = await createPurchaser();
+			await createBuilder(harness, token)
+				.post('/stripe/checkout/gift')
+				.body({price_id: 'price_envgiftmonthusd'})
+				.expect(HTTP_STATUS.OK)
+				.execute();
+			expect(stripeHandlers.spies.createdCheckoutSessions[0]?.expires_at).toBeUndefined();
 		});
 
 		test('opens the portal with the stored customer on hosted without checking it first', async () => {
@@ -494,44 +508,61 @@ describe('operator billing catalog', () => {
 			expect(message).toContain('Premium');
 			expect(message).not.toContain('Plutonium');
 		});
-	});
 
-	describe('stripe client', () => {
-		test('is shared while the secret stays the same and rebuilt when it changes', () => {
-			useOperatorBilling();
-			const first = getStripeClient();
-			expect(first).not.toBeNull();
-			expect(getStripeClient()).toBe(first);
-			setStoredBillingConfig(operatorBilling({stripe_secret_key: 'sk_test_operator_b'}));
-			const second = getStripeClient();
-			expect(second).not.toBeNull();
-			expect(second).not.toBe(first);
+		test('blocks checkout for an account with the purchases limit but lets it redeem a gift', async () => {
+			const token = await createPurchaser();
+			const {json: me} = await fetchUserMe(harness, token);
+			const user = await getUserRepository().findUniqueAssert(createUserID(BigInt(me.id)));
+			const code = `limit${crypto.randomUUID().replaceAll('-', '').slice(0, 20)}`;
+			await createBuilder(harness, token)
+				.post(`/test/gifts/${code}`)
+				.body({duration_type: 'months', duration_quantity: 1, created_by_user_id: me.id})
+				.execute();
+			await getUserRepository().patchUpsert(user.id, {premium_flags: PremiumFlags.PURCHASE_DISABLED}, user.toRow());
+			await createBuilder(harness, token)
+				.post('/stripe/checkout/subscription')
+				.body({price_id: 'price_opgbpmonthly'})
+				.expect(HTTP_STATUS.FORBIDDEN, APIErrorCodes.PREMIUM_PURCHASE_BLOCKED)
+				.execute();
+			await createBuilder(harness, token)
+				.post('/stripe/checkout/gift')
+				.body({price_id: 'price_opgbpgiftmonth'})
+				.expect(HTTP_STATUS.FORBIDDEN, APIErrorCodes.PREMIUM_PURCHASE_BLOCKED)
+				.execute();
+			expect(stripeHandlers.spies.createdCheckoutSessions).toHaveLength(0);
+			await createBuilder(harness, token).post(`/gifts/${code}/redeem`).expect(HTTP_STATUS.NO_CONTENT).execute();
+			expect((await getUserRepository().findUniqueAssert(user.id)).premiumType).toBe(UserPremiumTypes.SUBSCRIPTION);
 		});
 
-		test('sends requests with the currently stored secret key', async () => {
-			const authorizations: Array<string | null> = [];
-			server.use(
-				http.get('https://api.stripe.com/v1/prices/:id', ({request, params}) => {
-					authorizations.push(request.headers.get('authorization'));
-					return HttpResponse.json({id: params.id, object: 'price', unit_amount: 500, currency: 'gbp'});
-				}),
-			);
-			const suffix = crypto.randomBytes(4).toString('hex');
-			const pricesFor = (tag: string) => ({
-				GBP: {
-					monthly: `price_${tag}${suffix}monthly`,
-					yearly: `price_${tag}${suffix}yearly`,
-					gift_1_month: `price_${tag}${suffix}giftmonth`,
-					gift_1_year: `price_${tag}${suffix}giftyear`,
-				},
-			});
-			useOperatorBilling({stripe_secret_key: 'sk_test_rotate_a', prices: pricesFor('a')});
-			await createBuilder(harness, '').get('/premium/price-ids').expect(HTTP_STATUS.OK).execute();
-			setStoredBillingConfig(operatorBilling({stripe_secret_key: 'sk_test_rotate_b', prices: pricesFor('b')}));
-			await createBuilder(harness, '').get('/premium/price-ids').expect(HTTP_STATUS.OK).execute();
-			expect(authorizations.slice(0, 4).every((value) => value === 'Bearer sk_test_rotate_a')).toBe(true);
-			expect(authorizations.slice(4)).toHaveLength(4);
-			expect(authorizations.slice(4).every((value) => value === 'Bearer sk_test_rotate_b')).toBe(true);
+		test('lets an account without an email buy on a username instance and leaves the email to checkout', async () => {
+			const account = await createAccount();
+			const user = await getUserRepository().findUniqueAssert(createUserID(BigInt(account.userId)));
+			await getUserRepository().patchUpsert(user.id, {email: null, email_verified: false}, user.toRow());
+			setCachedAccountIdentity({mode: AccountIdentityModes.USERNAME, tagStyle: TagStyles.NONE});
+			setCachedEmailDeliveryState(EmailDeliveryStates.OFF_DISABLED);
+			try {
+				await createBuilder<{url: string}>(harness, account.token)
+					.post('/stripe/checkout/gift')
+					.body({price_id: 'price_opgbpgiftmonth'})
+					.expect(HTTP_STATUS.OK)
+					.execute();
+				await createBuilder<{url: string}>(harness, account.token)
+					.post('/stripe/checkout/subscription')
+					.body({price_id: 'price_opgbpmonthly'})
+					.expect(HTTP_STATUS.OK)
+					.execute();
+			} finally {
+				setCachedAccountIdentity(null);
+				setCachedEmailDeliveryState(null);
+			}
+			const sessions = stripeHandlers.spies.createdCheckoutSessions;
+			expect(sessions.map((session) => session.mode)).toEqual(['payment', 'subscription']);
+			const customerId = (await getUserRepository().findUniqueAssert(user.id)).stripeCustomerId;
+			expect(customerId).toBeTruthy();
+			for (const session of sessions) {
+				expect(session.customer).toBe(customerId);
+				expect(session.customer_email).toBeUndefined();
+			}
 		});
 	});
 

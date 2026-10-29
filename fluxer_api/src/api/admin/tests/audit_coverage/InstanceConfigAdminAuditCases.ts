@@ -90,7 +90,7 @@ export const InstanceConfigAdminAuditCases: ReadonlyArray<AdminAuditCoverageCase
 					action: 'test_smtp_connection',
 					targetType: 'instance_config',
 					targetId: '0',
-					metadata: {port: '1', tls_mode: 'none', ok: 'false'},
+					metadata: {port: '1', tls_mode: 'none', ok: 'false', sent_message: 'false'},
 				},
 			};
 		},
@@ -122,6 +122,22 @@ export const InstanceConfigAdminAuditCases: ReadonlyArray<AdminAuditCoverageCase
 				request: {path: `/admin/instance/registration-urls/${registrationUrlId}`},
 				expected: {
 					action: 'revoke_registration_url',
+					targetType: 'registration_url',
+					targetId: '0',
+					metadata: {},
+				},
+			};
+		},
+	},
+	{
+		method: 'PATCH',
+		route: '/admin/instance/registration-urls/:registration_url_id',
+		async prepare({harness, admin}) {
+			const registrationUrlId = await createRegistrationUrl(harness, admin);
+			return {
+				request: {path: `/admin/instance/registration-urls/${registrationUrlId}`, body: {label: 'Renamed'}},
+				expected: {
+					action: 'rename_registration_url',
 					targetType: 'registration_url',
 					targetId: '0',
 					metadata: {},

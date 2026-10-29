@@ -583,7 +583,13 @@ export const EmbedGifv: FC<
 		const handleVideoError = useAttachmentRefreshOnError(videoProxyURL);
 		const [containerElement, setContainerElement] = useState<HTMLDivElement | null>(null);
 		const {isPointerInside, hasFocusInside} = useMediaSurfaceInteraction(containerElement);
-		const {shouldBlur, gateReason, canReveal, reveal: revealSensitiveMedia} = useMatureMedia(nsfw, channelId);
+		const {
+			shouldBlur,
+			shouldBlock,
+			gateReason,
+			canReveal,
+			reveal: revealSensitiveMedia,
+		} = useMatureMedia(nsfw, channelId);
 		const {
 			ref: visibilityRef,
 			loadMedia: shouldLoadMedia,
@@ -684,6 +690,10 @@ export const EmbedGifv: FC<
 			video.autoplay = false;
 			safePause(video);
 		}, [shouldPlay]);
+
+		if (shouldBlock) {
+			return null;
+		}
 
 		return (
 			<GifEmbedShell
@@ -811,7 +821,13 @@ export const EmbedGif: FC<
 		const mediaCalculator = useEmbedMediaCalculator(layoutConstraints);
 		const [containerElement, setContainerElement] = useState<HTMLDivElement | null>(null);
 		const {isPointerInside, hasFocusInside} = useMediaSurfaceInteraction(containerElement);
-		const {shouldBlur, gateReason, canReveal, reveal: revealSensitiveMedia} = useMatureMedia(nsfw, channelId);
+		const {
+			shouldBlur,
+			shouldBlock,
+			gateReason,
+			canReveal,
+			reveal: revealSensitiveMedia,
+		} = useMatureMedia(nsfw, channelId);
 		const {
 			ref: visibilityRef,
 			loadMedia: shouldLoadMedia,
@@ -922,6 +938,10 @@ export const EmbedGif: FC<
 			},
 			[baseProxyURL],
 		);
+
+		if (shouldBlock) {
+			return null;
+		}
 
 		return (
 			<GifEmbedShell

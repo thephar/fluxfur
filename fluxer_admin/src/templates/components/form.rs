@@ -182,6 +182,44 @@ pub fn form_field_group(
     }
 }
 
+pub(crate) struct NumberField<'a> {
+    pub name: &'a str,
+    pub label: &'a str,
+    pub value: &'a str,
+    pub min: Option<u32>,
+    pub max: Option<u32>,
+    pub step: &'a str,
+    pub helper: Option<&'a str>,
+    pub placeholder: Option<&'a str>,
+}
+
+impl NumberField<'_> {
+    pub(crate) fn render(self) -> Markup {
+        let Self {
+            name,
+            label,
+            value,
+            min,
+            max,
+            step,
+            helper,
+            placeholder,
+        } = self;
+        form_field_group(
+            label,
+            name,
+            false,
+            None,
+            helper,
+            html! {
+                input type="number" id=(name) name=(name) step=(step)
+                    value=(value) placeholder=[placeholder]
+                    min=[min] max=[max] class=(FORM_INPUT_CLASS);
+            },
+        )
+    }
+}
+
 pub fn textarea_input(
     name: &str,
     label: &str,
@@ -209,20 +247,37 @@ pub fn textarea_input(
 
 const CHECKMARK_SVG: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" style="stroke-width:32"><polyline points="40 144 96 200 224 72" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/></svg>"#;
 
-pub fn checkbox(name: &str, value: &str, label: &str, checked: bool, enabled: bool) -> Markup {
-    html! {
-        label class={
-            "group flex w-full items-center gap-2 "
-            (if enabled { "cursor-pointer" } else { "cursor-not-allowed opacity-60" })
-        } {
-            input type="checkbox" name=(name) value=(value)
-                checked[checked]
-                disabled[!enabled]
-                class="hidden";
-            div class="checkbox-custom" {
-                (PreEscaped(CHECKMARK_SVG))
+pub(crate) struct Checkbox<'a> {
+    pub name: &'a str,
+    pub value: &'a str,
+    pub label: &'a str,
+    pub checked: bool,
+    pub enabled: bool,
+}
+
+impl Checkbox<'_> {
+    pub fn render(self) -> Markup {
+        let Self {
+            name,
+            value,
+            label,
+            checked,
+            enabled,
+        } = self;
+        html! {
+            label class={
+                "group flex w-full items-center gap-2 "
+                (if enabled { "cursor-pointer" } else { "cursor-not-allowed opacity-60" })
+            } {
+                input type="checkbox" name=(name) value=(value)
+                    checked[checked]
+                    disabled[!enabled]
+                    class="hidden";
+                div class="checkbox-custom" {
+                    (PreEscaped(CHECKMARK_SVG))
+                }
+                span class="min-w-0 [overflow-wrap:anywhere] text-sm leading-5 text-neutral-900" { (label) }
             }
-            span class="min-w-0 [overflow-wrap:anywhere] text-sm leading-5 text-neutral-900" { (label) }
         }
     }
 }
@@ -230,7 +285,13 @@ pub fn checkbox(name: &str, value: &str, label: &str, checked: bool, enabled: bo
 pub fn opt_out_checkbox(name: &str, label: &str) -> Markup {
     html! {
         input type="hidden" name={(name) "_present"} value="1";
-        (checkbox(name, "true", label, true, true))
+        (Checkbox {
+            name,
+            value: "true",
+            label,
+            checked: true,
+            enabled: true,
+        }.render())
     }
 }
 

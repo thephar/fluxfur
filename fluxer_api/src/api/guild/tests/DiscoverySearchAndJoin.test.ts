@@ -18,8 +18,8 @@ import {setInjectedGatewayService} from '@app/api/middleware/ServiceRegistry';
 import {getGuildRepository} from '@app/api/middleware/ServiceSingletons';
 import {banUser} from '@app/api/moderation/tests/ModerationTestUtils';
 import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHarness';
-import {NoopLogger} from '@app/api/test/mocks/NoopLogger';
 import {NoopGatewayService} from '@app/api/test/NoopGatewayService';
+import {createTestWorkerHelpers} from '@app/api/test/SyncTaskWorkerService';
 import {HTTP_STATUS} from '@app/api/test/TestConstants';
 import {createBuilder} from '@app/api/test/TestRequestBuilder';
 import syncDiscoveryIndex from '@app/api/worker/tasks/SyncDiscoveryIndex';
@@ -34,7 +34,6 @@ import type {
 	DiscoveryGuildListResponse,
 } from '@fluxer/schema/src/domains/guild/GuildDiscoverySchemas';
 import {MockKVProvider} from '@pkgs/kv_client/src/testing/MockKVProvider';
-import type {WorkerTaskHelpers} from '@pkgs/worker/src/contracts/WorkerTask';
 import {afterEach, beforeEach, describe, expect, test} from 'vitest';
 
 async function setGuildMemberCount(harness: ApiTestHarness, guildId: string, memberCount: number): Promise<void> {
@@ -48,8 +47,6 @@ interface LiveGuildCounts {
 	memberCount: number;
 	onlineCount: number;
 }
-
-const WORKER_HELPERS = {logger: new NoopLogger()} as unknown as WorkerTaskHelpers;
 
 class CapturingPublisher implements ActivityPublisher {
 	readonly events: Array<Event> = [];
@@ -162,7 +159,7 @@ describe('Discovery Search and Join', () => {
 			expect(firstPage.guilds.map((guild) => guild.id)).toEqual([guildIds[0], guildIds[1]]);
 			liveCounts.set(guildIds[0], {memberCount: 5, onlineCount: 0});
 			setWorkerDependenciesForTest({guildRepository: getGuildRepository(), gatewayService});
-			await syncDiscoveryIndex({}, WORKER_HELPERS);
+			await syncDiscoveryIndex({}, createTestWorkerHelpers());
 			const secondPage = await createBuilder<DiscoveryGuildListResponse>(harness, searcher.token)
 				.get('/discovery/guilds?sort_by=member_count&limit=2&offset=2')
 				.expect(HTTP_STATUS.OK)

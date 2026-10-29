@@ -81,7 +81,7 @@ export function shouldDisableHardwareAccelerationForLaunch(argv: ReadonlyArray<s
 	return hasFlag(argv, DISABLE_HARDWARE_ACCELERATION_ARGS) || isSafeModeLaunch(argv);
 }
 
-export function resolveEffectiveDesktopTroubleshootingSettings(
+function resolveEffectiveDesktopTroubleshootingSettings(
 	settings: DesktopTroubleshootingSettings,
 	argv: ReadonlyArray<string>,
 	platform: NodeJS.Platform,
@@ -178,10 +178,8 @@ function formatSystemArchitecture(desktopInfo: DesktopInfo): string {
 }
 
 function getBuildString(desktopInfo: DesktopInfo): string {
-	const buildVersion = process.env.PUBLIC_BUILD_VERSION || process.env.BUILD_VERSION || desktopInfo.version || 'dev';
-	const releaseChannel = formatReleaseChannelLabel(
-		process.env.PUBLIC_RELEASE_CHANNEL || process.env.RELEASE_CHANNEL || desktopInfo.channel,
-	);
+	const buildVersion = process.env.BUILD_VERSION || desktopInfo.version || 'dev';
+	const releaseChannel = formatReleaseChannelLabel(process.env.BUILD_CHANNEL || desktopInfo.channel);
 	return `${releaseChannel} Desktop ${buildVersion}`;
 }
 

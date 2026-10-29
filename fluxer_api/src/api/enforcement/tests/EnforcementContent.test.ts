@@ -9,7 +9,6 @@ import {
 	sendChannelMessage,
 	setupTestGuildWithMembers,
 } from '@app/api/channel/tests/ChannelTestUtils';
-import {EnforcementDecisionRepository} from '@app/api/enforcement/EnforcementDecisionRepository';
 import {formatNoticeMonth} from '@app/api/enforcement/NoticeDates';
 import {
 	createStaff,
@@ -31,7 +30,7 @@ import {HTTP_STATUS} from '@app/api/test/TestConstants';
 import {createBuilder} from '@app/api/test/TestRequestBuilder';
 import {DeletionReasons} from '@fluxer/constants/src/Core';
 import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
-import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi} from 'vitest';
+import {afterAll, beforeAll, beforeEach, describe, expect, test} from 'vitest';
 
 interface ValidationErrorBody {
 	errors: Array<{path: string; code: string}>;
@@ -68,10 +67,6 @@ describe('Enforcement content, profile and community decisions', () => {
 		setInjectedWorkerService(worker);
 		resetApiServicesForTesting();
 		staff = await createStaff(harness);
-	});
-
-	afterEach(() => {
-		vi.restoreAllMocks();
 	});
 
 	afterAll(async () => {
@@ -167,23 +162,11 @@ describe('Enforcement content, profile and community decisions', () => {
 			expect(worker.byTask('messageShred')).toEqual([]);
 		});
 
-		test('a restricted shred stores every entry without content before the job is queued', async () => {
+		test('a restricted shred stores every entry without content', async () => {
 			const {target, entries} = await guildMessages(2);
-			const repository = new EnforcementDecisionRepository();
-			const queuedWithEvidence: Array<number> = [];
-			const addJob = worker.addJob.bind(worker);
-			vi.spyOn(worker, 'addJob').mockImplementation(async (taskType, payload, options) => {
-				if (taskType === 'messageShred') {
-					const [decision] = await repository.listBySubject('user', BigInt(target.userId), 1);
-					const evidence = decision ? await repository.getEvidence(decision.decision_id) : null;
-					queuedWithEvidence.push(evidence?.messages?.length ?? 0);
-				}
-				return addJob(taskType, payload, options);
-			});
 			const response = await shredRequest(target.userId, {entries, basis: enforcement(RESTRICTED)})
 				.expect(HTTP_STATUS.OK)
 				.execute();
-			expect(queuedWithEvidence).toEqual([2]);
 			const decision = await getDecision(harness, staff, response.decision_id!);
 			expect(decision.evidence.map((message) => [message.message_id, message.content])).toEqual(
 				entries.map((entry) => [entry.message_id, null]),
@@ -371,7 +354,9 @@ describe('Enforcement content, profile and community decisions', () => {
 				.expect(HTTP_STATUS.OK)
 				.execute();
 			const decision = await getDecision(harness, staff, response.decision_id!);
-			expect(decision.notice.how_we_decided[0]).toBe('We reviewed this after a report.');
+			expect(decision.notice.how_we_decided[0]).toBe(
+				'We reviewed this after a report, and a person on our team made the decision.',
+			);
 			expect(decision.notice.facts).toContain(
 				`1 message in a direct message conversation in ${formatNoticeMonth(new Date(), 'en-US')}.`,
 			);

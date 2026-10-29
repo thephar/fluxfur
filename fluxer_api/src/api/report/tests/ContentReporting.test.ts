@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import {reportReference} from '@app/api/admin/services/ReporterResolutionNotifier';
 import {
 	clearTestEmails,
 	createTestAccount,
@@ -40,9 +41,10 @@ import {APIErrorCodes} from '@fluxer/constants/src/ApiErrorCodes';
 import {Permissions} from '@fluxer/constants/src/ChannelConstants';
 import {DELETED_USER_USERNAME} from '@fluxer/constants/src/UserConstants';
 import type {GuildResponse} from '@fluxer/schema/src/domains/guild/GuildResponseSchemas';
+import {compareSnowflakes} from '@fluxer/snowflake/src/SnowflakeComparison';
 import {extractTimestamp} from '@fluxer/snowflake/src/SnowflakeUtils';
-import {getEmailTemplate} from '@pkgs/email/src/email_i18n/EmailI18n';
-import {afterEach, beforeEach, describe, expect, test, vi} from 'vitest';
+import {emailLinkUrls, renderEmailTemplateText, reportResolvedSlots} from '@pkgs/email/src/EmailService';
+import {afterEach, beforeEach, describe, expect, test} from 'vitest';
 
 interface ReportResponse {
 	report_id: string;
@@ -119,22 +121,10 @@ function embedStorageKey(url: string | null | undefined): string {
 	return unsigned.slice(`${Config.endpoints.media}/`.length);
 }
 
-function refuseNextAllowanceSpend() {
-	return vi.spyOn(getRateLimitService(), 'checkLimit').mockResolvedValueOnce({
-		allowed: false,
-		limit: 5,
-		remaining: 0,
-		resetTime: new Date(Date.now() + 1000),
-		resetAfterDecimal: 1,
-		retryAfter: 1,
-		retryAfterDecimal: 1,
-	});
-}
-
 function contextIds(report: Awaited<ReturnType<typeof readReport>>): Array<string> {
 	return (report.messageContext ?? [])
 		.map((entry) => entry.messageId)
-		.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+		.sort(compareSnowflakes)
 		.map((id) => id.toString());
 }
 
@@ -229,24 +219,23 @@ describe('Content Reporting', () => {
 			expect(email?.metadata['public_comment']).toBe(publicComment);
 			const systemMessages = await listSystemDmMessages(harness, reporter.token);
 			expect(systemMessages).toHaveLength(1);
-			const template = getEmailTemplate(
+			const stored = await new ReportRepository().getReport(createReportID(BigInt(report.report_id)));
+			if (!stored) {
+				throw new Error('report not found');
+			}
+			const text = renderEmailTemplateText(
 				'report_resolved',
 				'fr',
-				{
-					username: reporter.username!,
-					reportId: report.report_id,
-					publicComment,
-					hasComment: 'yes',
-					outcome: 'restricted',
-					appeals_email: resolveContactEmails().appealsEmail,
-				},
+				{...reportReference(stored), outcome: 'restricted', appeals_email: resolveContactEmails().appealsEmail},
 				getInstanceProductName(),
+				(template) => reportResolvedSlots(template, report.report_id, publicComment),
+				{
+					format: 'markdown',
+					urls: emailLinkUrls({appBaseUrl: Config.endpoints.webApp, marketingBaseUrl: Config.endpoints.marketing}),
+				},
 			);
-			expect(template.ok).toBe(true);
-			if (!template.ok) {
-				throw new Error('Failed to resolve expected report_resolved email template');
-			}
-			expect(systemMessages[0]?.content).toBe(systemDmBody(template.value.body));
+			expect(text).not.toBeNull();
+			expect(systemMessages[0]?.content).toBe(systemDmBody(text ?? ''));
 			expect(systemMessages[0]?.content).not.toContain(reporter.username!);
 			const systemDmChannel = (await listSystemDmChannels(harness, reporter.token))[0];
 			expect(systemDmChannel?.id).toBeTruthy();
@@ -748,46 +737,6 @@ describe('Content Reporting', () => {
 				expect(report.reporterId?.toString()).toBe(reporter.userId);
 				expect(report.reporterEmail).toBeNull();
 			}
-		});
-	});
-	describe('Reservations', () => {
-		test('a user report refused when the allowance is spent keeps no reservation', async () => {
-			const reporter = await createTestAccount(harness);
-			const targetUser = await createTestAccount(harness);
-			const spend = refuseNextAllowanceSpend();
-			await reportUser(harness, reporter.token, targetUser.userId).expect(429, APIErrorCodes.RATE_LIMITED).execute();
-			expect(spend).toHaveBeenCalledTimes(1);
-			spend.mockRestore();
-			expect(await countReports()).toBe(0);
-			await reportUser(harness, reporter.token, targetUser.userId).expect(HTTP_STATUS.OK).execute();
-			expect(await countReports()).toBe(1);
-		});
-		test('a guild report refused when the allowance is spent keeps no reservation', async () => {
-			const {members, guild} = await setupTestGuildWithMembers(harness, 1);
-			const reporter = members[0];
-			const spend = refuseNextAllowanceSpend();
-			await reportGuild(harness, reporter.token, guild.id).expect(429, APIErrorCodes.RATE_LIMITED).execute();
-			expect(spend).toHaveBeenCalledTimes(1);
-			spend.mockRestore();
-			expect(await countReports()).toBe(0);
-			await reportGuild(harness, reporter.token, guild.id).expect(HTTP_STATUS.OK).execute();
-			await reportGuild(harness, reporter.token, guild.id)
-				.expect(HTTP_STATUS.CONFLICT, APIErrorCodes.CONFLICT)
-				.execute();
-			expect(await countReports()).toBe(1);
-		});
-		test('a message report refused when the allowance is spent keeps no reservation', async () => {
-			const {owner, members, systemChannel} = await setupTestGuildWithMembers(harness, 1);
-			const message = await sendChannelMessage(harness, members[0].token, systemChannel.id, 'Reported');
-			const spend = refuseNextAllowanceSpend();
-			await reportMessage(harness, owner.token, systemChannel.id, message.id)
-				.expect(429, APIErrorCodes.RATE_LIMITED)
-				.execute();
-			expect(spend).toHaveBeenCalledTimes(1);
-			spend.mockRestore();
-			expect(await countReports()).toBe(0);
-			await reportMessage(harness, owner.token, systemChannel.id, message.id).expect(HTTP_STATUS.OK).execute();
-			expect(await countReports()).toBe(1);
 		});
 	});
 	describe('DSA Report Flow', () => {

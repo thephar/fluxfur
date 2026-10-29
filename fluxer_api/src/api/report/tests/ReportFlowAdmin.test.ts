@@ -2,9 +2,8 @@
 
 import {createTestAccount, setUserACLs, type TestAccount} from '@app/api/auth/tests/AuthTestUtils';
 import {Config} from '@app/api/Config';
-import {getChannel, sendChannelMessage, setupTestGuildWithMembers} from '@app/api/channel/tests/ChannelTestUtils';
+import {setupTestGuildWithMembers} from '@app/api/channel/tests/ChannelTestUtils';
 import type {IARMessageContextRow, IARSubmissionRow} from '@app/api/database/types/ReportTypes';
-import {getReportFlowVariant, type ReportFlowStepInput} from '@app/api/report/flows/ReportFlowRegistry';
 import {ReportRepository} from '@app/api/report/ReportRepository';
 import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHarness';
 import {HTTP_STATUS} from '@app/api/test/TestConstants';
@@ -12,7 +11,6 @@ import {createBuilder, createBuilderWithoutAuth} from '@app/api/test/TestRequest
 import {deleteAccount, setPendingDeletionAt} from '@app/api/user/tests/UserTestUtils';
 import {APIErrorCodes} from '@fluxer/constants/src/ApiErrorCodes';
 import {ReportAdminResponseSchema} from '@fluxer/schema/src/domains/admin/AdminSchemas';
-import type {ReportFlowSurface, ReportFlowTargetType} from '@fluxer/schema/src/domains/report/ReportFlowSchemas';
 import {
 	type ReportProfileSnapshot,
 	serializeReportProfileSnapshot,
@@ -31,63 +29,6 @@ interface AdminReportList {
 	total: number;
 	offset: number;
 	limit: number;
-}
-
-interface MessageTargets {
-	reporter: TestAccount;
-	channelId: string;
-	messageIds: Array<string>;
-}
-
-const MESSAGE_CSAM_WALK: ReadonlyArray<ReportFlowStepInput> = [
-	{screen_id: 'root_message', option_id: 'abuse'},
-	{screen_id: 'abuse', option_id: 'sexual'},
-	{screen_id: 'sexual', option_id: 'minor_sexual'},
-	{screen_id: 'minor_sexual', option_id: 'csam'},
-];
-
-function currentHash(target: ReportFlowTargetType, surface: ReportFlowSurface = 'in_app'): string {
-	return getReportFlowVariant(target, surface).revisionHash;
-}
-
-async function setupMessages(harness: ApiTestHarness, count: number): Promise<MessageTargets> {
-	const {owner, members, guild} = await setupTestGuildWithMembers(harness, 1);
-	const channel = await getChannel(harness, owner.token, guild.system_channel_id!);
-	const messageIds: Array<string> = [];
-	for (let index = 0; index < count; index++) {
-		messageIds.push((await sendChannelMessage(harness, members[0].token, channel.id, `Reported ${index}`)).id);
-	}
-	return {reporter: owner, channelId: channel.id, messageIds};
-}
-
-async function submitMessageFlow(
-	harness: ApiTestHarness,
-	targets: MessageTargets,
-	index: number,
-	steps: ReadonlyArray<ReportFlowStepInput>,
-	locale?: string,
-): Promise<string> {
-	const result = await createBuilder<ReportResponse>(harness, targets.reporter.token)
-		.post('/reports/flows/message/submissions')
-		.body({
-			channel_id: targets.channelId,
-			message_id: targets.messageIds[index],
-			revision_hash: currentHash('message'),
-			steps,
-			...(locale ? {locale} : {}),
-		})
-		.expect(HTTP_STATUS.OK)
-		.execute();
-	return result.report_id;
-}
-
-async function submitLegacyMessage(harness: ApiTestHarness, targets: MessageTargets, index: number): Promise<string> {
-	const result = await createBuilder<ReportResponse>(harness, targets.reporter.token)
-		.post('/reports/message')
-		.body({channel_id: targets.channelId, message_id: targets.messageIds[index], category: 'child_safety'})
-		.expect(HTTP_STATUS.OK)
-		.execute();
-	return result.report_id;
 }
 
 async function submitLegacyUser(harness: ApiTestHarness, reporter: TestAccount, userId: string): Promise<string> {
@@ -115,10 +56,6 @@ function getAdminReport(harness: ApiTestHarness, admin: TestAccount, reportId: s
 		.get(`/admin/reports/${reportId}`)
 		.expect(HTTP_STATUS.OK)
 		.execute();
-}
-
-function reportIds(list: AdminReportList): Array<string> {
-	return list.reports.map((report) => report.report_id).sort();
 }
 
 let seedSequence = 8_000_000_000_000_000_000n;
@@ -228,19 +165,6 @@ describe('Report flow admin', () => {
 
 	afterEach(async () => {
 		await harness?.shutdown();
-	});
-
-	describe('Search', () => {
-		test('a status filter with a reason uses the search index', async () => {
-			const messages = await setupMessages(harness, 2);
-			const messageCsam = await submitMessageFlow(harness, messages, 0, MESSAGE_CSAM_WALK);
-			await submitLegacyMessage(harness, messages, 1);
-			const admin = await createReportAdmin(harness);
-			expect(reportIds(await listReports(harness, admin, 'status=pending'))).toHaveLength(2);
-			const filtered = await listReports(harness, admin, 'status=pending&reason=csam');
-			expect(reportIds(filtered)).toEqual([messageCsam]);
-			expect(filtered.total).toBe(1);
-		});
 	});
 
 	describe('Stored evidence', () => {

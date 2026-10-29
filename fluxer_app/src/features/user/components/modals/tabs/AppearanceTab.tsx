@@ -25,7 +25,7 @@ import {
 	canResetAppZoomLevel,
 } from '@app/features/user/components/modals/tabs/appearance_tab/ScalingTab';
 import {StreamerModeTabContent} from '@app/features/user/components/modals/tabs/appearance_tab/StreamerModeTab';
-import {ThemeTabContent} from '@app/features/user/components/modals/tabs/appearance_tab/theme/ThemeTabContent';
+import {ThemesLinkContent} from '@app/features/user/components/modals/tabs/appearance_tab/ThemesLinkContent';
 import inlineStyles from '@app/features/user/components/modals/tabs/TabInline.module.css';
 import {shouldShowAppZoomLevel} from '@app/features/user/components/settings_utils/AppZoomLevelUtils';
 import {
@@ -48,7 +48,7 @@ const AppearanceSections = observer(() => {
 	return (
 		<>
 			<SettingsSection id="theme" title={i18n._(THEME_DESCRIPTOR)} data-flx="user.appearance-tab.theme">
-				<ThemeTabContent data-flx="user.appearance-tab.theme-tab-content" />
+				<ThemesLinkContent data-flx="user.appearance-tab.themes-link-content" />
 			</SettingsSection>
 
 			{showHdrSettings ? (

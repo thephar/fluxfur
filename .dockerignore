@@ -14,8 +14,6 @@
 **/.env.*.local
 **/.env.local
 /config/env/local.env
-/deploy/self-hosting/.env.*
-!/deploy/self-hosting/.env.example
 
 **/*.css.d.ts
 **/*.tsbuildinfo
@@ -52,7 +50,6 @@
 /artifacts/
 /desktop-shared-assets/
 /desktop-modules/
-/s3_payload/
 /upload_staging/
 
 

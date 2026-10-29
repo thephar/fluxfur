@@ -272,6 +272,49 @@ const FavoriteChannelResolvedItem = observer(
 			);
 		};
 		const canInvite = channel.guildId && InviteUtils.canInviteToChannel(channel.id, channel.guildId);
+		let avatarNode: React.ReactNode;
+		if (isGroupDM) {
+			avatarNode = (
+				<GroupDMAvatar
+					channel={channel}
+					size={24}
+					data-flx="app.favorites-channel-list-content.favorite-channel-item.group-dm-avatar"
+				/>
+			);
+		} else if (recipient) {
+			avatarNode = (
+				<StatusAwareAvatar
+					user={recipient}
+					size={24}
+					isTyping={isTyping}
+					showOffline={true}
+					className={favoritesChannelListStyles.avatar}
+					data-flx="app.favorites-channel-list-content.favorite-channel-item.status-aware-avatar"
+				/>
+			);
+		} else if (guild) {
+			avatarNode = (
+				<GuildIcon
+					id={guild.id}
+					name={guild.name}
+					icon={guild.icon}
+					className={favoritesChannelListStyles.avatar}
+					sizePx={24}
+					containerProps={{'aria-hidden': true}}
+					data-flx="app.favorites-channel-list-content.favorite-channel-item.guild-icon"
+				/>
+			);
+		} else {
+			avatarNode = (
+				<div
+					className={favoritesChannelListStyles.avatarPlaceholder}
+					aria-hidden
+					data-flx="app.favorites-channel-list-content.favorite-channel-item.div--4"
+				>
+					{i18n._(DIRECT_MESSAGE_ABBREVIATION_DESCRIPTOR)}
+				</div>
+			);
+		}
 		return (
 			<GenericChannelItem
 				ref={refs}
@@ -317,40 +360,7 @@ const FavoriteChannelResolvedItem = observer(
 					className={favoritesChannelListStyles.avatarContainer}
 					data-flx="app.favorites-channel-list-content.favorite-channel-item.div--3"
 				>
-					{isGroupDM ? (
-						<GroupDMAvatar
-							channel={channel}
-							size={24}
-							data-flx="app.favorites-channel-list-content.favorite-channel-item.group-dm-avatar"
-						/>
-					) : recipient ? (
-						<StatusAwareAvatar
-							user={recipient}
-							size={24}
-							isTyping={isTyping}
-							showOffline={true}
-							className={favoritesChannelListStyles.avatar}
-							data-flx="app.favorites-channel-list-content.favorite-channel-item.status-aware-avatar"
-						/>
-					) : guild ? (
-						<GuildIcon
-							id={guild.id}
-							name={guild.name}
-							icon={guild.icon}
-							className={favoritesChannelListStyles.avatar}
-							sizePx={24}
-							containerProps={{'aria-hidden': true}}
-							data-flx="app.favorites-channel-list-content.favorite-channel-item.guild-icon"
-						/>
-					) : (
-						<div
-							className={favoritesChannelListStyles.avatarPlaceholder}
-							aria-hidden
-							data-flx="app.favorites-channel-list-content.favorite-channel-item.div--4"
-						>
-							{i18n._(DIRECT_MESSAGE_ABBREVIATION_DESCRIPTOR)}
-						</div>
-					)}
+					{avatarNode}
 					{!channel.isPrivate() && (
 						<div
 							className={clsx(

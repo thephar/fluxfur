@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {useLocation} from '@app/features/platform/components/router/RouterReact';
+import {OperatorPassCheckoutSuccess} from '@app/features/premium/components/operator_pass/OperatorPassCheckoutSuccess';
 import styles from '@app/features/premium/components/pages/PremiumCallbackPage.module.css';
+import {isOperatorPassAvailable} from '@app/features/premium/utils/OperatorPassUtils';
 import {shouldShowPremiumFeatures} from '@app/features/premium/utils/PremiumUtils';
 import {Trans} from '@lingui/react/macro';
 import {CheckCircleIcon, XCircleIcon} from '@phosphor-icons/react';
@@ -20,6 +22,7 @@ const PremiumCallbackPage = observer(() => {
 	if (!shouldShowPremiumFeatures()) {
 		return null;
 	}
+	const isOperatorPass = isOperatorPassAvailable() && queryParams.get('product') === 'operator_pass';
 	const isSuccess = status === 'success';
 	const isCancel = status === 'cancel';
 	const isClosedBillingPortal = status === 'closed-billing-portal';
@@ -32,14 +35,21 @@ const PremiumCallbackPage = observer(() => {
 						weight="fill"
 						data-flx="premium.premium-callback-page.success-icon"
 					/>
-					<div className={styles.content} data-flx="premium.premium-callback-page.content">
-						<h1 className={styles.title} data-flx="premium.premium-callback-page.title">
-							<Trans>Payment successful</Trans>
-						</h1>
-						<p className={styles.description} data-flx="premium.premium-callback-page.description">
-							<Trans>Your payment was successful. You can now close this tab and return to the app.</Trans>
-						</p>
-					</div>
+					{isOperatorPass ? (
+						<OperatorPassCheckoutSuccess
+							sessionId={queryParams.get('session_id')}
+							data-flx="premium.premium-callback-page.operator-pass-success"
+						/>
+					) : (
+						<div className={styles.content} data-flx="premium.premium-callback-page.content">
+							<h1 className={styles.title} data-flx="premium.premium-callback-page.title">
+								<Trans>Payment successful</Trans>
+							</h1>
+							<p className={styles.description} data-flx="premium.premium-callback-page.description">
+								<Trans>Your payment was successful. You can now close this tab and return to the app.</Trans>
+							</p>
+						</div>
+					)}
 				</>
 			)}
 			{isCancel && (

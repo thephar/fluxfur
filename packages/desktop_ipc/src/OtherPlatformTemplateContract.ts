@@ -21,7 +21,7 @@ export const OtherPlatformTemplateFetchFailure = Object.freeze({
 export type OtherPlatformTemplateFetchFailure =
 	(typeof OtherPlatformTemplateFetchFailure)[keyof typeof OtherPlatformTemplateFetchFailure];
 
-export interface OtherPlatformTemplateFetchSuccess {
+interface OtherPlatformTemplateFetchSuccess {
 	readonly ok: true;
 	readonly template: Readonly<Record<string, unknown>>;
 }

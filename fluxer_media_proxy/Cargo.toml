@@ -55,6 +55,4 @@ cc = "1.4.6"
 pkg-config = "0.3.34"
 
 [dev-dependencies]
-flate2 = "1.1.10"
-proptest = "1.11.0"
 tower = {version = "0.5.3", features = ["util"]}

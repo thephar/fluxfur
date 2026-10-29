@@ -1,25 +1,39 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly ELECTRON_VERSION=44.9.1
-readonly ELECTRON_REVISION=e02265be96c5e13ae43644ef482b718e1e800499
-readonly DEPOT_TOOLS_REVISION=889099791deff38466d471fa6590951c91a1d8ab
-readonly BUILD_IMAGE='ghcr.io/electron/build:daad061f4b99a0ae1c841be4aa09188280a9c8a4@sha256:7a161ad561103ebbfb5ff18eaf47cb579ca0c528bb7ec9ed8cad30a41d5fa63e'
-readonly PATCH_NAME=fix_synchronize_vaapi_surfaces_before_output.patch
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 readonly SCRIPT_DIR
+runtime_field() { python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$SCRIPT_DIR/runtime.json" "$1"; }
+ELECTRON_VERSION=$(runtime_field electronVersion)
+ELECTRON_REVISION=$(runtime_field electronRevision)
+readonly ELECTRON_VERSION ELECTRON_REVISION
+readonly DEPOT_TOOLS_REVISION=889099791deff38466d471fa6590951c91a1d8ab
+readonly BUILD_IMAGE='ghcr.io/electron/build:daad061f4b99a0ae1c841be4aa09188280a9c8a4@sha256:7a161ad561103ebbfb5ff18eaf47cb579ca0c528bb7ec9ed8cad30a41d5fa63e'
+PATCH_NAME=$(python3 - "$SCRIPT_DIR" <<'PY'
+import hashlib, json, pathlib, sys
+root = pathlib.Path(sys.argv[1])
+patches = json.loads((root / "runtime.json").read_text())["patches"]
+if len(patches) != 1 or patches[0]["series"] != "chromium":
+    raise SystemExit("runtime.json must list exactly one Chromium patch")
+patch = root / patches[0]["file"]
+if patch.parent != root / "patches" or hashlib.sha256(patch.read_bytes()).hexdigest() != patches[0]["sha256"]:
+    raise SystemExit(f"{patch.name} does not match the sha256 pinned in runtime.json")
+print(patch.name)
+PY
+)
+readonly PATCH_NAME
 
 die() { printf 'Error: %s\n' "$*" >&2; exit 1; }
 
 usage() {
 	cat <<'USAGE'
-Build patched Electron 44.9.1 on a Linux x64 host with Podman or Docker.
+Build the patched Electron pinned in runtime.json on a Linux x64 host with Podman or Docker.
 
 Usage: build-linux.sh [--arch x64|arm64|all] [--build-root PATH] [--output-dir PATH] [--check]
 
 --arch        Target architecture; all builds x64 then arm64 (default: all).
 --build-root  Dedicated persistent cache, source and output tree.
-              Default: ${XDG_CACHE_HOME:-$HOME/.cache}/fluxer/electron-44.9.1
+              Default: ${XDG_CACHE_HOME:-$HOME/.cache}/fluxer/electron-VERSION
 --output-dir  Distribution ZIPs and .fluxer.json manifests (default: BUILD_ROOT/artifacts).
 --check       Validate host resources and configuration without pulling or compiling.
 

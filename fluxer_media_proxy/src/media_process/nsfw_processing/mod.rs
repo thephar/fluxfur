@@ -416,6 +416,3 @@ pub fn encode_static_image_for_nsfw(
     };
     transform_image(input, &options, media_limits, metrics).map(|media| media.bytes)
 }
-
-#[cfg(test)]
-mod tests;

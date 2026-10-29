@@ -9,7 +9,9 @@ import {useMemo} from 'react';
 
 function defaultAccountAvatarURL(account: Account, size?: MediaProxyImageSize): string {
 	try {
-		return AvatarUtils.getUserAvatarURL({id: account.userId, avatar: null}, false, size);
+		return account.instance === undefined
+			? AvatarUtils.getUserAvatarURL({id: account.userId, avatar: null}, false, size)
+			: AvatarUtils.getDefaultAvatarURLForInstance(account.userId, account.instance);
 	} catch {
 		return getDefaultAvatarURLForIndex(0);
 	}

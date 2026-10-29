@@ -9,32 +9,50 @@ import {executeConditional, fetchMany, fetchOne, upsertOne} from '@app/api/datab
 import {Db, type PreparedQuery} from '@app/api/database/CassandraTypes';
 import type {InstanceConfigurationRow} from '@app/api/database/types/InstanceConfigTypes';
 import {syncChannelThreadsConfig} from '@app/api/experiment/ChannelThreadsGate';
+import {setCachedGuildVisitsConfig} from '@app/api/experiment/GuildVisitsGate';
 import type {IStorageService} from '@app/api/infrastructure/IStorageService';
+import {resolveAccountIdentity, setCachedAccountIdentity} from '@app/api/instance/AccountIdentityModeCache';
 import {
-	type AccountIdentity,
-	resolveAccountIdentity,
-	type StoredAccountIdentity,
-	setCachedAccountIdentity,
-} from '@app/api/instance/AccountIdentityModeCache';
+	type AccountsConfigDefaults,
+	abandonedAccountCleanupDefaults,
+	fallbackAccountsDefaults,
+	hostedAccountsDefaults,
+	seededInactivityDays,
+	selfHostedAccountsDefaults,
+	setCachedAccountsConfig,
+	setCachedEmailDeliveryState,
+} from '@app/api/instance/AccountsConfigCache';
+import {getLegacyDateOfBirthCollectionDefault} from '@app/api/instance/DateOfBirthCollectionCache';
 import {
+	describeIncompleteSmtpConfig,
+	type EffectiveSmtpConfig,
+	emailProviderFor,
+	legacyStoredEmailDelivery,
+	resolveEffectiveSmtpConfig,
+	resolveEmailDelivery,
+	resolveStoredEmailDeliveryState,
+	type StoredEmailSmtpConfig,
+	storedSmtpTlsMode,
+} from '@app/api/instance/EmailDelivery';
+import {
+	assetStorageKey,
 	BRANDING_ASSET_FIELDS,
 	type BrandingAssetField,
 	brandingAssetReferenceFromAnyUrl,
-	brandingAssetStorageKey,
+	brandingAssetStorageKeys,
 	isBrandingAssetReference,
+	isCustomBadgeAssetReference,
 	mapBrandingAssets,
+	releasedBrandingAssetReferences,
 	resolveBrandingAsset,
 	toStoredBrandingAsset,
-} from '@app/api/instance/BrandingAssetReferences';
-import {
-	getDefaultDateOfBirthCollection,
-	setCachedDateOfBirthCollection,
-} from '@app/api/instance/DateOfBirthCollectionCache';
+} from '@app/api/instance/InstanceAssetReferences';
 import {InstanceConfigCache} from '@app/api/instance/InstanceConfigCache';
 import {setCachedConfiguredLegalUrls} from '@app/api/instance/LegalUrls';
 import {getDefaultProductName, setCachedProductName} from '@app/api/instance/ProductName';
+import {enqueueRegistrationApprovalNotice} from '@app/api/instance/RegistrationApprovalNotice';
 import {isSetupTokenEnforced} from '@app/api/instance/SetupToken';
-import {normalizeSsoAllowedEmailDomains} from '@app/api/instance/SsoConfigValidation';
+import {normalizeAllowedEmailDomains} from '@app/api/instance/SsoConfigValidation';
 import {Logger} from '@app/api/Logger';
 import {isStoredLimitConfig} from '@app/api/limits/LimitConfigValidation';
 import {
@@ -43,21 +61,53 @@ import {
 	isStripeServiceable,
 	setStoredBillingConfig,
 } from '@app/api/stripe/BillingConfigCache';
-import {InstanceConfiguration, Users} from '@app/api/Tables';
+import {AdminAuditLogs, InstanceConfiguration, Users} from '@app/api/Tables';
 import {DEFAULT_DECAY_CONSTANTS, DEFAULT_RENEWAL_CONSTANTS} from '@app/api/utils/AttachmentDecay';
 import {isJsonRecord} from '@app/api/utils/JsonBoundaryUtils';
 import {randomBase64Url, secretMatchesHash, sha256Hex} from '@app/api/utils/SecretHash';
 import {
+	collectsDateOfBirth,
+	DateOfBirthPolicies,
+	type DateOfBirthPolicy,
+	dateOfBirthPolicyFromLegacy,
+	type EmailDeliveryMode,
+	EmailDeliveryModes,
+	type EmailDeliveryState,
+	EmailDeliveryStates,
+	GuildJoinGates,
+	type IdentifierFirstMode,
+	IdentifierFirstModes,
+	type InstantAccountAvailability,
+	type LegacyDateOfBirthEnforcement,
+	LegacyDateOfBirthEnforcements,
+} from '@fluxer/constants/src/AccountConfigConstants';
+import {
+	type AccountIdentity,
+	type AccountIdentityDecisionSource,
+	AccountIdentityDecisionSources,
+	type AccountIdentityLockReason,
+	AccountIdentityLockReasons,
 	type AccountIdentityMode,
 	AccountIdentityModes,
+	normalizeAccountIdentity,
 	type TagStyle,
 	TagStyles,
 } from '@fluxer/constants/src/AccountIdentityConstants';
+import {resolveIdentifierFirst, resolveInstantAccountAvailability} from '@fluxer/constants/src/AccountTierRules';
 import {APIErrorCodes} from '@fluxer/constants/src/ApiErrorCodes';
-import {resolveSmtpTlsMode, type SmtpTlsMode, smtpTlsModeFromSecure} from '@fluxer/constants/src/SmtpConstants';
+import {CustomBadgeTypes} from '@fluxer/constants/src/BadgeConstants';
+import {resolveSmtpTlsMode, type SmtpTlsMode} from '@fluxer/constants/src/SmtpConstants';
 import {ConflictError} from '@fluxer/errors/src/domains/core/ConflictError';
 import {ServiceUnavailableError} from '@fluxer/errors/src/domains/core/ServiceUnavailableError';
 import {normalizeThemeColor} from '@fluxer/instance_bootstrap/src/ThemeColor';
+import {
+	type AccountsConfig,
+	AccountsConfigSchema,
+	type AccountsConfigUpdateRequest,
+	type AuthConfig,
+	AuthConfigSchema,
+	type AuthConfigUpdateRequest,
+} from '@fluxer/schema/src/domains/admin/AccountsConfigSchemas';
 import {
 	InstanceConfigResponse,
 	InstanceConfigUpdateRequest,
@@ -69,6 +119,7 @@ import {
 	type CaptchaConfig,
 	CaptchaConfigSchema,
 	type CaptchaConfigUpdateRequest,
+	captchaProviderFromLegacyEnabled,
 } from '@fluxer/schema/src/domains/admin/CaptchaSchemas';
 import {
 	type ChannelThreadsConfig,
@@ -82,6 +133,11 @@ import {
 	type GatewayRolloutConfig,
 	GatewayRolloutConfigSchema,
 } from '@fluxer/schema/src/domains/admin/GatewayRolloutSchemas';
+import {
+	type GuildVisitsConfig,
+	GuildVisitsConfigSchema,
+	type GuildVisitsConfigUpdateRequest,
+} from '@fluxer/schema/src/domains/admin/GuildVisitsSchemas';
 import {
 	type BillingCatalogMode,
 	type StoredBillingConfig,
@@ -103,12 +159,14 @@ import {
 	InstanceAppPublicSchema,
 	type InstanceBranding,
 	type InstanceCommunity,
+	type InstanceNotice,
+	InstanceNoticeSchema,
 	type InstanceRegistration,
 	InstanceRegistrationSchema,
 	type InstanceServices,
 	type InstanceSetup,
 } from '@fluxer/schema/src/domains/instance/InstanceSchemas';
-import {normalizeString, SnowflakeType} from '@fluxer/schema/src/primitives/SchemaPrimitives';
+import {normalizeString, SnowflakeStringType, SnowflakeType} from '@fluxer/schema/src/primitives/SchemaPrimitives';
 import type {IKVProvider} from '@pkgs/kv_client/src/IKVProvider';
 import {z} from 'zod';
 
@@ -117,6 +175,9 @@ const PUSH_RELAY_CONFIG_KEY = 'push_service_delivery_config';
 const DOMAIN_MIGRATION_CONFIG_KEY = 'domain_migration_config';
 const VOICE_P2P_CONFIG_KEY = 'voice_p2p_config';
 const CAPTCHA_CONFIG_KEY = 'captcha_config';
+const AUTH_CONFIG_KEY = 'auth_config';
+const ACCOUNTS_CONFIG_KEY = 'accounts_config';
+const GUILD_VISITS_CONFIG_KEY = 'guild_visits_config';
 const CHANNEL_THREADS_CONFIG_KEY = 'channel_threads_config';
 const EXPERIMENT_DELIVERY_CONFIG_KEY = 'experiment_delivery_config';
 const REGISTRATION_CONFIG_KEY = 'registration_config';
@@ -132,6 +193,8 @@ const INSTANCE_INTEGRATIONS_CONFIG_KEY = 'instance_integrations_config';
 const INSTANCE_MEDIA_CONFIG_KEY = 'instance_media_config';
 const INSTANCE_BILLING_CONFIG_KEY = 'instance_billing_config';
 const ACCOUNT_IDENTITY_CONFIG_KEY = 'account_identity_config';
+const INSTANCE_NOTICE_KEY = 'instance_notice';
+const CUSTOM_BADGES_CONFIG_KEY = 'custom_badges';
 export const INSTANCE_CONFIG_REFRESH_CHANNEL = 'instance-config-refresh';
 export const REGISTRATION_PENDING_APPROVAL_TRAIT = 'registration_pending_approval';
 export const REGISTRATION_REJECTED_TRAIT = 'registration_rejected';
@@ -152,7 +215,9 @@ interface StoredValueUpdate<T> {
 	result: T;
 }
 
-export type InstanceRegistrationConfig = InstanceRegistration;
+export interface InstanceRegistrationConfig extends InstanceRegistration {
+	allowed_email_domains: Array<string>;
+}
 
 interface InstanceAppPublicConfig extends Omit<InstanceAppPublic, 'setup'> {
 	setup: Pick<InstanceSetup, 'configured'>;
@@ -161,6 +226,12 @@ interface InstanceAppPublicConfig extends Omit<InstanceAppPublic, 'setup'> {
 type InstanceBrandingPatch = Partial<Omit<InstanceBranding, 'premium_product_name'>> & {
 	premium_product_name?: string | null;
 };
+
+interface AppPublicConfigPatch {
+	branding?: InstanceBrandingPatch;
+	setup?: Partial<InstanceAppPublicConfig['setup']>;
+	legal?: Partial<InstanceAppPublicConfig['legal']>;
+}
 
 export type InstanceBillingConfig = StoredBillingConfig;
 
@@ -173,6 +244,7 @@ export interface InstanceBillingConfigPatch {
 	automatic_tax?: boolean | null;
 	tax_id_collection?: boolean | null;
 	terms_consent_required?: boolean | null;
+	billing_emails?: boolean | null;
 	default_currency?: string | null;
 	prices?: Record<string, InstanceBillingPriceSetPatch> | null;
 	country_currencies?: Record<string, string> | null;
@@ -189,9 +261,11 @@ export interface InstanceBillingAdminConfig {
 	automatic_tax: boolean | null;
 	tax_id_collection: boolean | null;
 	terms_consent_required: boolean | null;
+	billing_emails: boolean | null;
 	effective_automatic_tax: boolean;
 	effective_tax_id_collection: boolean;
 	effective_terms_consent_required: boolean;
+	effective_billing_emails: boolean;
 	default_currency: string | null;
 	prices: StoredBillingConfig['prices'];
 	country_currencies: StoredBillingConfig['country_currencies'];
@@ -214,14 +288,14 @@ export interface InstancePolicyConfig {
 	single_community_guild_id: string | null;
 	direct_messages_disabled: boolean;
 	direct_messages_locked: boolean;
+	friends_disabled: boolean;
+	personal_notes_enabled: boolean;
 	premium_mode: InstancePremiumMode;
 	guild_create_access: boolean;
 	gif_enabled: boolean | null;
 	youtube_enabled: boolean | null;
 	bluesky_enabled: boolean | null;
 }
-
-type InstanceEmailProvider = 'smtp' | 'none';
 
 interface InstanceGifIntegrationConfig {
 	klipy_api_key: string | null;
@@ -231,21 +305,11 @@ interface InstanceYoutubeIntegrationConfig {
 	api_key: string | null;
 }
 
-interface InstanceEmailSmtpIntegrationConfig {
-	host: string | null;
-	port: number | null;
-	username: string | null;
-	password: string | null;
-	tls_mode: SmtpTlsMode | null;
-	secure: boolean | null;
-}
-
 interface InstanceEmailIntegrationConfig {
-	enabled: boolean | null;
-	provider: InstanceEmailProvider | null;
+	delivery: EmailDeliveryMode | null;
 	from_email: string | null;
 	from_name: string | null;
-	smtp: InstanceEmailSmtpIntegrationConfig;
+	smtp: StoredEmailSmtpConfig;
 	disable_new_ip_authorization: boolean | null;
 }
 
@@ -287,10 +351,13 @@ interface InstanceIntegrationsAdminConfig {
 		effective_available: boolean;
 	};
 	email: {
+		delivery: EmailDeliveryMode | null;
+		effective_delivery: EmailDeliveryMode;
+		delivery_state: EmailDeliveryState;
 		enabled: boolean | null;
 		effective_enabled: boolean;
-		provider: InstanceEmailProvider | null;
-		effective_provider: InstanceEmailProvider;
+		provider: APIConfig['email']['provider'] | null;
+		effective_provider: APIConfig['email']['provider'];
 		from_email: string | null;
 		from_name: string | null;
 		smtp: {
@@ -350,11 +417,13 @@ interface InstanceMediaAdminConfig {
 	};
 }
 
-interface InstanceIntegrationsConfigPatch {
+export interface InstanceIntegrationsConfigPatch {
 	gif?: Partial<InstanceGifIntegrationConfig>;
 	youtube?: Partial<InstanceYoutubeIntegrationConfig>;
 	email?: Partial<Omit<InstanceEmailIntegrationConfig, 'smtp'>> & {
-		smtp?: Partial<Omit<InstanceEmailSmtpIntegrationConfig, 'secure'>>;
+		enabled?: boolean | null;
+		provider?: APIConfig['email']['provider'] | null;
+		smtp?: Partial<Omit<StoredEmailSmtpConfig, 'secure'>>;
 	};
 	bluesky?: Partial<Omit<InstanceBlueskyIntegrationConfig, 'keys'>> & {
 		keys?: Array<Partial<InstanceBlueskyKeyIntegrationConfig>>;
@@ -380,6 +449,7 @@ export interface RegistrationUrlClaim {
 const DEFAULT_REGISTRATION_CONFIG: InstanceRegistrationConfig = {
 	mode: 'open',
 	admin_registration_urls_enabled: true,
+	allowed_email_domains: [],
 };
 const FETCH_CONFIG_QUERY = InstanceConfiguration.selectCql({
 	where: InstanceConfiguration.where.eq('key'),
@@ -387,6 +457,18 @@ const FETCH_CONFIG_QUERY = InstanceConfiguration.selectCql({
 });
 const FETCH_ALL_CONFIG_QUERY = InstanceConfiguration.selectCql();
 const FETCH_ANY_USER_QUERY = Users.selectCql({columns: ['user_id'], limit: 1, unordered: true});
+const ADMIN_AUDIT_SCAN_PAGE_SIZE = 500;
+const ADMIN_AUDIT_SCAN_COLUMNS = ['log_id', 'action', 'metadata'] as const;
+const FETCH_FIRST_ADMIN_AUDIT_PAGE_QUERY = AdminAuditLogs.select({
+	columns: ADMIN_AUDIT_SCAN_COLUMNS,
+	limit: ADMIN_AUDIT_SCAN_PAGE_SIZE,
+});
+const FETCH_NEXT_ADMIN_AUDIT_PAGE_QUERY = AdminAuditLogs.select({
+	columns: ADMIN_AUDIT_SCAN_COLUMNS,
+	where: AdminAuditLogs.where.tokenGt('log_id', 'last_log_id'),
+	limit: ADMIN_AUDIT_SCAN_PAGE_SIZE,
+});
+const INSTANCE_CONFIG_UPDATE_AUDIT_ACTION = 'update_instance_config';
 const FETCH_LIMIT_CONFIG_INPUTS_QUERY = InstanceConfiguration.selectCql({
 	where: InstanceConfiguration.where.in('key', 'keys'),
 });
@@ -428,11 +510,18 @@ function getDefaultAppPublicConfig(): InstanceAppPublicConfig {
 			logo_url: normalizeOptionalString(Config.instance.branding.logoUrl),
 			wordmark_url: normalizeOptionalString(Config.instance.branding.wordmarkUrl),
 			favicon_url: normalizeOptionalString(Config.instance.branding.faviconUrl),
+			favicon_dark_url: Config.instance.selfHosted
+				? normalizeOptionalString(Config.instance.branding.faviconDarkUrl)
+				: null,
 			theme_color: normalizeThemeColor(Config.instance.branding.themeColor),
 			status_page_url: normalizeOptionalString(Config.instance.branding.statusPageUrl),
 			status_page_incident_history_url: normalizeOptionalString(Config.instance.branding.statusPageIncidentHistoryUrl),
 			premium_product_name: getDefaultPremiumProductName(),
 			premium_info_url: null,
+			sign_in_backdrop_url: normalizeOptionalString(Config.instance.branding.signInBackdropUrl),
+			custom_css: null,
+			upload_limit_message: null,
+			trusted_domains: [],
 		},
 		setup: {
 			configured: !Config.instance.selfHosted || Config.instance.setup.configured,
@@ -443,7 +532,7 @@ function getDefaultAppPublicConfig(): InstanceAppPublicConfig {
 			guidelines_url: null,
 		},
 		registration: {
-			collect_date_of_birth: getDefaultDateOfBirthCollection(),
+			collect_date_of_birth: getLegacyDateOfBirthCollectionDefault(),
 		},
 	};
 }
@@ -455,6 +544,9 @@ type StoredConfigSection =
 	| 'domain migration'
 	| 'voice p2p'
 	| 'captcha'
+	| 'auth'
+	| 'accounts'
+	| 'guild visits'
 	| 'channel threads'
 	| 'experiment delivery'
 	| 'instance policy'
@@ -466,7 +558,9 @@ type StoredConfigSection =
 	| 'pending registrations'
 	| 'SSO flags'
 	| 'SSO allowed domains'
-	| 'account identity';
+	| 'account identity'
+	| 'instance notice'
+	| 'custom badges';
 
 function parseStoredConfigValue(raw: string | null, section: StoredConfigSection): unknown {
 	if (raw === null) return {};
@@ -578,14 +672,18 @@ function checkStoredConfig(section: StoredConfigSection, decode: () => unknown):
 	readStoredConfigOrDefault(section, decode, () => null);
 }
 
-export type AccountIdentityDecisionSource = 'new_instance' | 'existing_instance' | 'setup';
+const LEGACY_ZERO_FIRST_TAG_STYLE = 'zero_first';
 
 const StoredAccountIdentityConfigSchema = z.object({
 	mode: z.enum([AccountIdentityModes.EMAIL, AccountIdentityModes.USERNAME]),
-	tag_style: z.enum([TagStyles.NONE, 'zero_first', TagStyles.RANDOM]).optional(),
+	tag_style: z.enum([TagStyles.NONE, LEGACY_ZERO_FIRST_TAG_STYLE, TagStyles.RANDOM]).optional(),
 	unique_usernames: z.boolean().optional(),
 	decided_at: z.string(),
-	source: z.enum(['new_instance', 'existing_instance', 'setup']),
+	source: z.enum([
+		AccountIdentityDecisionSources.NEW_INSTANCE,
+		AccountIdentityDecisionSources.EXISTING_INSTANCE,
+		AccountIdentityDecisionSources.SETUP,
+	]),
 });
 
 type StoredAccountIdentityConfig = z.infer<typeof StoredAccountIdentityConfigSchema>;
@@ -599,12 +697,12 @@ function parseStoredAccountIdentityConfig(raw: string | null): StoredAccountIden
 	);
 }
 
-function readStoredAccountIdentity(raw: string | null): StoredAccountIdentity | null {
+function readStoredAccountIdentity(raw: string | null): AccountIdentity | null {
 	return readStoredConfigOrDefault(
 		'account identity',
 		() => {
 			const stored = parseStoredAccountIdentityConfig(raw);
-			return stored ? {mode: stored.mode, tagStyle: readStoredTagStyle(stored)} : null;
+			return stored ? normalizeAccountIdentity(stored.mode, readStoredTagStyle(stored)) : null;
 		},
 		() => null,
 	);
@@ -619,13 +717,12 @@ function readStoredAccountIdentitySource(raw: string | null): AccountIdentityDec
 }
 
 function readStoredTagStyle(stored: StoredAccountIdentityConfig): TagStyle {
-	if (stored.mode === AccountIdentityModes.USERNAME) return TagStyles.NONE;
-	if (stored.tag_style === 'zero_first') return TagStyles.NONE;
+	if (stored.tag_style === LEGACY_ZERO_FIRST_TAG_STYLE) return TagStyles.NONE;
 	if (stored.tag_style) return stored.tag_style;
 	return stored.unique_usernames === true ? TagStyles.NONE : TagStyles.RANDOM;
 }
 
-function serialiseAccountIdentity(identity: StoredAccountIdentity, source: AccountIdentityDecisionSource): string {
+function serialiseAccountIdentity(identity: AccountIdentity, source: AccountIdentityDecisionSource): string {
 	return JSON.stringify({
 		mode: identity.mode,
 		tag_style: identity.tagStyle,
@@ -677,8 +774,130 @@ function parseStoredVoiceP2pConfig(raw: string | null): VoiceP2pConfig {
 	return parseStoredConfigOrDefault(VoiceP2pConfigSchema, raw, 'voice p2p');
 }
 
+function migrateStoredCaptchaConfig(value: unknown): unknown {
+	if (!isJsonRecord(value) || Object.hasOwn(value, 'provider') || typeof value.enabled !== 'boolean') return value;
+	const {enabled, ...rest} = value;
+	return {...rest, provider: captchaProviderFromLegacyEnabled(enabled)};
+}
+
+function decodeCaptchaConfig(value: unknown): CaptchaConfig {
+	return validateStoredConfig(CaptchaConfigSchema, migrateStoredCaptchaConfig(value), 'captcha');
+}
+
 function parseStoredCaptchaConfig(raw: string | null): CaptchaConfig {
-	return parseStoredConfigOrDefault(CaptchaConfigSchema, raw, 'captcha');
+	return readStoredConfigOrDefault(
+		'captcha',
+		() => decodeCaptchaConfig(parseStoredConfigValue(raw, 'captcha')),
+		() => decodeCaptchaConfig({}),
+	);
+}
+
+function omitUndefined<T extends Record<string, unknown>>(value: T): Partial<T> {
+	return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as Partial<T>;
+}
+
+function dateOfBirthPolicyFromLegacyEnforcement(
+	current: DateOfBirthPolicy,
+	enforcement: LegacyDateOfBirthEnforcement,
+): DateOfBirthPolicy {
+	return dateOfBirthPolicyFromLegacy({collect: current !== DateOfBirthPolicies.OFF, enforcement});
+}
+
+function identifierFirstFromLegacy(value: boolean): IdentifierFirstMode {
+	return value ? IdentifierFirstModes.ON : IdentifierFirstModes.OFF;
+}
+
+function storedRecord(value: unknown): Record<string, unknown> {
+	return isJsonRecord(value) ? value : {};
+}
+
+function parseStoredAuthConfig(raw: string | null): AuthConfig {
+	const fallback = fallbackAccountsDefaults().auth;
+	if (raw === null) return fallback;
+	return readStoredConfigOrDefault(
+		'auth',
+		() => {
+			const stored = storedRecord(parseStoredConfigValue(raw, 'auth'));
+			return validateStoredConfig(
+				AuthConfigSchema,
+				{
+					...fallback,
+					...stored,
+					...(typeof stored.identifier_first === 'boolean'
+						? {identifier_first: identifierFirstFromLegacy(stored.identifier_first)}
+						: {}),
+					instant_accounts: {...fallback.instant_accounts, ...storedRecord(stored.instant_accounts)},
+				},
+				'auth',
+			);
+		},
+		() => fallback,
+	);
+}
+
+function isLegacyDateOfBirthEnforcement(value: unknown): value is LegacyDateOfBirthEnforcement {
+	return Object.values<unknown>(LegacyDateOfBirthEnforcements).includes(value);
+}
+
+function readLegacyDateOfBirthCollection(appPublicRaw: string | null): boolean {
+	const appPublic = storedRecord(readStoredConfigValue(appPublicRaw, 'app public'));
+	const collect = storedRecord(appPublic.registration).collect_date_of_birth;
+	return typeof collect === 'boolean' ? collect : getLegacyDateOfBirthCollectionDefault();
+}
+
+function migrateStoredAccountsConfig(stored: Record<string, unknown>, legacyCollect: boolean): Record<string, unknown> {
+	const {date_of_birth_enforcement, abandoned_account_cleanup, ...migrated} = stored;
+	if (!Object.hasOwn(stored, 'date_of_birth')) {
+		migrated.date_of_birth = dateOfBirthPolicyFromLegacy({
+			collect: legacyCollect,
+			enforcement: isLegacyDateOfBirthEnforcement(date_of_birth_enforcement)
+				? date_of_birth_enforcement
+				: LegacyDateOfBirthEnforcements.NEW_ACCOUNTS,
+		});
+	}
+	if (typeof abandoned_account_cleanup === 'boolean') {
+		const cleanup = abandonedAccountCleanupDefaults(abandoned_account_cleanup);
+		if (!Object.hasOwn(stored, 'unclaimed_account_cleanup')) {
+			migrated.unclaimed_account_cleanup = cleanup.unclaimed_account_cleanup;
+		}
+		if (!Object.hasOwn(stored, 'dob_missing_cleanup')) migrated.dob_missing_cleanup = cleanup.dob_missing_cleanup;
+	}
+	if (!Object.values<unknown>(GuildJoinGates).includes(stored.guild_join_gate)) {
+		delete migrated.guild_join_gate;
+	}
+	return migrated;
+}
+
+function decodeAccountsConfig(value: unknown, legacyCollect: boolean): AccountsConfig {
+	const fallback = fallbackAccountsDefaults().accounts;
+	const stored = migrateStoredAccountsConfig(storedRecord(value), legacyCollect);
+	return validateStoredConfig(
+		AccountsConfigSchema,
+		{
+			...fallback,
+			...stored,
+			unclaimed_account_cleanup: {
+				...fallback.unclaimed_account_cleanup,
+				...storedRecord(stored.unclaimed_account_cleanup),
+			},
+			dob_missing_cleanup: {...fallback.dob_missing_cleanup, ...storedRecord(stored.dob_missing_cleanup)},
+			inactivity_deletion: {...fallback.inactivity_deletion, ...storedRecord(stored.inactivity_deletion)},
+		},
+		'accounts',
+	);
+}
+
+function parseStoredAccountsConfig(raw: string | null, appPublicRaw: string | null): AccountsConfig {
+	const legacyCollect = readLegacyDateOfBirthCollection(appPublicRaw);
+	return readStoredConfigOrDefault(
+		'accounts',
+		() => decodeAccountsConfig(raw === null ? {} : parseStoredConfigValue(raw, 'accounts'), legacyCollect),
+		() => decodeAccountsConfig({}, legacyCollect),
+	);
+}
+
+function parseStoredGuildVisitsConfig(raw: string | null): GuildVisitsConfig {
+	return parseStoredConfigOrDefault(GuildVisitsConfigSchema, raw, 'guild visits');
 }
 
 const StoredChannelThreadsVersionSchema = z.object({config_version: z.number().int().min(0)});
@@ -690,6 +909,25 @@ function parseStoredChannelThreadsConfig(raw: string | null): ChannelThreadsConf
 
 function parseStoredExperimentDeliveryConfig(raw: string | null): ExperimentDeliveryConfig {
 	return parseStoredConfigOrDefault(ExperimentDeliveryConfigSchema, raw, 'experiment delivery');
+}
+
+const StoredCustomBadgeSchema = z.object({
+	id: SnowflakeStringType,
+	type: z.enum([CustomBadgeTypes.USER, CustomBadgeTypes.GUILD]),
+	name: z.string().min(1),
+	description: z.string().min(1).nullable(),
+	asset: z.string().refine(isCustomBadgeAssetReference),
+	href: z.string().nullable(),
+});
+
+const StoredCustomBadgesSchema = z.object({
+	badges: z.array(StoredCustomBadgeSchema).default([]),
+});
+
+export type CustomBadgeDefinition = z.infer<typeof StoredCustomBadgeSchema>;
+
+function parseStoredCustomBadges(raw: string | null): Array<CustomBadgeDefinition> {
+	return parseStoredConfigOrDefault(StoredCustomBadgesSchema, raw, 'custom badges').badges;
 }
 
 function validateStoredCollection<T>(schema: z.ZodType<T>, value: unknown, section: StoredConfigSection): Array<T> {
@@ -721,6 +959,13 @@ function parseStoredAppPublicConfig(raw: string | null): InstanceAppPublicConfig
 	);
 }
 
+function withDerivedDateOfBirthCollection(
+	config: InstanceAppPublicConfig,
+	policy: DateOfBirthPolicy,
+): InstanceAppPublicConfig {
+	return {...config, registration: {collect_date_of_birth: collectsDateOfBirth(policy)}};
+}
+
 function resolveAppPublicConfig(config: InstanceAppPublicConfig): InstanceAppPublicConfig {
 	return {
 		...config,
@@ -745,6 +990,7 @@ function buildAppPublicConfig(config: z.infer<typeof StoredInstanceAppPublicSche
 			logo_url: normalizeOptionalPublicString(branding.logo_url, defaults.branding.logo_url),
 			wordmark_url: normalizeOptionalPublicString(branding.wordmark_url, defaults.branding.wordmark_url),
 			favicon_url: normalizeOptionalPublicString(branding.favicon_url, defaults.branding.favicon_url),
+			favicon_dark_url: normalizeOptionalPublicString(branding.favicon_dark_url, defaults.branding.favicon_dark_url),
 			theme_color:
 				branding.theme_color === undefined ? defaults.branding.theme_color : normalizeThemeColor(branding.theme_color),
 			status_page_url: normalizeOptionalPublicString(branding.status_page_url, defaults.branding.status_page_url),
@@ -755,6 +1001,18 @@ function buildAppPublicConfig(config: z.infer<typeof StoredInstanceAppPublicSche
 			premium_product_name:
 				normalizeOptionalString(branding.premium_product_name) ?? defaults.branding.premium_product_name,
 			premium_info_url: normalizeOptionalPublicString(branding.premium_info_url, defaults.branding.premium_info_url),
+			sign_in_backdrop_url: normalizeOptionalPublicString(
+				branding.sign_in_backdrop_url,
+				defaults.branding.sign_in_backdrop_url,
+			),
+			custom_css: normalizeOptionalPublicString(branding.custom_css, defaults.branding.custom_css),
+			upload_limit_message: normalizeOptionalPublicString(
+				branding.upload_limit_message,
+				defaults.branding.upload_limit_message,
+			),
+			trusted_domains: Config.instance.selfHosted
+				? (branding.trusted_domains ?? defaults.branding.trusted_domains)
+				: defaults.branding.trusted_domains,
 		},
 		setup: {
 			configured: setup.configured ?? defaults.setup.configured,
@@ -775,17 +1033,36 @@ const InstancePolicyServiceUpdateSchema = InstancePolicyUpdateSchema.shape.servi
 const StoredSnowflakeStringSchema = z
 	.string()
 	.refine((value) => value.length <= 19 && !/\D/.test(value) && SnowflakeType.safeParse(value).success);
-const StoredInstancePolicySchema = z.object({
-	single_community_enabled: InstancePolicyUpdateSchema.shape.single_community_enabled.default(false),
-	single_community_guild_id: StoredSnowflakeStringSchema.nullable().default(null),
-	direct_messages_disabled: InstancePolicyUpdateSchema.shape.direct_messages_disabled.default(false),
-	direct_messages_locked: z.boolean().default(false),
-	premium_mode: InstancePolicyUpdateSchema.shape.premium_mode.default('everyone'),
-	guild_create_access: InstancePolicyUpdateSchema.shape.guild_create_access.default(true),
-	gif_enabled: InstancePolicyServiceUpdateSchema.shape.gif_enabled.default(null),
-	youtube_enabled: InstancePolicyServiceUpdateSchema.shape.youtube_enabled.default(null),
-	bluesky_enabled: InstancePolicyServiceUpdateSchema.shape.bluesky_enabled.default(null),
-}) satisfies z.ZodType<InstancePolicyConfig>;
+const StoredInstancePolicySchema = z
+	.object({
+		single_community_enabled: InstancePolicyUpdateSchema.shape.single_community_enabled.default(false),
+		single_community_guild_id: StoredSnowflakeStringSchema.nullable().default(null),
+		direct_messages_disabled: InstancePolicyUpdateSchema.shape.direct_messages_disabled.default(false),
+		direct_messages_locked: z.boolean().default(false),
+		friends_disabled: z.boolean().nullable().default(null),
+		personal_notes_enabled: z.boolean().nullable().default(null),
+		premium_mode: InstancePolicyUpdateSchema.shape.premium_mode.default('everyone'),
+		guild_create_access: InstancePolicyUpdateSchema.shape.guild_create_access.default(true),
+		gif_enabled: InstancePolicyServiceUpdateSchema.shape.gif_enabled.default(null),
+		youtube_enabled: InstancePolicyServiceUpdateSchema.shape.youtube_enabled.default(null),
+		bluesky_enabled: InstancePolicyServiceUpdateSchema.shape.bluesky_enabled.default(null),
+	})
+	.transform(({friends_disabled, personal_notes_enabled, ...policy}) => ({
+		...policy,
+		friends_disabled: friends_disabled ?? policy.direct_messages_disabled,
+		personal_notes_enabled: personal_notes_enabled ?? !policy.direct_messages_disabled,
+	})) satisfies z.ZodType<InstancePolicyConfig>;
+
+const StoredInstanceNoticeSchema = InstanceNoticeSchema.nullable().default(null);
+
+function parseStoredInstanceNotice(raw: string | null): InstanceNotice | null {
+	if (raw === null) return null;
+	return salvageStoredConfig(
+		StoredInstanceNoticeSchema,
+		readStoredConfigValue(raw, 'instance notice'),
+		'instance notice',
+	);
+}
 
 function decodeInstancePolicyConfig(value: unknown): InstancePolicyConfig {
 	return validateStoredConfig(StoredInstancePolicySchema, value, 'instance policy');
@@ -826,8 +1103,7 @@ const StoredInstanceIntegrationsSchema = z.object({
 	youtube: z.object({api_key: StoredIntegrationStringSchema}).prefault({}),
 	email: z
 		.object({
-			enabled: StoredNullableBooleanSchema,
-			provider: EmailIntegrationUpdateSchema.shape.provider.default(null),
+			delivery: z.enum([EmailDeliveryModes.OFF, EmailDeliveryModes.SMTP]).nullable().default(null),
 			from_email: StoredIntegrationStringSchema,
 			from_name: StoredIntegrationStringSchema,
 			smtp: z
@@ -856,6 +1132,37 @@ const StoredInstanceIntegrationsSchema = z.object({
 		.prefault({}),
 }) satisfies z.ZodType<InstanceIntegrationsConfig>;
 
+function readLegacyEmailProvider(value: unknown): APIConfig['email']['provider'] | null {
+	return value === 'smtp' || value === 'none' ? value : null;
+}
+
+function migrateStoredIntegrationsConfig(value: unknown): unknown {
+	if (!isJsonRecord(value) || !isJsonRecord(value.email) || Object.hasOwn(value.email, 'delivery')) return value;
+	const {enabled, provider, ...email} = value.email;
+	return {
+		...value,
+		email: {
+			...email,
+			delivery: legacyStoredEmailDelivery(
+				typeof enabled === 'boolean' ? enabled : null,
+				readLegacyEmailProvider(provider),
+			),
+		},
+	};
+}
+
+function legacyEmailDeliveryPatch(
+	current: EmailDeliveryMode | null,
+	enabled: boolean | null | undefined,
+	provider: APIConfig['email']['provider'] | null | undefined,
+): EmailDeliveryMode | null | undefined {
+	if (enabled === undefined && provider === undefined) return undefined;
+	if (enabled === false || provider === 'none') return EmailDeliveryModes.OFF;
+	if (enabled === true) return provider === null ? legacyStoredEmailDelivery(true, null) : EmailDeliveryModes.SMTP;
+	if (enabled === null) return legacyStoredEmailDelivery(null, provider ?? null);
+	return current ?? (provider === 'smtp' ? legacyStoredEmailDelivery(null, provider) : null);
+}
+
 function decodeInstanceIntegrationsConfig(value: unknown): InstanceIntegrationsConfig {
 	return validateStoredConfig(StoredInstanceIntegrationsSchema, value, 'integrations');
 }
@@ -863,7 +1170,7 @@ function decodeInstanceIntegrationsConfig(value: unknown): InstanceIntegrationsC
 function parseStoredInstanceIntegrationsConfig(raw: string | null): InstanceIntegrationsConfig {
 	return salvageStoredConfig(
 		StoredInstanceIntegrationsSchema,
-		readStoredConfigValue(raw, 'integrations'),
+		migrateStoredIntegrationsConfig(readStoredConfigValue(raw, 'integrations')),
 		'integrations',
 	);
 }
@@ -991,37 +1298,43 @@ function parseStoredInstanceMediaConfig(raw: string | null): InstanceMediaConfig
 	return decodeInstanceMediaConfig(parseStoredConfigValue(raw, 'media'));
 }
 
-type EffectiveSmtpConfig = NonNullable<APIConfig['email']['smtp']>;
-
 interface SmtpTestConfig {
 	smtp: EffectiveSmtpConfig;
+	from: {email: string; name: string};
 	problem: string | null;
 }
 
-function storedSmtpTlsMode(smtp: InstanceEmailSmtpIntegrationConfig): SmtpTlsMode | null {
-	return smtp.tls_mode ?? smtpTlsModeFromSecure(smtp.secure);
-}
-
-function resolveEffectiveSmtpConfig(smtp: InstanceEmailSmtpIntegrationConfig): EffectiveSmtpConfig {
+function resolveEffectiveEmailConfig(
+	integrations: InstanceIntegrationsConfig,
+	identityMode: AccountIdentityMode,
+): {email: APIConfig['email']; state: EmailDeliveryState} {
+	const delivery = resolveEmailDelivery(integrations.email);
+	const state = resolveStoredEmailDeliveryState(identityMode, integrations.email);
 	return {
-		host: smtp.host ?? Config.email.smtp?.host ?? '',
-		port: smtp.port ?? Config.email.smtp?.port ?? 587,
-		username: smtp.username ?? Config.email.smtp?.username ?? '',
-		password: smtp.password ?? Config.email.smtp?.password ?? '',
-		tlsMode: storedSmtpTlsMode(smtp) ?? Config.email.smtp?.tlsMode ?? null,
+		state,
+		email: {
+			...Config.email,
+			enabled: state === EmailDeliveryStates.ON,
+			provider: emailProviderFor(delivery),
+			fromEmail: integrations.email.from_email ?? Config.email.fromEmail,
+			fromName: integrations.email.from_name ?? Config.email.fromName,
+			smtp: delivery === EmailDeliveryModes.SMTP ? resolveEffectiveSmtpConfig(integrations.email.smtp) : undefined,
+		},
 	};
 }
 
-function describeIncompleteSmtpConfig(smtp: EffectiveSmtpConfig): string | null {
-	if (!smtp.host.trim()) return 'No SMTP host is configured';
-	if (!smtp.port) return 'No SMTP port is configured';
-	if (!smtp.username.trim() || !smtp.password.trim()) return 'The SMTP username and password are both required';
-	return null;
-}
-
-function hasCompleteSmtpConfig(config: APIConfig['email']): boolean {
-	if (config.provider !== 'smtp' || !config.smtp) return false;
-	return Boolean(config.fromEmail.trim()) && describeIncompleteSmtpConfig(config.smtp) === null;
+function emailSendBlocker(state: EmailDeliveryState, email: APIConfig['email']): string | null {
+	switch (state) {
+		case EmailDeliveryStates.ON:
+			return null;
+		case EmailDeliveryStates.OFF_USERNAME_MODE:
+			return 'Email is off while accounts sign in with usernames';
+		case EmailDeliveryStates.OFF_DISABLED:
+			return 'Email is turned off';
+		case EmailDeliveryStates.OFF_INCOMPLETE:
+			if (!email.fromEmail.trim()) return 'No from address is set';
+			return email.smtp ? describeIncompleteSmtpConfig(email.smtp) : 'No SMTP server is configured';
+	}
 }
 
 const StoredRegistrationConfigSchema = InstanceRegistrationSchema.extend({
@@ -1029,6 +1342,7 @@ const StoredRegistrationConfigSchema = InstanceRegistrationSchema.extend({
 	admin_registration_urls_enabled: InstanceRegistrationSchema.shape.admin_registration_urls_enabled.default(
 		DEFAULT_REGISTRATION_CONFIG.admin_registration_urls_enabled,
 	),
+	allowed_email_domains: z.array(z.string()).default(DEFAULT_REGISTRATION_CONFIG.allowed_email_domains),
 });
 
 function decodeRegistrationConfig(value: unknown): InstanceRegistrationConfig {
@@ -1077,6 +1391,7 @@ const StoredRegistrationUrlSchema = RegistrationUrlSchema.extend({
 	approval_required: RegistrationUrlSchema.shape.approval_required.default(false),
 	last_used_at: StoredRegistrationTimestampSchema.nullable().default(null),
 	last_used_by_user_id: StoredNullableStringSchema.pipe(StoredSnowflakeStringSchema.nullable()),
+	invite_code: StoredNullableStringSchema,
 }) satisfies z.ZodType<InstanceRegistrationUrl>;
 const StoredPendingRegistrationSchema = PendingRegistrationResponse.extend({
 	user_id: StoredSnowflakeStringSchema,
@@ -1105,10 +1420,12 @@ interface InstanceSsoFlags {
 	enabled: boolean;
 	enforced: boolean;
 	autoProvision: boolean;
+	usernameFromProvider: boolean;
 }
 
 export interface InstanceSsoConfig extends InstanceSsoFlags {
 	displayName: string | null;
+	buttonLabel: string | null;
 	issuer: string | null;
 	authorizationUrl: string | null;
 	tokenUrl: string | null;
@@ -1120,13 +1437,43 @@ export interface InstanceSsoConfig extends InstanceSsoFlags {
 	scope: string | null;
 	allowedEmailDomains: Array<string>;
 	redirectUri: string | null;
+	groupsClaim: string | null;
+	groupRoleMappings: Array<SsoGroupRoleMapping>;
+}
+
+export interface SsoGroupRoleMapping {
+	group: string;
+	roleId: string;
 }
 
 const MAX_SSO_ALLOWED_DOMAINS = 100;
 
+function parseStoredSsoGroupRoleMappings(raw: string | undefined): Array<SsoGroupRoleMapping> {
+	if (!raw) return [];
+	let value: unknown;
+	try {
+		value = JSON.parse(raw);
+	} catch {
+		Logger.warn('Ignoring unreadable stored SSO group role mappings');
+		return [];
+	}
+	if (!Array.isArray(value)) return [];
+	return value.flatMap((entry): Array<SsoGroupRoleMapping> => {
+		if (typeof entry !== 'object' || entry === null) return [];
+		const {group, role_id: roleId} = entry as Record<string, unknown>;
+		return typeof group === 'string' && typeof roleId === 'string' && /^\d{1,20}$/.test(roleId)
+			? [{group, roleId}]
+			: [];
+	});
+}
+
+function formatSsoGroupRoleMappings(value: Array<SsoGroupRoleMapping>): string {
+	return JSON.stringify(value.map(({group, roleId}) => ({group, role_id: roleId})));
+}
+
 function readStoredSsoBoolean(
 	configs: ReadonlyMap<string, string>,
-	key: 'sso_enabled' | 'sso_enforced' | 'sso_auto_provision',
+	key: 'sso_enabled' | 'sso_enforced' | 'sso_auto_provision' | 'sso_username_from_provider',
 	fallback: boolean,
 	options?: {invalidFallback?: boolean; log?: boolean},
 ): boolean {
@@ -1146,6 +1493,7 @@ function readStoredSsoFlags(configs: ReadonlyMap<string, string>, log = false): 
 		enabled,
 		enforced: readStoredSsoBoolean(configs, 'sso_enforced', enabled, {invalidFallback: false, log}),
 		autoProvision: readStoredSsoBoolean(configs, 'sso_auto_provision', true, {log}),
+		usernameFromProvider: readStoredSsoBoolean(configs, 'sso_username_from_provider', false, {log}),
 	};
 }
 
@@ -1162,7 +1510,7 @@ function parseStoredSsoAllowedEmailDomains(raw: string | undefined, log = false)
 	const unusable = new Set<string>();
 	for (const entry of entries) {
 		try {
-			for (const domain of normalizeSsoAllowedEmailDomains([entry])) {
+			for (const domain of normalizeAllowedEmailDomains([entry])) {
 				domains.add(domain);
 			}
 		} catch {
@@ -1207,6 +1555,7 @@ function readStoredSsoConfig(
 	return {
 		...flags,
 		displayName: read('sso_display_name'),
+		buttonLabel: read('sso_button_label'),
 		issuer: read('sso_issuer'),
 		authorizationUrl: read('sso_authorization_url'),
 		tokenUrl: read('sso_token_url'),
@@ -1218,6 +1567,8 @@ function readStoredSsoConfig(
 		scope: read('sso_scope'),
 		allowedEmailDomains: allowedDomains,
 		redirectUri: null,
+		groupsClaim: read('sso_groups_claim'),
+		groupRoleMappings: parseStoredSsoGroupRoleMappings(configs.get('sso_group_role_mappings')),
 	};
 }
 
@@ -1250,7 +1601,7 @@ function formatSsoDomains(value: Array<string>): string {
 
 function normalizeSsoAllowedEmailDomainsForWrite(domains: Array<string>, enabled: boolean): Array<string> {
 	try {
-		return normalizeSsoAllowedEmailDomains(domains);
+		return normalizeAllowedEmailDomains(domains);
 	} catch (error) {
 		if (enabled) {
 			throw error;
@@ -1265,6 +1616,7 @@ export class InstanceConfigRepository {
 	private configCache: InstanceConfigCache;
 	private effectiveBlueskyConfig: BlueskyOAuthConfig | null = null;
 	private effectiveBlueskyConfigSource: string | null = null;
+	private parsedCustomBadges: {raw: string | null; badges: ReadonlyArray<CustomBadgeDefinition>} | null = null;
 
 	constructor(kvClient: IKVProvider | null = null) {
 		this.kvClient = kvClient;
@@ -1418,9 +1770,16 @@ export class InstanceConfigRepository {
 		parseStoredDomainMigrationConfig(snapshot.get(DOMAIN_MIGRATION_CONFIG_KEY) ?? null);
 		parseStoredVoiceP2pConfig(snapshot.get(VOICE_P2P_CONFIG_KEY) ?? null);
 		parseStoredCaptchaConfig(snapshot.get(CAPTCHA_CONFIG_KEY) ?? null);
+		parseStoredAuthConfig(snapshot.get(AUTH_CONFIG_KEY) ?? null);
+		setCachedAccountsConfig(
+			parseStoredAccountsConfig(snapshot.get(ACCOUNTS_CONFIG_KEY) ?? null, snapshot.get(APP_PUBLIC_CONFIG_KEY) ?? null),
+		);
+		setCachedGuildVisitsConfig(parseStoredGuildVisitsConfig(snapshot.get(GUILD_VISITS_CONFIG_KEY) ?? null));
 		syncChannelThreadsConfig(snapshot.get(CHANNEL_THREADS_CONFIG_KEY) ?? null, parseStoredChannelThreadsConfig);
 		parseStoredExperimentDeliveryConfig(snapshot.get(EXPERIMENT_DELIVERY_CONFIG_KEY) ?? null);
 		parseStoredInstancePolicyConfig(snapshot.get(INSTANCE_POLICY_CONFIG_KEY) ?? null);
+		parseStoredInstanceNotice(snapshot.get(INSTANCE_NOTICE_KEY) ?? null);
+		parseStoredCustomBadges(snapshot.get(CUSTOM_BADGES_CONFIG_KEY) ?? null);
 		checkStoredConfig('registration', () =>
 			parseStoredRegistrationConfig(snapshot.get(REGISTRATION_CONFIG_KEY) ?? null),
 		);
@@ -1448,10 +1807,19 @@ export class InstanceConfigRepository {
 		checkStoredConfig('media', () => parseStoredInstanceMediaConfig(snapshot.get(INSTANCE_MEDIA_CONFIG_KEY) ?? null));
 		setStoredBillingConfig(parseStoredInstanceBillingConfig(snapshot.get(INSTANCE_BILLING_CONFIG_KEY) ?? null));
 		const appPublic = parseStoredAppPublicConfig(snapshot.get(APP_PUBLIC_CONFIG_KEY) ?? null);
-		setCachedDateOfBirthCollection(appPublic.registration.collect_date_of_birth);
 		setCachedConfiguredLegalUrls(appPublic.legal);
 		setCachedProductName(appPublic.branding.product_name);
-		setCachedAccountIdentity(readStoredAccountIdentity(snapshot.get(ACCOUNT_IDENTITY_CONFIG_KEY) ?? null));
+		const storedIdentity = readStoredAccountIdentity(snapshot.get(ACCOUNT_IDENTITY_CONFIG_KEY) ?? null);
+		setCachedAccountIdentity(storedIdentity);
+		setCachedEmailDeliveryState(EmailDeliveryStates.OFF_DISABLED);
+		checkStoredConfig('integrations', () =>
+			setCachedEmailDeliveryState(
+				resolveEffectiveEmailConfig(
+					parseStoredInstanceIntegrationsConfig(snapshot.get(INSTANCE_INTEGRATIONS_CONFIG_KEY) ?? null),
+					resolveAccountIdentity(storedIdentity).mode,
+				).state,
+			),
+		);
 	}
 
 	private async publishRefresh(sourceId: string): Promise<void> {
@@ -1469,7 +1837,11 @@ export class InstanceConfigRepository {
 	}
 
 	clearCacheForTesting(): void {
+		setCachedProductName(null);
 		setCachedAccountIdentity(null);
+		setCachedAccountsConfig(null);
+		setCachedEmailDeliveryState(null);
+		setCachedGuildVisitsConfig(null);
 		syncChannelThreadsConfig(null, parseStoredChannelThreadsConfig);
 		const shutdown = this.shutdown();
 		this.configCache = this.createConfigCache(shutdown);
@@ -1593,15 +1965,23 @@ export class InstanceConfigRepository {
 	}
 
 	async isAccountIdentityLocked(): Promise<boolean> {
-		if (!Config.instance.selfHosted) return true;
-		if (Config.instance.setup.configured) return true;
-		if (readStoredAccountIdentitySource(await this.getConfig(ACCOUNT_IDENTITY_CONFIG_KEY)) === 'existing_instance') {
-			return true;
+		return (await this.getAccountIdentityLockReason()) !== null;
+	}
+
+	async getAccountIdentityLockReason(): Promise<AccountIdentityLockReason | null> {
+		if (!Config.instance.selfHosted) return AccountIdentityLockReasons.SETUP_CONFIGURED;
+		if (Config.instance.setup.configured) return AccountIdentityLockReasons.SETUP_CONFIGURED;
+		if (
+			readStoredAccountIdentitySource(await this.getConfig(ACCOUNT_IDENTITY_CONFIG_KEY)) ===
+			AccountIdentityDecisionSources.EXISTING_INSTANCE
+		) {
+			return AccountIdentityLockReasons.EXISTING_INSTANCE;
 		}
 		const appPublic = await this.getAppPublicConfig();
-		if (appPublic.setup.configured) return true;
-		if (await this.isAdminBootstrapped()) return true;
-		return await this.hasAnyUser();
+		if (appPublic.setup.configured) return AccountIdentityLockReasons.SETUP_CONFIGURED;
+		if (await this.isAdminBootstrapped()) return AccountIdentityLockReasons.ADMIN_EXISTS;
+		if (await this.hasAnyUser()) return AccountIdentityLockReasons.ACCOUNTS_EXIST;
+		return null;
 	}
 
 	async setAccountIdentityMode(
@@ -1612,21 +1992,27 @@ export class InstanceConfigRepository {
 		if (!Config.instance.selfHosted) {
 			throw new Error('The account identity mode is fixed on the hosted service');
 		}
-		const identity: StoredAccountIdentity = {
-			mode,
-			tagStyle: mode === AccountIdentityModes.USERNAME ? TagStyles.NONE : tagStyle,
-		};
+		const identity = normalizeAccountIdentity(mode, tagStyle);
 		const value = serialiseAccountIdentity(identity, source);
 		const cache = this.configCache;
 		await this.compareAndSetStoredValue(cache, ACCOUNT_IDENTITY_CONFIG_KEY, () => ({value, result: undefined}));
 		setCachedAccountIdentity(identity);
+		if (identity.mode === AccountIdentityModes.USERNAME) {
+			await this.compareAndSetStoredValue(cache, INSTANCE_INTEGRATIONS_CONFIG_KEY, (raw) =>
+				this.nextIntegrationsValue(raw, {email: {delivery: EmailDeliveryModes.OFF}}),
+			);
+			await this.compareAndSetStoredValue(cache, AUTH_CONFIG_KEY, (raw) =>
+				this.nextAuthValue(raw, {identifier_first: IdentifierFirstModes.OFF}),
+			);
+			setCachedEmailDeliveryState(EmailDeliveryStates.OFF_USERNAME_MODE);
+		}
 		await this.publishRefresh(cache.sourceId);
 	}
 
 	async ensureAccountIdentityMode(): Promise<void> {
 		if (!Config.instance.selfHosted) return;
 		const cache = this.configCache;
-		let identity: StoredAccountIdentity;
+		let identity: AccountIdentity;
 		let source: AccountIdentityDecisionSource;
 		try {
 			if ((await this.fetchConfigForWrite(ACCOUNT_IDENTITY_CONFIG_KEY)) !== null) return;
@@ -1638,15 +2024,13 @@ export class InstanceConfigRepository {
 			if (!existing && mode === AccountIdentityModes.USERNAME && Config.instance.tagStyle === TagStyles.RANDOM) {
 				Logger.warn('FLUXER_TAG_STYLE=random only applies to email sign-in, username sign-in always uses no tags');
 			}
-			identity = {
+			identity = normalizeAccountIdentity(
 				mode,
-				tagStyle: existing
-					? TagStyles.RANDOM
-					: mode === AccountIdentityModes.USERNAME
-						? TagStyles.NONE
-						: (Config.instance.tagStyle ?? TagStyles.NONE),
-			};
-			source = existing ? 'existing_instance' : 'new_instance';
+				existing ? TagStyles.RANDOM : (Config.instance.tagStyle ?? TagStyles.NONE),
+			);
+			source = existing
+				? AccountIdentityDecisionSources.EXISTING_INSTANCE
+				: AccountIdentityDecisionSources.NEW_INSTANCE;
 		} catch (error) {
 			Logger.error({error}, 'Could not decide the account identity mode, leaving it on email until the next boot');
 			return;
@@ -1685,12 +2069,13 @@ export class InstanceConfigRepository {
 	}
 
 	private async hasEmailDeliverySignal(): Promise<boolean> {
-		if (Config.email.enabled) return true;
-		const integrations = parseStoredConfigValue(
+		const integrations = parseStoredInstanceIntegrationsConfig(
 			await this.fetchConfigFromDatabase(INSTANCE_INTEGRATIONS_CONFIG_KEY),
-			'integrations',
 		);
-		return isJsonRecord(integrations) && isJsonRecord(integrations.email) && integrations.email.enabled === true;
+		return (
+			resolveStoredEmailDeliveryState(AccountIdentityModes.EMAIL, integrations.email) !==
+			EmailDeliveryStates.OFF_DISABLED
+		);
 	}
 
 	private async hasAnyUser(): Promise<boolean> {
@@ -1764,15 +2149,252 @@ export class InstanceConfigRepository {
 		);
 	}
 
+	async getCustomBadges(): Promise<ReadonlyArray<CustomBadgeDefinition>> {
+		const raw = await this.getConfig(CUSTOM_BADGES_CONFIG_KEY);
+		if (this.parsedCustomBadges?.raw !== raw) {
+			this.parsedCustomBadges = {raw, badges: parseStoredCustomBadges(raw)};
+		}
+		return this.parsedCustomBadges.badges;
+	}
+
+	async updateCustomBadges(
+		update: (current: ReadonlyArray<CustomBadgeDefinition>) => Array<CustomBadgeDefinition>,
+	): Promise<ReadonlyArray<CustomBadgeDefinition>> {
+		const config = await this.updateStoredConfig(CUSTOM_BADGES_CONFIG_KEY, (raw) =>
+			validateStoredConfig(
+				StoredCustomBadgesSchema,
+				{badges: update(parseStoredConfig(StoredCustomBadgesSchema, raw, 'custom badges').badges)},
+				'custom badges',
+			),
+		);
+		return config.badges;
+	}
+
+	async readStoredCustomBadgeAssetKeys(): Promise<Set<string>> {
+		const cache = this.configCache;
+		cache.assertActive();
+		const raw = await this.fetchConfigFromDatabase(CUSTOM_BADGES_CONFIG_KEY);
+		cache.assertActive();
+		const {badges} = parseStoredConfig(StoredCustomBadgesSchema, raw, 'custom badges');
+		return new Set(badges.map((badge) => assetStorageKey(badge.asset)));
+	}
+
 	async getCaptchaConfig(): Promise<CaptchaConfig> {
 		const raw = await this.getConfig(CAPTCHA_CONFIG_KEY);
 		return parseStoredCaptchaConfig(raw);
 	}
 
 	updateCaptchaConfig(patch: CaptchaConfigUpdateRequest): Promise<CaptchaConfig> {
+		const {enabled, ...fields} = patch;
 		return this.updateStoredConfig(CAPTCHA_CONFIG_KEY, (raw) =>
-			validateStoredConfig(CaptchaConfigSchema, {...parseStoredCaptchaConfig(raw), ...patch}, 'captcha'),
+			validateStoredConfig(
+				CaptchaConfigSchema,
+				{
+					...parseStoredCaptchaConfig(raw),
+					...(enabled === undefined ? {} : {provider: captchaProviderFromLegacyEnabled(enabled)}),
+					...omitUndefined(fields),
+				},
+				'captcha',
+			),
 		);
+	}
+
+	async getAuthConfig(): Promise<AuthConfig> {
+		return parseStoredAuthConfig(await this.getConfig(AUTH_CONFIG_KEY));
+	}
+
+	private nextAuthValue(raw: string | null, patch: AuthConfigUpdateRequest): StoredValueUpdate<AuthConfig> {
+		const current = parseStoredAuthConfig(raw);
+		const identifierFirst =
+			typeof patch.identifier_first === 'boolean'
+				? identifierFirstFromLegacy(patch.identifier_first)
+				: patch.identifier_first;
+		const next = validateStoredConfig(
+			AuthConfigSchema,
+			{
+				...current,
+				...omitUndefined({identifier_first: identifierFirst}),
+				instant_accounts: {...current.instant_accounts, ...omitUndefined(patch.instant_accounts ?? {})},
+			},
+			'auth',
+		);
+		return {value: JSON.stringify(next), result: next};
+	}
+
+	updateAuthConfig(patch: AuthConfigUpdateRequest): Promise<AuthConfig> {
+		return this.updateStoredConfig(AUTH_CONFIG_KEY, (raw) => this.nextAuthValue(raw, patch).result);
+	}
+
+	async getAccountsConfig(): Promise<AccountsConfig> {
+		const [raw, appPublicRaw] = await Promise.all([
+			this.getConfig(ACCOUNTS_CONFIG_KEY),
+			this.getConfig(APP_PUBLIC_CONFIG_KEY),
+		]);
+		const config = parseStoredAccountsConfig(raw, appPublicRaw);
+		setCachedAccountsConfig(config);
+		return config;
+	}
+
+	async updateAccountsConfig(patch: AccountsConfigUpdateRequest): Promise<AccountsConfig> {
+		const appPublicRaw = await this.getConfig(APP_PUBLIC_CONFIG_KEY);
+		const {date_of_birth_enforcement, abandoned_account_cleanup, ...fields} = patch;
+		const config = await this.updateStoredConfig(ACCOUNTS_CONFIG_KEY, (raw) => {
+			const current = parseStoredAccountsConfig(raw, appPublicRaw);
+			const legacyCleanup: Partial<ReturnType<typeof abandonedAccountCleanupDefaults>> =
+				abandoned_account_cleanup === undefined ? {} : abandonedAccountCleanupDefaults(abandoned_account_cleanup);
+			return validateStoredConfig(
+				AccountsConfigSchema,
+				{
+					...current,
+					...legacyCleanup,
+					...(date_of_birth_enforcement === undefined
+						? {}
+						: {
+								date_of_birth: dateOfBirthPolicyFromLegacyEnforcement(current.date_of_birth, date_of_birth_enforcement),
+							}),
+					...omitUndefined({
+						date_of_birth: fields.date_of_birth,
+						interaction_tier: fields.interaction_tier,
+						verification_basis: fields.verification_basis,
+						guild_join_gate: fields.guild_join_gate,
+					}),
+					unclaimed_account_cleanup: {
+						...(legacyCleanup.unclaimed_account_cleanup ?? current.unclaimed_account_cleanup),
+						...omitUndefined(fields.unclaimed_account_cleanup ?? {}),
+					},
+					dob_missing_cleanup: {
+						...(legacyCleanup.dob_missing_cleanup ?? current.dob_missing_cleanup),
+						...omitUndefined(fields.dob_missing_cleanup ?? {}),
+					},
+					inactivity_deletion: {
+						...current.inactivity_deletion,
+						...omitUndefined(fields.inactivity_deletion ?? {}),
+					},
+				},
+				'accounts',
+			);
+		});
+		setCachedAccountsConfig(config);
+		return config;
+	}
+
+	async setDateOfBirthCollection(collect: boolean): Promise<AccountsConfig> {
+		const current = await this.getAccountsConfig();
+		if (collect === (current.date_of_birth !== DateOfBirthPolicies.OFF)) return current;
+		return await this.updateAccountsConfig({
+			date_of_birth: collect ? DateOfBirthPolicies.REQUIRE_NEW_ACCOUNTS : DateOfBirthPolicies.OFF,
+		});
+	}
+
+	async getGuildVisitsConfig(): Promise<GuildVisitsConfig> {
+		const config = parseStoredGuildVisitsConfig(await this.getConfig(GUILD_VISITS_CONFIG_KEY));
+		setCachedGuildVisitsConfig(config);
+		return config;
+	}
+
+	async updateGuildVisitsConfig(patch: GuildVisitsConfigUpdateRequest): Promise<GuildVisitsConfig> {
+		const config = await this.updateStoredConfig(GUILD_VISITS_CONFIG_KEY, (raw) =>
+			validateStoredConfig(
+				GuildVisitsConfigSchema,
+				{...parseStoredGuildVisitsConfig(raw), ...omitUndefined(patch)},
+				'guild visits',
+			),
+		);
+		setCachedGuildVisitsConfig(config);
+		return config;
+	}
+
+	async ensureAccountsDefaults(): Promise<void> {
+		if (Config.inactivityDeletionThresholdDays !== undefined) {
+			Logger.warn(
+				{inactive_days: seededInactivityDays()},
+				'inactivity_deletion_threshold_days is deprecated, it only seeds accounts.inactivity_deletion.inactive_days',
+			);
+		}
+		try {
+			const [authRaw, accountsRaw] = await Promise.all([
+				this.fetchConfigForWrite(AUTH_CONFIG_KEY),
+				this.fetchConfigForWrite(ACCOUNTS_CONFIG_KEY),
+			]);
+			if (authRaw !== null && accountsRaw !== null) {
+				await this.migrateStoredIdentifierFirst(authRaw);
+				return;
+			}
+			const defaults = await this.computeAccountsDefaults();
+			const cache = this.configCache;
+			const appPublicRaw = await this.fetchConfigFromDatabase(APP_PUBLIC_CONFIG_KEY);
+			const writes: Array<[string, string, ((raw: string | null) => void) | null]> = [
+				[AUTH_CONFIG_KEY, JSON.stringify(defaults.auth), null],
+				[
+					ACCOUNTS_CONFIG_KEY,
+					JSON.stringify(defaults.accounts),
+					(raw) => setCachedAccountsConfig(parseStoredAccountsConfig(raw, appPublicRaw)),
+				],
+			];
+			let wrote = false;
+			for (const [key, value, sync] of writes) {
+				const {written} = await this.compareAndSetStoredValue(cache, key, (raw) => ({
+					value: raw === null ? value : null,
+					result: undefined,
+				}));
+				wrote ||= written;
+				if (sync) sync(written ? value : await this.fetchConfigFromDatabase(key));
+			}
+			if (authRaw !== null) await this.migrateStoredIdentifierFirst(authRaw);
+			if (wrote) {
+				Logger.info({auth: defaults.auth, accounts: defaults.accounts}, 'Stamped the account defaults');
+				await this.publishRefresh(cache.sourceId);
+			}
+		} catch (error) {
+			Logger.error({error}, 'Could not store the account defaults, using the safe defaults until the next boot');
+		}
+	}
+
+	private async migrateStoredIdentifierFirst(authRaw: string): Promise<void> {
+		if (!Config.instance.selfHosted) return;
+		const stored = storedRecord(readStoredConfigValue(authRaw, 'auth'));
+		if (typeof stored.identifier_first !== 'boolean') return;
+		const mode =
+			stored.identifier_first || (await this.hasAdminAuthConfigUpdate())
+				? identifierFirstFromLegacy(stored.identifier_first)
+				: IdentifierFirstModes.AUTO;
+		const cache = this.configCache;
+		const {written} = await this.compareAndSetStoredValue(cache, AUTH_CONFIG_KEY, (raw) =>
+			raw === authRaw ? this.nextAuthValue(raw, {identifier_first: mode}) : {value: null, result: undefined},
+		);
+		if (!written) return;
+		Logger.info({identifier_first: mode}, 'Moved the stored identifier_first switch to its three-way setting');
+		await this.publishRefresh(cache.sourceId);
+	}
+
+	private async hasAdminAuthConfigUpdate(): Promise<boolean> {
+		let lastLogId: bigint | null = null;
+		for (;;) {
+			const rows: Array<{log_id: bigint; action: string; metadata: Map<string, string> | null}> =
+				lastLogId === null
+					? await fetchMany(FETCH_FIRST_ADMIN_AUDIT_PAGE_QUERY.bind({}))
+					: await fetchMany(FETCH_NEXT_ADMIN_AUDIT_PAGE_QUERY.bind({last_log_id: lastLogId}));
+			for (const row of rows) {
+				if (row.action !== INSTANCE_CONFIG_UPDATE_AUDIT_ACTION) continue;
+				if ((row.metadata?.get('sections') ?? '').split(',').includes('auth')) return true;
+			}
+			if (rows.length < ADMIN_AUDIT_SCAN_PAGE_SIZE) return false;
+			lastLogId = rows[rows.length - 1]!.log_id;
+		}
+	}
+
+	private async computeAccountsDefaults(): Promise<AccountsConfigDefaults> {
+		if (!Config.instance.selfHosted) return hostedAccountsDefaults();
+		const existing = await this.hasExistingInstanceSignals();
+		if (!existing) return selfHostedAccountsDefaults({freshInstall: true});
+		const legacyCollect = readLegacyDateOfBirthCollection(await this.fetchConfigFromDatabase(APP_PUBLIC_CONFIG_KEY));
+		return selfHostedAccountsDefaults({
+			freshInstall: false,
+			dateOfBirth: dateOfBirthPolicyFromLegacy({
+				collect: legacyCollect,
+				enforcement: LegacyDateOfBirthEnforcements.NEW_ACCOUNTS,
+			}),
+		});
 	}
 
 	async getChannelThreadsConfig(): Promise<ChannelThreadsConfig> {
@@ -1783,10 +2405,6 @@ export class InstanceConfigRepository {
 	async getExperimentDeliveryConfig(): Promise<ExperimentDeliveryConfig> {
 		const raw = await this.getConfig(EXPERIMENT_DELIVERY_CONFIG_KEY);
 		return parseStoredExperimentDeliveryConfig(raw);
-	}
-
-	async setExperimentDeliveryConfig(config: ExperimentDeliveryConfig): Promise<void> {
-		await this.updateExperimentDeliveryConfig(() => config);
 	}
 
 	updateExperimentDeliveryConfig(
@@ -1822,22 +2440,24 @@ export class InstanceConfigRepository {
 	}
 
 	async getAppPublicConfig(): Promise<InstanceAppPublicConfig> {
-		const raw = await this.getConfig(APP_PUBLIC_CONFIG_KEY);
-		const config = parseStoredAppPublicConfig(raw);
-		setCachedDateOfBirthCollection(config.registration.collect_date_of_birth);
+		const [raw, accounts] = await Promise.all([this.getConfig(APP_PUBLIC_CONFIG_KEY), this.getAccountsConfig()]);
+		const config = withDerivedDateOfBirthCollection(parseStoredAppPublicConfig(raw), accounts.date_of_birth);
 		setCachedConfiguredLegalUrls(config.legal);
 		setCachedProductName(config.branding.product_name);
 		return config;
 	}
 
-	async setAppPublicConfig(config: {
-		branding?: InstanceBrandingPatch;
-		setup?: Partial<InstanceAppPublicConfig['setup']>;
-		legal?: Partial<InstanceAppPublicConfig['legal']>;
-		registration?: Partial<InstanceAppPublicConfig['registration']>;
-	}): Promise<InstanceAppPublicConfig> {
+	async setAppPublicConfig(config: AppPublicConfigPatch): Promise<InstanceAppPublicConfig> {
+		return (await this.writeAppPublicConfig(config)).config;
+	}
+
+	async writeAppPublicConfig(
+		config: AppPublicConfigPatch,
+	): Promise<{config: InstanceAppPublicConfig; releasedBrandingAssets: Array<string>}> {
 		const cache = this.configCache;
-		const {result: next} = await this.compareAndSetStoredValue(cache, APP_PUBLIC_CONFIG_KEY, (raw) => {
+		const {
+			result: {next, releasedBrandingAssets},
+		} = await this.compareAndSetStoredValue(cache, APP_PUBLIC_CONFIG_KEY, (raw) => {
 			const stored = salvageStoredConfig(
 				StoredInstanceAppPublicSchema,
 				readStoredConfigValue(raw, 'app public'),
@@ -1864,20 +2484,41 @@ export class InstanceConfigRepository {
 						...current.legal,
 						...(config.legal ?? {}),
 					},
-					registration: {
-						...current.registration,
-						...(config.registration ?? {}),
-					},
+					registration: stored.registration,
 				},
 				'app public',
 			);
-			return {value: JSON.stringify(merged), result: resolveAppPublicConfig(buildAppPublicConfig(merged))};
+			return {
+				value: JSON.stringify(merged),
+				result: {
+					next: resolveAppPublicConfig(buildAppPublicConfig(merged)),
+					releasedBrandingAssets: releasedBrandingAssetReferences(
+						toStoredBranding(current.branding),
+						merged.branding ?? {},
+					),
+				},
+			};
 		});
 		await this.publishRefresh(cache.sourceId);
-		setCachedDateOfBirthCollection(next.registration.collect_date_of_birth);
 		setCachedConfiguredLegalUrls(next.legal);
 		setCachedProductName(next.branding.product_name);
-		return next;
+		return {
+			config: withDerivedDateOfBirthCollection(next, (await this.getAccountsConfig()).date_of_birth),
+			releasedBrandingAssets,
+		};
+	}
+
+	async readStoredBrandingAssetKeys(): Promise<Set<string>> {
+		const cache = this.configCache;
+		cache.assertActive();
+		const raw = await this.fetchConfigFromDatabase(APP_PUBLIC_CONFIG_KEY);
+		cache.assertActive();
+		const stored = salvageStoredConfig(
+			StoredInstanceAppPublicSchema,
+			readStoredConfigValue(raw, 'app public'),
+			'app public',
+		);
+		return brandingAssetStorageKeys(toStoredBranding(buildAppPublicConfig(stored).branding));
 	}
 
 	async normalizeStoredBrandingAssets(storageService: IStorageService): Promise<number> {
@@ -1902,10 +2543,7 @@ export class InstanceConfigRepository {
 			}
 			const candidate = brandingAssetReferenceFromAnyUrl(value);
 			if (candidate === null) continue;
-			const metadata = await storageService.getObjectMetadata(
-				Config.s3.buckets.cdn,
-				brandingAssetStorageKey(candidate),
-			);
+			const metadata = await storageService.getObjectMetadata(Config.s3.buckets.cdn, assetStorageKey(candidate));
 			if (metadata !== null) {
 				rewrites.set(value, candidate);
 			}
@@ -1971,37 +2609,51 @@ export class InstanceConfigRepository {
 		return parseStoredInstanceIntegrationsConfig(raw);
 	}
 
-	setInstanceIntegrationsConfig(config: InstanceIntegrationsConfigPatch): Promise<InstanceIntegrationsConfig> {
-		return this.updateStoredConfig(INSTANCE_INTEGRATIONS_CONFIG_KEY, (raw) => {
-			const current = parseStoredInstanceIntegrationsConfig(raw);
-			return decodeInstanceIntegrationsConfig({
-				gif: {
-					...current.gif,
-					...(config.gif ?? {}),
+	private nextIntegrationsValue(
+		raw: string | null,
+		config: InstanceIntegrationsConfigPatch,
+	): StoredValueUpdate<InstanceIntegrationsConfig> {
+		const current = parseStoredInstanceIntegrationsConfig(raw);
+		const {enabled, provider, ...email} = config.email ?? {};
+		const delivery = email.delivery ?? legacyEmailDeliveryPatch(current.email.delivery, enabled, provider);
+		const next = decodeInstanceIntegrationsConfig({
+			gif: {
+				...current.gif,
+				...(config.gif ?? {}),
+			},
+			youtube: {
+				...current.youtube,
+				...(config.youtube ?? {}),
+			},
+			email: {
+				...current.email,
+				...email,
+				...(delivery === undefined ? {} : {delivery}),
+				smtp: {
+					...current.email.smtp,
+					...(email.smtp ?? {}),
+					...(email.smtp?.tls_mode === undefined ? {} : {secure: null}),
 				},
-				youtube: {
-					...current.youtube,
-					...(config.youtube ?? {}),
-				},
-				email: {
-					...current.email,
-					...(config.email ?? {}),
-					smtp: {
-						...current.email.smtp,
-						...(config.email?.smtp ?? {}),
-						...(config.email?.smtp?.tls_mode === undefined ? {} : {secure: null}),
-					},
-				},
-				bluesky: {
-					...current.bluesky,
-					...(config.bluesky ?? {}),
-					keys: config.bluesky?.keys ?? current.bluesky.keys,
-				},
-			});
+			},
+			bluesky: {
+				...current.bluesky,
+				...(config.bluesky ?? {}),
+				keys: config.bluesky?.keys ?? current.bluesky.keys,
+			},
 		});
+		return {value: JSON.stringify(next), result: next};
 	}
 
-	async getInstanceMediaConfig(): Promise<InstanceMediaConfig> {
+	async setInstanceIntegrationsConfig(config: InstanceIntegrationsConfigPatch): Promise<InstanceIntegrationsConfig> {
+		const next = await this.updateStoredConfig(
+			INSTANCE_INTEGRATIONS_CONFIG_KEY,
+			(raw) => this.nextIntegrationsValue(raw, config).result,
+		);
+		setCachedEmailDeliveryState(resolveEffectiveEmailConfig(next, await this.getAccountIdentityMode()).state);
+		return next;
+	}
+
+	private async getInstanceMediaConfig(): Promise<InstanceMediaConfig> {
 		const raw = await this.getConfig(INSTANCE_MEDIA_CONFIG_KEY);
 		return parseStoredInstanceMediaConfig(raw);
 	}
@@ -2055,11 +2707,19 @@ export class InstanceConfigRepository {
 		return integrations.youtube.api_key ?? normalizeOptionalString(Config.youtube.apiKey);
 	}
 
-	async getSmtpTestConfig(draft: InstanceEmailSmtpTestRequest): Promise<SmtpTestConfig> {
-		const saved = (await this.getInstanceIntegrationsConfig()).email.smtp;
-		const current = resolveEffectiveSmtpConfig(saved);
+	async getSmtpTestConfig({
+		from_email: fromEmail,
+		from_name: fromName,
+		...draft
+	}: InstanceEmailSmtpTestRequest): Promise<SmtpTestConfig> {
+		const email = (await this.getInstanceIntegrationsConfig()).email;
+		const current = resolveEffectiveSmtpConfig(email.smtp);
+		const from = {
+			email: fromEmail ?? email.from_email ?? Config.email.fromEmail,
+			name: fromName ?? email.from_name ?? Config.email.fromName,
+		};
 		if (Object.values(draft).every((value) => value === undefined)) {
-			return {smtp: current, problem: await this.getEmailSendBlocker()};
+			return {smtp: current, from, problem: await this.getEmailSendBlocker()};
 		}
 		const retargeted =
 			(draft.host != null && draft.host.toLowerCase() !== current.host.toLowerCase()) ||
@@ -2071,49 +2731,75 @@ export class InstanceConfigRepository {
 			password: draft.password ?? (retargeted ? '' : current.password),
 			tlsMode: draft.tls_mode === undefined ? current.tlsMode : (draft.tls_mode ?? Config.email.smtp?.tlsMode ?? null),
 		};
-		if (retargeted && !smtp.password) {
-			return {smtp, problem: 'Enter the SMTP password to test a different host or username'};
+		if (retargeted && smtp.username && !smtp.password) {
+			return {smtp, from, problem: 'Enter the SMTP password to test a different host or username'};
 		}
-		return {smtp, problem: describeIncompleteSmtpConfig(smtp)};
+		return {smtp, from, problem: describeIncompleteSmtpConfig(smtp)};
 	}
 
-	private async resolveEmailConfig(): Promise<{email: APIConfig['email']; usernameMode: boolean}> {
-		const integrations = await this.getInstanceIntegrationsConfig();
-		const provider = integrations.email.provider ?? Config.email.provider;
-		const fromEmail = integrations.email.from_email ?? Config.email.fromEmail;
-		const fromName = integrations.email.from_name ?? Config.email.fromName;
-		const smtp = provider === 'smtp' ? resolveEffectiveSmtpConfig(integrations.email.smtp) : undefined;
-		const email: APIConfig['email'] = {
-			...Config.email,
-			enabled: integrations.email.enabled ?? Config.email.enabled,
-			provider,
-			fromEmail,
-			fromName,
-			smtp,
-		};
-		const usernameMode = (await this.getAccountIdentityMode()) === AccountIdentityModes.USERNAME;
-		return {email, usernameMode};
+	private async resolveEmailConfig(): Promise<{email: APIConfig['email']; state: EmailDeliveryState}> {
+		const [integrations, mode] = await Promise.all([
+			this.getInstanceIntegrationsConfig(),
+			this.getAccountIdentityMode(),
+		]);
+		const effective = resolveEffectiveEmailConfig(integrations, mode);
+		setCachedEmailDeliveryState(effective.state);
+		return effective;
 	}
 
 	private async getEmailSendBlocker(): Promise<string | null> {
-		const {email, usernameMode} = await this.resolveEmailConfig();
-		if (usernameMode) return 'Email is off while accounts sign in with usernames';
-		if (!email.enabled) return 'Email is turned off';
-		if (email.provider !== 'smtp' || !email.smtp) return 'The email provider is not SMTP';
-		if (!email.fromEmail.trim()) return 'No from address is set';
-		return describeIncompleteSmtpConfig(email.smtp);
+		const {email, state} = await this.resolveEmailConfig();
+		return emailSendBlocker(state, email);
 	}
 
 	async getEffectiveEmailConfig(): Promise<APIConfig['email']> {
-		const {email, usernameMode} = await this.resolveEmailConfig();
-		return {
-			...email,
-			enabled: !usernameMode && email.enabled && hasCompleteSmtpConfig(email),
-		};
+		return (await this.resolveEmailConfig()).email;
+	}
+
+	async getEmailDeliveryState(): Promise<EmailDeliveryState> {
+		return (await this.resolveEmailConfig()).state;
 	}
 
 	async isEmailEnabled(): Promise<boolean> {
-		return (await this.getEffectiveEmailConfig()).enabled;
+		return (await this.getEmailDeliveryState()) === EmailDeliveryStates.ON;
+	}
+
+	async previewEmailDeliveryState(patch: InstanceIntegrationsConfigPatch): Promise<EmailDeliveryState> {
+		const [raw, identityMode] = await Promise.all([
+			this.getConfig(INSTANCE_INTEGRATIONS_CONFIG_KEY),
+			this.getAccountIdentityMode(),
+		]);
+		return resolveEffectiveEmailConfig(this.nextIntegrationsValue(raw, patch).result, identityMode).state;
+	}
+
+	async previewEffectiveSmtpConfig(patch: InstanceIntegrationsConfigPatch): Promise<EffectiveSmtpConfig> {
+		const raw = await this.getConfig(INSTANCE_INTEGRATIONS_CONFIG_KEY);
+		return resolveEffectiveSmtpConfig(this.nextIntegrationsValue(raw, patch).result.email.smtp);
+	}
+
+	async getSignInFeatures(): Promise<{identifierFirst: boolean; emailCodes: boolean}> {
+		const [auth, identityMode, deliveryState] = await Promise.all([
+			this.getAuthConfig(),
+			this.getAccountIdentityMode(),
+			this.getEmailDeliveryState(),
+		]);
+		return resolveIdentifierFirst({mode: auth.identifier_first, identityMode, deliveryState});
+	}
+
+	async getInstantAccountAvailability(
+		registrationUrl: {approvalRequired: boolean} | null = null,
+	): Promise<InstantAccountAvailability> {
+		const [auth, captcha, registration] = await Promise.all([
+			this.getAuthConfig(),
+			this.getCaptchaConfig(),
+			this.getRegistrationConfig(),
+		]);
+		return resolveInstantAccountAvailability({
+			enabled: auth.instant_accounts.enabled,
+			captchaProvider: captcha.provider,
+			registrationMode: registration.mode,
+			registrationUrl,
+		});
 	}
 
 	async getEffectiveBlueskyConfig(): Promise<BlueskyOAuthConfig> {
@@ -2145,13 +2831,15 @@ export class InstanceConfigRepository {
 	}
 
 	async getInstanceIntegrationsAdminConfig(): Promise<InstanceIntegrationsAdminConfig> {
-		const [integrations, gif, youtubeApiKey, email, bluesky] = await Promise.all([
+		const [integrations, gif, youtubeApiKey, {email, state}, bluesky] = await Promise.all([
 			this.getInstanceIntegrationsConfig(),
 			this.getEffectiveGifConfig(),
 			this.getEffectiveYoutubeApiKey(),
-			this.getEffectiveEmailConfig(),
+			this.resolveEmailConfig(),
 			this.getEffectiveBlueskyConfig(),
 		]);
+		const storedDelivery = integrations.email.delivery;
+		const smtpServer = email.smtp ?? resolveEffectiveSmtpConfig(integrations.email.smtp);
 		return {
 			gif: {
 				klipy_api_key_set: secretIsSet(integrations.gif.klipy_api_key) || secretIsSet(Config.klipy.apiKey),
@@ -2162,16 +2850,19 @@ export class InstanceConfigRepository {
 				effective_available: Boolean(youtubeApiKey),
 			},
 			email: {
-				enabled: integrations.email.enabled,
+				delivery: storedDelivery,
+				effective_delivery: resolveEmailDelivery(integrations.email),
+				delivery_state: state,
+				enabled: storedDelivery === null ? null : storedDelivery === EmailDeliveryModes.SMTP,
 				effective_enabled: email.enabled,
-				provider: integrations.email.provider,
+				provider: storedDelivery === null ? null : emailProviderFor(storedDelivery),
 				effective_provider: email.provider,
 				from_email: email.fromEmail || null,
 				from_name: email.fromName || null,
 				smtp: {
-					host: email.smtp?.host || null,
-					port: email.smtp?.port ?? null,
-					username: email.smtp?.username || null,
+					host: smtpServer.host || null,
+					port: email.smtp?.port ?? integrations.email.smtp.port ?? Config.email.smtp?.port ?? null,
+					username: smtpServer.username || null,
 					password_set: secretIsSet(integrations.email.smtp.password) || secretIsSet(Config.email.smtp?.password),
 					tls_mode: storedSmtpTlsMode(integrations.email.smtp),
 					effective_tls_mode: email.smtp ? resolveSmtpTlsMode(email.smtp.tlsMode, email.smtp.port) : null,
@@ -2219,6 +2910,7 @@ export class InstanceConfigRepository {
 				tax_id_collection: patch.tax_id_collection === undefined ? current.tax_id_collection : patch.tax_id_collection,
 				terms_consent_required:
 					patch.terms_consent_required === undefined ? current.terms_consent_required : patch.terms_consent_required,
+				billing_emails: patch.billing_emails === undefined ? current.billing_emails : patch.billing_emails,
 				default_currency: patch.default_currency === undefined ? current.default_currency : patch.default_currency,
 				prices: patch.prices === undefined ? current.prices : normalizeBillingPrices(patch.prices),
 				country_currencies:
@@ -2243,9 +2935,11 @@ export class InstanceConfigRepository {
 			automatic_tax: stored.automatic_tax,
 			tax_id_collection: stored.tax_id_collection,
 			terms_consent_required: stored.terms_consent_required,
+			billing_emails: stored.billing_emails,
 			effective_automatic_tax: effective.automaticTax,
 			effective_tax_id_collection: effective.taxIdCollection,
 			effective_terms_consent_required: effective.termsConsentRequired,
+			effective_billing_emails: effective.billingEmails,
 			default_currency: stored.default_currency,
 			prices: stored.prices,
 			country_currencies: stored.country_currencies,
@@ -2263,8 +2957,38 @@ export class InstanceConfigRepository {
 			single_community: policy.single_community_enabled,
 			single_community_guild_id: policy.single_community_enabled ? policy.single_community_guild_id : null,
 			direct_messages_disabled: policy.direct_messages_disabled,
+			friends_disabled: policy.friends_disabled,
+			personal_notes_enabled: policy.personal_notes_enabled,
 			guild_create_access: policy.guild_create_access,
 		};
+	}
+
+	async getInstanceNotice(): Promise<InstanceNotice | null> {
+		return parseStoredInstanceNotice(await this.getConfig(INSTANCE_NOTICE_KEY));
+	}
+
+	async getActiveInstanceNotice(now: Date = new Date()): Promise<InstanceNotice | null> {
+		const notice = await this.getInstanceNotice();
+		if (notice?.ends_at != null && Date.parse(notice.ends_at) <= now.getTime()) return null;
+		return notice;
+	}
+
+	setInstanceNotice(notice: Omit<InstanceNotice, 'id'> | null): Promise<InstanceNotice | null> {
+		return this.updateStoredConfig(INSTANCE_NOTICE_KEY, (raw) => {
+			const current = parseStoredInstanceNotice(raw);
+			if (notice === null) return null;
+			const unchanged =
+				current !== null &&
+				current.message === notice.message &&
+				current.url === notice.url &&
+				current.starts_at === notice.starts_at &&
+				current.ends_at === notice.ends_at;
+			return validateStoredConfig(
+				InstanceNoticeSchema,
+				{...notice, id: unchanged ? current.id : crypto.randomUUID()},
+				'instance notice',
+			);
+		});
 	}
 
 	async getResolvedServicesConfig(): Promise<InstanceServices> {
@@ -2293,12 +3017,16 @@ export class InstanceConfigRepository {
 				mode: config.mode ?? current.mode,
 				admin_registration_urls_enabled:
 					config.admin_registration_urls_enabled ?? current.admin_registration_urls_enabled,
+				allowed_email_domains: config.allowed_email_domains
+					? normalizeAllowedEmailDomains(config.allowed_email_domains, 'allowed_email_domains')
+					: current.allowed_email_domains,
 			});
 		});
 	}
 
-	async getRegistrationPublicConfig(): Promise<InstanceRegistrationConfig> {
-		return this.getRegistrationConfig();
+	async getRegistrationPublicConfig(): Promise<InstanceRegistration> {
+		const {allowed_email_domains: _allowedEmailDomains, ...registration} = await this.getRegistrationConfig();
+		return registration;
 	}
 
 	async getRegistrationUrls(): Promise<Array<InstanceRegistrationUrl>> {
@@ -2318,6 +3046,7 @@ export class InstanceConfigRepository {
 		expiresAt: Date | null;
 		maxUses: number | null;
 		approvalRequired: boolean;
+		inviteCode?: string | null;
 	}): Promise<{registrationUrl: InstanceRegistrationUrlPublic; code: string}> {
 		const id = crypto.randomUUID();
 		const code = id;
@@ -2334,6 +3063,7 @@ export class InstanceConfigRepository {
 			approval_required: params.approvalRequired,
 			last_used_at: null,
 			last_used_by_user_id: null,
+			invite_code: params.inviteCode ?? null,
 		};
 		await this.updateStoredConfig(REGISTRATION_URLS_KEY, (raw) =>
 			validateStoredCollection(
@@ -2345,15 +3075,33 @@ export class InstanceConfigRepository {
 		return {registrationUrl: redactRegistrationUrl(registrationUrl), code};
 	}
 
-	async revokeRegistrationUrl(id: string): Promise<void> {
+	async revokeOrRemoveRegistrationUrl(id: string): Promise<'revoked' | 'removed' | 'missing'> {
 		const now = new Date().toISOString();
+		let outcome: 'revoked' | 'removed' | 'missing' = 'missing';
 		await this.updateStoredConfig(REGISTRATION_URLS_KEY, (raw) =>
-			parseStoredCollection(StoredRegistrationUrlSchema, raw, 'registration URLs').map((registrationUrl) =>
-				registrationUrl.id === id && !registrationUrl.revoked_at
-					? {...registrationUrl, revoked_at: now}
-					: registrationUrl,
-			),
+			parseStoredCollection(StoredRegistrationUrlSchema, raw, 'registration URLs').flatMap((registrationUrl) => {
+				if (registrationUrl.id !== id) return [registrationUrl];
+				if (registrationUrl.revoked_at) {
+					outcome = 'removed';
+					return [];
+				}
+				outcome = 'revoked';
+				return [{...registrationUrl, revoked_at: now}];
+			}),
 		);
+		return outcome;
+	}
+
+	async renameRegistrationUrl(id: string, label: string | null): Promise<boolean> {
+		let found = false;
+		await this.updateStoredConfig(REGISTRATION_URLS_KEY, (raw) =>
+			parseStoredCollection(StoredRegistrationUrlSchema, raw, 'registration URLs').map((registrationUrl) => {
+				if (registrationUrl.id !== id) return registrationUrl;
+				found = true;
+				return {...registrationUrl, label};
+			}),
+		);
+		return found;
 	}
 
 	async resolveRegistrationUrlCode(code: string): Promise<InstanceRegistrationUrl | null> {
@@ -2454,6 +3202,7 @@ export class InstanceConfigRepository {
 				'pending registrations',
 			),
 		);
+		await enqueueRegistrationApprovalNotice(pendingRegistration.user_id);
 	}
 
 	async removePendingRegistration(userId: string): Promise<void> {
@@ -2480,6 +3229,7 @@ export class InstanceConfigRepository {
 			ssoRow('sso_enabled', config.enabled, current.enabled, formatSsoBoolean),
 			ssoRow('sso_enforced', config.enforced, current.enforced, formatSsoBoolean),
 			ssoRow('sso_display_name', config.displayName, current.displayName, formatSsoString),
+			ssoRow('sso_button_label', config.buttonLabel, current.buttonLabel, formatSsoString),
 			ssoRow('sso_issuer', config.issuer, current.issuer, formatSsoString),
 			ssoRow('sso_authorization_url', config.authorizationUrl, current.authorizationUrl, formatSsoString),
 			ssoRow('sso_token_url', config.tokenUrl, current.tokenUrl, formatSsoString),
@@ -2489,7 +3239,15 @@ export class InstanceConfigRepository {
 			ssoRow('sso_scope', config.scope, current.scope, formatSsoString),
 			ssoRow('sso_allowed_domains', allowedEmailDomains, current.allowedEmailDomains, formatSsoDomains),
 			ssoRow('sso_auto_provision', config.autoProvision, current.autoProvision, formatSsoBoolean),
+			ssoRow('sso_username_from_provider', config.usernameFromProvider, current.usernameFromProvider, formatSsoBoolean),
 			ssoRow('sso_redirect_uri', undefined, null, formatSsoString),
+			ssoRow('sso_groups_claim', config.groupsClaim, current.groupsClaim, formatSsoString),
+			ssoRow(
+				'sso_group_role_mappings',
+				config.groupRoleMappings,
+				current.groupRoleMappings,
+				formatSsoGroupRoleMappings,
+			),
 		];
 		if (config.clientSecret !== undefined) {
 			rows.push(ssoRow('sso_client_secret', config.clientSecret, current.clientSecret ?? null, formatSsoString));

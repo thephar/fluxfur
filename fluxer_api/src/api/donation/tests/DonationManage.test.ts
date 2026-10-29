@@ -13,7 +13,7 @@ import {createPwnedPasswordsRangeHandler} from '@app/api/test/msw/handlers/Pwned
 import {createStripeApiHandlers, type StripeApiHandlers} from '@app/api/test/msw/handlers/StripeApiHandlers';
 import {server} from '@app/api/test/msw/server';
 import {createBuilderWithoutAuth, type TestRequestBuilder} from '@app/api/test/TestRequestBuilder';
-import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi} from 'vitest';
+import {afterAll, beforeAll, beforeEach, describe, expect, test} from 'vitest';
 
 type DonationManageAlert = 'link_expired' | 'link_used' | 'link_invalid' | 'no_customer' | 'portal_error';
 
@@ -195,9 +195,6 @@ describe('GET and POST /donations/manage', () => {
 		});
 	});
 	describe('edge cases', () => {
-		afterEach(() => {
-			vi.useRealTimers();
-		});
 		test('handles token for donor with cancelled subscription', async () => {
 			const customerId = 'cus_test_cancelled';
 			await createDonorWithoutSubscription(TEST_DONOR_EMAIL, customerId);
@@ -207,14 +204,9 @@ describe('GET and POST /donations/manage', () => {
 			expect(stripeHandlers.spies.createdPortalSessions).toHaveLength(1);
 			expect(stripeHandlers.spies.createdPortalSessions[0]?.customer).toBe(customerId);
 		});
-		test('handles token at its exact expiry instant', async () => {
-			const expiresAt = new Date();
-			vi.useFakeTimers({toFake: ['Date']});
-			vi.setSystemTime(expiresAt);
+		test('rejects an expired token without using it', async () => {
 			await createDonorWithCustomerId(TEST_DONOR_EMAIL, 'cus_test');
-			await createMagicLinkToken(TEST_DONOR_EMAIL, TEST_MAGIC_LINK_TOKEN, expiresAt, null);
-			expect(await openManageLink(TEST_MAGIC_LINK_TOKEN)).toBe(confirmUrl(TEST_MAGIC_LINK_TOKEN));
-			vi.setSystemTime(expiresAt.getTime() + 1);
+			await createMagicLinkToken(TEST_DONOR_EMAIL, TEST_MAGIC_LINK_TOKEN, new Date(Date.now() - 1000), null);
 			expect(await openManageLink(TEST_MAGIC_LINK_TOKEN)).toBe(alertUrl('link_expired'));
 			expect(await redeemManageLink(TEST_MAGIC_LINK_TOKEN)).toBe(alertUrl('link_expired'));
 			expect(await isTokenUsed(TEST_MAGIC_LINK_TOKEN)).toBe(false);

@@ -121,7 +121,7 @@ export class MessageValidationService {
 		}
 	}
 
-	validateContentLength(
+	private validateContentLength(
 		content: string | null | undefined,
 		user: User | null,
 		guildFeatures?: Iterable<string> | null,

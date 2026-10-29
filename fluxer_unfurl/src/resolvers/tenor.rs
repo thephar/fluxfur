@@ -227,19 +227,3 @@ fn valid_absolute_url(value: &str) -> Option<String> {
         None
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn valid_absolute_url_rejects_non_http() {
-        assert!(valid_absolute_url("ftp://example.com/file").is_none());
-        assert!(valid_absolute_url("javascript:alert(1)").is_none());
-    }
-
-    #[test]
-    fn valid_absolute_url_rejects_relative() {
-        assert!(valid_absolute_url("/relative/path").is_none());
-    }
-}

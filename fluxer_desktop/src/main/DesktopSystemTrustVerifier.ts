@@ -4,7 +4,11 @@ import {createHash, X509Certificate} from 'node:crypto';
 import net from 'node:net';
 import {createChildLogger} from '@electron/common/Logger';
 import {CHROMIUM_SPKI_BLOCKLIST, CHROMIUM_SPKI_BLOCKLIST_SOURCE} from '@electron/main/DesktopChromiumSPKIBlocklist';
-import {resolveDesktopLocallyAddedCertificates} from '@electron/main/DesktopTrustedCertificates';
+import {
+	type DesktopCertificateSource,
+	resolveDesktopLocallyAddedCertificates,
+	resolveDesktopTrustedCertificates,
+} from '@electron/main/DesktopTrustedCertificates';
 import {readWindowsIntermediateStoreRoots} from '@electron/main/GatewaySocketNativeBoundary';
 import type {Certificate, Session} from 'electron';
 
@@ -100,7 +104,7 @@ interface DesktopSystemTrustRequest {
 	readonly errorCode: number;
 }
 
-export type DesktopTrustAnchors = ReadonlyMap<string, ReadonlyArray<ParsedCertificate>>;
+type DesktopTrustAnchors = ReadonlyMap<string, ReadonlyArray<ParsedCertificate>>;
 
 function readNodes(buffer: Buffer): Array<DerNode> {
 	const nodes: Array<DerNode> = [];
@@ -398,7 +402,7 @@ function chainsToDesktopTrustAnchor(
 	return buildsPath({intermediates, anchors, now, signatures: new Map(), signatureChecks: 0}, leaf, [leaf]);
 }
 
-export function buildDesktopTrustAnchors(
+function buildDesktopTrustAnchors(
 	certificates: ReadonlyArray<string | Buffer>,
 	now: number = Date.now(),
 ): DesktopTrustAnchors {
@@ -418,7 +422,7 @@ export function buildDesktopTrustAnchors(
 	return anchors;
 }
 
-export function verifyAgainstDesktopSystemTrust(
+function verifyAgainstDesktopSystemTrust(
 	request: DesktopSystemTrustRequest,
 	loadAnchors: () => DesktopTrustAnchors,
 ): number {
@@ -444,6 +448,26 @@ function resolvePlatformAnchorCertificates(): ReadonlyArray<string | Buffer> {
 		default:
 			return [];
 	}
+}
+
+function toPem(certificate: string | Buffer): string | null {
+	try {
+		return new X509Certificate(certificate).toString();
+	} catch {
+		return null;
+	}
+}
+
+export function resolveDesktopGatewayTrustedCertificates(
+	source?: DesktopCertificateSource,
+	platformAnchors: () => ReadonlyArray<string | Buffer> = resolvePlatformAnchorCertificates,
+): ReadonlyArray<string> {
+	const merged = new Set(resolveDesktopTrustedCertificates(source));
+	for (const anchor of platformAnchors()) {
+		const pem = toPem(anchor);
+		if (pem !== null) merged.add(pem);
+	}
+	return [...merged];
 }
 
 export function installDesktopSystemTrustVerifier(target: Session): void {

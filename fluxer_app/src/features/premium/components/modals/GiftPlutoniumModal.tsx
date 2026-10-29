@@ -12,14 +12,22 @@ import {
 } from '@app/features/i18n/utils/CommonMessageDescriptors';
 import * as PremiumCommands from '@app/features/premium/commands/PremiumCommands';
 import styles from '@app/features/premium/components/modals/GiftPlutoniumModal.module.css';
+import {usePurchaseAccountGate} from '@app/features/premium/hooks/usePurchaseAccountGate';
 import PremiumState from '@app/features/premium/state/PremiumState';
-import {BUY_GIFT_DESCRIPTOR, GIFT_PREMIUM_DESCRIPTOR} from '@app/features/premium/utils/PremiumMessageDescriptors';
+import {
+	BUY_GIFT_DESCRIPTOR,
+	GIFT_PREMIUM_DESCRIPTOR,
+	PAYMENT_DISPUTE_OPEN_DESCRIPTOR,
+} from '@app/features/premium/utils/PremiumMessageDescriptors';
+import {yearlySavingsPercent} from '@app/features/premium/utils/PremiumSavings';
 import {areGiftPurchasesAvailable, getPremiumProductName} from '@app/features/premium/utils/PremiumUtils';
 import {Button} from '@app/features/ui/button/Button';
 import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
 import {RadioGroup, type RadioOption} from '@app/features/ui/radio_group/RadioGroup';
 import MobileLayout from '@app/features/ui/state/MobileLayout';
 import Users from '@app/features/user/state/Users';
+import {type PurchaseBlockedReason, PurchaseBlockedReasons} from '@fluxer/constants/src/AccountTierConstants';
+import type {MessageDescriptor} from '@lingui/core';
 import {msg} from '@lingui/core/macro';
 import {useLingui} from '@lingui/react/macro';
 import {observer} from 'mobx-react-lite';
@@ -36,7 +44,6 @@ const ONE_YEAR_DESCRIPTOR = msg({
 	message: '1 year',
 	comment: 'Gift purchase dialog option for a one-year gift.',
 });
-
 const GIFT_PLAN_LABEL_DESCRIPTOR = msg({
 	message: 'Gift length',
 	comment: 'Accessible label of the gift length options in the gift purchase dialog.',
@@ -50,17 +57,15 @@ const CLAIM_TO_GIFT_DESCRIPTOR = msg({
 	comment: 'Note in the gift purchase dialog for unclaimed accounts.',
 });
 const VERIFY_TO_GIFT_DESCRIPTOR = msg({
-	message: 'Verify your email to buy gifts.',
+	message: 'Confirm your email to buy gifts.',
 	comment: 'Note in the gift purchase dialog for accounts without a verified email.',
 });
+const BLOCKED_NOTES: Readonly<Record<PurchaseBlockedReason, MessageDescriptor>> = {
+	[PurchaseBlockedReasons.UNCLAIMED]: CLAIM_TO_GIFT_DESCRIPTOR,
+	[PurchaseBlockedReasons.EMAIL_UNVERIFIED]: VERIFY_TO_GIFT_DESCRIPTOR,
+};
 
 const PRICE_PLACEHOLDER = '...';
-
-function savingsPercent(monthlyMinor: number | null | undefined, yearlyMinor: number | null | undefined) {
-	if (monthlyMinor == null || yearlyMinor == null || monthlyMinor <= 0) return null;
-	const percent = Math.round((1 - yearlyMinor / (monthlyMinor * 12)) * 100);
-	return percent > 0 ? percent : null;
-}
 
 export const GiftPlutoniumModal = observer(() => {
 	const {i18n} = useLingui();
@@ -74,17 +79,16 @@ export const GiftPlutoniumModal = observer(() => {
 		if (!currentUser?.id) return;
 		void PremiumCommands.refreshPremiumState(countryCode ?? undefined);
 	}, [countryCode, currentUser?.id]);
-	const isClaimed = currentUser?.isClaimed() ?? false;
-	const isEmailVerified = currentUser?.verified === true;
+	const accountGate = usePurchaseAccountGate();
 	const userPurchaseDisabled = premiumState?.effective.premium_purchase_disabled === true;
 	const giftsAvailable = areGiftPurchasesAvailable(priceIds, userPurchaseDisabled);
-	const blockedNote = !isClaimed
-		? i18n._(CLAIM_TO_GIFT_DESCRIPTOR)
-		: !isEmailVerified
-			? i18n._(VERIFY_TO_GIFT_DESCRIPTOR)
-			: null;
+	const accountBlockedNote =
+		accountGate.blockedReason !== null ? i18n._(BLOCKED_NOTES[accountGate.blockedReason]) : null;
+	const blockedNote =
+		accountBlockedNote ??
+		(premiumState?.effective.payment_dispute_open === true ? i18n._(PAYMENT_DISPUTE_OPEN_DESCRIPTOR) : null);
 	const pricesLoaded = giftMonthlyPrice !== PRICE_PLACEHOLDER && giftYearlyPrice !== PRICE_PLACEHOLDER;
-	const percent = savingsPercent(priceIds?.gift_1_month_amount_minor, priceIds?.gift_1_year_amount_minor);
+	const percent = yearlySavingsPercent(priceIds?.gift_1_month_amount_minor, priceIds?.gift_1_year_amount_minor);
 	const options = useMemo<ReadonlyArray<RadioOption<GiftPlan>>>(
 		() => [
 			{value: 'gift_1_year', name: i18n._(ONE_YEAR_DESCRIPTOR), desc: giftYearlyPrice},
@@ -114,7 +118,7 @@ export const GiftPlutoniumModal = observer(() => {
 										<span className={styles.optionName} data-flx="premium.gift-plutonium-modal.option-name">
 											<span data-flx="premium.gift-plutonium-modal.span">{option.name}</span>
 											{option.value === 'gift_1_year' && percent != null && (
-												<span className={styles.badge} data-flx="premium.gift-plutonium-modal.badge">
+												<span className={styles.saving} data-flx="premium.gift-plutonium-modal.saving">
 													{i18n._(SAVE_PERCENT_DESCRIPTOR, {percent})}
 												</span>
 											)}
@@ -140,13 +144,13 @@ export const GiftPlutoniumModal = observer(() => {
 					)}
 				</Modal.ContentLayout>
 			</Modal.Content>
-			<Modal.Footer data-flx="premium.gift-plutonium-modal.modal-footer">
-				<Button onClick={ModalCommands.pop} variant="secondary" data-flx="premium.gift-plutonium-modal.button.cancel">
-					{i18n._(CANCEL_DESCRIPTOR)}
-				</Button>
-				{giftsAvailable && (
+			{giftsAvailable ? (
+				<Modal.Footer data-flx="premium.gift-plutonium-modal.modal-footer">
+					<Button onClick={ModalCommands.pop} variant="secondary" data-flx="premium.gift-plutonium-modal.button.cancel">
+						{i18n._(CANCEL_DESCRIPTOR)}
+					</Button>
 					<Button
-						onClick={() => void handleSelectPlan(plan)}
+						onClick={() => accountGate.start(() => void handleSelectPlan(plan))}
 						submitting={loadingCheckout}
 						disabled={blockedNote != null || !pricesLoaded}
 						variant="primary"
@@ -154,8 +158,10 @@ export const GiftPlutoniumModal = observer(() => {
 					>
 						{i18n._(BUY_GIFT_DESCRIPTOR)}
 					</Button>
-				)}
-			</Modal.Footer>
+				</Modal.Footer>
+			) : (
+				<Modal.DismissFooter data-flx="premium.gift-plutonium-modal.dismiss-footer" />
+			)}
 		</Modal.Root>
 	);
 });

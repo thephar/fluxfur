@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-export interface LocalSpeakingSuppressionInput {
+interface LocalSpeakingSuppressionInput {
 	selfDeaf: boolean;
 	effectiveSelfMute: boolean;
 	hasMicrophonePublication: boolean;

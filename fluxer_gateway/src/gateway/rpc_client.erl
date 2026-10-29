@@ -7,10 +7,8 @@
     call/1, call/2,
     call_with_retry/2,
     handle_http_response/2,
-    rpc_headers/1,
     rpc_url/0,
     rpc_url_meta/0,
-    is_retryable/1,
     backoff_delay/2
 ]).
 

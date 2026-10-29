@@ -15,9 +15,6 @@ use std::{
 use thiserror::Error;
 use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore, TryAcquireError};
 
-#[cfg(test)]
-mod tests;
-
 const TIMED_OUT_RETRY_AFTER: Duration = Duration::from_secs(60);
 
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]

@@ -121,15 +121,8 @@ reevaluate(all, Registrations, State) ->
     {Evaluated, State1} = evaluate(live_registrations(Registrations, State), State),
     State1#{dm_partners => Evaluated};
 reevaluate({user, UserId}, Registrations, State) ->
-    Affected = maps:fold(
-        fun(SessionId, Entry, Acc) ->
-            case involves_user(UserId, Entry) of
-                true -> Acc#{SessionId => Entry};
-                false -> Acc
-            end
-        end,
-        #{},
-        Registrations
+    Affected = maps:filter(
+        fun(_SessionId, Entry) -> involves_user(UserId, Entry) end, Registrations
     ),
     case map_size(Affected) of
         0 ->
@@ -153,13 +146,13 @@ put_all(Entries, Registrations) ->
 maybe_prune(Registrations, State) ->
     Sessions = maps:get(sessions, State, #{}),
     case map_size(Registrations) > map_size(Sessions) + ?PRUNE_SLACK of
-        true ->
-            maps:filter(
-                fun(SessionId, _Entry) -> maps:is_key(SessionId, Sessions) end, Registrations
-            );
-        false ->
-            Registrations
+        true -> live_session_registrations(Registrations, Sessions);
+        false -> Registrations
     end.
+
+-spec live_session_registrations(registrations(), map()) -> registrations().
+live_session_registrations(Registrations, Sessions) ->
+    maps:filter(fun(SessionId, _Entry) -> maps:is_key(SessionId, Sessions) end, Registrations).
 
 -spec evaluate(registrations(), guild_state()) -> {registrations(), guild_state()}.
 evaluate(Entries, State) when map_size(Entries) =:= 0 ->

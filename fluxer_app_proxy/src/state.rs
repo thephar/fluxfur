@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::branding_images::InstanceBranding;
+use crate::branding_images::{BrandingSnapshot, InstanceBranding};
 use crate::config::{AppProxyConfig, HttpUrl};
 use crate::csp::CompiledCspPolicy;
 use crate::local_files::LocalFileStore;
@@ -49,13 +49,6 @@ pub enum SpaIndexSource {
 }
 
 impl SpaIndexSource {
-    pub fn bundled(shell: &str) -> Self {
-        Self::Bundled {
-            shell: Arc::from(shell),
-            auth_entry_shell: None,
-        }
-    }
-
     pub async fn load(config: &AppProxyConfig) -> anyhow::Result<Self> {
         if let Some(index_upstream_url) = &config.index_upstream_url {
             return Ok(Self::Upstream(Arc::new(index_upstream_url.clone())));
@@ -117,27 +110,26 @@ impl AppState {
             local_files,
         })
     }
-}
 
-#[derive(Debug)]
-pub enum BoundedFileReadError {
-    TooLarge { actual: u64, maximum: usize },
-    Io(std::io::Error),
-}
-
-impl std::fmt::Display for BoundedFileReadError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::TooLarge { actual, maximum } => write!(
-                formatter,
-                "file is {actual} bytes, exceeding the {maximum} byte limit"
-            ),
-            Self::Io(source) => source.fmt(formatter),
+    pub fn branding_snapshot(&self) -> Arc<BrandingSnapshot> {
+        if self.config.self_hosted {
+            self.branding.refresh_if_due(
+                &self.http_client,
+                &self.config.discovery_upstream_url,
+                Duration::from_millis(self.config.discovery_refresh_interval_ms),
+            );
         }
+        self.branding.snapshot()
     }
 }
 
-impl std::error::Error for BoundedFileReadError {}
+#[derive(Debug, thiserror::Error)]
+pub enum BoundedFileReadError {
+    #[error("file is {actual} bytes, exceeding the {maximum} byte limit")]
+    TooLarge { actual: u64, maximum: usize },
+    #[error("{0}")]
+    Io(std::io::Error),
+}
 
 pub async fn read_bounded_file(
     path: &std::path::Path,

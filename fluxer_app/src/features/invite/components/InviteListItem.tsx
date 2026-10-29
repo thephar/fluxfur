@@ -161,7 +161,12 @@ export const InviteListItem: React.FC<{
 			handleRowClick();
 		}
 	};
-	const itemClass = isMobile ? styles.mobileItem : showChannel ? styles.itemWithChannel : styles.itemWithoutChannel;
+	let itemClass = styles.itemWithoutChannel;
+	if (isMobile) {
+		itemClass = styles.mobileItem;
+	} else if (showChannel) {
+		itemClass = styles.itemWithChannel;
+	}
 	const itemContent = (
 		<>
 			<div className={styles.inviter} data-flx="invite.invite-list-item.inviter">

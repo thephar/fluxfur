@@ -5,6 +5,7 @@ import {hasNoVerifiableCredential} from '@app/api/auth/services/SudoVerification
 import {createUserID} from '@app/api/BrandedTypes';
 import {EMPTY_USER_ROW, type UserRow} from '@app/api/database/types/UserTypes';
 import {User} from '@app/api/models/User';
+import {getAccountTier} from '@app/api/user/AccountTier';
 import {UserAuthenticatorTypes} from '@fluxer/constants/src/UserConstants';
 import {describe, expect, it} from 'vitest';
 
@@ -24,7 +25,7 @@ function createUser(overrides: Partial<UserRow> = {}): User {
 describe('sudo verification credential capability', () => {
 	it('lets an SSO provisioned account without a password satisfy sudo mode', () => {
 		const user = createUser({password_hash: null, traits: new Set<string>(['sso'])});
-		expect(user.isUnclaimedAccount()).toBe(false);
+		expect(getAccountTier(user)).toBe('verified');
 		expect(hasNoVerifiableCredential(user, userHasMfa(user), false)).toBe(true);
 	});
 

@@ -3,10 +3,12 @@
 import type {UserID} from '@app/api/BrandedTypes';
 import {Config} from '@app/api/Config';
 import {requestSvcJson} from '@app/api/infrastructure/SvcErrorReply';
+import {getInstanceProductName} from '@app/api/instance/ProductName';
 import {Logger} from '@app/api/Logger';
 import {awaitAll} from '@app/api/utils/ConcurrencyUtils';
 import {readOptionalEnv, readOptionalIntegerEnv, requireIntegerInRange} from '@app/api/utils/IntegerOptions';
 import {isJsonRecord} from '@app/api/utils/JsonBoundaryUtils';
+import {compareText} from '@app/api/utils/StringComparison';
 import type {UserPartialResponse} from '@fluxer/schema/src/domains/user/UserResponseSchemas';
 import type {INatsConnectionManager} from '@pkgs/nats/src/INatsConnectionManager';
 import {NatsConnectionManager} from '@pkgs/nats/src/NatsConnectionManager';
@@ -27,6 +29,7 @@ type UsersServiceRequest =
 	| {
 			op: 'GetApiPartialsByIds';
 			user_ids: Array<string>;
+			instance_name: string;
 	  }
 	| {
 			op: 'Invalidate';
@@ -106,6 +109,7 @@ export class NatsUsersServiceClient implements IUsersServiceClient {
 			{
 				op: 'GetApiPartialsByIds',
 				user_ids: Array.from(requestedUserIds.keys()),
+				instance_name: getInstanceProductName(),
 			},
 			isUserPartialsResponse,
 		);
@@ -205,6 +209,6 @@ function uniqueSortedUserIds(userIds: Array<UserID>): Array<UserID> {
 		seen.set(userId.toString(), userId);
 	}
 	return Array.from(seen.entries())
-		.sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+		.sort(([left], [right]) => compareText(left, right))
 		.map(([, userId]) => userId);
 }

@@ -8,7 +8,7 @@ type IncidentStatus = 'investigating' | 'identified' | 'monitoring' | 'resolved'
 type IncidentImpact = 'critical' | 'major' | 'minor' | 'maintenance';
 export type MaintenanceStatus = 'scheduled' | 'in_progress' | 'completed';
 
-export interface StatusPageIncident {
+interface StatusPageIncident {
 	id: string;
 	name: string;
 	status: IncidentStatus;
@@ -82,8 +82,8 @@ interface InstatusComponent {
 type InstatusComponentsResponse = Array<InstatusComponent> | {components?: Array<InstatusComponent>};
 
 const logger = new Logger('StatusPage');
-export const STATUS_PAGE_POLL_INTERVAL_MS = 60 * 1000;
-export const STATUS_PAGE_POLL_JITTER_MS = 15 * 1000;
+const STATUS_PAGE_POLL_INTERVAL_MS = 60 * 1000;
+const STATUS_PAGE_POLL_JITTER_MS = 15 * 1000;
 const POLL_ACTIVE_MAINTENANCE_INTERVAL_MS = 60 * 1000;
 const POLL_ACTIVE_MAINTENANCE_JITTER_MS = 15 * 1000;
 const POLL_AFTER_MAINTENANCE_START_MS = 5 * 1000;
@@ -95,7 +95,7 @@ function statusPageFetchOptions(): RequestInit {
 	return {cache: 'no-store', signal: AbortSignal.timeout(STATUS_PAGE_FETCH_TIMEOUT_MS)};
 }
 
-export function computePollDelay(scheduledMaintenance: StatusPageMaintenance | null): number {
+function computePollDelay(scheduledMaintenance: StatusPageMaintenance | null): number {
 	if (scheduledMaintenance?.status === 'in_progress') {
 		return POLL_ACTIVE_MAINTENANCE_INTERVAL_MS + Math.random() * POLL_ACTIVE_MAINTENANCE_JITTER_MS;
 	}
@@ -114,7 +114,7 @@ export function computePollDelay(scheduledMaintenance: StatusPageMaintenance | n
 	return STATUS_PAGE_POLL_INTERVAL_MS + Math.random() * STATUS_PAGE_POLL_JITTER_MS;
 }
 
-export function parseMaintenanceDurationMinutes(duration: string | number | null | undefined): number | null {
+function parseMaintenanceDurationMinutes(duration: string | number | null | undefined): number | null {
 	if (duration == null) {
 		return null;
 	}
@@ -156,7 +156,7 @@ function getMaintenanceStatusPriority(status: MaintenanceStatus): number {
 	}
 }
 
-export function selectActiveStatusPageMaintenance(
+function selectActiveStatusPageMaintenance(
 	maintenances: ReadonlyArray<InstatusMaintenance> | null | undefined,
 ): StatusPageMaintenance | null {
 	let selectedMaintenance: StatusPageMaintenance | null = null;
@@ -188,7 +188,7 @@ function extractComponentMaintenances(data: InstatusComponentsResponse): Array<I
 	return components.flatMap((component) => component.activeMaintenances ?? []);
 }
 
-export class StatusPage {
+class StatusPage {
 	incident: StatusPageIncident | null = null;
 	scheduledMaintenance: StatusPageMaintenance | null = null;
 	pollTimerId: NodeJS.Timeout | null = null;

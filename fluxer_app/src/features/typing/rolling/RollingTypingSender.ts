@@ -14,7 +14,7 @@ import {
 
 const logger = new Logger('Typing');
 
-export interface ComposerTypingInput {
+interface ComposerTypingInput {
 	channelId: string;
 	value: string;
 	previousValue: string | null;

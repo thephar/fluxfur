@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {APP_PROTOCOL} from '@electron/common/Constants';
+import {requestAccountSwitcher} from '@electron/main/DesktopTray';
 import {updateFromCommandLine} from '@electron/main/DesktopUpdatePrompt';
-import {parseJumpListTaskFromArgv} from '@electron/main/JumpList';
+import {type JumpListTaskId, parseJumpListTaskFromArgv} from '@electron/main/JumpList';
 import {isDesktopUpdateRequested} from '@electron/main/LaunchOptions';
 import {getMainWindow, isMainWindowTakenOver, onMainWindowTakeoverEnded, showWindow} from '@electron/main/Window';
 import {app, ipcMain} from 'electron';
@@ -32,7 +33,7 @@ function designationKey(name: string): string {
 	return name.toLowerCase().replace(/[^a-z0-9]/gu, '');
 }
 
-export function findInstanceDesignation(url: URL): string | null {
+function findInstanceDesignation(url: URL): string | null {
 	if (INSTANCE_DESIGNATING_KEYS.has(designationKey(url.hostname))) {
 		return url.hostname;
 	}
@@ -196,7 +197,11 @@ function dispatchDeepLink(url: string): void {
 	}
 }
 
-function dispatchJumpListTask(taskId: 'open-settings' | 'new-dm'): void {
+function dispatchJumpListTask(taskId: JumpListTaskId): void {
+	if (taskId === 'open-account-switcher') {
+		requestAccountSwitcher();
+		return;
+	}
 	const mainWindow = getMainWindow();
 	if (!mainWindow || mainWindow.isDestroyed()) return;
 	showWindow();
@@ -237,7 +242,12 @@ export function handleSecondInstance(argv: Array<string>): void {
 }
 
 export function consumeInitialJumpListTask(): 'open-settings' | 'new-dm' | null {
-	return parseJumpListTaskFromArgv(process.argv);
+	const task = parseJumpListTaskFromArgv(process.argv);
+	if (task === 'open-account-switcher') {
+		requestAccountSwitcher();
+		return null;
+	}
+	return task;
 }
 
 function recordRecentDeepLink(url: string): void {

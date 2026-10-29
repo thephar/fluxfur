@@ -28,6 +28,7 @@ import MediaEngine, {useMediaEngineVersion} from '@app/features/voice/engine/Med
 import {VOICE_CAMERA_USER_LIMIT_REACHED_DESCRIPTOR} from '@app/features/voice/engine/media_engine_facade/shared';
 import {useCameraUserCapBlocked} from '@app/features/voice/hooks/useCameraUserCapBlocked';
 import LocalVoiceState from '@app/features/voice/state/LocalVoiceState';
+import VoiceSettings from '@app/features/voice/state/VoiceSettings';
 import {
 	INCOMING_CALL_ACCEPT_ACTION_DESCRIPTOR,
 	INCOMING_CALL_IGNORE_ACTION_DESCRIPTOR,
@@ -337,7 +338,7 @@ export const DirectCallLobbyBottomSheet = observer(function DirectCallLobbyBotto
 						}}
 						currentLatency={currentLatency}
 						voiceServerEndpoint={voiceServerEndpoint}
-						connectionId={connectionId}
+						connectionId={VoiceSettings.showVoiceConnectionId ? connectionId : null}
 						audioPacketLoss={voiceStats?.audioPacketLoss}
 						jitter={voiceStats?.jitter}
 					/>

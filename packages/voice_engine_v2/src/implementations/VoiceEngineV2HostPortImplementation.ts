@@ -52,7 +52,7 @@ export class VoiceEngineV2HostPortImplementation extends VoiceEngineV2Implementa
 	}
 }
 
-export class VoiceEngineV2HostPortDriver implements VoiceEngineV2Driver {
+class VoiceEngineV2HostPortDriver implements VoiceEngineV2Driver {
 	constructor(private readonly ports: VoiceEngineV2HostPorts) {}
 
 	subscribe(listener: VoiceEngineV2ExternalEventListener): () => void {

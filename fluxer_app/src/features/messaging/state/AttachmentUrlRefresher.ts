@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {Endpoints} from '@app/features/app/constants/Endpoints';
+import {ResettableStates} from '@app/features/app/state/ResettableStates';
 import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
 import {
 	ATTACHMENT_URL_REFRESH_MARGIN_MS,
@@ -239,4 +240,8 @@ class AttachmentUrlRefresher {
 	}
 }
 
-export default new AttachmentUrlRefresher();
+const attachmentUrlRefresher = new AttachmentUrlRefresher();
+
+ResettableStates.register(attachmentUrlRefresher, () => attachmentUrlRefresher.reset());
+
+export default attachmentUrlRefresher;

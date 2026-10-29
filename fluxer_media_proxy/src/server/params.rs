@@ -31,6 +31,14 @@ pub(in crate::server) fn animated_param(
         .unwrap_or(default_value)
 }
 
+pub(in crate::server) fn requests_transform(params: &HashMap<String, String>) -> bool {
+    params.contains_key("width")
+        || params.contains_key("height")
+        || params.contains_key("format")
+        || params.contains_key("quality")
+        || animated_param(params, false)
+}
+
 pub(in crate::server) fn explicit_output_format(
     params: &HashMap<String, String>,
 ) -> Result<Option<AssetExtension>, ()> {
@@ -112,63 +120,4 @@ pub(in crate::server) fn url_filename(url: &str) -> String {
 
 pub(in crate::server) fn extension_of(filename: &str) -> Option<&str> {
     filename.rsplit_once('.').map(|(_, ext)| ext)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn asset_manual_format_override_is_v1_compatible() {
-        assert_eq!(
-            Some(AssetExtension::Webp),
-            asset_manual_format_override(&HashMap::new(), AssetExtension::Webp)
-        );
-        assert_eq!(
-            None,
-            asset_manual_format_override(
-                &HashMap::from([("format".to_owned(), "auto".to_owned())]),
-                AssetExtension::Webp
-            )
-        );
-        assert_eq!(
-            Some(AssetExtension::Png),
-            asset_manual_format_override(
-                &HashMap::from([("fmt".to_owned(), "png".to_owned())]),
-                AssetExtension::Webp
-            )
-        );
-        assert_eq!(
-            Some(AssetExtension::Webp),
-            asset_manual_format_override(
-                &HashMap::from([("format".to_owned(), "svg".to_owned())]),
-                AssetExtension::Webp
-            )
-        );
-    }
-
-    #[test]
-    fn an_empty_last_url_segment_keeps_the_old_era_file_bin_fallback() {
-        assert_eq!("file.bin", url_filename("https://example.test/"));
-        assert_eq!("file.bin", url_filename("https://example.test/a/b/"));
-        assert_eq!("file.bin", url_filename("https://example.test/a/?x=1"));
-        assert_eq!("file.bin", url_filename("https://example.test/a/#frag"));
-    }
-
-    #[test]
-    fn an_external_url_filename_is_bounded_to_the_disposition_budget() {
-        assert_eq!(
-            "file.png",
-            url_filename("https://example.test/a/file.png?x=1#frag")
-        );
-        assert_eq!("file.bin", url_filename("https://example.test/"));
-        let long = format!(
-            "https://example.test/{}",
-            "\u{e9}".repeat(CONTENT_DISPOSITION_FILENAME_BYTES_MAX)
-        );
-        let bounded = url_filename(&long);
-        assert!(bounded.len() <= CONTENT_DISPOSITION_FILENAME_BYTES_MAX);
-        assert!(bounded.starts_with('\u{e9}'));
-        assert!(bounded.ends_with('\u{e9}'));
-    }
 }

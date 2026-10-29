@@ -15,6 +15,7 @@ import {Button} from '@app/features/ui/button/Button';
 import {Avatar} from '@app/features/ui/components/Avatar';
 import {LiveBadge} from '@app/features/ui/components/LiveBadge';
 import {Spinner} from '@app/features/ui/components/Spinner';
+import {CaretRightIcon} from '@app/features/ui/icons/DirectionalIcons';
 import {Tooltip} from '@app/features/ui/tooltip/Tooltip';
 import styles from '@app/features/user/components/profile/VoiceActivityCard.module.css';
 import {
@@ -43,7 +44,7 @@ import {ME} from '@fluxer/constants/src/AppConstants';
 import {Permissions} from '@fluxer/constants/src/ChannelConstants';
 import {msg} from '@lingui/core/macro';
 import {Trans, useLingui} from '@lingui/react/macro';
-import {CaretRightIcon, PhoneIcon, SpeakerHighIcon} from '@phosphor-icons/react';
+import {PhoneIcon, SpeakerHighIcon} from '@phosphor-icons/react';
 import {clsx} from 'clsx';
 import {observer} from 'mobx-react-lite';
 import type React from 'react';

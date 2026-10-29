@@ -5,12 +5,14 @@ import type {ChannelID, GuildID, MessageID, UserID} from '@app/api/BrandedTypes'
 import {createUserID} from '@app/api/BrandedTypes';
 import {Config} from '@app/api/Config';
 import type {ChannelRepository} from '@app/api/channel/ChannelRepository';
+import type {AuthenticatedChannel} from '@app/api/channel/services/AuthenticatedChannel';
 import {requestSvcJson} from '@app/api/infrastructure/SvcErrorReply';
+import {getInstanceProductName} from '@app/api/instance/ProductName';
 import {Logger} from '@app/api/Logger';
 import type {Channel} from '@app/api/models/Channel';
 import type {Message} from '@app/api/models/Message';
 import {isJsonRecord} from '@app/api/utils/JsonBoundaryUtils';
-import {MessageTypes} from '@fluxer/constants/src/ChannelConstants';
+import {MessageTypes, Permissions} from '@fluxer/constants/src/ChannelConstants';
 import type {MessageResponse} from '@fluxer/schema/src/domains/message/MessageResponseSchemas';
 import type {INatsConnectionManager} from '@pkgs/nats/src/INatsConnectionManager';
 import {NatsConnectionManager} from '@pkgs/nats/src/NatsConnectionManager';
@@ -96,6 +98,7 @@ export class MessageResponseDataService {
 			media_proxy_secret_key: Config.mediaProxy.secretKey,
 			attachment_url_secret_base64: Config.mediaProxy.attachmentUrls.secretsBase64[0],
 			attachment_decay: await attachmentDecayEnabled(),
+			instance_name: getInstanceProductName(),
 		};
 	}
 	constructor(private readonly connectionManager: INatsConnectionManager) {}
@@ -211,7 +214,6 @@ export class MessageResponseDataService {
 		userId: UserID;
 		messages: Array<Message>;
 		access: MessageResponseAccessContext;
-		includeReactions?: boolean;
 	}): Promise<Array<MessageResponse>> {
 		if (params.messages.length === 0) return [];
 		const responses: Array<MessageResponse> = [];
@@ -221,7 +223,7 @@ export class MessageResponseDataService {
 				messages: batch,
 				viewer_user_id: params.userId.toString(),
 				...(await this.accessEnvelope(params.access)),
-				include_reactions: params.includeReactions ?? true,
+				include_reactions: true,
 			});
 			if (typeof response !== 'object' || !('FoundApiMany' in response)) {
 				throw new Error(`[message-response-service] unexpected BuildResponses response: ${JSON.stringify(response)}`);
@@ -293,7 +295,7 @@ function messageResponseViewerId(message: Message, currentUserId?: UserID): User
 	return currentUserId ?? message.authorId ?? createUserID(0n);
 }
 
-export function messageResponseAccessForChannel(channel: Pick<Channel, 'guildId'>): MessageResponseAccessContext {
+function messageResponseAccessForChannel(channel: Pick<Channel, 'guildId'>): MessageResponseAccessContext {
 	return messageResponseAccessForGuild(channel.guildId);
 }
 
@@ -302,6 +304,18 @@ export function messageResponseAccessForGuild(sourceGuildId: GuildID | null): Me
 		sourceGuildId,
 		messageHistoryCutoff: null,
 		canReadMessageHistory: true,
+	};
+}
+
+export async function messageResponseAccessForAuth(
+	authChannel: AuthenticatedChannel,
+): Promise<MessageResponseAccessContext> {
+	const canReadMessageHistory =
+		!authChannel.guild || (await authChannel.hasPermission(Permissions.READ_MESSAGE_HISTORY));
+	return {
+		sourceGuildId: authChannel.channel.guildId,
+		messageHistoryCutoff: canReadMessageHistory ? null : (authChannel.guild?.message_history_cutoff ?? null),
+		canReadMessageHistory,
 	};
 }
 

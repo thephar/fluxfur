@@ -36,9 +36,7 @@ import type {
 } from '@fluxer/voice_engine_v2/src/protocol/types';
 import type {SourceLifecycleState} from '@fluxer/voice_engine_v2/src/source_isolation/SourceLifecycleState';
 
-export type {SourceLifecycleState} from '@fluxer/voice_engine_v2/src/source_isolation/SourceLifecycleState';
-
-export interface VoiceEngineV2ConnectionState {
+interface VoiceEngineV2ConnectionState {
 	status: VoiceEngineV2ConnectionStatus;
 	active: VoiceEngineV2ConnectOptions | null;
 	desired: VoiceEngineV2ConnectOptions | null;
@@ -55,25 +53,25 @@ export interface VoiceEngineV2LocalMediaState<Options> {
 	failure: VoiceEngineV2Error | null;
 }
 
-export interface VoiceEngineV2MicrophoneState extends VoiceEngineV2LocalMediaState<VoiceEngineV2MicrophoneOptions> {
+interface VoiceEngineV2MicrophoneState extends VoiceEngineV2LocalMediaState<VoiceEngineV2MicrophoneOptions> {
 	enabled: boolean;
 	localSpeakingOverride: boolean | null;
 	setEnabledOperationId: VoiceEngineV2OperationId | null;
 }
 
-export interface VoiceEngineV2OutputDeviceState {
+interface VoiceEngineV2OutputDeviceState {
 	desiredDeviceId: string | null;
 	activeDeviceId: string | null;
 	operationId: VoiceEngineV2OperationId | null;
 	failure: VoiceEngineV2Error | null;
 }
 
-export interface VoiceEngineV2RoomState {
+interface VoiceEngineV2RoomState {
 	participants: Record<string, VoiceEngineV2Participant>;
 	tracks: Record<string, VoiceEngineV2Track>;
 }
 
-export interface VoiceEngineV2InboundVideoState {
+interface VoiceEngineV2InboundVideoState {
 	tracks: Record<string, VoiceEngineV2InboundVideoTrack>;
 	droppedFrameCount: number;
 }
@@ -86,45 +84,45 @@ export interface VoiceEngineV2GatewayState {
 	failure: VoiceEngineV2Error | null;
 }
 
-export interface VoiceEngineV2LiveKitState extends VoiceEngineV2LiveKitRoomState {
+interface VoiceEngineV2LiveKitState extends VoiceEngineV2LiveKitRoomState {
 	failure: VoiceEngineV2Error | null;
 }
 
-export interface VoiceEngineV2PermissionState {
+interface VoiceEngineV2PermissionState {
 	results: Record<string, VoiceEngineV2PermissionResult>;
 	operationIds: Record<string, VoiceEngineV2OperationId>;
 	failure: VoiceEngineV2Error | null;
 }
 
-export interface VoiceEngineV2DeviceState {
+interface VoiceEngineV2DeviceState {
 	inventory: VoiceEngineV2DeviceInventory;
 	operationId: VoiceEngineV2OperationId | null;
 	failure: VoiceEngineV2Error | null;
 }
 
-export interface VoiceEngineV2E2eeLifecycleState extends VoiceEngineV2E2eeState {
+interface VoiceEngineV2E2eeLifecycleState extends VoiceEngineV2E2eeState {
 	operationId: VoiceEngineV2OperationId | null;
 }
 
-export interface VoiceEngineV2NativeCaptureState {
+interface VoiceEngineV2NativeCaptureState {
 	captures: Record<string, VoiceEngineV2NativeCaptureOptions>;
 	operationIds: Record<string, VoiceEngineV2OperationId>;
 	failure: VoiceEngineV2Error | null;
 }
 
-export interface VoiceEngineV2NativeAudioTapState {
+interface VoiceEngineV2NativeAudioTapState {
 	taps: Record<string, VoiceEngineV2NativeAudioTapOptions>;
 	operationIds: Record<string, VoiceEngineV2OperationId>;
 	failure: VoiceEngineV2Error | null;
 }
 
-export interface VoiceEngineV2NativeFrameSinkState {
+interface VoiceEngineV2NativeFrameSinkState {
 	sinks: Record<string, VoiceEngineV2NativeFrameSinkOptions>;
 	operationIds: Record<string, VoiceEngineV2OperationId>;
 	failure: VoiceEngineV2Error | null;
 }
 
-export interface VoiceEngineV2LifecycleState {
+interface VoiceEngineV2LifecycleState {
 	tearingDown: boolean;
 	reason: VoiceEngineV2LifecycleReason | null;
 	operationId: VoiceEngineV2OperationId | null;

@@ -132,37 +132,40 @@ export const Notifications: FC<NotificationsProps> = observer(
 			await PushSubscriptionService.unregisterAllPushSubscriptions();
 			await refresh();
 		};
-		const pushStatusMessage = loading
-			? i18n._(LOADING_PUSH_SUBSCRIPTIONS_DESCRIPTOR)
-			: subscriptions.length > 0
-				? plural(
-						{count: subscriptions.length},
-						{
-							one: '# active subscription',
-							other: '# active subscriptions',
-						},
-					)
-				: i18n._(NO_PUSH_SUBSCRIPTIONS_REGISTERED_YET_DESCRIPTOR);
+		let pushStatusMessage: string;
+		if (loading) {
+			pushStatusMessage = i18n._(LOADING_PUSH_SUBSCRIPTIONS_DESCRIPTOR);
+		} else if (subscriptions.length > 0) {
+			pushStatusMessage = plural(
+				{count: subscriptions.length},
+				{
+					one: '# active subscription',
+					other: '# active subscriptions',
+				},
+			);
+		} else {
+			pushStatusMessage = i18n._(NO_PUSH_SUBSCRIPTIONS_REGISTERED_YET_DESCRIPTOR);
+		}
+		let notificationsLabel: string;
+		let notificationsDescription: string;
+		if (isDesktop()) {
+			notificationsLabel = i18n._(ENABLE_DESKTOP_NOTIFICATIONS_DESCRIPTOR);
+			notificationsDescription = i18n._(USES_THE_OS_NOTIFICATION_CENTER_FOR_PER_CHANNEL_DESCRIPTOR);
+		} else if (isPwa) {
+			notificationsLabel = i18n._(ENABLE_NOTIFICATIONS_DESCRIPTOR);
+			notificationsDescription = i18n._(GET_NOTIFIED_WHEN_YOU_RECEIVE_MESSAGES_YOU_MAY_DESCRIPTOR, {
+				productName: RuntimeConfig.productName,
+			});
+		} else {
+			notificationsLabel = i18n._(ENABLE_BROWSER_NOTIFICATIONS_DESCRIPTOR);
+			notificationsDescription = i18n._(GET_NOTIFIED_WHEN_YOU_RECEIVE_MESSAGES_YOU_MAY_2_DESCRIPTOR);
+		}
 		return (
 			<div className={styles.container} data-flx="user.notifications-tab.notifications.container">
 				<div className={styles.switchesContainer} data-flx="user.notifications-tab.notifications.switches-container">
 					<Switch
-						label={
-							isDesktop()
-								? i18n._(ENABLE_DESKTOP_NOTIFICATIONS_DESCRIPTOR)
-								: isPwa
-									? i18n._(ENABLE_NOTIFICATIONS_DESCRIPTOR)
-									: i18n._(ENABLE_BROWSER_NOTIFICATIONS_DESCRIPTOR)
-						}
-						description={
-							isDesktop()
-								? i18n._(USES_THE_OS_NOTIFICATION_CENTER_FOR_PER_CHANNEL_DESCRIPTOR)
-								: isPwa
-									? i18n._(GET_NOTIFIED_WHEN_YOU_RECEIVE_MESSAGES_YOU_MAY_DESCRIPTOR, {
-											productName: RuntimeConfig.productName,
-										})
-									: i18n._(GET_NOTIFIED_WHEN_YOU_RECEIVE_MESSAGES_YOU_MAY_2_DESCRIPTOR)
-						}
+						label={notificationsLabel}
+						description={notificationsDescription}
 						value={browserNotificationsEnabled}
 						onChange={handleToggleNotifications}
 						data-flx="user.notifications-tab.notifications.switch.toggle-notifications"

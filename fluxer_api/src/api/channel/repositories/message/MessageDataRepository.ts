@@ -2,7 +2,14 @@
 
 import type {ChannelID, MessageID} from '@app/api/BrandedTypes';
 import {BucketScanDirection, scanBucketsWithIndex} from '@app/api/channel/repositories/message/BucketScanEngine';
-import {BatchBuilder, deleteOneOrMany, fetchMany, fetchOne, upsertOne} from '@app/api/database/CassandraQueryExecution';
+import {
+	advanceRow,
+	BatchBuilder,
+	deleteOneOrMany,
+	fetchMany,
+	fetchOne,
+	upsertOne,
+} from '@app/api/database/CassandraQueryExecution';
 import {Db, type QueryTemplate} from '@app/api/database/CassandraTypes';
 import {buildPatchFromData, executeVersionedUpdate} from '@app/api/database/CassandraVersionedUpdate';
 import type {ChannelMessageBucketRow, ChannelStateRow, MessageRow} from '@app/api/database/types/MessageTypes';
@@ -496,19 +503,37 @@ export class MessageDataRepository {
 		newLastMessageId: MessageID,
 		newLastMessageBucket: number,
 	): Promise<void> {
-		const state = await this.getChannelState(channelId);
-		const prev = state?.last_message_id ?? null;
-		if (prev !== null && newLastMessageId <= prev) return;
-		await upsertOne(
-			ChannelState.patchByPk(
-				{channel_id: channelId},
-				{
-					has_messages: Db.set(true),
-					last_message_id: Db.set(newLastMessageId),
-					last_message_bucket: Db.set(newLastMessageBucket),
-					updated_at: Db.set(new Date()),
-				},
-			),
+		const set = {
+			has_messages: true,
+			last_message_id: newLastMessageId,
+			last_message_bucket: newLastMessageBucket,
+			updated_at: new Date(),
+		};
+		await advanceRow(
+			{
+				table: ChannelState,
+				pk: {channel_id: channelId},
+				guard: {col: 'last_message_id', value: newLastMessageId},
+				set,
+				insert: {channel_id: channelId, ...set},
+			},
+			async () => {
+				const state = await this.getChannelState(channelId);
+				const prev = state?.last_message_id ?? null;
+				if (prev !== null && newLastMessageId <= prev) return false;
+				await upsertOne(
+					ChannelState.patchByPk(
+						{channel_id: channelId},
+						{
+							has_messages: Db.set(set.has_messages),
+							last_message_id: Db.set(set.last_message_id),
+							last_message_bucket: Db.set(set.last_message_bucket),
+							updated_at: Db.set(set.updated_at),
+						},
+					),
+				);
+				return true;
+			},
 		);
 	}
 
@@ -517,20 +542,39 @@ export class MessageDataRepository {
 		messageId: MessageID,
 		messageBucket: number,
 	): Promise<void> {
-		const state = await this.getChannelState(channelId);
-		const prev = state?.last_message_id ?? null;
-		const patch = {
-			created_bucket: Db.set(BucketUtils.makeBucket(channelId)),
-			has_messages: Db.set(true),
-			updated_at: Db.set(new Date()),
+		const always = {
+			created_bucket: BucketUtils.makeBucket(channelId),
+			has_messages: true,
+			updated_at: new Date(),
 		};
-		await upsertOne(
-			ChannelState.patchByPk(
-				{channel_id: channelId},
-				prev !== null && messageId <= prev
-					? patch
-					: {...patch, last_message_id: Db.set(messageId), last_message_bucket: Db.set(messageBucket)},
-			),
+		const set = {last_message_id: messageId, last_message_bucket: messageBucket};
+		await advanceRow(
+			{
+				table: ChannelState,
+				pk: {channel_id: channelId},
+				guard: {col: 'last_message_id', value: messageId},
+				set,
+				always,
+				insert: {channel_id: channelId, ...always, ...set},
+			},
+			async () => {
+				const state = await this.getChannelState(channelId);
+				const prev = state?.last_message_id ?? null;
+				const patch = {
+					created_bucket: Db.set(always.created_bucket),
+					has_messages: Db.set(always.has_messages),
+					updated_at: Db.set(always.updated_at),
+				};
+				await upsertOne(
+					ChannelState.patchByPk(
+						{channel_id: channelId},
+						prev !== null && messageId <= prev
+							? patch
+							: {...patch, last_message_id: Db.set(messageId), last_message_bucket: Db.set(messageBucket)},
+					),
+				);
+				return true;
+			},
 		);
 	}
 

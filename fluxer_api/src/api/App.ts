@@ -5,6 +5,7 @@ import {registerControllers} from '@app/api/app/ControllerRegistry';
 import {configureMiddleware} from '@app/api/app/MiddlewarePipeline';
 import type {APIConfig} from '@app/api/config/APIConfig';
 import {recordRequestStatus} from '@app/api/middleware/RequestErrorTelemetry';
+import type {ServiceSingletonDependencies} from '@app/api/middleware/ServiceSingletons';
 import type {HonoApp, HonoEnv} from '@app/api/types/HonoEnv';
 import {AppErrorHandler, AppNotFoundHandler} from '@fluxer/errors/src/domains/core/ErrorHandlers';
 import {IpBannedError} from '@fluxer/errors/src/domains/moderation/IpBannedError';
@@ -16,7 +17,7 @@ import {setIsDevelopment} from '@fluxer/schema/src/primitives/UrlValidators';
 import type {Context} from 'hono';
 import {Hono} from 'hono';
 
-interface CreateAPIAppOptions {
+interface CreateAPIAppOptions extends ServiceSingletonDependencies {
 	config: APIConfig;
 	logger: LoggerInterface;
 	registerRoutes?: (routes: HonoApp) => void;
@@ -72,7 +73,7 @@ export async function createAPIApp(options: CreateAPIAppOptions): Promise<APIApp
 	app.notFound(AppNotFoundHandler);
 	return {
 		app,
-		initialize: createInitializer(config, logger),
+		initialize: createInitializer(config, logger, {operatorPassWallPublisher: options.operatorPassWallPublisher}),
 		shutdown: shutdownApiLifecycle,
 	};
 }

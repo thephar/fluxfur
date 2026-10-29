@@ -1,15 +1,25 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type {GifProvider} from '@app/features/app/state/GifProviderConfig';
-import {AccountIdentityModes, TagStyles} from '@fluxer/constants/src/AccountIdentityConstants';
+import {
+	EmailDeliveryStates,
+	GuildJoinGates,
+	InstantAccountAvailability,
+	InteractionTierModes,
+	VerificationBases,
+} from '@fluxer/constants/src/AccountConfigConstants';
+import {
+	type AccountIdentityLockReason,
+	AccountIdentityLockReasons,
+	AccountIdentityModes,
+	TagStyles,
+} from '@fluxer/constants/src/AccountIdentityConstants';
 import {LIMIT_KEYS, type LimitKey} from '@fluxer/constants/src/LimitConfigMetadata';
 import {
 	ACCOUNT_DELETION_GRACE_PERIOD_HOURS_MAX,
 	ACCOUNT_DELETION_GRACE_PERIOD_HOURS_MIN,
 	AGE_POLICY_GEOS_MAX,
 	LIMIT_RULES_MAX,
-	MAX_BACKGROUND_GATEWAY_CONNECTIONS_MAX,
-	MAX_BACKGROUND_GATEWAY_CONNECTIONS_MIN,
 	parseInstanceDomainMigration,
 } from '@fluxer/instance_bootstrap/src/Discovery';
 import {InstanceEndpointKind, normalizeInstanceEndpoint} from '@fluxer/instance_bootstrap/src/EndpointNormalization';
@@ -23,6 +33,8 @@ import {
 	type InstanceCommunity,
 	type InstanceDomainMigration,
 	type InstanceFeatures,
+	type InstanceGuildBadge,
+	type InstanceNotice,
 	type InstanceRegistration,
 	type InstanceServices,
 	type InstanceSso,
@@ -62,6 +74,8 @@ export interface RuntimeConfigSnapshot extends RuntimeConfigIdentity {
 	readonly appPublic: InstanceAppPublic;
 	readonly agePolicy: InstanceAgePolicy | null;
 	readonly domainMigration: InstanceDomainMigration | null;
+	readonly notice: InstanceNotice | null;
+	readonly guildBadges: ReadonlyArray<InstanceGuildBadge>;
 }
 
 export class InvalidRuntimeConfigSnapshotError extends Error {
@@ -173,6 +187,15 @@ function readLiteral<TValue extends string>(
 	return matched;
 }
 
+function readKnownLiteral<TValue extends string>(
+	source: Record<string, unknown>,
+	key: string,
+	values: Record<string, TValue>,
+): TValue | undefined {
+	const value = source[key];
+	return Object.values(values).find((candidate) => candidate === value);
+}
+
 function readEndpoint(source: Record<string, unknown>, key: string, path: string, kind: InstanceEndpointKind): string {
 	const normalized = normalizeInstanceEndpoint(source[key], kind);
 	if (normalized === null || normalized.startsWith('/')) {
@@ -247,9 +270,17 @@ function readFeatures(value: unknown): InstanceFeatures {
 	if (desktopModulesEnabled !== undefined) {
 		features.desktop_modules_enabled = desktopModulesEnabled;
 	}
-	const discoveryEnabled = readOptionalBoolean(source, 'discovery_enabled', 'features.discovery_enabled');
-	if (discoveryEnabled !== undefined) {
-		features.discovery_enabled = discoveryEnabled;
+	for (const key of [
+		'identifier_first',
+		'instant_accounts',
+		'email_codes',
+		'date_of_birth_step',
+		'discovery_enabled',
+	] as const) {
+		const value = readOptionalBoolean(source, key, `features.${key}`);
+		if (value !== undefined) {
+			features[key] = value;
+		}
 	}
 	const deletionGracePeriod = readOptionalBoundedInteger(
 		source,
@@ -272,16 +303,23 @@ function readFeatures(value: unknown): InstanceFeatures {
 	if (source.tag_style !== undefined) {
 		features.tag_style = readLiteral(source, 'tag_style', 'features.tag_style', Object.values(TagStyles));
 	}
-	const maxBackgroundConnections = readOptionalBoundedInteger(
+	const instantAccountAvailability = readKnownLiteral(
 		source,
-		'max_background_gateway_connections',
-		'features.max_background_gateway_connections',
-		MAX_BACKGROUND_GATEWAY_CONNECTIONS_MIN,
-		MAX_BACKGROUND_GATEWAY_CONNECTIONS_MAX,
+		'instant_account_availability',
+		InstantAccountAvailability,
 	);
-	if (maxBackgroundConnections !== undefined) {
-		features.max_background_gateway_connections = maxBackgroundConnections;
-	}
+	if (instantAccountAvailability !== undefined) features.instant_account_availability = instantAccountAvailability;
+	const interactionTier = readKnownLiteral(source, 'interaction_tier', InteractionTierModes);
+	if (interactionTier !== undefined) features.interaction_tier = interactionTier;
+	const guildJoinGate = readKnownLiteral(source, 'guild_join_gate', GuildJoinGates);
+	if (guildJoinGate !== undefined) features.guild_join_gate = guildJoinGate;
+	const emailDeliveryState = readKnownLiteral(source, 'email_delivery_state', EmailDeliveryStates);
+	if (emailDeliveryState !== undefined) features.email_delivery_state = emailDeliveryState;
+	const verificationBasis = readKnownLiteral(source, 'verification_basis', {
+		CONFIRMED_EMAIL: VerificationBases.CONFIRMED_EMAIL,
+		LOCAL_CREDENTIAL: VerificationBases.LOCAL_CREDENTIAL,
+	});
+	if (verificationBasis !== undefined) features.verification_basis = verificationBasis;
 	return features;
 }
 
@@ -293,7 +331,10 @@ function readSso(value: unknown): InstanceSso | null {
 	const sso: InstanceSso = {
 		enabled: readBoolean(source, 'enabled', 'sso.enabled'),
 		enforced: readBoolean(source, 'enforced', 'sso.enforced'),
+		username_from_provider:
+			readOptionalBoolean(source, 'username_from_provider', 'sso.username_from_provider') ?? false,
 		display_name: readNullableNonEmptyString(source, 'display_name', 'sso.display_name'),
+		button_label: readOptionalText(source, 'button_label'),
 		redirect_uri: readEndpoint(source, 'redirect_uri', 'sso.redirect_uri', InstanceEndpointKind.SERVICE),
 	};
 	const available = readOptionalBoolean(source, 'available', 'sso.available');
@@ -317,7 +358,7 @@ function readRegistration(value: unknown): InstanceRegistration {
 
 function readCommunity(value: unknown): InstanceCommunity {
 	const source = readRecord(value, 'community');
-	return {
+	const community: InstanceCommunity = {
 		single_community: readBoolean(source, 'single_community', 'community.single_community'),
 		single_community_guild_id: readNullableNonEmptyString(
 			source,
@@ -326,7 +367,14 @@ function readCommunity(value: unknown): InstanceCommunity {
 		),
 		direct_messages_disabled: readBoolean(source, 'direct_messages_disabled', 'community.direct_messages_disabled'),
 		guild_create_access: readOptionalBoolean(source, 'guild_create_access', 'community.guild_create_access') ?? true,
+		personal_notes_enabled:
+			readOptionalBoolean(source, 'personal_notes_enabled', 'community.personal_notes_enabled') ?? true,
 	};
+	const friendsDisabled = readOptionalBoolean(source, 'friends_disabled', 'community.friends_disabled');
+	if (friendsDisabled !== undefined) {
+		community.friends_disabled = friendsDisabled;
+	}
+	return community;
 }
 
 function readServices(value: unknown): InstanceServices {
@@ -398,6 +446,14 @@ function readLimits(value: unknown): LimitConfigSnapshot {
 	return snapshot;
 }
 
+function readOptionalLockReason(source: Record<string, unknown>): AccountIdentityLockReason | null | undefined {
+	if (!Object.hasOwn(source, 'account_identity_lock_reason')) {
+		return undefined;
+	}
+	const value = source.account_identity_lock_reason;
+	return Object.values(AccountIdentityLockReasons).find((reason) => reason === value) ?? null;
+}
+
 function readAppPublic(value: unknown): InstanceAppPublic {
 	const source = readRecord(value, 'appPublic');
 	const branding = readRecord(source.branding, 'appPublic.branding');
@@ -410,6 +466,7 @@ function readAppPublic(value: unknown): InstanceAppPublic {
 		'appPublic.setup.account_identity_locked',
 	);
 	const setupTokenRequired = readOptionalBoolean(setup, 'setup_token_required', 'appPublic.setup.setup_token_required');
+	const accountIdentityLockReason = readOptionalLockReason(setup);
 	return {
 		branding: {
 			product_name: readNonEmptyString(branding, 'product_name', 'appPublic.branding.product_name'),
@@ -418,6 +475,9 @@ function readAppPublic(value: unknown): InstanceAppPublic {
 			logo_url: readNullableAbsoluteHttpUrl(branding, 'logo_url', 'appPublic.branding.logo_url'),
 			wordmark_url: readNullableAbsoluteHttpUrl(branding, 'wordmark_url', 'appPublic.branding.wordmark_url'),
 			favicon_url: readNullableAbsoluteHttpUrl(branding, 'favicon_url', 'appPublic.branding.favicon_url'),
+			favicon_dark_url: Object.hasOwn(branding, 'favicon_dark_url')
+				? readNullableAbsoluteHttpUrl(branding, 'favicon_dark_url', 'appPublic.branding.favicon_dark_url')
+				: null,
 			theme_color: normalizeThemeColor(branding.theme_color),
 			status_page_url: readOptionalText(branding, 'status_page_url'),
 			status_page_incident_history_url: readOptionalText(branding, 'status_page_incident_history_url'),
@@ -425,11 +485,20 @@ function readAppPublic(value: unknown): InstanceAppPublic {
 			premium_info_url: Object.hasOwn(branding, 'premium_info_url')
 				? readNullableAbsoluteHttpUrl(branding, 'premium_info_url', 'appPublic.branding.premium_info_url')
 				: null,
+			sign_in_backdrop_url: Object.hasOwn(branding, 'sign_in_backdrop_url')
+				? readNullableAbsoluteHttpUrl(branding, 'sign_in_backdrop_url', 'appPublic.branding.sign_in_backdrop_url')
+				: null,
+			custom_css: readOptionalText(branding, 'custom_css'),
+			upload_limit_message: readOptionalText(branding, 'upload_limit_message'),
+			trusted_domains: Object.hasOwn(branding, 'trusted_domains')
+				? readStringArray(branding.trusted_domains, 'appPublic.branding.trusted_domains')
+				: [],
 		},
 		setup: {
 			configured: readBoolean(setup, 'configured', 'appPublic.setup.configured'),
 			admin_url: readNullableAbsoluteHttpUrl(setup, 'admin_url', 'appPublic.setup.admin_url'),
 			...(accountIdentityLocked === undefined ? {} : {account_identity_locked: accountIdentityLocked}),
+			...(accountIdentityLockReason === undefined ? {} : {account_identity_lock_reason: accountIdentityLockReason}),
 			...(setupTokenRequired === undefined ? {} : {setup_token_required: setupTokenRequired}),
 		},
 		legal: {
@@ -457,11 +526,6 @@ function readAgePolicyGeo(value: unknown, index: number): InstanceAgePolicyGeo {
 		country_code: readNonEmptyString(source, 'country_code', `${path}.country_code`),
 		region_code: readNullableNonEmptyString(source, 'region_code', `${path}.region_code`),
 		action: readLiteral(source, 'action', `${path}.action`, AGE_POLICY_ACTIONS),
-		card_verification_available: readBoolean(
-			source,
-			'card_verification_available',
-			`${path}.card_verification_available`,
-		),
 	};
 }
 
@@ -474,6 +538,51 @@ function readAgePolicy(value: unknown): InstanceAgePolicy | null {
 		invalid('agePolicy.geos', `must be an array with at most ${AGE_POLICY_GEOS_MAX.toString()} entries`);
 	}
 	return {geos: source.geos.map(readAgePolicyGeo)};
+}
+
+function readNullableDateTime(source: Record<string, unknown>, key: string, path: string): string | null {
+	const value = source[key];
+	if (value === null) {
+		return null;
+	}
+	if (typeof value !== 'string' || !Number.isFinite(Date.parse(value))) {
+		invalid(path, 'must be null or a date-time string');
+	}
+	return value;
+}
+
+function readNotice(value: unknown): InstanceNotice | null {
+	if (value === undefined || value === null) {
+		return null;
+	}
+	const source = readRecord(value, 'notice');
+	return {
+		id: readNonEmptyString(source, 'id', 'notice.id'),
+		message: readNonEmptyString(source, 'message', 'notice.message'),
+		url: readNullableAbsoluteHttpUrl(source, 'url', 'notice.url'),
+		starts_at: readNullableDateTime(source, 'starts_at', 'notice.starts_at'),
+		ends_at: readNullableDateTime(source, 'ends_at', 'notice.ends_at'),
+	};
+}
+
+function readGuildBadges(value: unknown): Array<InstanceGuildBadge> {
+	if (value === undefined) {
+		return [];
+	}
+	if (!Array.isArray(value)) {
+		invalid('guildBadges', 'must be an array');
+	}
+	return value.map((entry, index) => {
+		const path = `guildBadges[${index}]`;
+		const source = readRecord(entry, path);
+		return {
+			id: readNonEmptyString(source, 'id', `${path}.id`),
+			name: readNonEmptyString(source, 'name', `${path}.name`),
+			description: readNullableNonEmptyString(source, 'description', `${path}.description`),
+			asset_url: readNonEmptyString(source, 'asset_url', `${path}.asset_url`),
+			href: readNullableAbsoluteHttpUrl(source, 'href', `${path}.href`),
+		};
+	});
 }
 
 export function requireRuntimeConfigSnapshot(value: unknown): RuntimeConfigSnapshot {
@@ -504,5 +613,7 @@ export function requireRuntimeConfigSnapshot(value: unknown): RuntimeConfigSnaps
 		appPublic: readAppPublic(source.appPublic),
 		agePolicy: readAgePolicy(source.agePolicy),
 		domainMigration: parseInstanceDomainMigration(source.domainMigration),
+		notice: readNotice(source.notice),
+		guildBadges: readGuildBadges(source.guildBadges),
 	};
 }

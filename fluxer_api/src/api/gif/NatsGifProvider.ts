@@ -136,7 +136,7 @@ function readResolved(value: unknown): GifResponse | null {
 	return parsed.data;
 }
 
-export interface GifProviderMeta {
+interface GifProviderMeta {
 	readonly name: string;
 	readonly displayName: string;
 	readonly attributionRequired: boolean;

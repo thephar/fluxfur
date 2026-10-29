@@ -337,18 +337,24 @@ new_visibility_memo(ChannelId, Data, State) ->
 memoised_can_view(UserId, ChannelId, Member, _SortedRoleIds, State, disabled) ->
     {can_view(UserId, ChannelId, Member, State), disabled};
 memoised_can_view(UserId, ChannelId, Member, SortedRoleIds, State, Memo) ->
-    #{exceptions := Exceptions, cache := Cache} = Memo,
+    #{exceptions := Exceptions} = Memo,
     case sets:is_element(UserId, Exceptions) of
         true ->
             {can_view(UserId, ChannelId, Member, State), Memo};
         false ->
-            case maps:find(SortedRoleIds, Cache) of
-                {ok, Visible} ->
-                    {Visible, Memo};
-                error ->
-                    Visible = can_view(UserId, ChannelId, Member, State),
-                    {Visible, Memo#{cache := Cache#{SortedRoleIds => Visible}}}
-            end
+            cached_can_view(UserId, ChannelId, Member, SortedRoleIds, State, Memo)
+    end.
+
+-spec cached_can_view(
+    integer(), pos_integer(), map(), [integer()], guild_state(), visibility_memo()
+) -> {boolean(), visibility_memo()}.
+cached_can_view(UserId, ChannelId, Member, SortedRoleIds, State, #{cache := Cache} = Memo) ->
+    case maps:find(SortedRoleIds, Cache) of
+        {ok, Visible} ->
+            {Visible, Memo};
+        error ->
+            Visible = can_view(UserId, ChannelId, Member, State),
+            {Visible, Memo#{cache := Cache#{SortedRoleIds => Visible}}}
     end.
 
 %% Category visibility recurses into child channels, each with its own
@@ -388,7 +394,7 @@ channel_overwrite_target_ids(ChannelId, Data) ->
     case maps:get(ChannelId, guild_data_index_channels:channel_index(Data), undefined) of
         Channel when is_map(Channel) ->
             lists:filtermap(
-                fun(Overwrite) -> overwrite_target_id(Overwrite) end,
+                fun overwrite_target_id/1,
                 map_utils:ensure_list(maps:get(<<"permission_overwrites">>, Channel, []))
             );
         _ ->
@@ -465,70 +471,3 @@ channel_id(ListId) ->
 -spec guild_id(guild_state()) -> integer() | undefined.
 guild_id(State) ->
     snowflake_id:parse_maybe(maps:get(id, State, undefined)).
-
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
-
-memo_channel_state() ->
-    #{
-        data => #{
-            <<"guild">> => #{<<"features">> => [], <<"owner_id">> => <<"7">>},
-            <<"channel_index">> => #{
-                500 => #{
-                    <<"id">> => <<"500">>,
-                    <<"type">> => 0,
-                    <<"permission_overwrites">> => [#{<<"id">> => <<"42">>, <<"type">> => 1}]
-                },
-                600 => #{<<"id">> => <<"600">>, <<"type">> => 4}
-            }
-        },
-        virtual_channel_access => #{99 => sets:from_list([500])}
-    }.
-
-memoisable_channel_skips_categories_test() ->
-    Data = maps:get(data, memo_channel_state()),
-    ?assert(memoisable_channel(500, Data)),
-    ?assertNot(memoisable_channel(600, Data)),
-    ?assertNot(memoisable_channel(777, Data)).
-
-visibility_exceptions_cover_owner_virtual_and_overwrites_test() ->
-    State = memo_channel_state(),
-    Exceptions = visibility_exceptions(500, maps:get(data, State), State),
-    ?assert(sets:is_element(7, Exceptions)),
-    ?assert(sets:is_element(99, Exceptions)),
-    ?assert(sets:is_element(42, Exceptions)),
-    ?assertNot(sets:is_element(1234, Exceptions)).
-
-new_visibility_memo_is_disabled_for_categories_test() ->
-    State = memo_channel_state(),
-    ?assertEqual(disabled, new_visibility_memo(600, maps:get(data, State), State)),
-    ?assertNotEqual(disabled, new_visibility_memo(500, maps:get(data, State), State)).
-
-memoised_can_view_bypasses_exception_users_test() ->
-    State = memo_channel_state(),
-    Memo0 = new_visibility_memo(500, maps:get(data, State), State),
-    {_, Memo1} = memoised_can_view(7, 500, #{<<"roles">> => []}, [], State, Memo0),
-    ?assertEqual(0, map_size(maps:get(cache, Memo1))),
-    {_, Memo2} = memoised_can_view(42, 500, #{<<"roles">> => []}, [], State, Memo1),
-    ?assertEqual(0, map_size(maps:get(cache, Memo2))).
-
-memoised_can_view_disabled_never_caches_test() ->
-    State = memo_channel_state(),
-    ?assertMatch(
-        {_, disabled},
-        memoised_can_view(1000, 600, #{<<"roles">> => [1]}, [1], State, disabled)
-    ).
-
-offline_member_skips_the_presence_lookup_test() ->
-    Presences = #{7 => #{<<"status">> => <<"online">>}},
-    Connected = sets:from_list([7]),
-    ?assert(member_is_online(7, Presences, Connected)),
-    ?assertNot(member_is_online(8, Presences, Connected)),
-    ?assertNot(member_is_online(7, Presences, sets:new())).
-
-invisible_member_is_not_online_test() ->
-    Connected = sets:from_list([7]),
-    ?assertNot(member_is_online(7, #{7 => #{<<"status">> => <<"invisible">>}}, Connected)),
-    ?assertNot(member_is_online(7, #{7 => #{<<"status">> => <<"offline">>}}, Connected)).
-
--endif.

@@ -150,16 +150,15 @@ export const ScreenShareCodecControl = observer(() => {
 	const codecCapabilities = getCodecCapabilityReport();
 	const options: ReadonlyArray<ComboboxOption<CodecPreference>> = [
 		{value: 'auto', label: i18n._(AUTOMATIC_CODEC_OPTION_DESCRIPTOR, {codec: CODEC_DISPLAY_LABEL[automaticCodec]})},
-		...SCREEN_SHARE_CODEC_OPTION_ORDER.map((codec) => ({
-			value: codec,
-			label:
-				codec === 'av1' && !av1OptIn
-					? i18n._(AV1_REQUIRES_OPT_IN_OPTION_DESCRIPTOR)
-					: codec === 'h265' && !hevcOptIn
-						? i18n._(H265_REQUIRES_OPT_IN_OPTION_DESCRIPTOR)
-						: CODEC_DISPLAY_LABEL[codec],
-			isDisabled: !codecCapabilities[codec].supported,
-		})),
+		...SCREEN_SHARE_CODEC_OPTION_ORDER.map((codec) => {
+			let label: string = CODEC_DISPLAY_LABEL[codec];
+			if (codec === 'av1' && !av1OptIn) {
+				label = i18n._(AV1_REQUIRES_OPT_IN_OPTION_DESCRIPTOR);
+			} else if (codec === 'h265' && !hevcOptIn) {
+				label = i18n._(H265_REQUIRES_OPT_IN_OPTION_DESCRIPTOR);
+			}
+			return {value: codec, label, isDisabled: !codecCapabilities[codec].supported};
+		}),
 	];
 	return (
 		<Combobox<CodecPreference>

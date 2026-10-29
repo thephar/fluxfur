@@ -78,7 +78,7 @@ spec:
   "probes" (dict "startup" (merge (deepCopy $pushCheck) (dict "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 12)) "liveness" (merge (deepCopy $pushCheck) $check) "readiness" (merge (deepCopy $pushCheck) $check))) }}
 
 {{- include "fluxer.app" (dict "root" . "name" "admin" "component" "admin" "w" $v.admin "image" "fluxer-admin" "port" 8080
-  "env" (list (dict "name" "FLUXER_ADMIN_PORT" "value" "8080") (dict "name" "FLUXER_ADMIN_BASE_PATH" "value" $v.adminBasePath) (dict "name" "FLUXER_API_ENDPOINT" "value" "http://api:8080") (dict "name" "FLUXER_STATIC_CDN_ENDPOINT" "value" $o))
+  "env" (list (dict "name" "FLUXER_ADMIN_PORT" "value" "8080") (dict "name" "FLUXER_ADMIN_BASE_PATH" "value" $v.adminBasePath) (dict "name" "FLUXER_API_ENDPOINT" "value" "http://api:8080") (dict "name" "FLUXER_API_PUBLIC_ENDPOINT" "value" (include "fluxer.string" (index ($v.env | default dict) "FLUXER_API_ENDPOINT" | default ""))) (dict "name" "FLUXER_STATIC_CDN_ENDPOINT" "value" $o))
   "probes" $healthProbes) }}
 
 {{- $ready := merge (dict "path" "/_ready") $http }}

@@ -2,7 +2,7 @@
 {{- with .Values.valkey }}
 {{- if .enabled }}
 {{- $ctx := dict "root" $ "name" "valkey" "component" "cache" "w" . }}
-{{- $args := list "valkey-server" "--appendonly" "yes" "--appendfsync" .appendfsync "--dir" "/data" "--maxmemory" .maxmemory "--maxmemory-policy" .maxmemoryPolicy "--requirepass" "$(REDISCLI_AUTH)" }}
+{{- $args := list "valkey-server" "--appendonly" "yes" "--appendfsync" .appendfsync "--dir" "/data" "--save" "" "--maxmemory" .maxmemory "--maxmemory-policy" .maxmemoryPolicy "--requirepass" "$(REDISCLI_AUTH)" }}
 {{- $ping := dict "exec" (dict "command" (list "sh" "-c" "valkey-cli ping | grep -q PONG")) "periodSeconds" 10 "timeoutSeconds" 5 }}
 {{- $secrets := include "fluxer.secretData" $ | fromJson }}
 ---

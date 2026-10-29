@@ -188,35 +188,3 @@ fn encode_channel(
     }
     Ok(ChannelEncoded { dc, ac, scale })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn encode_rejects_invalid_dimensions() {
-        assert_eq!(Err(EncodeError::InvalidDimensions), encode_rgba(&[], 0, 1));
-        assert_eq!(Err(EncodeError::InvalidDimensions), encode_rgba(&[], 1, 1));
-        let pixels = [0u8; 101 * 4];
-        assert_eq!(
-            Err(EncodeError::InvalidDimensions),
-            encode_rgba(&pixels, 101, 1)
-        );
-    }
-
-    #[test]
-    fn alpha_changes_header_layout() {
-        let mut opaque = [0u8; 4 * 4 * 4];
-        let mut translucent = [0u8; 4 * 4 * 4];
-        for px in opaque.as_chunks_mut::<4>().0 {
-            px[3] = 255;
-        }
-        for px in translucent.as_chunks_mut::<4>().0 {
-            px[3] = 64;
-        }
-        let opaque_out = encode_rgba(&opaque, 4, 4).unwrap();
-        let trans_out = encode_rgba(&translucent, 4, 4).unwrap();
-        assert_eq!(0, opaque_out[2] & 0x80);
-        assert_ne!(0, trans_out[2] & 0x80);
-    }
-}

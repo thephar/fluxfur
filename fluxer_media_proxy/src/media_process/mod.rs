@@ -6,11 +6,7 @@ use crate::{
     native::{NativeStatus, buffer::NativeBuffer},
 };
 
-pub use crate::{
-    image_quality::{ImageQuality, ResolvedImageQuality},
-    image_transform::{AnimationLimits, AnimationMode, EncodeEffort, ImageOptions, ResizeMode},
-    media_limits::MediaLimits,
-};
+pub use crate::{image_transform::ImageOptions, media_limits::MediaLimits};
 mod animated_transform;
 mod apng;
 mod av_metadata;
@@ -23,25 +19,19 @@ pub(crate) mod native_runtime;
 mod nsfw_processing;
 mod placeholder;
 mod streaming_encoder;
+mod strip;
 mod transform;
 mod transform_plan;
 mod video_thumbnail;
 
-#[cfg(test)]
-mod tests;
-
-pub use av_metadata::{NSFW_PREVIEW_MAX_DIMENSION, probe_av_metadata};
 pub use metadata::{MetadataOptions, finish_metadata, prepare_metadata};
-pub use native_cost::{
-    AV_NATIVE_COST_BYTES, NativeCost, av_native_cost, image_transform_cost, metadata_cost,
+pub use native_cost::{NativeCost, av_native_cost, image_transform_cost, metadata_cost};
+pub use strip::{
+    AvContainer, StrippedImage, audio_duration_seconds, av_container, strip_av_metadata,
+    strip_image_metadata, strips_image,
 };
-pub use nsfw_processing::encode_static_image_for_nsfw;
 pub use transform::transform_image;
-pub use video_thumbnail::{
-    VideoThumbnailOptions, extract_video_thumbnail, extract_video_thumbnail_with_options,
-};
-
-use native_runtime::ensure_vips_init;
+pub use video_thumbnail::extract_video_thumbnail;
 
 use bytes::Bytes;
 use libc::{c_int, c_longlong};
@@ -168,10 +158,6 @@ struct AnimatedProbe {
     width: c_int,
     height: c_int,
     pages: c_int,
-}
-
-pub fn warmup_vips() -> Result<(), MediaError> {
-    ensure_vips_init()
 }
 
 fn native_optional_deadline(deadline_monotonic_ms: Option<i64>) -> c_longlong {

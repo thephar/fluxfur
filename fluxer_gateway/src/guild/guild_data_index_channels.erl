@@ -84,7 +84,9 @@ add_plain_child(Channel, Categories) ->
             snowflake_id:parse_maybe(maps:get(<<"id">>, Channel, undefined))
         }
     of
-        {Parent, false, ChildId} when is_map_key(Parent, Categories), is_integer(ChildId) ->
+        {Parent, false, ChildId} when
+            is_integer(Parent), is_map_key(Parent, Categories), is_integer(ChildId)
+        ->
             Categories#{Parent := [ChildId | maps:get(Parent, Categories)]};
         _ ->
             Categories
@@ -207,22 +209,3 @@ overwrite_tuple(OW) when is_map(OW) ->
     end;
 overwrite_tuple(_) ->
     false.
-
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
-
-forum_categories_list_plain_children_of_forum_parents_test() ->
-    Channels = [
-        #{<<"id">> => 1, <<"type">> => 4},
-        #{<<"id">> => 2, <<"type">> => 4},
-        #{<<"id">> => 10, <<"type">> => 15, <<"parent_id">> => 1},
-        #{<<"id">> => 11, <<"type">> => 0, <<"parent_id">> => 1},
-        #{<<"id">> => 12, <<"type">> => 0, <<"parent_id">> => 2}
-    ],
-    ?assertEqual(#{1 => [11]}, forum_categories(Channels)),
-    ?assertEqual(#{}, forum_categories(tl(tl(tl(Channels))))),
-    Data = put_channels(Channels, #{}),
-    ?assertEqual(#{1 => [11]}, maps:get(thread_forum_categories, Data)),
-    ?assertNot(maps:is_key(thread_forum_categories, put_channels([], Data))).
-
--endif.

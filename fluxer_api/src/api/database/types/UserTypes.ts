@@ -10,6 +10,7 @@ import type {
 	MessageID,
 	UserID,
 } from '@app/api/BrandedTypes';
+import type {LocalDate} from '@app/api/database/LocalDate';
 import type {LocaleCode} from '@fluxer/constants/src/Locales';
 import type {GuildFolderIcon, MentionReplyPreference} from '@fluxer/constants/src/UserConstants';
 import type {types} from 'cassandra-driver';
@@ -44,7 +45,7 @@ export interface UserRow {
 	accent_color: number | null;
 	timezone: string | null;
 	timezone_privacy_flags: number | null;
-	date_of_birth: types.LocalDate | null;
+	date_of_birth: LocalDate | null;
 	locale: string | null;
 	flags: bigint | null;
 	premium_flags?: number | null;
@@ -78,6 +79,8 @@ export interface UserRow {
 	content_hidden_since?: Date | null;
 	acls: Set<string> | null;
 	traits: Set<string> | null;
+	badge_ids?: Set<bigint> | null;
+	hidden_profile_badges?: Set<string> | null;
 	first_refund_at: Date | null;
 	gift_inventory_server_seq: number | null;
 	gift_inventory_client_seq: number | null;
@@ -144,6 +147,8 @@ export const USER_COLUMNS = [
 	'content_hidden_since',
 	'acls',
 	'traits',
+	'badge_ids',
+	'hidden_profile_badges',
 	'first_refund_at',
 	'gift_inventory_server_seq',
 	'gift_inventory_client_seq',
@@ -209,6 +214,8 @@ export const EMPTY_USER_ROW: UserRow = {
 	content_hidden_since: null,
 	acls: null,
 	traits: null,
+	badge_ids: null,
+	hidden_profile_badges: null,
 	first_refund_at: null,
 	gift_inventory_server_seq: null,
 	gift_inventory_client_seq: null,
@@ -586,6 +593,11 @@ export interface UserByStripeSubscriptionIdRow {
 	user_id: UserID;
 }
 
+export interface UserByAclRow {
+	acl: string;
+	user_id: UserID;
+}
+
 export interface UserByLastActiveIpRow {
 	last_active_ip: string;
 	user_id: UserID;
@@ -615,6 +627,7 @@ export const USER_BY_STRIPE_SUBSCRIPTION_ID_COLUMNS = [
 	'stripe_subscription_id',
 	'user_id',
 ] as const satisfies ReadonlyArray<keyof UserByStripeSubscriptionIdRow>;
+export const USER_BY_ACL_COLUMNS = ['acl', 'user_id'] as const satisfies ReadonlyArray<keyof UserByAclRow>;
 export const USER_BY_LAST_ACTIVE_IP_COLUMNS = [
 	'last_active_ip',
 	'user_id',

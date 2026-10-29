@@ -126,6 +126,24 @@ export class AdminRepository {
 		return this.mapRowToAuditLog(log);
 	}
 
+	async redactAuditLog(
+		logId: bigint,
+		targetId: bigint,
+		dropMetadataKeys: ReadonlyArray<string>,
+	): Promise<AdminAuditLog | null> {
+		const row = await fetchOne<AdminAuditLogRow>(FETCH_AUDIT_LOG_BY_ID_QUERY.bind({log_id: logId}));
+		if (!row) {
+			return null;
+		}
+		const metadata = new Map(row.metadata ?? []);
+		for (const key of dropMetadataKeys) {
+			metadata.delete(key);
+		}
+		const redacted: AdminAuditLogRow = {...row, target_id: targetId, metadata};
+		await upsertOne(AdminAuditLogs.insert(redacted));
+		return this.mapRowToAuditLog(redacted);
+	}
+
 	async getAuditLog(logId: bigint): Promise<AdminAuditLog | null> {
 		const row = await fetchOne<AdminAuditLogRow>(FETCH_AUDIT_LOG_BY_ID_QUERY.bind({log_id: logId}));
 		return row ? this.mapRowToAuditLog(row) : null;

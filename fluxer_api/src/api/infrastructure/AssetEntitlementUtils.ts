@@ -12,10 +12,7 @@ export function stripAnimationPrefix(hash: string): string {
 	return hash.startsWith(ANIMATED_PREFIX) ? hash.substring(ANIMATED_PREFIX.length) : hash;
 }
 
-export function stripAnimationPrefixIfNoEntitlement(
-	hash: string | null | undefined,
-	hasEntitlement: boolean,
-): string | null {
+function stripAnimationPrefixIfNoEntitlement(hash: string | null | undefined, hasEntitlement: boolean): string | null {
 	if (hash == null) {
 		return null;
 	}

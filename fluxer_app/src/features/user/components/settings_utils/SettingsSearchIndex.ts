@@ -41,6 +41,7 @@ import type {
 	SearchableSettingDescriptor,
 	SearchableSettingKeyword,
 } from '@app/features/user/components/settings_utils/search_index/SearchIndexTypes';
+import {themesIndex} from '@app/features/user/components/settings_utils/search_index/ThemesIndex';
 import {voiceVideoIndex} from '@app/features/user/components/settings_utils/search_index/VoiceVideoIndex';
 import type {I18n} from '@lingui/core';
 
@@ -102,6 +103,7 @@ const ADDITIONAL_SEARCHABLE_ITEMS: Array<SearchableSettingDescriptor> = [
 	...plutoniumIndex,
 	...giftInventoryIndex,
 	...appearanceIndex,
+	...themesIndex,
 	...notificationsIndex,
 	...chatSettingsIndex,
 	...voiceVideoIndex,

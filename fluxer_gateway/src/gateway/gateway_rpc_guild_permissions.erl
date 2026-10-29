@@ -2,10 +2,6 @@
 
 -module(gateway_rpc_guild_permissions).
 
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
--endif.
-
 -typing([eqwalizer]).
 
 -export([handle/2, get_permissions_cached_or_rpc/3]).
@@ -17,9 +13,7 @@ handle(<<"guild.get_user_permissions">>, P) -> handle_get_user_permissions(P);
 handle(<<"guild.get_user_permissions_batch">>, P) -> handle_get_user_permissions_batch(P);
 handle(<<"guild.check_permission">>, P) -> handle_check_permission(P);
 handle(<<"guild.can_manage_roles">>, P) -> handle_can_manage_roles(P);
-handle(<<"guild.can_manage_role">>, P) -> handle_can_manage_role(P);
-handle(<<"guild.get_assignable_roles">>, P) -> handle_get_assignable_roles(P);
-handle(<<"guild.get_user_max_role_position">>, P) -> handle_get_max_role_position(P).
+handle(<<"guild.can_manage_role">>, P) -> handle_can_manage_role(P).
 
 -spec handle_get_user_permissions(map()) -> map().
 handle_get_user_permissions(
@@ -133,54 +127,6 @@ guild_call_can_manage(Pid, Msg) ->
             gateway_rpc_error:raise(<<"role_management_check_error">>)
     end.
 
--spec handle_get_assignable_roles(map()) -> term().
-handle_get_assignable_roles(
-    #{<<"guild_id">> := GIB, <<"user_id">> := UIB}
-) ->
-    GuildId = validation:snowflake_or_throw(<<"guild_id">>, GIB),
-    UserId = validation:snowflake_or_throw(<<"user_id">>, UIB),
-    do_get_assignable_roles(GuildId, UserId).
-
--spec do_get_assignable_roles(integer(), integer()) -> term().
-do_get_assignable_roles(GuildId, UserId) ->
-    gateway_rpc_guild_infra:with_guild(GuildId, fun(Pid) ->
-        guild_call_assignable(Pid, UserId)
-    end).
-
--spec guild_call_assignable(pid(), integer()) -> map().
-guild_call_assignable(Pid, UserId) ->
-    Msg = {get_assignable_roles, #{user_id => UserId}},
-    case gen_server:call(Pid, Msg, ?GUILD_CALL_TIMEOUT) of
-        #{role_ids := RoleIds} ->
-            #{<<"role_ids">> => [integer_to_binary(R) || R <- RoleIds]};
-        _ ->
-            gateway_rpc_error:raise(<<"assignable_roles_error">>)
-    end.
-
--spec handle_get_max_role_position(map()) -> term().
-handle_get_max_role_position(
-    #{<<"guild_id">> := GIB, <<"user_id">> := UIB}
-) ->
-    GuildId = validation:snowflake_or_throw(<<"guild_id">>, GIB),
-    UserId = validation:snowflake_or_throw(<<"user_id">>, UIB),
-    do_get_max_role_position(GuildId, UserId).
-
--spec do_get_max_role_position(integer(), integer()) -> term().
-do_get_max_role_position(GuildId, UserId) ->
-    gateway_rpc_guild_infra:with_guild(GuildId, fun(Pid) ->
-        guild_call_max_pos(Pid, UserId)
-    end).
-
--spec guild_call_max_pos(pid(), integer()) -> map().
-guild_call_max_pos(Pid, UserId) ->
-    Msg = {get_user_max_role_position, #{user_id => UserId}},
-    case gen_server:call(Pid, Msg, ?GUILD_CALL_TIMEOUT) of
-        #{position := Pos} ->
-            #{<<"position">> => Pos};
-        _ ->
-            gateway_rpc_error:raise(<<"max_role_position_error">>)
-    end.
-
 -spec get_permissions_cached_or_rpc(
     integer(), integer(), integer() | undefined
 ) -> {ok, integer()} | {error, guild_not_found} | error.
@@ -202,7 +148,7 @@ get_permissions_via_rpc(GuildId, UserId, ChannelId) ->
             {error, guild_not_found}
     end.
 
--spec get_perms_from_guild(integer(), pid(), term()) -> {ok, integer()} | error.
+-spec get_perms_from_guild(integer(), pid(), {atom(), map()}) -> {ok, integer()} | error.
 get_perms_from_guild(GuildId, Pid, Msg) ->
     case
         gateway_rpc_guild_infra:safe_guild_call(
@@ -224,29 +170,3 @@ permission_or_throw(Value) ->
     catch
         error:{invalid_bitset, _} -> gateway_rpc_error:raise(<<"invalid_params">>)
     end.
-
--ifdef(TEST).
-check_permission_unknown_guild_raises_guild_not_found_test() ->
-    Payload = #{
-        <<"guild_id">> => <<"1">>,
-        <<"user_id">> => <<"2">>,
-        <<"permission">> => <<"1">>,
-        <<"channel_id">> => <<"0">>
-    },
-    ?assertError(
-        {gateway_rpc_error, <<"guild_not_found">>},
-        handle(<<"guild.check_permission">>, Payload)
-    ).
-
-get_user_permissions_unknown_guild_raises_guild_not_found_test() ->
-    Payload = #{
-        <<"guild_id">> => <<"1">>,
-        <<"user_id">> => <<"2">>,
-        <<"channel_id">> => <<"0">>
-    },
-    ?assertError(
-        {gateway_rpc_error, <<"guild_not_found">>},
-        handle(<<"guild.get_user_permissions">>, Payload)
-    ).
-
--endif.

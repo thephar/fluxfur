@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import {ResettableStates} from '@app/features/app/state/ResettableStates';
 import {makeAutoObservable, observable} from 'mobx';
 
-export interface ThreadCreateTarget {
+interface ThreadCreateTarget {
 	readonly parentId: string;
 	readonly messageId: string | null;
 }
@@ -35,6 +36,15 @@ class ThreadPanel {
 	closeCreate(): void {
 		this.createTarget = null;
 	}
+
+	reset(): void {
+		this.createTarget = null;
+		this.createCooldowns.clear();
+	}
 }
 
-export default new ThreadPanel();
+const threadPanel = new ThreadPanel();
+
+ResettableStates.register(threadPanel, () => threadPanel.reset());
+
+export default threadPanel;

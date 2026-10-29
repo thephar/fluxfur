@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {EMAIL_DESCRIPTOR, PASSWORD_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
-import {shouldShowClaimedAccountSections} from '@app/features/user/components/settings_utils/section_registry/SectionRegistryHelpers';
+import {shouldShowClaimedAccountSettings} from '@app/features/user/components/settings_utils/SettingsVisibility';
 import type {SectionDefinition} from '@app/features/user/components/settings_utils/section_registry/SectionRegistryTypes';
 import {
 	ACCOUNT_DESCRIPTOR,
@@ -105,7 +105,7 @@ export const accountSecuritySections = [
 			CHANGE_PASSWORD_DESCRIPTOR,
 		],
 		isAdvanced: false,
-		isVisible: shouldShowClaimedAccountSections,
+		isVisible: shouldShowClaimedAccountSettings,
 	},
 	{
 		id: 'security',
@@ -143,7 +143,7 @@ export const accountSecuritySections = [
 			LINKED_DEVICES_DESCRIPTOR,
 		],
 		isAdvanced: false,
-		isVisible: shouldShowClaimedAccountSections,
+		isVisible: shouldShowClaimedAccountSettings,
 	},
 	{
 		id: 'danger_zone',
@@ -164,6 +164,6 @@ export const accountSecuritySections = [
 		label: BLOCKED_USERS_DESCRIPTOR,
 		keywords: [BLOCKED_USERS_DESCRIPTOR],
 		isAdvanced: false,
-		isVisible: shouldShowClaimedAccountSections,
+		isVisible: shouldShowClaimedAccountSettings,
 	},
 ] as const satisfies ReadonlyArray<SectionDefinition>;

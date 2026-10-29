@@ -17,7 +17,7 @@
 
 -spec start_link() -> {ok, pid()} | {error, term()}.
 start_link() ->
-    normalize_start_link(gen_server:start_link({local, ?MODULE}, ?MODULE, [], [])).
+    shard_utils:normalize_start_link(gen_server:start_link({local, ?MODULE}, ?MODULE, [], [])).
 
 -spec subscribe(integer()) -> ok.
 subscribe(UserId) when is_integer(UserId) ->
@@ -249,11 +249,3 @@ sanitize_diagnostic_info(Info) ->
         #{},
         Info
     ).
-
--spec normalize_start_link(gen_server:start_ret()) -> {ok, pid()} | {error, term()}.
-normalize_start_link({ok, Pid}) ->
-    {ok, Pid};
-normalize_start_link({error, Reason}) ->
-    {error, Reason};
-normalize_start_link(ignore) ->
-    {error, ignore}.

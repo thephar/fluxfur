@@ -104,22 +104,25 @@ export class MessageInteractionService {
 		userId,
 		viewer,
 		channelId,
-		requestCache,
 		beforeTimestamp,
 		limit,
 	}: {
 		userId: UserID;
 		viewer: ThreadViewer;
 		channelId: ChannelID;
-		requestCache: RequestCache;
 		beforeTimestamp?: Date;
 		limit?: number;
 	}): Promise<{
 		items: Array<ChannelPinResponse>;
 		has_more: boolean;
 	}> {
-		const authChannel = await this.pinAuthService.getChannelAuthenticated({userId, channelId, viewer});
-		const pins = await this.pinService.getChannelPins({authChannel, userId, requestCache, beforeTimestamp, limit});
+		const authChannel = await this.pinAuthService.getChannelAuthenticated({
+			userId,
+			channelId,
+			viewer,
+			access: 'visitor_read',
+		});
+		const pins = await this.pinService.getChannelPins({authChannel, userId, beforeTimestamp, limit});
 		const original = pins.items.map((item) => item.message as MessageResponse);
 		const messages = maskThreadArtifactsFor(viewer, authChannel.channel.guildId, original);
 		if (messages === original) return pins;
@@ -161,21 +164,19 @@ export class MessageInteractionService {
 		viewer,
 		channelId,
 		messageId,
-		requestCache,
 		auditLogReason,
 	}: {
 		userId: UserID;
 		viewer: ThreadViewer;
 		channelId: ChannelID;
 		messageId: MessageID;
-		requestCache: RequestCache;
 		auditLogReason?: string | null;
 	}): Promise<void> {
 		const authChannel = await this.authService.getChannelAuthenticated({userId, channelId, viewer});
 		if (!authChannel.guild && authChannel.channel.type !== ChannelTypes.DM_PERSONAL_NOTES) {
 			await this.authService.validateDMSendPermissions({channel: authChannel.channel, userId});
 		}
-		await this.pinService.unpinMessage({authChannel, messageId, userId, requestCache, auditLogReason});
+		await this.pinService.unpinMessage({authChannel, messageId, userId, auditLogReason});
 	}
 
 	async getUsersForReaction({
@@ -266,7 +267,6 @@ export class MessageInteractionService {
 		messageId: MessageID;
 		emoji: string;
 		targetId: UserID;
-		requestCache: RequestCache;
 	}): Promise<void> {
 		const authChannel = await this.authService.getChannelAuthenticated({userId, channelId, viewer});
 		await this.reactionService.removeReaction({authChannel, messageId, emoji, targetId, sessionId, actorId: userId});
@@ -279,7 +279,6 @@ export class MessageInteractionService {
 		channelId,
 		messageId,
 		emoji,
-		requestCache,
 	}: {
 		userId: UserID;
 		viewer: ThreadViewer;
@@ -287,9 +286,8 @@ export class MessageInteractionService {
 		channelId: ChannelID;
 		messageId: MessageID;
 		emoji: string;
-		requestCache: RequestCache;
 	}): Promise<void> {
-		await this.removeReaction({userId, viewer, sessionId, channelId, messageId, emoji, targetId: userId, requestCache});
+		await this.removeReaction({userId, viewer, sessionId, channelId, messageId, emoji, targetId: userId});
 	}
 
 	async removeAllReactionsForEmoji({

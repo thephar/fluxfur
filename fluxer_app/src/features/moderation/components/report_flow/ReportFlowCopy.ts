@@ -113,15 +113,6 @@ export const FINISH_ACCOUNT_SETUP_FIRST_DESCRIPTOR = msg({
 	message: 'Finish account setup first',
 	comment: 'Report flow: title of the notice on the summary screen when the account cannot send reports yet.',
 });
-export const CLAIM_AND_VERIFY_TO_REPORT_DESCRIPTOR = msg({
-	message: 'Claim your account and verify your email to send reports.',
-	comment: 'Report flow: body of the notice on the summary screen when the account cannot send reports yet.',
-});
-export const CLAIM_TO_REPORT_DESCRIPTOR = msg({
-	message: 'Claim your account to send reports.',
-	comment:
-		'Report flow: body of the notice on the summary screen when the account cannot send reports yet, on an instance where people sign in with a username.',
-});
 export const FINISH_ACCOUNT_SETUP_DESCRIPTOR = msg({
 	message: 'Finish account setup',
 	comment: 'Report flow: button in the account notice that opens the account setup screen.',

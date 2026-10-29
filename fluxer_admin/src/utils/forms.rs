@@ -89,10 +89,6 @@ impl MultiValueForm {
             .transpose()
     }
 
-    pub fn parse_u32(&self, key: &str) -> Option<u32> {
-        self.first(key).and_then(|value| value.parse().ok())
-    }
-
     pub fn parse_u64(&self, key: &str) -> Option<u64> {
         self.first(key).and_then(|value| value.parse().ok())
     }

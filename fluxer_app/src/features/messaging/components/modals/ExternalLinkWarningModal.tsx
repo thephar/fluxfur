@@ -8,10 +8,11 @@ import TrustedDomain from '@app/features/trusted_domain/state/TrustedDomain';
 import {Button} from '@app/features/ui/button/Button';
 import {Checkbox} from '@app/features/ui/checkbox/Checkbox';
 import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
+import {ArrowRightIcon} from '@app/features/ui/icons/DirectionalIcons';
 import {openExternalUrl} from '@app/features/ui/utils/NativeUtils';
 import {msg} from '@lingui/core/macro';
 import {Trans, useLingui} from '@lingui/react/macro';
-import {ArrowRightIcon, WarningIcon} from '@phosphor-icons/react';
+import {WarningIcon} from '@phosphor-icons/react';
 import {observer} from 'mobx-react-lite';
 import {useCallback, useMemo, useRef, useState} from 'react';
 

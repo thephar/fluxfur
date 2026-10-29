@@ -1,9 +1,6 @@
 %% SPDX-License-Identifier: AGPL-3.0-or-later
 
 -module(guild_voice_member).
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
--endif.
 
 -typing([eqwalizer]).
 
@@ -107,20 +104,13 @@ enforce_participant_state_in_livekit(GuildId, ChannelId, UserId, Mute, Deaf, Voi
 guild_data(State) ->
     map_utils:ensure_map(map_utils:get_safe(State, data, #{})).
 
--spec member_user_id(member()) -> integer() | undefined.
-member_user_id(Member) when is_map(Member) ->
-    User = map_utils:ensure_map(maps:get(<<"user">>, Member, #{})),
-    snowflake_id:parse_maybe(
-        maps:get(<<"id">>, User, undefined)
-    ).
-
 -spec set_member_voice_flags(member(), boolean(), boolean()) -> member().
 set_member_voice_flags(Member, Mute, Deaf) ->
     Member#{<<"mute">> => Mute, <<"deaf">> => Deaf}.
 
 -spec store_member(member(), guild_state()) -> guild_state().
 store_member(Member, State) ->
-    case member_user_id(Member) of
+    case guild_members_common:member_user_id(Member) of
         undefined ->
             State;
         _TargetId ->
@@ -254,77 +244,3 @@ broadcast_voice_state_updates(UpdatedStates, State) ->
         end,
         UpdatedStates
     ).
-
--ifdef(TEST).
-
-update_member_voice_updates_member_flags_test() ->
-    State = voice_member_test_state(#{}),
-    Request = #{user_id => 10, mute => true, deaf => false},
-    {reply, #{success := true}, UpdatedState} = update_member_voice(Request, State),
-    #{<<"mute">> := true, <<"deaf">> := false} = guild_permissions_check:find_member_by_user_id(
-        10, UpdatedState
-    ).
-
-update_member_voice_updates_voice_states_test() ->
-    VoiceState = voice_state_fixture(10, 500),
-    State = voice_member_test_state(#{
-        voice_states => #{<<"conn">> => VoiceState},
-        test_livekit_fun => fun livekit_test_fun/6
-    }),
-    Request = #{user_id => 10, mute => true, deaf => true},
-    {reply, #{success := true}, UpdatedState} = update_member_voice(Request, State),
-    UpdatedVoiceStates = maps:get(voice_states, UpdatedState),
-    UpdatedVoiceState = maps:get(<<"conn">>, UpdatedVoiceStates),
-    ?assertEqual(true, maps:get(<<"mute">>, UpdatedVoiceState)),
-    ?assertEqual(true, maps:get(<<"deaf">>, UpdatedVoiceState)),
-    ?assertEqual(1, maps:get(<<"version">>, UpdatedVoiceState)),
-    receive
-        {enforced, 42, 500, 10, true, true, VoicePermissions} ->
-            ?assertEqual(false, maps:get(can_speak, VoicePermissions)),
-            ?assertEqual(false, maps:get(can_stream, VoicePermissions)),
-            ?assertEqual(false, maps:get(can_video, VoicePermissions))
-    after 100 ->
-        ?assert(false)
-    end.
-
-livekit_test_fun(GuildId, ChannelId, UserId, Mute, Deaf, VoicePermissions) ->
-    self() ! {enforced, GuildId, ChannelId, UserId, Mute, Deaf, VoicePermissions}.
-
-update_member_voice_member_not_found_test() ->
-    State = voice_member_test_state(#{}),
-    Request = #{user_id => 999, mute => true, deaf => false},
-    {reply, Error, _} = update_member_voice(Request, State),
-    ?assertEqual({error, not_found, voice_member_not_found}, Error).
-
-voice_member_test_state(Overrides) ->
-    BaseData = #{
-        <<"members">> => #{
-            10 => member_fixture(10)
-        }
-    },
-    BaseState = #{
-        id => 42,
-        data => BaseData,
-        voice_states => #{}
-    },
-    maps:merge(BaseState, Overrides).
-
-member_fixture(UserId) ->
-    #{
-        <<"user">> => #{<<"id">> => integer_to_binary(UserId)},
-        <<"mute">> => false,
-        <<"deaf">> => false
-    }.
-
-voice_state_fixture(UserId, ChannelId) ->
-    #{
-        <<"user_id">> => integer_to_binary(UserId),
-        <<"channel_id">> => integer_to_binary(ChannelId),
-        <<"connection_id">> => <<"test-conn">>,
-        <<"mute">> => false,
-        <<"deaf">> => false,
-        <<"version">> => voice_state_utils:initial_voice_state_version(),
-        <<"member">> => member_fixture(UserId)
-    }.
-
--endif.

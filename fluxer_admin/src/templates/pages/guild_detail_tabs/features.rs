@@ -6,7 +6,7 @@ use crate::{
     api::types::GuildInfo,
     config::AdminConfig,
     templates::components::{
-        form::{checkbox, csrf_input, form_actions, submit_button},
+        form::{Checkbox, csrf_input, form_actions, submit_button},
         page_container::card_with_header,
     },
 };
@@ -60,13 +60,13 @@ pub fn features_tab(
                     (csrf_input(csrf_token))
                     div class="space-y-3" {
                         @for &feature in features_list {
-                            (checkbox(
-                                "features[]",
-                                feature,
-                                &feature_label(feature),
-                                guild.features.iter().any(|f| f == feature),
-                                true,
-                            ))
+                            (Checkbox {
+                                name: "features[]",
+                                value: feature,
+                                label: &feature_label(feature),
+                                checked: guild.features.iter().any(|f| f == feature),
+                                enabled: true,
+                            }.render())
                         }
                     }
                     div class="mt-6 border-t border-neutral-200 pt-6 space-y-2" {

@@ -104,7 +104,7 @@ member_view_cache(State) ->
         _ ->
             #{
                 inputs => Inputs,
-                exceptions => guild_maintenance:viewable_exceptions(State),
+                exceptions => guild_viewable_memo:exceptions(State),
                 views => #{}
             }
     end.
@@ -221,14 +221,27 @@ select_first_viewable(Channel, GuildId, BasePerms) ->
 -spec check_viewable(integer() | undefined, integer() | undefined, map(), integer(), integer()) ->
     integer() | null.
 check_viewable(ChannelType, ChannelId, Channel, GuildId, BasePerms) when
-    is_integer(ChannelId), ChannelType =:= 0 orelse ChannelType =:= 2 orelse ChannelType =:= 5
+    is_integer(ChannelId)
 ->
-    case bitset:has(BasePerms, constants:administrator_permission()) of
-        true -> ChannelId;
-        false -> check_view_permission(ChannelId, Channel, GuildId, BasePerms)
+    case is_landing_channel_type(ChannelType) of
+        true -> check_admin_or_view(ChannelId, Channel, GuildId, BasePerms);
+        false -> null
     end;
 check_viewable(_, _, _, _, _) ->
     null.
+
+-spec is_landing_channel_type(integer() | undefined) -> boolean().
+is_landing_channel_type(0) -> true;
+is_landing_channel_type(2) -> true;
+is_landing_channel_type(5) -> true;
+is_landing_channel_type(_) -> false.
+
+-spec check_admin_or_view(integer(), map(), integer(), integer()) -> integer() | null.
+check_admin_or_view(ChannelId, Channel, GuildId, BasePerms) ->
+    case bitset:has(BasePerms, constants:administrator_permission()) of
+        true -> ChannelId;
+        false -> check_view_permission(ChannelId, Channel, GuildId, BasePerms)
+    end.
 
 -spec check_view_permission(integer(), map(), integer(), integer()) -> integer() | null.
 check_view_permission(ChannelId, Channel, GuildId, BasePerms) ->

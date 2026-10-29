@@ -143,14 +143,14 @@ get_guild_process_info(#{pid := Pid, memory := Memory}) ->
         Info -> {true, Info}
     end.
 
--spec extract_module(tuple() | undefined, list()) -> atom() | undefined.
+-spec extract_module(mfa() | undefined, list()) -> atom() | undefined.
 extract_module(InitialCall, Dictionary) ->
     case lists:keyfind('$initial_call', 1, Dictionary) of
-        {'$initial_call', {M, _, _}} -> M;
+        {'$initial_call', {M, _, _}} -> eqwalizer:dynamic_cast(M);
         _ -> initial_call_module(InitialCall)
     end.
 
--spec initial_call_module(tuple() | undefined) -> atom() | undefined.
+-spec initial_call_module(mfa() | undefined) -> atom() | undefined.
 initial_call_module({M, _, _}) ->
     M;
 initial_call_module(_) ->

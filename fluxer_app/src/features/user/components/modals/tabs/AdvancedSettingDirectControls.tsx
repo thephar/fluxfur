@@ -47,6 +47,7 @@ import {
 } from '@app/features/user/components/modals/tabs/advanced_settings_tab/AdvancedDesktopControls';
 import {
 	ExpressionCloneShortcutsControl,
+	HideBlockedMessagesControl,
 	UnreadBadgeCustomizationControl,
 } from '@app/features/user/components/modals/tabs/advanced_settings_tab/AdvancedExperimentalControls';
 import {
@@ -104,6 +105,7 @@ export const DIRECT_CONTROL_ITEM_IDS = new Set([
 	'voice-video-screen-share-encoder-controls',
 	'advanced-unread-badge-customization',
 	'advanced-expression-clone-shortcuts',
+	'advanced-hide-blocked-messages',
 	'client-developer-mode',
 	'accessibility-stay-interactive-unfocused',
 	'advanced-native-title-bar',
@@ -147,6 +149,7 @@ export const COMPACT_SWITCH_CONTROL_ITEM_IDS = new Set([
 	'voice-video-screen-share-hevc-opt-in',
 	'advanced-unread-badge-customization',
 	'advanced-expression-clone-shortcuts',
+	'advanced-hide-blocked-messages',
 	'client-developer-mode',
 	'accessibility-stay-interactive-unfocused',
 	'advanced-native-title-bar',
@@ -340,6 +343,10 @@ export const AdvancedSettingControl = observer(({item}: {item: SearchableSetting
 		case 'advanced-expression-clone-shortcuts':
 			return (
 				<ExpressionCloneShortcutsControl data-flx="user.advanced-setting-direct-controls.advanced-setting-control.expression-clone-shortcuts-control" />
+			);
+		case 'advanced-hide-blocked-messages':
+			return (
+				<HideBlockedMessagesControl data-flx="user.advanced-setting-direct-controls.advanced-setting-control.hide-blocked-messages-control" />
 			);
 		case 'client-developer-mode':
 			return (

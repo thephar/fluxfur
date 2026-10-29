@@ -29,6 +29,7 @@ import {
 	getGuildInvitePrimaryAction,
 	isGuildInviteActionDisabled,
 } from '@app/features/invite/utils/GuildInviteActionState';
+import {PREVIEW_COMMUNITY_DESCRIPTOR} from '@app/features/invite/utils/InviteMessageDescriptors';
 import {
 	EmbedCard,
 	EmbedSkeletonButton,
@@ -159,7 +160,14 @@ const InviteEmbedInner = observer(function InviteEmbedInner({
 	const isGuildInviteType = invite != null && isGuildInvite(invite);
 	const guildFromInvite = isGuildInviteType ? invite!.guild : null;
 	const guild = Guilds.getGuild(guildFromInvite?.id ?? '') || guildFromInvite;
-	const embedSplash = guild != null ? ('embedSplash' in guild ? guild.embedSplash : guild.embed_splash) : undefined;
+	let embedSplash: string | null | undefined;
+	if (guild == null) {
+		embedSplash = undefined;
+	} else if ('embedSplash' in guild) {
+		embedSplash = guild.embedSplash;
+	} else {
+		embedSplash = guild.embed_splash;
+	}
 	const splashURL =
 		guild != null ? AvatarUtils.getGuildEmbedSplashURL({id: guild.id, embedSplash: embedSplash || null}) : null;
 	const messageViewContext = useMaybeMessageViewContext();
@@ -290,6 +298,8 @@ const InviteEmbedInner = observer(function InviteEmbedInner({
 					return i18n._(INVITES_DISABLED_DESCRIPTOR);
 				case GuildInvitePrimaryAction.GoToCommunity:
 					return i18n._(GO_TO_COMMUNITY_DESCRIPTOR);
+				case GuildInvitePrimaryAction.OpenVisit:
+					return i18n._(PREVIEW_COMMUNITY_DESCRIPTOR);
 				default:
 					return i18n._(JOIN_COMMUNITY_DESCRIPTOR);
 			}
@@ -329,6 +339,8 @@ const InviteEmbedInner = observer(function InviteEmbedInner({
 							</h3>
 							<GuildBadge
 								features={features}
+								badgeIds={invite.guild.badge_ids}
+								linkable
 								variant="large"
 								onLightSurface
 								data-flx="channel.invite-embed.guild-badge"
@@ -598,6 +610,7 @@ export const GuildInviteEmbedPreview = observer(function GuildInviteEmbedPreview
 						</h3>
 						<GuildBadge
 							features={guild.features}
+							badgeIds={guild.badgeIds}
 							variant="large"
 							onLightSurface
 							data-flx="channel.invite-embed.guild-invite-embed-preview.guild-badge"

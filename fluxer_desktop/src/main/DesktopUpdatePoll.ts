@@ -15,9 +15,6 @@ interface DesktopUpdatePollOptions {
 	readonly plan: ModulePollPlan;
 	readonly check: () => Promise<DesktopUpdateState>;
 	readonly logger: DesktopUpdatePollLogger;
-	readonly random?: () => number;
-	readonly setTimer?: (callback: () => void, delayMs: number) => unknown;
-	readonly clearTimer?: (timer: unknown) => void;
 }
 
 function setUnrefTimer(callback: () => void, delayMs: number): NodeJS.Timeout {
@@ -26,21 +23,15 @@ function setUnrefTimer(callback: () => void, delayMs: number): NodeJS.Timeout {
 	return timer;
 }
 
-export class DesktopUpdatePoll {
+class DesktopUpdatePoll {
 	private readonly options: DesktopUpdatePollOptions;
-	private readonly random: () => number;
-	private readonly setTimer: (callback: () => void, delayMs: number) => unknown;
-	private readonly clearTimer: (timer: unknown) => void;
-	private timer: unknown = null;
+	private timer: NodeJS.Timeout | null = null;
 	private inFlight = false;
 	private failures = 0;
 	private available = false;
 
 	public constructor(options: DesktopUpdatePollOptions) {
 		this.options = options;
-		this.random = options.random ?? Math.random;
-		this.setTimer = options.setTimer ?? setUnrefTimer;
-		this.clearTimer = options.clearTimer ?? ((timer) => clearTimeout(timer as NodeJS.Timeout));
 	}
 
 	public start(immediately: boolean): void {
@@ -60,7 +51,7 @@ export class DesktopUpdatePoll {
 	}
 
 	private nextDelay(): number {
-		const delay = nextModulePollDelay(this.options.plan, this.random);
+		const delay = nextModulePollDelay(this.options.plan);
 		if (this.failures === 0) {
 			return delay;
 		}
@@ -70,13 +61,13 @@ export class DesktopUpdatePoll {
 				this.options.plan.intervalMs,
 				DESKTOP_UPDATE_POLL_BACKOFF_CAP_MS,
 				this.failures,
-				this.random,
+				Math.random,
 			),
 		);
 	}
 
 	private schedule(): void {
-		this.timer = this.setTimer(() => {
+		this.timer = setUnrefTimer(() => {
 			this.timer = null;
 			this.tick();
 		}, this.nextDelay());
@@ -87,7 +78,7 @@ export class DesktopUpdatePoll {
 			return;
 		}
 		if (this.timer != null) {
-			this.clearTimer(this.timer);
+			clearTimeout(this.timer);
 			this.timer = null;
 		}
 		this.inFlight = true;

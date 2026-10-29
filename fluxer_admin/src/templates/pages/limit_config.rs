@@ -38,10 +38,7 @@ pub fn limit_config_page(
     selected_rule: Option<&str>,
     response: Option<&LimitConfigResponse>,
 ) -> Markup {
-    let can_update = auth
-        .admin_user
-        .as_ref()
-        .is_some_and(|user| acl::has_permission(&user.acls, INSTANCE_LIMIT_CONFIG_UPDATE));
+    let can_update = acl::has_permission(auth.acls(), INSTANCE_LIMIT_CONFIG_UPDATE);
     let content = html! {
         @if let Some(response) = response {
             (render_limit_page(config, csrf_token, selected_rule, response, can_update))

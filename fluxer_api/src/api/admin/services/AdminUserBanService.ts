@@ -15,13 +15,11 @@ import {setFeatureLimit} from '@app/api/enforcement/FeatureLimitState';
 import {permanentSuspensionEnd} from '@app/api/enforcement/NoticeDates';
 import {applySuspension, liftSuspension} from '@app/api/enforcement/SuspensionState';
 import {emitAdminAction} from '@app/api/infrastructure/activity/AccountChangeEvents';
-import type {User} from '@app/api/models/User';
 import {isAccountClosed, isTemporarilyBanned} from '@app/api/user/UserHelpers';
 import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
 import {InputValidationError} from '@fluxer/errors/src/domains/core/InputValidationError';
 import {EnforcementAccountClosedError} from '@fluxer/errors/src/domains/moderation/EnforcementAccountClosedError';
 import {EnforcementDecisionOwnsStateError} from '@fluxer/errors/src/domains/moderation/EnforcementDecisionOwnsStateError';
-import {UnknownUserError} from '@fluxer/errors/src/domains/user/UnknownUserError';
 import type {
 	AdminUserBanRequest,
 	AdminUserFeatureLimitRequest,
@@ -57,17 +55,9 @@ function featureLimitEnd(data: AdminUserFeatureLimitRequest, now: Date): Date | 
 export class AdminUserBanService {
 	constructor(private readonly deps: AdminUserBanServiceDeps) {}
 
-	private async requireUser(userId: UserID): Promise<User> {
-		const user = await this.deps.apiContext.services.users.findUnique(userId);
-		if (!user) {
-			throw new UnknownUserError();
-		}
-		return user;
-	}
-
 	async tempBanUser(userId: UserID, data: AdminUserBanRequest, actor: EnforcementActor) {
 		const {auditService, enforcement} = this.deps;
-		const user = await this.requireUser(userId);
+		const user = await this.deps.apiContext.services.users.findUniqueAssert(userId);
 		if (isAccountClosed(user)) {
 			throw new EnforcementAccountClosedError();
 		}
@@ -112,7 +102,7 @@ export class AdminUserBanService {
 	}
 
 	async warnUser(userId: UserID, data: AdminUserWarningRequest, actor: EnforcementActor) {
-		const user = await this.requireUser(userId);
+		const user = await this.deps.apiContext.services.users.findUniqueAssert(userId);
 		const {decision} = await this.deps.enforcement.record(
 			{subject: {type: 'user', user}, kind: 'warning', input: data.decision, actor},
 			async () => {},
@@ -129,7 +119,7 @@ export class AdminUserBanService {
 	}
 
 	async limitFeatures(userId: UserID, data: AdminUserFeatureLimitRequest, actor: EnforcementActor) {
-		const user = await this.requireUser(userId);
+		const user = await this.deps.apiContext.services.users.findUniqueAssert(userId);
 		const endsAt = featureLimitEnd(data, new Date());
 		let limited = user;
 		const {decision} = await this.deps.enforcement.record(
@@ -155,7 +145,7 @@ export class AdminUserBanService {
 
 	async unbanUser(userId: UserID, actor: EnforcementActor) {
 		const {auditService, delivery} = this.deps;
-		const user = await this.requireUser(userId);
+		const user = await this.deps.apiContext.services.users.findUniqueAssert(userId);
 		if (user.enforcementDecisionId !== null) {
 			throw new EnforcementDecisionOwnsStateError(user.enforcementDecisionId);
 		}

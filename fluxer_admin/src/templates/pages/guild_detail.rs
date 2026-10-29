@@ -22,6 +22,7 @@ pub const GUILD_TABS: &[(&str, &str)] = &[
     ("members", "Members"),
     ("settings", "Settings"),
     ("features", "Features"),
+    ("badges", "Badges"),
     ("moderation", "Moderation"),
     ("archives", "Archives"),
     ("emojis", "Emojis"),
@@ -115,11 +116,7 @@ fn render_guild_detail(
     username_sign_in: bool,
 ) -> Markup {
     let base = &config.base_path;
-    let admin_acls = auth
-        .admin_user
-        .as_ref()
-        .map(|user| user.acls.as_slice())
-        .unwrap_or(&[]);
+    let admin_acls = auth.acls();
     let effective_tab = if guild_tab_visible(config, active_tab, admin_acls) {
         active_tab
     } else {
@@ -218,6 +215,7 @@ fn guild_tab_visible(_config: &AdminConfig, tab_id: &str, admin_acls: &[String])
     match tab_id {
         "overview" | "members" | "settings" | "features" | "moderation" => true,
         "reports" => acl::has_permission(admin_acls, acl::REPORT_VIEW),
+        "badges" => acl::has_permission(admin_acls, acl::BADGE_LIST),
         "emojis" | "stickers" => acl::has_permission(admin_acls, acl::ASSET_PURGE),
         "threads" => acl::has_permission(admin_acls, acl::GUILD_LOOKUP),
         "audit_logs" => acl::has_permission(admin_acls, acl::AUDIT_LOG_VIEW),

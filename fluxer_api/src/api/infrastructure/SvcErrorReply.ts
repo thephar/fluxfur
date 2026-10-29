@@ -6,7 +6,7 @@ import type {INatsConnectionManager} from '@pkgs/nats/src/INatsConnectionManager
 
 const OVERLOADED = 'overloaded';
 
-export function svcErrorReplyReason(decoded: unknown): string | null {
+function svcErrorReplyReason(decoded: unknown): string | null {
 	if (!isJsonRecord(decoded)) {
 		return null;
 	}
@@ -14,7 +14,7 @@ export function svcErrorReplyReason(decoded: unknown): string | null {
 	return typeof reason === 'string' && reason.length > 0 ? reason : null;
 }
 
-export function throwForSvcErrorReply(service: string, decoded: unknown): void {
+function throwForSvcErrorReply(service: string, decoded: unknown): void {
 	const reason = svcErrorReplyReason(decoded);
 	if (reason === null) {
 		return;

@@ -6,9 +6,9 @@ const LEGACY_SKELETON_LAYOUT_MEMORY_KEY = 'SkeletonLayoutMemory';
 const LEGACY_SIDEBAR_WIDTH_KEY = 'fluxer:ui:sidebar-width';
 const DM_ROOT_PATHNAME = '/channels/@me';
 
-export const LEGACY_SHELL_HINT_SEED_VERSION = 4;
+const LEGACY_SHELL_HINT_SEED_VERSION = 4;
 
-export const LEGACY_SHELL_HINT_NAGBAR_TONE_ORDER: ReadonlyArray<string> = Object.freeze([
+const LEGACY_SHELL_HINT_NAGBAR_TONE_ORDER: ReadonlyArray<string> = Object.freeze([
 	'neutral',
 	'maintenance',
 	'maintenance_scheduled',

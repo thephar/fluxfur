@@ -1,12 +1,18 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 
 .list {
-	display: flex;
-	flex-direction: column;
+	display: grid;
+	grid-template-columns: minmax(8rem, 1fr) minmax(5rem, auto) minmax(5rem, auto) auto;
 	overflow: hidden;
-	border: 0.0625rem solid var(--background-modifier-accent);
-	border-radius: 0.5rem;
-	background: color-mix(in srgb, var(--background-secondary) 55%, transparent);
+	border-radius: var(--pl-radius-m);
+	background-color: var(--pl-board);
+}
+
+:global(html.theme-light) .list {
+	--pl-btn2-face: var(--pl-paper-face);
+	--pl-btn2-hover: var(--pl-paper-hover);
+	--pl-btn2-press: var(--pl-paper-hover);
+	--pl-btn2-ledge: var(--pl-paper-ledge);
 }
 
 .header,
@@ -14,26 +20,25 @@
 	display: grid;
 	min-width: 0;
 	align-items: center;
-	gap: 0.5rem;
-	padding: 0.75rem;
-	grid-template-columns: minmax(8rem, 1fr) minmax(5rem, auto) minmax(5rem, auto) auto;
-	border-top: 0.0625rem solid var(--background-modifier-accent);
+	gap: 0.5rem 0.75rem;
+	padding: 0.75rem 1rem;
+	grid-column: 1 / -1;
+	grid-template-columns: subgrid;
+	border-top: 2px solid var(--pl-rule);
 }
 
 .header {
 	border-top: none;
-	background: color-mix(in srgb, var(--background-tertiary) 70%, transparent);
-	font-size: 0.6875rem;
-	font-weight: 700;
-	line-height: 1rem;
-	color: var(--text-primary-muted);
-	text-transform: uppercase;
+	color: var(--pl-on-muted);
+	font-size: 0.875rem;
+	font-weight: 600;
+	line-height: 1.25rem;
 }
 
 .row {
-	font-size: 0.875rem;
-	line-height: 1.25rem;
-	color: var(--text-primary);
+	color: var(--pl-on);
+	font-size: 0.9375rem;
+	line-height: 1.375rem;
 }
 
 .date,
@@ -45,36 +50,47 @@
 }
 
 .amount {
-	font-weight: 600;
+	font-weight: 700;
 }
 
 .date {
-	color: var(--text-primary-muted);
+	color: var(--pl-on-muted);
 }
 
 .empty {
 	margin: 0;
-	padding: 0.75rem;
-	font-size: 0.875rem;
-	line-height: 1.25rem;
-	color: var(--text-primary-muted);
+	padding: 0.75rem 1rem;
+	color: var(--pl-on-muted);
+	font-size: 0.9375rem;
+	line-height: 1.375rem;
 }
 
-@media (min-width: 768px) {
-	.row > button {
+.row > button {
+	width: auto;
+	margin-bottom: var(--pl-ledge-s);
+}
+
+@container plutonium-page (min-width: 48rem) {
+	.row > button,
+	.header > :last-child {
 		justify-self: end;
 	}
 }
 
-@media (max-width: 767px) {
+@container plutonium-page (max-width: 47.99rem) {
 	.header {
 		display: none;
 	}
 
 	.row {
-		grid-template-columns: 1fr;
-		gap: 0.25rem;
-		align-items: stretch;
+		grid-template-columns: 1fr auto;
+		gap: 0.25rem 0.75rem;
+	}
+
+	.row > button {
+		grid-column: 2;
+		grid-row: 1 / span 3;
+		align-self: center;
 	}
 
 	.row:first-child {

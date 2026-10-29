@@ -32,7 +32,7 @@ const INTERNAL_KEY_HEADER = 'x-fluxer-internal-key';
 const FORWARDED_CLIENT_IP_HEADER = 'x-fluxer-client-ip';
 const LEGACY_FORWARDED_CLIENT_IP_HEADER = 'x-fluxer-donor-ip';
 
-function shouldEnforceRateLimits(ctx: Context<HonoEnv>): boolean {
+export function shouldEnforceRateLimits(ctx: Context<HonoEnv>): boolean {
 	if (!Config.dev.testModeEnabled) {
 		return !Config.dev.disableRateLimits;
 	}
@@ -69,14 +69,18 @@ function isTrustedCallerForBucket(ctx: Context<HonoEnv>, bucket: string): boolea
 	return trusted;
 }
 
-function getForwardedClientIdentifier(ctx: Context<HonoEnv>, bucket: string): string | null {
+export function getTrustedForwardedClientIp(ctx: Context<HonoEnv>, bucket: string): string | null {
 	if (!isTrustedCallerForBucket(ctx, bucket)) return null;
 	const rawHeader = ctx.req.header(FORWARDED_CLIENT_IP_HEADER) ?? ctx.req.header(LEGACY_FORWARDED_CLIENT_IP_HEADER);
 	const headerValue = rawHeader?.split(',', 1)[0].trim();
 	if (!headerValue) return null;
-	const clientIp = parseIpAddress(headerValue);
+	return parseIpAddress(headerValue)?.normalized ?? null;
+}
+
+function getForwardedClientIdentifier(ctx: Context<HonoEnv>, bucket: string): string | null {
+	const clientIp = getTrustedForwardedClientIp(ctx, bucket);
 	if (!clientIp) return null;
-	return `ip:${getSameIpDecisionKey(clientIp.normalized) ?? clientIp.normalized}`;
+	return `ip:${getSameIpDecisionKey(clientIp) ?? clientIp}`;
 }
 
 function getClientIdentifier(ctx: Context<HonoEnv>, routeConfig: RouteRateLimitConfig): string {

@@ -2,30 +2,30 @@
 
 import {getActiveInstanceProductName} from '@app/features/app/state/ActiveInstanceProductName';
 import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
-import {openClaimAccountModal} from '@app/features/auth/components/modals/ClaimAccountModal';
-import {useVerifyEmailAction} from '@app/features/auth/hooks/useVerifyEmailAction';
 import styles from '@app/features/channel/components/barriers/BarrierComponents.module.css';
 import {openChannelFollowModal} from '@app/features/channel/components/modals/ChannelFollowModal';
 import wrapperStyles from '@app/features/channel/components/textarea/InputWrapper.module.css';
 import textareaStyles from '@app/features/channel/components/textarea/TextareaInput.module.css';
 import {FOLLOW_DESCRIPTOR} from '@app/features/channel/utils/ChannelFollowUtils';
-import {CLAIM_ACCOUNT_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
 import {getCachedNumberFormat} from '@app/features/i18n/utils/IntlCache';
 import {unblockUser} from '@app/features/relationship/utils/RelationshipActionUtils';
 import {remFromPx} from '@app/features/theme/layout/RemFromPx';
 import {Button} from '@app/features/ui/button/Button';
 import {openMessagingPausedHelpModal} from '@app/features/user/components/modals/MessagingPausedHelpModal';
+import {
+	type AccountGate,
+	getAccountGatePresentation,
+	useAccountGateAction,
+} from '@app/features/user/utils/AccountGatePresentation';
 import {ACCOUNT_LIMITED_NOTICE_DESCRIPTOR} from '@app/features/user/utils/AccountLimitUtils';
 import {TEXT_DID_NOT_GO_THROUGH_DESCRIPTOR} from '@app/features/user/utils/MessagingPausedHelpEmail';
 import {msg} from '@lingui/core/macro';
 import {Trans, useLingui} from '@lingui/react/macro';
 import {
 	ClockIcon,
-	EnvelopeSimpleIcon,
 	InfoIcon,
 	MegaphoneSimpleIcon,
 	ProhibitIcon,
-	ShieldWarningIcon,
 	TimerIcon,
 	WarningCircleIcon,
 } from '@phosphor-icons/react';
@@ -136,57 +136,32 @@ const CountdownTimer = observer(({initialTime}: {initialTime: number}) => {
 		</div>
 	);
 });
-export const UnclaimedAccountBarrier = observer(() => {
+export const AccountGateBarrier = observer(({gate}: {gate: AccountGate}) => {
 	const {i18n} = useLingui();
+	const presentation = getAccountGatePresentation(i18n, gate);
+	const action = useAccountGateAction(gate);
 	return (
 		<BarrierBase
-			message={<Trans>You need to claim your account to send messages in this community.</Trans>}
+			message={presentation.description}
 			icon={
-				<ShieldWarningIcon
+				<presentation.Icon
 					size={remFromPx(18)}
 					weight="fill"
-					data-flx="channel.barriers.barrier-components.unclaimed-account-barrier.shield-warning-icon"
+					data-flx="channel.barriers.barrier-components.account-gate-barrier.icon"
 				/>
 			}
 			action={
 				<Button
 					small={true}
-					onClick={() => {
-						openClaimAccountModal({force: true});
-					}}
-					data-flx="channel.barriers.barrier-components.unclaimed-account-barrier.button.action"
+					onClick={action.onClick}
+					disabled={action.submitting}
+					submitting={action.submitting}
+					data-flx="channel.barriers.barrier-components.account-gate-barrier.button.action"
 				>
-					{i18n._(CLAIM_ACCOUNT_DESCRIPTOR)}
+					{action.text}
 				</Button>
 			}
-			data-flx="channel.barriers.barrier-components.unclaimed-account-barrier.barrier-base"
-		/>
-	);
-});
-export const UnverifiedEmailBarrier = observer(() => {
-	const verifyEmailAction = useVerifyEmailAction();
-	return (
-		<BarrierBase
-			message={<Trans>You need to verify your email to send messages in this community.</Trans>}
-			icon={
-				<EnvelopeSimpleIcon
-					size={remFromPx(18)}
-					weight="fill"
-					data-flx="channel.barriers.barrier-components.unverified-email-barrier.envelope-simple-icon"
-				/>
-			}
-			action={
-				<Button
-					small={true}
-					onClick={verifyEmailAction.onClick}
-					disabled={verifyEmailAction.submitting}
-					submitting={verifyEmailAction.submitting}
-					data-flx="channel.barriers.barrier-components.unverified-email-barrier.button.action"
-				>
-					{verifyEmailAction.text}
-				</Button>
-			}
-			data-flx="channel.barriers.barrier-components.unverified-email-barrier.barrier-base"
+			data-flx="channel.barriers.barrier-components.account-gate-barrier.barrier-base"
 		/>
 	);
 });
@@ -397,33 +372,6 @@ export const BlockedUserBarrier = observer(({userId, username, onAction}: Blocke
 				</Button>
 			}
 			data-flx="channel.barriers.barrier-components.blocked-user-barrier.barrier-base"
-		/>
-	);
-});
-export const UnclaimedDMBarrier = observer(() => {
-	const {i18n} = useLingui();
-	return (
-		<BarrierBase
-			message={<Trans>You need to claim your account to send direct messages.</Trans>}
-			icon={
-				<ShieldWarningIcon
-					size={remFromPx(18)}
-					weight="fill"
-					data-flx="channel.barriers.barrier-components.unclaimed-dm-barrier.shield-warning-icon"
-				/>
-			}
-			action={
-				<Button
-					small={true}
-					onClick={() => {
-						openClaimAccountModal({force: true});
-					}}
-					data-flx="channel.barriers.barrier-components.unclaimed-dm-barrier.button.action"
-				>
-					{i18n._(CLAIM_ACCOUNT_DESCRIPTOR)}
-				</Button>
-			}
-			data-flx="channel.barriers.barrier-components.unclaimed-dm-barrier.barrier-base"
 		/>
 	);
 });

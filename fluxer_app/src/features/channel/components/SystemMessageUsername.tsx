@@ -36,6 +36,8 @@ export const SystemMessageUsername = React.forwardRef<
 		>
 			<span
 				className={clsx(styles.systemMessageLink, contextMenuOpen && styles.contextMenuUnderline)}
+				role="button"
+				tabIndex={-1}
 				style={{color: member?.getColorString()}}
 				data-user-id={author.id}
 				data-guild-id={guild?.id}

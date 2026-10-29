@@ -17,8 +17,6 @@
     cleanup_voice_state_counts/1
 ]).
 
--define(PENDING_CONNECTION_TIMEOUT_MS, 30000).
-
 -spec build_call_event(map()) -> map().
 build_call_event(State) ->
     #{

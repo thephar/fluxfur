@@ -4,8 +4,7 @@ import {stripBannerForUser} from '@app/api/infrastructure/AssetEntitlementUtils'
 import type {Application} from '@app/api/models/Application';
 import type {User} from '@app/api/models/User';
 import type {UserRepository} from '@app/api/user/repositories/UserRepository';
-import {mapUserToPartialResponse} from '@app/api/user/UserMappers';
-import {type UserAuthenticatorType, UserAuthenticatorTypes} from '@fluxer/constants/src/UserConstants';
+import {getActiveAuthenticatorTypes, mapUserToPartialResponse} from '@app/api/user/UserMappers';
 import type {
 	ApplicationBotResponse,
 	ApplicationResponse,
@@ -15,13 +14,6 @@ import type {
 
 export function findBotUser(users: Pick<UserRepository, 'findUnique'>, application: Application): Promise<User | null> {
 	return application.botUserId ? users.findUnique(application.botUserId) : Promise.resolve(null);
-}
-
-function getActiveAuthenticatorTypes(user: User): Array<UserAuthenticatorType> {
-	return Array.from(user.authenticatorTypes ?? []).filter(
-		(type): type is UserAuthenticatorType =>
-			type === UserAuthenticatorTypes.TOTP || type === UserAuthenticatorTypes.WEBAUTHN,
-	);
 }
 
 export function mapBotUserToResponse(

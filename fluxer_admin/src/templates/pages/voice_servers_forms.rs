@@ -6,7 +6,7 @@ use crate::{
     api::types::VoiceServer,
     config::AdminConfig,
     templates::components::{
-        form::{checkbox, csrf_input},
+        form::{Checkbox, csrf_input},
         page_container::card,
         voice::voice_restriction_fields,
     },
@@ -31,6 +31,7 @@ pub fn edit_server_form(
     let soft_limit_val = server
         .soft_connection_limit
         .map_or_else(String::new, |v| v.to_string());
+    let notes = server.notes.as_deref().unwrap_or("");
     let vip_only = server.vip_only.unwrap_or(false);
     let features_csv = server.required_guild_features.join(", ");
     let guild_ids_csv = server.allowed_guild_ids.join(", ");
@@ -71,6 +72,7 @@ pub fn edit_server_form(
                     "Leave empty for no limit",
                     "Placement prefers another server once this server holds this many connections",
                 ))
+                (notes_field(&format!("{id_prefix}-notes"), notes))
                 (form_field_with_helper(
                     "API Key",
                     &format!("{id_prefix}-api-key"),
@@ -90,7 +92,13 @@ pub fn edit_server_form(
                     "LiveKit API secret (leave blank to keep unchanged)",
                 ))
                 div class="space-y-2" {
-                    (checkbox("is_active", "true", "Server is active", is_active, true))
+                    (Checkbox {
+                        name: "is_active",
+                        value: "true",
+                        label: "Server is active",
+                        checked: is_active,
+                        enabled: true,
+                    }.render())
                 }
                 (voice_restriction_fields(&id_prefix, vip_only, &features_csv, &guild_ids_csv))
                 button type="submit"
@@ -129,8 +137,15 @@ pub fn create_server_form(config: &AdminConfig, region_id: &str, csrf_token: &st
                     "Placement prefers another server once this server holds this many connections",
                 ))
             }
+            (notes_field("new-server-notes", ""))
             div class="space-y-3" {
-                (checkbox("is_active", "true", "Server is active", true, true))
+                (Checkbox {
+                    name: "is_active",
+                    value: "true",
+                    label: "Server is active",
+                    checked: true,
+                    enabled: true,
+                }.render())
             }
             (voice_restriction_fields("create", false, "", ""))
             button type="submit"
@@ -166,6 +181,25 @@ fn form_field_with_helper(
                        focus:border-brand-primary focus:outline-none \
                        focus:ring-1 focus:ring-brand-primary";
             p class="text-xs text-neutral-500" { (helper) }
+        }
+    }
+}
+
+fn notes_field(id: &str, value: &str) -> Markup {
+    html! {
+        div class="space-y-1" {
+            label for=(id) class="block text-sm font-medium text-neutral-700" {
+                "Notes (optional)"
+            }
+            textarea id=(id) name="notes" rows="3" maxlength="2000"
+                placeholder="Anything worth remembering about this server"
+                class="block w-full rounded-md border border-neutral-300 \
+                       px-3 py-2 text-sm shadow-sm \
+                       focus:border-brand-primary focus:outline-none \
+                       focus:ring-1 focus:ring-brand-primary" {
+                (value)
+            }
+            p class="text-xs text-neutral-500" { "Only admins see this" }
         }
     }
 }

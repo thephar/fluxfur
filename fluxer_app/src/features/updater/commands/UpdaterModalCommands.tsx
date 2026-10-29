@@ -3,7 +3,6 @@
 import {ConfirmModal} from '@app/features/app/components/dialogs/ConfirmModal';
 import {DESKTOP_DOWNLOAD_URL} from '@app/features/app/config/I18nDisplayConstants';
 import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
-import {CLOSE_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
 import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
 import {modal} from '@app/features/ui/commands/ModalCommands';
 import {isCanaryDesktop, openExternalUrl} from '@app/features/ui/utils/NativeUtils';
@@ -212,7 +211,6 @@ export function pushUpToDateModal(currentVersion: string | null): void {
 						? i18n._(INSTALLED_VERSION_IS_CURRENT_DESCRIPTOR, {currentVersion})
 						: i18n._(NO_DESKTOP_UPDATE_IS_AVAILABLE_DESCRIPTOR)
 				}
-				secondaryText={i18n._(CLOSE_DESCRIPTOR)}
 				data-flx="updater.updater-modal-commands.push-up-to-date-modal.confirm-modal"
 			/>
 		)),
@@ -232,7 +230,6 @@ export function pushUnsupportedUpdateModal(
 						title={i18n._(SYSTEM_MANAGED_INSTALL_DESCRIPTOR)}
 						description={i18n._(SYSTEM_MANAGED_UPDATE_BODY_DESCRIPTOR, {productName: RuntimeConfig.productName})}
 						primaryText={i18n._(OPEN_SOFTWARE_CENTER_DESCRIPTOR)}
-						secondaryText={i18n._(CLOSE_DESCRIPTOR)}
 						onPrimary={() => openSoftwareCenter()}
 						data-flx="updater.updater-modal-commands.push-unsupported-update-modal.confirm-modal"
 					/>
@@ -268,7 +265,6 @@ function pushUpdaterErrorModal(getTitle: () => string, getDescription: () => str
 			<ConfirmModal
 				title={getTitle()}
 				description={getDescription()}
-				secondaryText={i18n._(CLOSE_DESCRIPTOR)}
 				data-flx="updater.updater-modal-commands.push-updater-error-modal.confirm-modal"
 			/>
 		)),

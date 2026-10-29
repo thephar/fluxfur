@@ -26,6 +26,7 @@ const USER_SETTINGS_TAB_TYPES = new Set<UserSettingsTabType>([
 	'blocked_users',
 	'devices',
 	'appearance',
+	'themes',
 	'accessibility',
 	'chat_settings',
 	'voice_video',

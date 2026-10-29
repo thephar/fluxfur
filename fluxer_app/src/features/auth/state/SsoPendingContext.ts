@@ -14,7 +14,7 @@ const PENDING_SSO_CONTEXT_JSON_MAX_LENGTH = 262_144;
 const OAUTH_STATE_MAX_LENGTH = 512;
 const STORED_SSO_PENDING_CONTEXT_KEYS: ReadonlyArray<string> = ['createdAtMs', 'expiresAtMs', 'instance', 'redirectTo'];
 
-export const LEGACY_SSO_REDIRECT_TO_STORAGE_KEY = 'fluxer:sso:redirect_to';
+const LEGACY_SSO_REDIRECT_TO_STORAGE_KEY = 'fluxer:sso:redirect_to';
 
 const logger = new Logger('SsoPendingContext');
 
@@ -45,7 +45,7 @@ function readLegacySsoRedirectTo(): string | null {
 	}
 }
 
-export function clearLegacySsoRedirectTo(): void {
+function clearLegacySsoRedirectTo(): void {
 	const storage = getProtectedSessionStorage();
 	if (storage === null) {
 		return;

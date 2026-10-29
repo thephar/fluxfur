@@ -58,6 +58,7 @@ const SOURCE_TAB_CATEGORY: Partial<Record<UserSettingsTabType, SettingsCategoryT
 	authorized_apps: 'privacy',
 	blocked_users: 'privacy',
 	appearance: 'appearance',
+	themes: 'appearance',
 	accessibility: 'accessibility',
 	chat_settings: 'chat',
 	voice_video: 'voice',

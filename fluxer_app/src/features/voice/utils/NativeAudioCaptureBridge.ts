@@ -38,6 +38,8 @@ import {
 	mixTrackWithSelfWindowScreenShareAudio,
 } from '@app/features/voice/utils/SelfWindowScreenShareAudioMix';
 import type {
+	ElectronAPI,
+	NativeAudioApi,
 	NativeAudioAvailability,
 	NativeAudioPlaybackDevice,
 	NativeAudioStartOptions,
@@ -126,6 +128,19 @@ function unbindNativeAudioCaptureLifecycle(captureId: string, fault: string | nu
 		bridge.unbind(captureId);
 	}
 	lifecycleBoundCaptureIds.delete(captureId);
+}
+
+function nativeAudioUnavailableReason(
+	electronApi: ElectronAPI | null,
+	nativeAudioApi: NativeAudioApi | undefined,
+): string {
+	if (!electronApi) {
+		return 'electron-api-unavailable';
+	}
+	if (!nativeAudioApi) {
+		return 'native-audio-api-unavailable';
+	}
+	return 'unsupported-platform';
 }
 
 function setLastArmFailure(debugInfo: ScreenShareAudioCaptureDebugInfo): void {
@@ -391,11 +406,7 @@ async function startLinuxNativeAudioCapture(
 	if (electronApi?.platform !== 'linux' || !nativeAudioApi) {
 		setLastArmFailure({
 			platform: electronApi?.platform,
-			reason: !electronApi
-				? 'electron-api-unavailable'
-				: !nativeAudioApi
-					? 'native-audio-api-unavailable'
-					: 'unsupported-platform',
+			reason: nativeAudioUnavailableReason(electronApi, nativeAudioApi),
 		});
 		logger.warn('Cannot start Linux native audio capture: native audio API unavailable', {
 			hasElectronApi: Boolean(electronApi),
@@ -603,7 +614,7 @@ function rejectUnverifiedSystemSelfExclusion(
 	logger.warn(`${context}: self-audio exclusion is not verified`, {availability});
 }
 
-export async function isNativeAudioAvailable(): Promise<boolean> {
+async function isNativeAudioAvailable(): Promise<boolean> {
 	const availability = await getNativeAudioAvailabilityCached();
 	return availability.available;
 }
@@ -615,11 +626,7 @@ export async function armNativeAudioForNextCapture(sourceId: string): Promise<bo
 		setLastArmFailure({
 			platform: electronApi?.platform,
 			sourceId,
-			reason: !electronApi
-				? 'electron-api-unavailable'
-				: !nativeAudioApi
-					? 'native-audio-api-unavailable'
-					: 'unsupported-platform',
+			reason: nativeAudioUnavailableReason(electronApi, nativeAudioApi),
 		});
 		logger.warn('Cannot arm per-window audio capture: not a supported desktop platform', {
 			hasElectronApi: Boolean(electronApi),
@@ -715,11 +722,7 @@ export async function armNativeSystemAudioForNextCapture(
 		setLastArmFailure({
 			platform: electronApi?.platform,
 			sourceMode: 'system',
-			reason: !electronApi
-				? 'electron-api-unavailable'
-				: !nativeAudioApi
-					? 'native-audio-api-unavailable'
-					: 'unsupported-platform',
+			reason: nativeAudioUnavailableReason(electronApi, nativeAudioApi),
 		});
 		logger.warn('Cannot arm native system audio capture: native audio API unavailable', {
 			hasElectronApi: Boolean(electronApi),
@@ -817,11 +820,7 @@ export async function armNativeAudioForLinuxRouting(
 	if (electronApi?.platform !== 'linux' || !nativeAudioApi) {
 		setLastArmFailure({
 			platform: electronApi?.platform,
-			reason: !electronApi
-				? 'electron-api-unavailable'
-				: !nativeAudioApi
-					? 'native-audio-api-unavailable'
-					: 'unsupported-platform',
+			reason: nativeAudioUnavailableReason(electronApi, nativeAudioApi),
 		});
 		logger.warn('Cannot arm Linux native audio capture: native audio API unavailable', {
 			hasElectronApi: Boolean(electronApi),
@@ -872,11 +871,7 @@ export async function captureNativeAudioTrackForWindowPid(targetPid: number): Pr
 		setLastArmFailure({
 			platform: electronApi?.platform,
 			sourceMode: 'specific',
-			reason: !electronApi
-				? 'electron-api-unavailable'
-				: !nativeAudioApi
-					? 'native-audio-api-unavailable'
-					: 'unsupported-platform',
+			reason: nativeAudioUnavailableReason(electronApi, nativeAudioApi),
 		});
 		logger.warn('Cannot capture native window audio track: native audio API unavailable', {
 			hasElectronApi: Boolean(electronApi),

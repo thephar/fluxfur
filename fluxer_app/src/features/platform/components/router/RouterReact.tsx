@@ -157,11 +157,12 @@ export const Outlet: React.FC = () => {
 			url: location,
 		};
 		const isLeaf = index === matches.length - 1;
-		const child = isLeaf
-			? match.route.component
-				? React.createElement(match.route.component, props)
-				: null
-			: renderAt(index + 1);
+		let child: React.ReactNode = null;
+		if (!isLeaf) {
+			child = renderAt(index + 1);
+		} else if (match.route.component) {
+			child = React.createElement(match.route.component, props);
+		}
 		const Layout = match.route.layout;
 		if (Layout) {
 			return (

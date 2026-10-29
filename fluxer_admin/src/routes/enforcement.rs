@@ -4,7 +4,6 @@ use crate::{
     acl,
     api::{
         client::{AdminApiClient, ApiResultExt},
-        enforcement::api_error_message,
         generated::types::EnforcementDecisionEndRequestOutcome,
     },
     middleware::{
@@ -15,7 +14,7 @@ use crate::{
     },
     state::AppState,
     templates::pages::enforcement_decision,
-    utils::forms::MultiValueForm,
+    utils::{forms::MultiValueForm, snowflake::is_snowflake},
 };
 use axum::{
     Router,
@@ -43,10 +42,6 @@ pub fn router() -> Router<AppState> {
     )
 }
 
-fn is_decision_id(value: &str) -> bool {
-    (1..=20).contains(&value.len()) && value.bytes().all(|byte| byte.is_ascii_digit())
-}
-
 async fn decisions(
     State(state): State<AppState>,
     auth: axum::Extension<AuthContext>,
@@ -58,16 +53,11 @@ async fn decisions(
         .as_deref()
         .map(str::trim)
         .filter(|id| !id.is_empty());
-    if let Some(id) = lookup.filter(|id| is_decision_id(id)) {
+    if let Some(id) = lookup.filter(|id| is_snowflake(id)) {
         return Redirect::to(&format!("{}/decisions/{id}", config.base_path)).into_response();
     }
     let error = lookup.map(|_| "A decision ID is a number.");
-    let admin_acls = auth
-        .0
-        .admin_user
-        .as_ref()
-        .map(|user| user.acls.as_slice())
-        .unwrap_or_default();
+    let admin_acls = auth.0.acls();
     let review_queue = if acl::has_permission(admin_acls, acl::ENFORCEMENT_VIEW) {
         let client = AdminApiClient::new(state.http_client(), config, &auth.0.session);
         let result = client.list_review_queue().await;
@@ -92,7 +82,7 @@ async fn decision_detail(
 ) -> Response {
     let config = state.config();
     let client = AdminApiClient::new(state.http_client(), config, &auth.0.session);
-    let decision = if is_decision_id(&decision_id) {
+    let decision = if is_snowflake(&decision_id) {
         client
             .get_decision(&decision_id)
             .await
@@ -131,7 +121,7 @@ async fn decision_post(
     let config = state.config();
     let redirect = format!("{}/decisions/{decision_id}", config.base_path);
     let flash = match MultiValueForm::from_request(request).await {
-        Some(form) if is_decision_id(&decision_id) => {
+        Some(form) if is_snowflake(&decision_id) => {
             let client = AdminApiClient::new(state.http_client(), config, &auth.0.session);
             dispatch(&client, &decision_id, query.action.as_deref(), &form).await
         }
@@ -146,7 +136,7 @@ async fn decision_post(
 
 fn failure(context: &str, error: &crate::api::client::ApiError) -> FlashData {
     tracing::warn!(%error, "admin API request failed: {context}");
-    match api_error_message(error) {
+    match error.detail_message() {
         Some(message) => FlashData::error(format!("{context}: {message}")),
         None => FlashData::error(context.to_owned()),
     }

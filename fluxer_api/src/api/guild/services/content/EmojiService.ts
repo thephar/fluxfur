@@ -58,14 +58,7 @@ export class EmojiService {
 		auditLogReason?: string | null,
 	): Promise<GuildEmojiResponse> {
 		const {user, guildId, name, image} = params;
-		const guildData = await this.gatewayService.getGuildData({userId: user.id, guildId});
-		await this.contentHelpers.checkPermission({userId: user.id, guildId, permission: Permissions.CREATE_EXPRESSIONS});
-		const allEmojis = await this.guildRepository.listEmojis(guildId);
-		const guildFeatures = guildData.features;
-		const hasUnlimitedEmoji = guildFeatures.includes(GuildFeatures.UNLIMITED_EMOJI);
-		const maxEmojis = hasUnlimitedEmoji
-			? MAX_GUILD_EXPRESSION_SLOTS_UNLIMITED
-			: resolveGuildLimit(this.limitConfigService, 'max_guild_emojis', MAX_GUILD_EMOJIS, guildFeatures);
+		const {allEmojis, guildFeatures, maxEmojis} = await this.loadEmojiSlots(user.id, guildId);
 		if (allEmojis.length >= maxEmojis) {
 			throw new MaxGuildEmojisError(maxEmojis);
 		}
@@ -89,17 +82,7 @@ export class EmojiService {
 			animated,
 			version: 1,
 		});
-		const updatedEmojis = [...allEmojis, emoji];
-		await this.dispatchGuildEmojisUpdate({guildId, emojis: updatedEmojis});
-		await this.contentHelpers.guildAuditLogService.record({
-			guildId,
-			userId: user.id,
-			action: AuditLogActionType.EMOJI_CREATE,
-			targetId: emoji.id,
-			auditLogReason: auditLogReason ?? null,
-			changes: this.contentHelpers.guildAuditLogService.computeChanges(null, serializeEmojiForAudit(emoji)),
-		});
-		return mapGuildEmojiToResponse(emoji);
+		return this.finishEmojiCreate(guildId, user, allEmojis, emoji, auditLogReason);
 	}
 
 	async cloneEmoji(
@@ -117,14 +100,7 @@ export class EmojiService {
 		if (!sourceGuild?.features.has(GuildFeatures.CLONE_EMOJI_ENABLED)) {
 			throw new MissingAccessError();
 		}
-		const guildData = await this.gatewayService.getGuildData({userId: user.id, guildId});
-		await this.contentHelpers.checkPermission({userId: user.id, guildId, permission: Permissions.CREATE_EXPRESSIONS});
-		const allEmojis = await this.guildRepository.listEmojis(guildId);
-		const guildFeatures = guildData.features;
-		const hasUnlimitedEmoji = guildFeatures.includes(GuildFeatures.UNLIMITED_EMOJI);
-		const maxEmojis = hasUnlimitedEmoji
-			? MAX_GUILD_EXPRESSION_SLOTS_UNLIMITED
-			: resolveGuildLimit(this.limitConfigService, 'max_guild_emojis', MAX_GUILD_EMOJIS, guildFeatures);
+		const {allEmojis, maxEmojis} = await this.loadEmojiSlots(user.id, guildId);
 		if (allEmojis.length >= maxEmojis) {
 			throw new MaxGuildEmojisError(maxEmojis);
 		}
@@ -138,17 +114,7 @@ export class EmojiService {
 			animated: sourceEmoji.isAnimated,
 			version: 1,
 		});
-		const updatedEmojis = [...allEmojis, emoji];
-		await this.dispatchGuildEmojisUpdate({guildId, emojis: updatedEmojis});
-		await this.contentHelpers.guildAuditLogService.record({
-			guildId,
-			userId: user.id,
-			action: AuditLogActionType.EMOJI_CREATE,
-			targetId: emoji.id,
-			auditLogReason: auditLogReason ?? null,
-			changes: this.contentHelpers.guildAuditLogService.computeChanges(null, serializeEmojiForAudit(emoji)),
-		});
-		return mapGuildEmojiToResponse(emoji);
+		return this.finishEmojiCreate(guildId, user, allEmojis, emoji, auditLogReason);
 	}
 
 	async bulkCreateEmojis(
@@ -169,14 +135,7 @@ export class EmojiService {
 		}>;
 	}> {
 		const {user, guildId, emojis} = params;
-		const guildData = await this.gatewayService.getGuildData({userId: user.id, guildId});
-		await this.contentHelpers.checkPermission({userId: user.id, guildId, permission: Permissions.CREATE_EXPRESSIONS});
-		const allEmojis = await this.guildRepository.listEmojis(guildId);
-		const guildFeatures = guildData.features;
-		const hasUnlimitedEmoji = guildFeatures.includes(GuildFeatures.UNLIMITED_EMOJI);
-		const maxEmojis = hasUnlimitedEmoji
-			? MAX_GUILD_EXPRESSION_SLOTS_UNLIMITED
-			: resolveGuildLimit(this.limitConfigService, 'max_guild_emojis', MAX_GUILD_EMOJIS, guildFeatures);
+		const {allEmojis, guildFeatures, maxEmojis} = await this.loadEmojiSlots(user.id, guildId);
 		let emojiCount = allEmojis.length;
 		const success: Array<GuildEmojiResponse> = [];
 		const failed: Array<{
@@ -225,18 +184,7 @@ export class EmojiService {
 		if (newEmojis.length > 0) {
 			const updatedEmojis = [...allEmojis, ...newEmojis];
 			await this.dispatchGuildEmojisUpdate({guildId, emojis: updatedEmojis});
-			await Promise.all(
-				newEmojis.map((emoji) =>
-					this.contentHelpers.guildAuditLogService.record({
-						guildId,
-						userId: user.id,
-						action: AuditLogActionType.EMOJI_CREATE,
-						targetId: emoji.id,
-						auditLogReason: auditLogReason ?? null,
-						changes: this.contentHelpers.guildAuditLogService.computeChanges(null, serializeEmojiForAudit(emoji)),
-					}),
-				),
-			);
+			await Promise.all(newEmojis.map((emoji) => this.recordEmojiCreate(guildId, user, emoji, auditLogReason)));
 		}
 		return {success, failed};
 	}
@@ -305,6 +253,48 @@ export class EmojiService {
 			targetId: emojiId,
 			auditLogReason: auditLogReason ?? null,
 			changes: this.contentHelpers.guildAuditLogService.computeChanges(previousSnapshot, null),
+		});
+	}
+
+	private async loadEmojiSlots(
+		userId: UserID,
+		guildId: GuildID,
+	): Promise<{allEmojis: Array<GuildEmoji>; guildFeatures: Array<string>; maxEmojis: number}> {
+		const guildData = await this.gatewayService.getGuildData({userId, guildId});
+		await this.contentHelpers.checkPermission({userId, guildId, permission: Permissions.CREATE_EXPRESSIONS});
+		const allEmojis = await this.guildRepository.listEmojis(guildId);
+		const guildFeatures = guildData.features;
+		const maxEmojis = guildFeatures.includes(GuildFeatures.UNLIMITED_EMOJI)
+			? MAX_GUILD_EXPRESSION_SLOTS_UNLIMITED
+			: resolveGuildLimit(this.limitConfigService, 'max_guild_emojis', MAX_GUILD_EMOJIS, guildFeatures);
+		return {allEmojis, guildFeatures, maxEmojis};
+	}
+
+	private async finishEmojiCreate(
+		guildId: GuildID,
+		user: User,
+		allEmojis: Array<GuildEmoji>,
+		emoji: GuildEmoji,
+		auditLogReason?: string | null,
+	): Promise<GuildEmojiResponse> {
+		await this.dispatchGuildEmojisUpdate({guildId, emojis: [...allEmojis, emoji]});
+		await this.recordEmojiCreate(guildId, user, emoji, auditLogReason);
+		return mapGuildEmojiToResponse(emoji);
+	}
+
+	private async recordEmojiCreate(
+		guildId: GuildID,
+		user: User,
+		emoji: GuildEmoji,
+		auditLogReason?: string | null,
+	): Promise<void> {
+		await this.contentHelpers.guildAuditLogService.record({
+			guildId,
+			userId: user.id,
+			action: AuditLogActionType.EMOJI_CREATE,
+			targetId: emoji.id,
+			auditLogReason: auditLogReason ?? null,
+			changes: this.contentHelpers.guildAuditLogService.computeChanges(null, serializeEmojiForAudit(emoji)),
 		});
 	}
 

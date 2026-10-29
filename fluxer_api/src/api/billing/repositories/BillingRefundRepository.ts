@@ -16,9 +16,6 @@ const FETCH_BY_ID = BillingRefunds.selectCql({
 	where: BillingRefunds.where.eq('provider_id'),
 	limit: 1,
 });
-const FETCH_BY_CHARGE = BillingRefundsByCharge.selectCql({
-	where: BillingRefundsByCharge.where.eq('charge_id'),
-});
 const FETCH_BY_PAYMENT_INTENT = BillingRefundsByPaymentIntent.selectCql({
 	where: BillingRefundsByPaymentIntent.where.eq('payment_intent_id'),
 });
@@ -32,10 +29,6 @@ const FETCH_BY_PROVIDER_IDS = BillingRefunds.selectCql({
 export class BillingRefundRepository {
 	async findById(providerId: string): Promise<BillingRefundRow | null> {
 		return fetchOne<BillingRefundRow>(FETCH_BY_ID, {provider_id: providerId});
-	}
-
-	async listByCharge(chargeId: string): Promise<Array<BillingRefundRow>> {
-		return hydrateByRefs<BillingRefundRow>(FETCH_BY_CHARGE, {charge_id: chargeId}, FETCH_BY_PROVIDER_IDS);
 	}
 
 	async listByPaymentIntent(paymentIntentId: string): Promise<Array<BillingRefundRow>> {

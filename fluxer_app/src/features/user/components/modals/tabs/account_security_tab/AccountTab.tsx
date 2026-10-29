@@ -4,7 +4,6 @@ import {EmailVerificationAlert} from '@app/features/app/components/dialogs/compo
 import {UnclaimedAccountAlert} from '@app/features/app/components/dialogs/components/UnclaimedAccountAlert';
 import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
 import {openClaimAccountModal} from '@app/features/auth/components/modals/ClaimAccountModal';
-import {canResendVerificationEmail} from '@app/features/auth/hooks/useVerifyEmailAction';
 import {Button} from '@app/features/ui/button/Button';
 import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
 import {modal} from '@app/features/ui/commands/ModalCommands';
@@ -20,11 +19,13 @@ import {
 	RecoveryKitRow,
 } from '@app/features/user/components/modals/tabs/account_security_tab/RecoveryKitSettings';
 import type {User} from '@app/features/user/models/User';
+import {needsEmailConfirmation} from '@app/features/user/utils/AccountGates';
 import * as DateUtils from '@app/features/user/utils/DateFormatting';
 import {
 	HIDE_EMAIL_TOGGLE_DESCRIPTOR,
 	REVEAL_DESCRIPTOR as REVEAL_EMAIL_TOGGLE_DESCRIPTOR,
 } from '@app/features/user/utils/UserMessageDescriptors';
+import {AccountTiers, AccountVerificationNeeds} from '@fluxer/constants/src/AccountTierConstants';
 import {msg} from '@lingui/core/macro';
 import {Trans, useLingui} from '@lingui/react/macro';
 import {observer} from 'mobx-react-lite';
@@ -42,16 +43,22 @@ const maskEmail = (email: string): string => {
 
 interface AccountTabProps {
 	user: User;
-	isClaimed: boolean;
 	showMaskedEmail: boolean;
 	setShowMaskedEmail: (show: boolean) => void;
 }
 
-export const AccountTabContent: React.FC<AccountTabProps> = observer(
-	({user, isClaimed, showMaskedEmail, setShowMaskedEmail}) => {
-		const {i18n} = useLingui();
-		const usesUsernameSignIn = RuntimeConfig.usesUsernameSignIn;
-		const emailRow = usesUsernameSignIn ? null : isClaimed ? (
+export const AccountTabContent: React.FC<AccountTabProps> = observer(({user, showMaskedEmail, setShowMaskedEmail}) => {
+	const {i18n} = useLingui();
+	const usesUsernameSignIn = RuntimeConfig.usesUsernameSignIn;
+	const need = user.verificationNeed;
+	const needsPassword = need === AccountVerificationNeeds.SET_PASSWORD;
+	const isClaimed = user.accountTier !== AccountTiers.UNCLAIMED;
+	const email = user.email;
+	let emailRow: React.ReactNode;
+	if (usesUsernameSignIn) {
+		emailRow = null;
+	} else if (email != null) {
+		emailRow = (
 			<AccountSecurityRow
 				label={<Trans>Email address</Trans>}
 				description={
@@ -63,7 +70,7 @@ export const AccountTabContent: React.FC<AccountTabProps> = observer(
 							className={`${styles.emailText} ${showMaskedEmail ? styles.emailTextSelectable : ''}`}
 							data-flx="user.account-security-tab.account-tab.account-tab-content.email-text"
 						>
-							{showMaskedEmail ? user.email : maskEmail(user.email!)}
+							{showMaskedEmail ? email : maskEmail(email)}
 						</span>
 						<button
 							type="button"
@@ -77,7 +84,7 @@ export const AccountTabContent: React.FC<AccountTabProps> = observer(
 				}
 				data-flx="user.account-security-tab.account-tab.account-tab-content.email-row"
 			>
-				{RuntimeConfig.emailsEnabled && (
+				{RuntimeConfig.emailsEnabled && isClaimed && (
 					<Button
 						variant="secondary"
 						small={true}
@@ -97,22 +104,82 @@ export const AccountTabContent: React.FC<AccountTabProps> = observer(
 					</Button>
 				)}
 			</AccountSecurityRow>
-		) : (
+		);
+	} else {
+		emailRow = (
 			<AccountSecurityRow
 				label={<Trans>Email address</Trans>}
 				warning={<Trans>No email address set</Trans>}
 				data-flx="user.account-security-tab.account-tab.account-tab-content.email-row--unclaimed"
 			>
+				{!isClaimed && (
+					<Button
+						small={true}
+						onClick={() => openClaimAccountModal()}
+						data-flx="user.account-security-tab.account-tab.account-tab-content.button.add-email"
+					>
+						<Trans>Add email</Trans>
+					</Button>
+				)}
+			</AccountSecurityRow>
+		);
+	}
+	let passwordRow: React.ReactNode;
+	if (need === AccountVerificationNeeds.ADD_EMAIL) {
+		passwordRow = null;
+	} else if (needsPassword) {
+		passwordRow = (
+			<AccountSecurityRow
+				label={<Trans>Password</Trans>}
+				warning={<Trans>No password set</Trans>}
+				data-flx="user.account-security-tab.account-tab.account-tab-content.password-row--unclaimed"
+			>
 				<Button
 					small={true}
 					onClick={() => openClaimAccountModal()}
-					data-flx="user.account-security-tab.account-tab.account-tab-content.button.add-email"
+					data-flx="user.account-security-tab.account-tab.account-tab-content.button.set-password"
 				>
-					<Trans>Add email</Trans>
+					<Trans>Set password</Trans>
 				</Button>
 			</AccountSecurityRow>
 		);
-		const passwordRow = isClaimed ? (
+	} else if (!user.hasPassword && RuntimeConfig.emailsEnabled) {
+		passwordRow = (
+			<AccountSecurityRow
+				label={<Trans>Password</Trans>}
+				description={
+					user.accountTier === AccountTiers.VERIFIED ? (
+						<Trans comment="Description of the password row in account settings when the account has a confirmed email but no password.">
+							You sign in with a code sent to your email. A password is optional.
+						</Trans>
+					) : (
+						<Trans comment="Description of the password row in account settings when the account email is not confirmed yet.">
+							Confirm your email first. Then you can set a password.
+						</Trans>
+					)
+				}
+				data-flx="user.account-security-tab.account-tab.account-tab-content.password-row--set"
+			>
+				{user.accountTier === AccountTiers.VERIFIED && (
+					<Button
+						variant="secondary"
+						small={true}
+						onClick={() =>
+							ModalCommands.push(
+								modal(() => (
+									<PasswordChangeModal data-flx="user.account-security-tab.account-tab.account-tab-content.password-set-modal" />
+								)),
+							)
+						}
+						data-flx="user.account-security-tab.account-tab.account-tab-content.button.set-password--claimed"
+					>
+						<Trans>Set password</Trans>
+					</Button>
+				)}
+			</AccountSecurityRow>
+		);
+	} else {
+		passwordRow = (
 			<AccountSecurityRow
 				label={<Trans>Password</Trans>}
 				description={
@@ -139,49 +206,35 @@ export const AccountTabContent: React.FC<AccountTabProps> = observer(
 					<Trans>Change password</Trans>
 				</Button>
 			</AccountSecurityRow>
-		) : (
-			<AccountSecurityRow
-				label={<Trans>Password</Trans>}
-				warning={<Trans>No password set</Trans>}
-				data-flx="user.account-security-tab.account-tab.account-tab-content.password-row--unclaimed"
-			>
-				<Button
-					small={true}
-					onClick={() => openClaimAccountModal()}
-					data-flx="user.account-security-tab.account-tab.account-tab-content.button.set-password"
-				>
-					<Trans>Set password</Trans>
-				</Button>
-			</AccountSecurityRow>
 		);
-		return (
-			<>
-				{!isClaimed && (
-					<UnclaimedAccountAlert data-flx="user.account-security-tab.account-tab.account-tab-content.unclaimed-account-alert" />
-				)}
+	}
+	return (
+		<>
+			{needsPassword && (
+				<UnclaimedAccountAlert data-flx="user.account-security-tab.account-tab.account-tab-content.unclaimed-account-alert" />
+			)}
+			{usesUsernameSignIn && isClaimed && (
+				<RecoveryKitReminderAlert
+					user={user}
+					data-flx="user.account-security-tab.account-tab.account-tab-content.recovery-kit-reminder-alert"
+				/>
+			)}
+			<AccountSecurityCard
+				aria-label={i18n._(SIGN_IN_METHODS_DESCRIPTOR)}
+				data-flx="user.account-security-tab.account-tab.account-tab-content.rows"
+			>
+				{emailRow}
+				{passwordRow}
 				{usesUsernameSignIn && isClaimed && (
-					<RecoveryKitReminderAlert
+					<RecoveryKitRow
 						user={user}
-						data-flx="user.account-security-tab.account-tab.account-tab-content.recovery-kit-reminder-alert"
+						data-flx="user.account-security-tab.account-tab.account-tab-content.recovery-kit-row"
 					/>
 				)}
-				<AccountSecurityCard
-					aria-label={i18n._(SIGN_IN_METHODS_DESCRIPTOR)}
-					data-flx="user.account-security-tab.account-tab.account-tab-content.rows"
-				>
-					{emailRow}
-					{passwordRow}
-					{usesUsernameSignIn && isClaimed && (
-						<RecoveryKitRow
-							user={user}
-							data-flx="user.account-security-tab.account-tab.account-tab-content.recovery-kit-row"
-						/>
-					)}
-				</AccountSecurityCard>
-				{canResendVerificationEmail(user) && (
-					<EmailVerificationAlert data-flx="user.account-security-tab.account-tab.account-tab-content.email-verification-alert" />
-				)}
-			</>
-		);
-	},
-);
+			</AccountSecurityCard>
+			{needsEmailConfirmation(user) && (
+				<EmailVerificationAlert data-flx="user.account-security-tab.account-tab.account-tab-content.email-verification-alert" />
+			)}
+		</>
+	);
+});

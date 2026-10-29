@@ -50,6 +50,21 @@ const adminEndpoints: Array<AdminEndpointCase> = [
 	{method: 'GET', path: '/admin/guilds'},
 	{method: 'GET', path: '/admin/users'},
 	{method: 'GET', path: '/admin/messages?channel_id=1'},
+	{method: 'GET', path: '/admin/users/1'},
+	{method: 'GET', path: '/admin/guilds/1'},
+	{method: 'GET', path: '/admin/guilds/1/members'},
+	{method: 'DELETE', path: '/admin/guilds/1/members/2'},
+	{method: 'PUT', path: '/admin/guilds/1/bans/2'},
+	{method: 'DELETE', path: '/admin/guilds/1/bans/2'},
+	{method: 'GET', path: '/admin/audit-logs?limit=10'},
+	{method: 'GET', path: '/admin/api-keys'},
+	{method: 'GET', path: '/admin/api-keys/1'},
+	{method: 'DELETE', path: '/admin/api-keys/1'},
+	{method: 'PUT', path: '/admin/jobs/1/cancellation'},
+	{method: 'GET', path: '/admin/gateway/stats'},
+	{method: 'GET', path: '/admin/gateway/memory-stats'},
+	{method: 'GET', path: '/admin/gateway/voice-state-counts'},
+	{method: 'POST', path: '/admin/gateway/reloads'},
 ];
 
 describe('Admin Endpoints Authorization', () => {
@@ -67,34 +82,10 @@ describe('Admin Endpoints Authorization', () => {
 	test('admin endpoints require proper ACLs', async () => {
 		const admin = await createTestAccount(harness);
 		await setUserACLs(harness, admin, ['admin:authenticate']);
-		for (const endpoint of adminEndpoints.slice(0, 10)) {
+		for (const endpoint of adminEndpoints) {
 			await withMethod(createBuilder(harness, `${admin.token}`), endpoint.method, endpoint.path, endpoint.body)
 				.expect(HTTP_STATUS.FORBIDDEN)
 				.execute();
 		}
-	});
-	test('user lookup endpoint requires user:lookup ACL', async () => {
-		const admin = await createTestAccount(harness);
-		await setUserACLs(harness, admin, ['admin:authenticate', 'admin_api_key:manage', 'audit_log:view']);
-		await createBuilder(harness, `${admin.token}`)
-			.get(`/admin/users/${admin.userId}`)
-			.expect(HTTP_STATUS.FORBIDDEN)
-			.execute();
-	});
-	test('guild lookup endpoint requires guild:lookup ACL', async () => {
-		const admin = await createTestAccount(harness);
-		await setUserACLs(harness, admin, ['admin:authenticate', 'admin_api_key:manage', 'audit_log:view']);
-		await createBuilder(harness, `${admin.token}`)
-			.get('/admin/guilds/123456789')
-			.expect(HTTP_STATUS.FORBIDDEN)
-			.execute();
-	});
-	test('audit logs endpoint requires audit_log:view ACL', async () => {
-		const admin = await createTestAccount(harness);
-		await setUserACLs(harness, admin, ['admin:authenticate', 'admin_api_key:manage', 'user:lookup']);
-		await createBuilder(harness, `${admin.token}`)
-			.get('/admin/audit-logs?limit=10')
-			.expect(HTTP_STATUS.FORBIDDEN)
-			.execute();
 	});
 });

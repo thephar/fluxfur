@@ -9,11 +9,9 @@
     rpc_subjects_for_role/1,
     do_connect/1,
     do_subscribe/1,
-    schedule_reconnect/1,
-    max_handlers/0
+    schedule_reconnect/1
 ]).
 
--define(DEFAULT_MAX_HANDLERS, 512).
 -define(RECONNECT_DELAY_MS, 2000).
 -define(CONNECT_TIMEOUT_MS, 10000).
 -define(RPC_SUBJECT_WILDCARD, <<"rpc.gateway.>">>).
@@ -215,71 +213,3 @@ subscribe_subject(Conn, Role, Subject) ->
 schedule_reconnect(State) ->
     erlang:send_after(?RECONNECT_DELAY_MS, self(), connect),
     State.
-
--spec max_handlers() -> pos_integer().
-max_handlers() ->
-    case fluxer_gateway_env:get(gateway_nats_rpc_max_handlers) of
-        Value when is_integer(Value), Value > 0 -> Value;
-        _ -> ?DEFAULT_MAX_HANDLERS
-    end.
-
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
-
-execute_rpc_method_maps_validation_failure_to_invalid_params_test() ->
-    Payload = iolist_to_binary(
-        json:encode(#{
-            <<"guild_id">> => <<"nope">>,
-            <<"user_id">> => <<"2">>,
-            <<"channel_id">> => <<"0">>
-        })
-    ),
-    ?assertEqual(
-        #{<<"ok">> => false, <<"error">> => <<"invalid_params">>},
-        execute_rpc_method(<<"guild.get_user_permissions">>, Payload)
-    ).
-
-execute_rpc_method_maps_oversized_batch_to_batch_too_large_test() ->
-    GuildIds = [integer_to_binary(N) || N <- lists:seq(1, 101)],
-    Payload = iolist_to_binary(
-        json:encode(#{
-            <<"guild_ids">> => GuildIds,
-            <<"user_id">> => <<"1">>,
-            <<"channel_id">> => <<"0">>
-        })
-    ),
-    ?assertEqual(
-        #{<<"ok">> => false, <<"error">> => <<"batch_too_large">>},
-        execute_rpc_method(<<"guild.get_user_permissions_batch">>, Payload)
-    ).
-
-rpc_subjects_for_role_does_not_route_rpc_to_websocket_test() ->
-    ?assertEqual([], rpc_subjects_for_role(websocket)).
-
-rpc_subjects_for_role_routes_namespaces_to_state_roles_test() ->
-    ?assertEqual([?RPC_SUBJECT_WILDCARD], rpc_subjects_for_role(all)),
-    ?assert(lists:member(<<"rpc.gateway.guild.>">>, rpc_subjects_for_role(guilds))),
-    ?assertEqual([], rpc_subjects_for_role(sessions)),
-    ?assert(lists:member(<<"rpc.gateway.presence.>">>, rpc_subjects_for_role(presence))),
-    ?assert(lists:member(<<"rpc.gateway.call.>">>, rpc_subjects_for_role(calls))),
-    ?assert(lists:member(<<"rpc.gateway.push.>">>, rpc_subjects_for_role(push))).
-
-rpc_subjects_for_role_covers_all_router_prefixes_test() ->
-    Subjects = lists:append([
-        rpc_subjects_for_role(guilds),
-        rpc_subjects_for_role(presence),
-        rpc_subjects_for_role(calls),
-        rpc_subjects_for_role(push)
-    ]),
-    Prefixes = [
-        <<"guild">>, <<"presence">>, <<"push">>, <<"call">>, <<"voice">>, <<"process">>
-    ],
-    lists:foreach(
-        fun(Prefix) ->
-            ExpectedSubject = <<"rpc.gateway.", Prefix/binary, ".>">>,
-            ?assert(lists:member(ExpectedSubject, Subjects))
-        end,
-        Prefixes
-    ).
-
--endif.

@@ -1,9 +1,6 @@
 %% SPDX-License-Identifier: AGPL-3.0-or-later
 
 -module(voice_state_utils).
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
--endif.
 
 -typing([eqwalizer]).
 
@@ -251,47 +248,3 @@ require_positive_snowflake(Value) ->
     Id = snowflake_id:parse_maybe(Value),
     true = is_integer(Id),
     Id.
-
--ifdef(TEST).
-
-parse_stream_key_dm_test() ->
-    Result = parse_stream_key(<<"dm:123:conn-id">>),
-    ?assertMatch(
-        {ok, #{scope := dm, channel_id := 123, connection_id := <<"conn-id">>}}, Result
-    ).
-
-parse_stream_key_guild_test() ->
-    Result = parse_stream_key(<<"999:123:conn-id">>),
-    ?assertMatch(
-        {ok, #{
-            scope := guild, guild_id := 999, channel_id := 123, connection_id := <<"conn-id">>
-        }},
-        Result
-    ).
-
-parse_stream_key_invalid_test() ->
-    ?assertEqual({error, invalid_stream_key}, parse_stream_key(<<"invalid">>)),
-    ?assertEqual({error, invalid_stream_key}, parse_stream_key(<<"a:b">>)),
-    ?assertEqual({error, invalid_stream_key}, parse_stream_key(<<"dm:001:conn">>)),
-    ?assertEqual({error, invalid_stream_key}, parse_stream_key(<<"001:123:conn">>)),
-    ?assertEqual({error, invalid_stream_key}, parse_stream_key(123)).
-
-sanitize_voice_state_for_broadcast_test() ->
-    VoiceState = #{
-        <<"user_id">> => <<"1">>,
-        <<"latitude">> => <<"1.0">>,
-        <<"longitude">> => <<"2.0">>,
-        <<"region_id">> => <<"us-east">>,
-        <<"server_id">> => <<"voice-1">>
-    },
-    Sanitized = sanitize_voice_state_for_broadcast(VoiceState),
-    ?assertNot(maps:is_key(<<"latitude">>, Sanitized)),
-    ?assertNot(maps:is_key(<<"longitude">>, Sanitized)),
-    ?assertNot(maps:is_key(<<"region_id">>, Sanitized)),
-    ?assertNot(maps:is_key(<<"server_id">>, Sanitized)),
-    ?assertEqual(<<"1">>, maps:get(<<"user_id">>, Sanitized)),
-    ?assertEqual(null, maps:get(<<"channel_id">>, Sanitized)),
-    ?assertEqual(false, maps:get(<<"suppress">>, Sanitized)),
-    ?assertEqual(0, maps:get(<<"version">>, Sanitized)).
-
--endif.

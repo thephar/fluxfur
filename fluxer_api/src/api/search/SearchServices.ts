@@ -25,6 +25,7 @@ import {
 import {convertToSearchableReport} from '@app/api/search/report/ReportSearchSerializer';
 import {SearchAdapterServiceBase} from '@app/api/search/SearchAdapterServiceBase';
 import {convertToSearchableUser} from '@app/api/search/user/UserSearchSerializer';
+import {isDeletionComplete} from '@app/api/user/UserHelpers';
 import type {
 	ISearchAdapter,
 	SearchOptions as SchemaSearchOptions,
@@ -80,10 +81,6 @@ export class MessageSearchService
 	>
 	implements IMessageSearchService
 {
-	constructor(adapter: TermSearchAdapter<MessageSearchFilters, SearchableMessage>) {
-		super(adapter);
-	}
-
 	async indexMessage(message: Message, authorIsBot?: boolean): Promise<void> {
 		await this.indexDocument(convertToSearchableMessage(message, authorIsBot));
 	}
@@ -181,20 +178,25 @@ export class UserSearchService
 	extends SearchAdapterServiceBase<UserSearchFilters, SearchableUser, ISearchAdapter<UserSearchFilters, SearchableUser>>
 	implements IUserSearchService
 {
-	constructor(adapter: ISearchAdapter<UserSearchFilters, SearchableUser>) {
-		super(adapter);
-	}
-
 	async indexUser(user: User): Promise<void> {
+		if (isDeletionComplete(user)) {
+			await this.deleteDocument(user.id.toString());
+			return;
+		}
 		await this.indexDocument(convertToSearchableUser(user));
 	}
 
 	async indexUsers(users: Array<User>): Promise<void> {
-		if (users.length === 0) return;
-		await this.indexDocuments(users.map(convertToSearchableUser));
+		const listed = users.filter((user) => !isDeletionComplete(user));
+		if (listed.length === 0) return;
+		await this.indexDocuments(listed.map(convertToSearchableUser));
 	}
 
 	async updateUser(user: User): Promise<void> {
+		if (isDeletionComplete(user)) {
+			await this.deleteDocument(user.id.toString());
+			return;
+		}
 		await this.updateDocument(convertToSearchableUser(user));
 	}
 
@@ -218,10 +220,6 @@ export class ReportSearchService
 	>
 	implements IReportSearchService
 {
-	constructor(adapter: ISearchAdapter<ReportSearchFilters, SearchableReport>) {
-		super(adapter);
-	}
-
 	async indexReport(report: IARSubmission): Promise<void> {
 		await this.indexDocument(convertToSearchableReport(report));
 	}
@@ -263,10 +261,6 @@ export class AuditLogSearchService
 	>
 	implements IAuditLogSearchService
 {
-	constructor(adapter: ISearchAdapter<AuditLogSearchFilters, SearchableAuditLog>) {
-		super(adapter);
-	}
-
 	async indexAuditLog(log: AdminAuditLog): Promise<void> {
 		await this.indexDocument(convertToSearchableAuditLog(log));
 	}
@@ -296,10 +290,6 @@ export class GuildMemberSearchService
 	>
 	implements IGuildMemberSearchService
 {
-	constructor(adapter: TermSearchAdapter<GuildMemberSearchFilters, SearchableGuildMember>) {
-		super(adapter);
-	}
-
 	async indexMember(member: GuildMember, user: User): Promise<void> {
 		await this.indexDocument(convertToSearchableGuildMember(member, user));
 	}

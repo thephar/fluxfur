@@ -29,7 +29,7 @@ export function normalizeArchitectureValue(value: string | null | undefined): st
 	return trimmed || undefined;
 }
 
-export function getWindowsVersionName(osVersion: string): string {
+function getWindowsVersionName(osVersion: string): string {
 	const parts = osVersion.split('.');
 	const majorVersion = parseInt(parts[0], 10);
 	const buildNumber = parseInt(parts[2], 10);

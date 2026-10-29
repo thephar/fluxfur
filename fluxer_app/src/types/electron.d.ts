@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type {DesktopAccountStorageAPI} from '@fluxer/desktop_ipc/src/AccountContract';
+import type {AccountEngineRendererAPI} from '@fluxer/desktop_ipc/src/AccountEngineContract';
 import type {DesktopHandoffAPI} from '@fluxer/desktop_ipc/src/BrowserHandoffContract';
 import type {DesktopCapabilityManifest} from '@fluxer/desktop_ipc/src/CapabilityManifest';
 import type {
@@ -42,6 +43,8 @@ import type {
 	StreamerModeCaptureAppStatus,
 	StreamingPriorityDiagnostics,
 	ThemeDirectoryCssFile,
+	ThemeFolderChange,
+	ThemeFolderImportResult,
 	ThemeLinkedFileChange,
 	ThemeLocalFileReadResult,
 	ThemeLocalFileReference,
@@ -120,7 +123,10 @@ export type TrayActionPayload =
 	| {action: 'toggle-mute'}
 	| {action: 'toggle-deafen'}
 	| {action: 'disconnect-voice'}
-	| {action: 'check-for-updates'};
+	| {action: 'check-for-updates'}
+	| {action: 'switch-account'; accountKey: string}
+	| {action: 'open-account-switcher'}
+	| {action: 'toggle-custom-css'};
 
 export interface TextareaContextMenuParams {
 	x: number;
@@ -145,6 +151,7 @@ export interface NotificationPayload {
 	body: string;
 	icon?: string;
 	url?: string;
+	accountKey?: string;
 }
 
 export interface GlobalShortcutsPortalStatus {
@@ -265,6 +272,11 @@ export interface ElectronAPI {
 	pickThemeLinkedFiles?(options?: {multiple?: boolean}): Promise<Array<ThemeDirectoryCssFile>>;
 	watchThemeLinkedFiles?(paths: Array<string>): Promise<void>;
 	onThemeLinkedFileChange?(callback: (change: ThemeLinkedFileChange) => void): () => void;
+	importThemeFolder?(): Promise<ThemeFolderImportResult | null>;
+	watchThemeFolders?(paths: Array<string>): Promise<void>;
+	removeThemeFolder?(path: string): Promise<void>;
+	onThemeFolderChange?(callback: (change: ThemeFolderChange) => void): () => void;
+	themeFolderWatch?: true;
 	cacheVoiceBackgroundMedia?(options: VoiceBackgroundMediaCacheRequest): Promise<VoiceBackgroundMediaCacheResult>;
 	readVoiceBackgroundMedia?(id: string): Promise<VoiceBackgroundMediaReadResult | null>;
 	deleteVoiceBackgroundMedia?(id: string): Promise<void>;
@@ -279,7 +291,7 @@ export interface ElectronAPI {
 	getInitialDeepLink(): Promise<string | null>;
 	onDeepLink(callback: (url: string) => void): () => void;
 	onTextareaContextMenu(callback: (params: TextareaContextMenuParams) => void): () => void;
-	onNotificationClick(callback: (id: string, url?: string) => void): () => void;
+	onNotificationClick(callback: (id: string, url?: string | null, accountKey?: string | null) => void): () => void;
 	showNotification(payload: NotificationPayload): Promise<{id: string}>;
 	shouldPlayNotificationSound?(): Promise<boolean>;
 	closeNotification(id: string): void;
@@ -316,7 +328,7 @@ export interface ElectronAPI {
 	checkInputMonitoringAccess(): Promise<boolean>;
 	getInputMonitoringPermissionStatus?(): Promise<InputMonitoringPermissionStatus>;
 	requestInputMonitoringPermission?(): Promise<InputMonitoringPermissionStatus>;
-	getScreenRecordingPermissionStatus?(): Promise<InputMonitoringPermissionStatus>;
+	getScreenRecordingPermissionStatus?(liveProbe?: boolean): Promise<InputMonitoringPermissionStatus>;
 	requestScreenRecordingPermission?(): Promise<InputMonitoringPermissionStatus>;
 	checkMediaAccess(type: MediaAccessType): Promise<Exclude<MediaAccessStatus, 'unknown'>>;
 	requestMediaAccess(type: MediaAccessType): Promise<boolean>;
@@ -326,12 +338,14 @@ export interface ElectronAPI {
 	getAccessibilitySupportEnabled?(): Promise<boolean>;
 	onAccessibilitySupportChanged?(callback: (enabled: boolean) => void): () => void;
 	getLinuxAppearance?(): Promise<LinuxAppearanceSnapshot>;
+	setPrebootTheme?(theme: string): void;
 	onLinuxAppearanceChanged?(callback: (snapshot: LinuxAppearanceSnapshot) => void): () => void;
 	onZoomIn?(callback: () => void): () => void;
 	onZoomOut?(callback: () => void): () => void;
 	onZoomReset?(callback: () => void): () => void;
 	onOpenSettings?(callback: () => void): () => void;
 	setTrayRuntimeState?(state: Partial<TrayRuntimeStatePayload>): void;
+	setDirectMessagesAvailable?(available: boolean): void;
 	acquireStreamingPriority?(): void;
 	releaseStreamingPriority?(): void;
 	getStreamingPriorityDiagnostics?(): Promise<StreamingPriorityDiagnostics>;
@@ -352,9 +366,9 @@ export interface ElectronAPI {
 	onWindowLiveResizeChange?(callback: (isResizing: boolean) => void): () => void;
 	onWindowMaximizeChange?(callback: (isMaximized: boolean) => void): () => void;
 	windowIsMaximized?(): Promise<boolean>;
-	focusThemeStudioPopout?(): Promise<boolean>;
 	popoutSetAlwaysOnTop?(key: string, flag: boolean): Promise<boolean>;
 	popoutFocus?(key: string): Promise<boolean>;
+	cssEditorWindow?: true;
 	openVoiceDebugEventSinkPopout?(entries: Array<DesktopVoiceDebugEventSinkEntry>): Promise<void>;
 	appendVoiceDebugEventSinkEntries?(entries: Array<DesktopVoiceDebugEventSinkEntry>): void;
 	setVoiceDebugEventSinkStatsHtml?(html: string): void;
@@ -385,10 +399,12 @@ export interface ElectronAPI {
 	desktopModules?: DesktopModuleAPI;
 	desktopUpdate?: DesktopUpdateAPI;
 	reportLastRoute?: (routePath: string) => void;
+	reportInstanceProductName?: (instanceKey: string, productName: string) => void;
 	notifyFirstContentPainted?: () => void;
 	localAppUpload?: DesktopLocalAppUploadAPI;
 	localApp?: DesktopLocalAppInfo;
 	nativeGatewayTransport?: NativeGatewayTransportAPI;
+	accountEngine?: AccountEngineRendererAPI;
 	setZoomFactor(factor: number): void;
 }
 

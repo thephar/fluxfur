@@ -48,7 +48,7 @@
 }
 
 .roleName {
-	margin-right: 0.125rem;
+	margin-inline-end: 0.125rem;
 	min-width: 0;
 	max-width: 12.5rem;
 	overflow: hidden;

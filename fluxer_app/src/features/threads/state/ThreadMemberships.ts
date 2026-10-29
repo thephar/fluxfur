@@ -3,7 +3,7 @@
 import type {ThreadMemberResponse} from '@fluxer/schema/src/domains/channel/ThreadSchemas';
 import {makeAutoObservable, observable} from 'mobx';
 
-export interface ThreadMembership {
+interface ThreadMembership {
 	readonly threadId: string;
 	readonly joinTimestamp: string;
 	readonly flags: number;

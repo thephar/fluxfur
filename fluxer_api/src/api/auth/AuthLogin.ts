@@ -6,6 +6,7 @@ import {applyPendingRecovery} from '@app/api/auth/AuthRecoveryKit';
 import * as AuthSession from '@app/api/auth/AuthSession';
 import * as AuthUtility from '@app/api/auth/AuthUtility';
 import {getLocalPartAtInstance, usernameFromInstanceLocalPart} from '@app/api/auth/InstanceAddress';
+import type {SsoService} from '@app/api/auth/services/SsoService';
 import {resolveWebAuthnSecondFactor} from '@app/api/auth/services/WebAuthnSecondFactor';
 import {
 	createInviteCode,
@@ -16,6 +17,7 @@ import {
 } from '@app/api/BrandedTypes';
 import {getContentMessage} from '@app/api/content_i18n/ContentI18n';
 import {emitActivity} from '@app/api/infrastructure/activity/ActivityEvents';
+import type {LoginMethod} from '@app/api/infrastructure/activity/Contract.generated';
 import {
 	REGISTRATION_PENDING_APPROVAL_TRAIT,
 	REGISTRATION_REJECTED_TRAIT,
@@ -26,7 +28,9 @@ import {createRequestCache} from '@app/api/middleware/RequestCacheMiddleware';
 import {getInstanceConfigRepository} from '@app/api/middleware/ServiceSingletons';
 import type {AuthSession as AuthSessionModel} from '@app/api/models/AuthSession';
 import type {User} from '@app/api/models/User';
+import {tierContextFromRequest} from '@app/api/user/AccountTier';
 import {findPersonByLoginHandle, type ParsedLoginHandle, parseLoginHandle} from '@app/api/user/UniqueUsernames';
+import {BELOW_MINIMUM_AGE_TRAIT} from '@app/api/user/UserTraits';
 import {lookupGeoip} from '@app/api/utils/IpUtils';
 import {verifyPassword} from '@app/api/utils/PasswordUtils';
 import * as RandomUtils from '@app/api/utils/RandomUtils';
@@ -35,6 +39,7 @@ import {requireConfiguredClientIp} from '@app/api/utils/RequestClientIp';
 import {AccountIdentityModes} from '@fluxer/constants/src/AccountIdentityConstants';
 import {UserAuthenticatorTypes, UserFlags} from '@fluxer/constants/src/UserConstants';
 import {type ValidationErrorCode, ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
+import {AccountBelowMinimumAgeError} from '@fluxer/errors/src/domains/auth/AccountBelowMinimumAgeError';
 import {IpAuthorizationRequiredError} from '@fluxer/errors/src/domains/auth/IpAuthorizationRequiredError';
 import {IpAuthorizationResendCooldownError} from '@fluxer/errors/src/domains/auth/IpAuthorizationResendCooldownError';
 import {IpAuthorizationResendLimitExceededError} from '@fluxer/errors/src/domains/auth/IpAuthorizationResendLimitExceededError';
@@ -42,7 +47,6 @@ import {MfaNotEnabledError} from '@fluxer/errors/src/domains/auth/MfaNotEnabledE
 import {RegistrationPendingApprovalError} from '@fluxer/errors/src/domains/auth/RegistrationPendingApprovalError';
 import {RegistrationRejectedError} from '@fluxer/errors/src/domains/auth/RegistrationRejectedError';
 import {InputValidationError} from '@fluxer/errors/src/domains/core/InputValidationError';
-import {UnknownUserError} from '@fluxer/errors/src/domains/user/UnknownUserError';
 import {getSameIpDecisionKey} from '@fluxer/ip_utils/src/IpAddress';
 import type {LoginRequest} from '@fluxer/schema/src/domains/auth/AuthSchemas';
 import {EmailType} from '@fluxer/schema/src/primitives/UserValidators';
@@ -59,10 +63,13 @@ interface LoginParams {
 	captchaVerified?: boolean;
 }
 
+export type SsoPendingLinks = Pick<SsoService, 'completePendingLink'>;
+
 interface LoginMfaTotpParams {
 	code: string;
 	ticket: string;
 	request: Request;
+	ssoLinks: SsoPendingLinks;
 }
 
 interface LoginMfaWebAuthnParams {
@@ -70,6 +77,7 @@ interface LoginMfaWebAuthnParams {
 	challenge: string;
 	ticket: string;
 	request: Request;
+	ssoLinks: SsoPendingLinks;
 }
 
 export interface LoginDependencies {
@@ -110,7 +118,6 @@ interface LoginIdentifier {
 export interface IpAuthorizationTicketCache {
 	userId: string;
 	email: string;
-	username: string;
 	origin: AuthSession.SessionOrigin;
 	authToken: string;
 	clientLocation: string;
@@ -128,10 +135,15 @@ function getTokenCacheKey(token: string): string {
 	return `ip-auth-token:${token}`;
 }
 
-function emitLogin(user: User, ok: boolean, details: {failure?: string; mfa?: boolean; newIp?: boolean} = {}): void {
+export function emitLogin(
+	user: User,
+	ok: boolean,
+	details: {failure?: string; mfa?: boolean; newIp?: boolean; method?: LoginMethod} = {},
+): void {
 	void emitActivity('login', user.id.toString(), {
 		user_id: user.id.toString(),
 		ok,
+		method: details.method ?? 'password',
 		failure: details.failure ?? null,
 		mfa: details.mfa ?? false,
 		new_ip: details.newIp ?? false,
@@ -159,12 +171,10 @@ export async function resendIpAuthorization(
 	if (secondsSinceCreation < minDelay) {
 		throw new IpAuthorizationResendCooldownError(minDelay - secondsSinceCreation);
 	}
-	await email.sendIpAuthorizationEmail(
+	await email.send(
+		'ip_authorization',
 		payload.email,
-		payload.username,
-		payload.authToken,
-		payload.origin.ip,
-		payload.clientLocation,
+		{authorizationToken: payload.authToken, ipAddress: payload.origin.ip, location: payload.clientLocation},
 		payload.locale ?? null,
 	);
 	const ttl = await cache.ttl(cacheKey);
@@ -199,13 +209,15 @@ export async function completeIpAuthorization(
 	if (!payload) {
 		throw InputValidationError.fromCode('token', ValidationErrorCodes.INVALID_OR_EXPIRED_AUTHORIZATION_TOKEN);
 	}
+	const user = await users.findUniqueAssert(createUserID(BigInt(payload.userId)));
+	if (user.passwordLastChangedAt !== null && payload.createdAt < user.passwordLastChangedAt.getTime()) {
+		await cache.delete(cacheKey);
+		await cache.delete(getTokenCacheKey(token));
+		throw InputValidationError.fromCode('token', ValidationErrorCodes.INVALID_OR_EXPIRED_AUTHORIZATION_TOKEN);
+	}
 	const repoResult = await ctx.services.users.authorizeIpByToken(token);
 	if (!repoResult || repoResult.userId.toString() !== payload.userId) {
 		throw InputValidationError.fromCode('token', ValidationErrorCodes.INVALID_OR_EXPIRED_AUTHORIZATION_TOKEN);
-	}
-	const user = await users.findUnique(createUserID(BigInt(payload.userId)));
-	if (!user) {
-		throw new UnknownUserError();
 	}
 	AuthUtility.assertNonBotUser(ctx, user);
 	await users.createAuthorizedIp(user.id, payload.origin.ip);
@@ -241,10 +253,12 @@ export async function login(
 	await enforceRateLimits(identifier.rateLimits);
 	const clientIp = requireConfiguredClientIp(request, config.proxy);
 	const sourceKey = getSameIpDecisionKey(clientIp) ?? clientIp;
-	await enforceRateLimits([
-		...identifier.sourceRateLimits(sourceKey),
-		{identifier: `login:ip:${sourceKey}`, maxAttempts: 10, windowMs: ms('30 minutes')},
-	]);
+	await enforceRateLimits(identifier.sourceRateLimits(sourceKey));
+	const ipFailureLimit = {identifier: `login:ip:${sourceKey}`, maxAttempts: 10, windowMs: ms('30 minutes')};
+	const ipFailureState = await rateLimit.peekLimit(ipFailureLimit);
+	if (!ipFailureState.allowed && !skipRateLimits) {
+		throw createRateLimitError(ipFailureState);
+	}
 	const failureLimit = identifier.failureRateLimit;
 	const failureState = failureLimit ? await rateLimit.peekLimit(failureLimit) : null;
 	const failureLockout =
@@ -259,6 +273,7 @@ export async function login(
 		throw createRateLimitError(failureLockout);
 	}
 	const rejectCredentials = async (): Promise<never> => {
+		await rateLimit.checkLimit(ipFailureLimit);
 		if (failureLimit) {
 			await rateLimit.checkLimit(failureLimit);
 		}
@@ -305,6 +320,9 @@ export async function login(
 	if (currentUser.traits.has(REGISTRATION_REJECTED_TRAIT)) {
 		throw new RegistrationRejectedError();
 	}
+	if (currentUser.traits.has(BELOW_MINIMUM_AGE_TRAIT)) {
+		throw new AccountBelowMinimumAgeError();
+	}
 	const isAppStoreReviewer = (currentUser.flags & UserFlags.APP_STORE_REVIEWER) !== 0n;
 	let newIp = false;
 	if (!hasMfa && !isAppStoreReviewer) {
@@ -328,7 +346,6 @@ export async function login(
 				const cachePayload: IpAuthorizationTicketCache = {
 					userId: currentUser.id.toString(),
 					email: currentUser.email!,
-					username: currentUser.username,
 					origin: AuthSession.resolveSessionOrigin(ctx, request),
 					authToken,
 					clientLocation,
@@ -343,12 +360,10 @@ export async function login(
 					ticket: string;
 				}>(`ip-auth-token:${authToken}`, {ticket}, ttlSeconds);
 				await users.createIpAuthorizationToken(currentUser.id, authToken, currentUser.email!);
-				await email.sendIpAuthorizationEmail(
+				await email.send(
+					'ip_authorization',
 					currentUser.email!,
-					currentUser.username,
-					authToken,
-					clientIp,
-					clientLocation,
+					{authorizationToken: authToken, ipAddress: clientIp, location: clientLocation},
 					currentUser.locale,
 				);
 				emitLogin(currentUser, false, {failure: 'ip_authorization_required', newIp: true});
@@ -370,6 +385,7 @@ export async function login(
 				userId: currentUser.id,
 				inviteCode: createInviteCode(data.invite_code),
 				requestCache: createRequestCache(),
+				tierContext: tierContextFromRequest(request),
 			});
 		} catch (error) {
 			Logger.warn({inviteCode: data.invite_code, error}, 'Failed to auto-join invite on login');
@@ -476,7 +492,7 @@ export async function consumeMfaAttempt(
 
 export async function loginMfaTotp(
 	ctx: ApiContext,
-	{code, ticket, request}: LoginMfaTotpParams,
+	{code, ticket, request, ssoLinks}: LoginMfaTotpParams,
 ): Promise<LoginTokenResult> {
 	const user = await requireMfaTicketUser(ctx, ticket);
 	const hasTotp = Boolean(user.totpSecret) && user.authenticatorTypes.has(UserAuthenticatorTypes.TOTP);
@@ -493,7 +509,7 @@ export async function loginMfaTotp(
 	if (!isValid) {
 		throw InputValidationError.fromCode('code', ValidationErrorCodes.INVALID_CODE);
 	}
-	const [token] = await completeMfaLogin(ctx, user, ticket, request);
+	const [token] = await completeMfaLogin(ctx, user, ticket, request, ssoLinks);
 	return {user_id: user.id.toString(), token};
 }
 
@@ -510,9 +526,17 @@ export async function completeMfaLogin(
 	user: User,
 	ticket: string,
 	request: Request,
+	ssoLinks: SsoPendingLinks,
 ): Promise<[token: string, AuthSessionModel]> {
 	const {cache, rateLimit} = ctx.services;
-	const sessionUser = await applyPendingRecovery(ctx, user, ticket);
+	const sessionUser = await ssoLinks.completePendingLink(await applyPendingRecovery(ctx, user, ticket), ticket);
+	if (await cache.get<boolean>(mfaTicketNetworkKey(ticket))) {
+		await cache.delete(mfaTicketNetworkKey(ticket));
+		await ctx.services.users.createAuthorizedIp(
+			sessionUser.id,
+			requireConfiguredClientIp(request, ctx.services.config.proxy),
+		);
+	}
 	await cache.delete(`mfa-ticket:${ticket}`);
 	await rateLimit.resetLimit(`mfa:ticket:${ticket}`);
 	await rateLimit.resetLimit(`mfa:user:${user.id}`);
@@ -523,7 +547,7 @@ export async function completeMfaLogin(
 
 export async function loginMfaWebAuthn(
 	ctx: ApiContext,
-	{response, challenge, ticket, request}: LoginMfaWebAuthnParams,
+	{response, challenge, ticket, request, ssoLinks}: LoginMfaWebAuthnParams,
 ): Promise<LoginTokenResult> {
 	const user = await requireMfaTicketUser(ctx, ticket);
 	if (!(await resolveWebAuthnSecondFactor(ctx, user))) {
@@ -531,18 +555,26 @@ export async function loginMfaWebAuthn(
 	}
 	await consumeMfaAttempt(ctx, {userId: user.id.toString(), ticket, field: 'ticket'});
 	await AuthMfa.verifyWebAuthnAuthentication(ctx, user.id, response, challenge, 'mfa', ticket);
-	const [token] = await completeMfaLogin(ctx, user, ticket, request);
+	const [token] = await completeMfaLogin(ctx, user, ticket, request, ssoLinks);
 	return {user_id: user.id.toString(), token};
+}
+
+function mfaTicketNetworkKey(ticket: string): string {
+	return `mfa-ticket-network:${ticket}`;
 }
 
 export async function createMfaTicketResponse(
 	ctx: ApiContext,
 	user: User,
 	webauthnIsSecondFactor: boolean,
+	options: {authorizeNetwork?: boolean} = {},
 ): Promise<LoginMfaResult> {
 	const {cache} = ctx.services;
 	const ticket = createMfaTicket(await RandomUtils.randomString(64));
 	await cache.set(`mfa-ticket:${ticket}`, user.id.toString(), seconds('5 minutes'));
+	if (options.authorizeNetwork) {
+		await cache.set(mfaTicketNetworkKey(ticket), true, seconds('5 minutes'));
+	}
 	const hasTotp = user.authenticatorTypes.has(UserAuthenticatorTypes.TOTP);
 	const hasBackupCodes = await AuthMfa.hasUnconsumedBackupCodes(ctx, user.id);
 	const allowedMethods: Array<string> = [];

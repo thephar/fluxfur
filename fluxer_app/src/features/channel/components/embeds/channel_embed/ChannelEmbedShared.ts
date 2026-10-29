@@ -287,12 +287,11 @@ const getEmbedListRenderMetadata = (embedList: ReadonlyArray<MessageEmbed>): Emb
 		const firstIndex = firstIndexByNormalizedUrl.get(normalizedUrl);
 		if (firstIndex === undefined) continue;
 		const candidate = embedList[index];
-		const candidateMedia = isValidMedia(candidate?.image)
-			? candidate.image
-			: isValidMedia(candidate?.thumbnail)
-				? candidate.thumbnail
-				: undefined;
-		tryAddGalleryMedia(firstIndex, candidateMedia);
+		if (isValidMedia(candidate?.image)) {
+			tryAddGalleryMedia(firstIndex, candidate.image);
+		} else if (isValidMedia(candidate?.thumbnail)) {
+			tryAddGalleryMedia(firstIndex, candidate.thumbnail);
+		}
 	}
 	const metadata = {normalizedUrls, firstIndexByNormalizedUrl, galleryImagesByFirstIndex};
 	embedListRenderMetadataCache.set(embedList, metadata);

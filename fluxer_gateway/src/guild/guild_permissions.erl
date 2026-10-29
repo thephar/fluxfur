@@ -7,8 +7,7 @@
     get_member_permissions/3,
     compute_member_permissions/4,
     member_base_permissions/3,
-    channel_permissions/4,
-    aggregate_role_permissions_cached/4
+    channel_permissions/4
 ]).
 
 -export_type([
@@ -93,14 +92,18 @@ thread_for_channel(ChannelId, State) when is_integer(ChannelId) ->
         undefined ->
             undefined;
         Tab ->
-            try
-                guild_thread_store:get_thread(Tab, ChannelId)
-            catch
-                error:badarg -> undefined
-            end
+            stored_thread(Tab, ChannelId)
     end;
 thread_for_channel(_ChannelId, _State) ->
     undefined.
+
+-spec stored_thread(guild_thread_store:tab(), integer()) -> map() | undefined.
+stored_thread(Tab, ChannelId) ->
+    try
+        guild_thread_store:get_thread(Tab, ChannelId)
+    catch
+        error:badarg -> undefined
+    end.
 
 -spec base_permissions_for_data(user_id(), maybe_member(), guild_state(), guild_data()) ->
     base_permissions().
@@ -134,10 +137,14 @@ member_role_base_permissions(Member, State, Data) ->
             Permissions = aggregate_role_permissions_cached(
                 MemberRoles, RolePermsCache, Roles, BasePermissions
             ),
-            case bitset:has(Permissions, constants:administrator_permission()) of
-                true -> ?ALL_PERMISSIONS;
-                false -> {Permissions, MemberRoles, GuildId}
-            end
+            admin_or_role_permissions(Permissions, MemberRoles, GuildId)
+    end.
+
+-spec admin_or_role_permissions(permission(), member_roles(), role_id()) -> base_permissions().
+admin_or_role_permissions(Permissions, MemberRoles, GuildId) ->
+    case bitset:has(Permissions, constants:administrator_permission()) of
+        true -> ?ALL_PERMISSIONS;
+        false -> {Permissions, MemberRoles, GuildId}
     end.
 
 -spec resolve_member(user_id(), maybe_member(), guild_state()) -> maybe_member().

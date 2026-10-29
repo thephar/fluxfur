@@ -191,6 +191,10 @@ export function buildScreenShareOptions(config: ScreenShareBuildConfig): BuiltSc
 		cursor: resolveScreenShareCursorCapture(config.preferredDisplaySurface),
 		...(config.preferredDisplaySurface ? {displaySurface: config.preferredDisplaySurface} : {}),
 	};
+	let windowAudio: 'system' | 'window' | 'exclude' = 'exclude';
+	if (config.includeAudio) {
+		windowAudio = config.useBrowserAudioPicker ? 'system' : 'window';
+	}
 	return {
 		captureOptions: {
 			audio: config.includeAudio,
@@ -199,7 +203,7 @@ export function buildScreenShareOptions(config: ScreenShareBuildConfig): BuiltSc
 			selfBrowserSurface: 'include',
 			monitorTypeSurfaces: config.preferredDisplaySurface === 'window' ? 'exclude' : 'include',
 			systemAudio: config.includeAudio && config.useBrowserAudioPicker ? 'include' : 'exclude',
-			windowAudio: config.includeAudio ? (config.useBrowserAudioPicker ? 'system' : 'window') : 'exclude',
+			windowAudio,
 			resolution: {width, height, frameRate: resolvedFrameRate},
 			video,
 		},

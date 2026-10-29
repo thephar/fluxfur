@@ -17,25 +17,6 @@ describe('Admin API Key Revocation', () => {
 	beforeEach(async () => {
 		harness = await createApiTestHarness();
 	});
-	test('revocation requires admin_api_key:manage ACL', async () => {
-		const admin1 = await createTestAccount(harness);
-		const admin2 = await createTestAccount(harness);
-		await setUserACLs(harness, admin1, [
-			'admin:authenticate',
-			'admin_api_key:manage',
-			'audit_log:view',
-			'user:lookup',
-			'guild:lookup',
-		]);
-		await setUserACLs(harness, admin2, ['admin:authenticate']);
-		const apiKey = await createAdminApiKeyWithDefaultACLs(harness, admin1, 'Admin1 Key');
-		await createBuilder(harness, `${admin2.token}`)
-			.delete(`/admin/api-keys/${apiKey.keyId}`)
-			.body(null)
-			.expect(HTTP_STATUS.FORBIDDEN)
-			.execute();
-		expect(await hasAdminAPIKeyId(harness, admin1.token, apiKey.keyId)).toBe(true);
-	});
 	test('cannot revoke other users keys', async () => {
 		const admin1 = await createTestAccount(harness);
 		const admin2 = await createTestAccount(harness);

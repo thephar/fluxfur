@@ -321,7 +321,7 @@ class IpBanCache extends RefreshedCache {
 
 export const ipBanCache = new IpBanCache();
 
-export const SIGN_IN_ROUTES: ReadonlySet<string> = new Set([
+const SIGN_IN_ROUTES: ReadonlySet<string> = new Set([
 	'/auth/login',
 	'/auth/login/mfa/totp',
 	'/auth/login/mfa/webauthn/authentication-options',

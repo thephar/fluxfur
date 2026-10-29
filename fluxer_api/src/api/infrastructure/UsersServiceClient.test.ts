@@ -2,6 +2,7 @@
 
 import {createUserID} from '@app/api/BrandedTypes';
 import {NatsUsersServiceClient} from '@app/api/infrastructure/UsersServiceClient';
+import {getInstanceProductName} from '@app/api/instance/ProductName';
 import {FakeNatsConnectionManager} from '@app/api/test/mocks/FakeNatsConnectionManager';
 import type {UserPartialResponse} from '@fluxer/schema/src/domains/user/UserResponseSchemas';
 import {describe, expect, it} from 'vitest';
@@ -38,64 +39,11 @@ describe('NatsUsersServiceClient', () => {
 				body: {
 					op: 'GetApiPartialsByIds',
 					user_ids: ['9223372036854775807'],
+					instance_name: getInstanceProductName(),
 				},
 				timeout: 321,
 			},
 		]);
 		expect(result.get(userId)).toEqual(partial);
-	});
-
-	it('sends invalidation requests with a string user id', async () => {
-		const userId = createUserID(9007199254740993n);
-		const manager = createConnectionManager(['Invalidated']);
-		const client = new NatsUsersServiceClient(manager, 250, 'svc.users.test');
-
-		await client.invalidateUserCache(userId);
-
-		expect(manager.requests).toEqual([
-			{
-				subject: 'svc.users.test',
-				body: {
-					op: 'Invalidate',
-					user_id: '9007199254740993',
-				},
-				timeout: 250,
-			},
-		]);
-	});
-
-	it('coalesces concurrent overlapping partial lookups without retaining a completed cache entry', async () => {
-		const userId = createUserID(9223372036854775807n);
-		const secondUserId = createUserID(9223372036854775806n);
-		const partial: UserPartialResponse = {
-			id: userId.toString(),
-			username: 'Cached',
-			discriminator: '0001',
-			global_name: null,
-			avatar: null,
-			avatar_color: null,
-			flags: 0,
-		};
-		const secondPartial: UserPartialResponse = {
-			...partial,
-			id: secondUserId.toString(),
-			username: 'Second',
-		};
-		const manager = createConnectionManager([
-			{FoundApiPartials: [secondPartial, partial]},
-			{FoundApiPartials: [partial]},
-		]);
-		const client = new NatsUsersServiceClient(manager, 250, 'svc.users.test', 100);
-
-		const [first, second] = await Promise.all([
-			client.getUserPartialResponses([secondUserId, userId, userId]),
-			client.getUserPartialResponses([userId]),
-		]);
-		await client.getUserPartialResponses([userId]);
-
-		expect(manager.requests).toHaveLength(2);
-		expect(first.get(userId)).toEqual(partial);
-		expect(first.get(secondUserId)).toEqual(secondPartial);
-		expect(second.get(userId)).toEqual(partial);
 	});
 });

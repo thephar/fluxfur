@@ -77,7 +77,7 @@ const CHANNEL_WIRE_RE = /^<#\d+>$/;
 const INTEGER_RE = /^-?\d+$/;
 const NUMBER_RE = /^-?\d+(\.\d+)?$/;
 
-function hasExactKeys(value: Record<string, unknown>, keys: ReadonlyArray<string>): boolean {
+export function hasExactKeys(value: Record<string, unknown>, keys: ReadonlyArray<string>): boolean {
 	const actualKeys = Object.keys(value);
 	return actualKeys.length === keys.length && keys.every((key) => Object.hasOwn(value, key));
 }

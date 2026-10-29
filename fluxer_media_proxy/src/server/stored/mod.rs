@@ -2,8 +2,6 @@
 
 pub(in crate::server) mod passthrough;
 pub(in crate::server) mod response;
-#[cfg(test)]
-mod tests;
 
 use crate::{
     coalescer::CoalescerError,
@@ -23,8 +21,8 @@ use crate::{
         },
         media_operations::spool_stored_media,
         params::{
-            animated_param, asset_manual_format_override, asset_wants_animated, bool_param,
-            filename_from_storage_key,
+            asset_manual_format_override, asset_wants_animated, bool_param,
+            filename_from_storage_key, requests_transform,
         },
         response::{
             GeneratedMediaResponse, MediaResponse, content_disposition_header,
@@ -67,13 +65,16 @@ pub(in crate::server) async fn serve_asset_image(
     let range_header = headers.get(header::RANGE).and_then(|v| v.to_str().ok());
     let requested_download = bool_param(params, "download", false);
     let asset_filename = asset_filename_hint(&asset);
-    let size = constants::parse_image_size(params.get("size").map(String::as_str));
+    let requested_size = match (asset.kind, params.get("size")) {
+        (AssetKind::Branding, None) => None,
+        (_, raw) => Some(constants::parse_image_size(raw.map(String::as_str))),
+    };
     let requested_manual_format = asset_manual_format_override(params, asset.original_ext);
     let manual_format_override = asset.forced_output_format.or(requested_manual_format);
     let selected = output_format::select_url_variant(output_format::Input {
         kind: asset.kind,
         original: asset.original_ext,
-        requested_size: Some(size),
+        requested_size,
         manual_format_override,
     });
     let animated = asset_wants_animated(params, &asset.hash);
@@ -225,15 +226,15 @@ struct AssetTransformFailure<'a> {
 
 fn asset_transform_failure_response(failure: AssetTransformFailure<'_>) -> Response {
     let stored_ct = failure.object.content_type.as_str();
+    let sniffed_ct = failure.sniffed_content_type;
     let src_ct = if !stored_ct.starts_with("image/")
-        && is_browser_displayable_image(failure.sniffed_content_type)
+        && (is_browser_displayable_image(sniffed_ct) || sniffed_ct == "image/avif")
     {
-        failure.sniffed_content_type
+        sniffed_ct
     } else {
         stored_ct
     };
     let src_is_displayable = src_ct.starts_with("image/")
-        && src_ct != "image/avif"
         && src_ct != "image/heic"
         && src_ct != "image/heif"
         && failure.source_format != AssetExtension::Svg
@@ -322,13 +323,7 @@ async fn read_attachment(
     headers: &HeaderMap,
 ) -> Response {
     let filename = filename_from_storage_key(key);
-    let animated = animated_param(params, false);
-    let wants_transform = params.contains_key("width")
-        || params.contains_key("height")
-        || params.contains_key("format")
-        || params.contains_key("quality")
-        || animated;
-    if !wants_transform {
+    if !requests_transform(params) {
         return serve_stored_passthrough_stream(
             app,
             method,

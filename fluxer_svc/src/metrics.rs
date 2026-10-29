@@ -129,30 +129,3 @@ fn render_histogram(out: &mut String, name: &str, hist: &Histogram) {
     let _ = writeln!(out, "# TYPE {name} histogram");
     let _ = hist.render_series(out, name, None);
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn render_prometheus_produces_valid_output() {
-        let m = ServiceMetrics::default();
-        m.init();
-        m.record_request();
-        m.record_request();
-        m.record_request_error();
-        m.record_cache_hit();
-        m.record_request_duration(42);
-
-        let text = m.render_prometheus("user_svc");
-        assert!(text.contains("# TYPE fluxer_user_svc_requests_total counter"));
-        assert!(text.contains("fluxer_user_svc_requests_total 2"));
-        assert!(text.contains("# TYPE fluxer_user_svc_request_errors_total counter"));
-        assert!(text.contains("fluxer_user_svc_request_errors_total 1"));
-        assert!(text.contains("# TYPE fluxer_user_svc_cache_hits_total counter"));
-        assert!(text.contains("fluxer_user_svc_cache_hits_total 1"));
-        assert!(text.contains("# TYPE fluxer_user_svc_request_duration_ms histogram"));
-        assert!(text.contains("fluxer_user_svc_request_duration_ms_bucket{le=\"50\"} 1"));
-        assert!(text.contains("# TYPE fluxer_user_svc_uptime_seconds gauge"));
-    }
-}

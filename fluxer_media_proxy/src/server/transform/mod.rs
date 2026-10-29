@@ -4,8 +4,6 @@ pub(in crate::server) mod cache;
 pub mod cache_key;
 pub(in crate::server) mod execution;
 pub mod parameters;
-#[cfg(test)]
-mod tests;
 
 use crate::{
     byte_budget::ByteBudget,

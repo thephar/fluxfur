@@ -83,7 +83,7 @@ export async function loadAccountNotice(
 			status: 'sent',
 			channels: new Set(['sign_in']),
 			locale,
-			text: renderNoticeText(decision, notice, user.username, locale),
+			text: renderNoticeText(decision, notice, locale),
 			sentAt: decision.notice_sent_at,
 		});
 	}

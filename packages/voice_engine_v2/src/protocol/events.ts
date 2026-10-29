@@ -44,7 +44,7 @@ import type {
 	SourceLifecycleState,
 } from '@fluxer/voice_engine_v2/src/source_isolation/SourceLifecycleState';
 
-export type VoiceEngineV2SourceLifecycleTransitionKind = SourceLifecycleState['kind'];
+type VoiceEngineV2SourceLifecycleTransitionKind = SourceLifecycleState['kind'];
 
 export interface VoiceEngineV2SourceLifecycleTransitionedEvent {
 	type: 'sourceLifecycle.transitioned';

@@ -8,6 +8,11 @@ import {
 	GROUP_DM_DESCRIPTOR,
 } from '@app/features/i18n/utils/CommonMessageDescriptors';
 import {ADD_FRIEND_DESCRIPTOR} from '@app/features/relationship/utils/RelationshipMessageDescriptors';
+import {
+	shouldShowDirectMessageSettings,
+	shouldShowFriendSettings,
+	shouldShowFriendsAndDirectMessageSettings,
+} from '@app/features/user/components/settings_utils/SettingsVisibility';
 import type {SectionDefinition} from '@app/features/user/components/settings_utils/section_registry/SectionRegistryTypes';
 import {
 	ACTIVE_NOW_DESCRIPTOR,
@@ -30,6 +35,7 @@ import {
 	PROFILE_PRIVACY_LABEL_DESCRIPTOR as PROFILE_PRIVACY_DESCRIPTOR,
 	SENSITIVE_CONTENT_2_DESCRIPTOR,
 } from '@app/features/user/utils/UserMessageDescriptors';
+import type {MessageDescriptor} from '@lingui/core';
 import {msg} from '@lingui/core/macro';
 
 const FRIEND_REQUESTS_DESCRIPTOR = msg({
@@ -242,6 +248,17 @@ const FRIENDS_AND_DIRECT_MESSAGES_DESCRIPTOR = msg({
 	context: 'privacy-settings-section',
 	comment: 'Privacy settings section for who can send friend requests and direct messages.',
 });
+const FRIEND_REQUESTS_SECTION_DESCRIPTOR = msg({
+	message: 'Friend requests',
+	context: 'privacy-settings-section',
+	comment:
+		'Privacy settings section for who can send friend requests, shown when the instance has direct messages turned off.',
+});
+const DIRECT_MESSAGES_SECTION_DESCRIPTOR = msg({
+	message: 'Direct messages',
+	context: 'privacy-settings-section',
+	comment: 'Privacy settings section for who can send direct messages, shown when the instance has friends turned off.',
+});
 const COMMUNICATION_DESCRIPTOR = msg({
 	message: 'Communication',
 	context: 'privacy-settings-section',
@@ -268,6 +285,34 @@ const CHOOSE_WHAT_FRIENDS_SEE_ON_THEIR_ACTIVE_NOW_PANEL_DESCRIPTOR = msg({
 	comment: 'Settings section description. One-line summary of what the settings section controls.',
 });
 
+const FRIEND_REQUEST_KEYWORDS = [
+	FRIEND_REQUESTS_DESCRIPTOR,
+	FRIEND_REQUEST_DESCRIPTOR,
+	WHO_CAN_FRIEND_DESCRIPTOR,
+	FRIENDS_DESCRIPTOR,
+	ADD_FRIEND_DESCRIPTOR,
+	FRIENDS_OF_FRIENDS_DESCRIPTOR,
+	MUTUAL_FRIENDS_DESCRIPTOR,
+	COMMUNITY_MEMBERS_DESCRIPTOR,
+	MUTUAL_GUILDS_DESCRIPTOR,
+];
+
+const DIRECT_MESSAGE_KEYWORDS = [
+	DIRECT_MESSAGES_DESCRIPTOR,
+	DM_DESCRIPTOR,
+	DM_PERMISSIONS_DESCRIPTOR,
+	WHO_CAN_DM_DESCRIPTOR,
+	BOT_DM_DESCRIPTOR,
+	COMMUNITY_DM_DESCRIPTOR,
+	INCOMING_DM_DESCRIPTOR,
+];
+
+export function getFriendsAndDirectMessagesSectionLabel(): MessageDescriptor {
+	if (!shouldShowDirectMessageSettings()) return FRIEND_REQUESTS_SECTION_DESCRIPTOR;
+	if (!shouldShowFriendSettings()) return DIRECT_MESSAGES_SECTION_DESCRIPTOR;
+	return FRIENDS_AND_DIRECT_MESSAGES_DESCRIPTOR;
+}
+
 export const privacySafetySections = [
 	{
 		id: 'profile-privacy',
@@ -288,26 +333,17 @@ export const privacySafetySections = [
 	{
 		id: 'connections',
 		tabType: 'privacy_safety',
-		label: FRIENDS_AND_DIRECT_MESSAGES_DESCRIPTOR,
-		keywords: [
-			FRIEND_REQUESTS_DESCRIPTOR,
-			FRIEND_REQUEST_DESCRIPTOR,
-			WHO_CAN_FRIEND_DESCRIPTOR,
-			FRIENDS_DESCRIPTOR,
-			ADD_FRIEND_DESCRIPTOR,
-			FRIENDS_OF_FRIENDS_DESCRIPTOR,
-			MUTUAL_FRIENDS_DESCRIPTOR,
-			COMMUNITY_MEMBERS_DESCRIPTOR,
-			MUTUAL_GUILDS_DESCRIPTOR,
-			DIRECT_MESSAGES_DESCRIPTOR,
-			DM_DESCRIPTOR,
-			DM_PERMISSIONS_DESCRIPTOR,
-			WHO_CAN_DM_DESCRIPTOR,
-			BOT_DM_DESCRIPTOR,
-			COMMUNITY_DM_DESCRIPTOR,
-			INCOMING_DM_DESCRIPTOR,
-		],
+		get label() {
+			return getFriendsAndDirectMessagesSectionLabel();
+		},
+		get keywords() {
+			return [
+				...(shouldShowFriendSettings() ? FRIEND_REQUEST_KEYWORDS : []),
+				...(shouldShowDirectMessageSettings() ? DIRECT_MESSAGE_KEYWORDS : []),
+			];
+		},
 		isAdvanced: false,
+		isVisible: shouldShowFriendsAndDirectMessageSettings,
 	},
 	{
 		id: 'communication',
@@ -347,6 +383,7 @@ export const privacySafetySections = [
 			COMMUNITY_MEMBERS_DESCRIPTOR,
 		],
 		isAdvanced: false,
+		isVisible: shouldShowDirectMessageSettings,
 	},
 	{
 		id: 'active-now',
@@ -361,6 +398,7 @@ export const privacySafetySections = [
 			PRIVACY_DESCRIPTOR,
 		],
 		isAdvanced: false,
+		isVisible: shouldShowFriendSettings,
 	},
 	{
 		id: 'sensitive-content',

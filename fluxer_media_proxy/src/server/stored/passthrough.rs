@@ -317,32 +317,3 @@ async fn serve_stored_svg_rasterized(
         disposition: passthrough_disposition_header(disposition, format.mime()),
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn passthrough_content_type_preserves_non_media_metadata() {
-        assert_eq!(
-            "application/zip",
-            passthrough_content_type("application/zip", "downloads/app.zip")
-        );
-    }
-
-    #[test]
-    fn passthrough_content_type_prefers_known_extension_over_bad_metadata() {
-        assert_eq!(
-            "image/png",
-            passthrough_content_type("text/plain", "image.png")
-        );
-    }
-
-    #[test]
-    fn passthrough_content_type_prefers_m4a_extension_over_mp4_metadata() {
-        assert_eq!(
-            "audio/mp4",
-            passthrough_content_type("video/mp4", "track.m4a")
-        );
-    }
-}

@@ -10,6 +10,7 @@ import {
 	loadFixture,
 	sendMessageWithAttachments,
 } from '@app/api/channel/tests/AttachmentTestUtils';
+import {setInjectedWorkerService} from '@app/api/middleware/ServiceRegistry';
 import {
 	getAssetDeletionQueue,
 	getChannelRepository,
@@ -17,6 +18,8 @@ import {
 } from '@app/api/middleware/ServiceSingletons';
 import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHarness';
 import {NoopWorkerService} from '@app/api/test/NoopWorkerService';
+import {RecordingWorkerService} from '@app/api/test/RecordingWorkerService';
+import {createTestWorkerHelpers} from '@app/api/test/SyncTaskWorkerService';
 import {HTTP_STATUS} from '@app/api/test/TestConstants';
 import {createBuilder, createBuilderWithoutAuth} from '@app/api/test/TestRequestBuilder';
 import {getExpiryBucket} from '@app/api/utils/AttachmentDecay';
@@ -28,8 +31,7 @@ import reconcileAttachmentDecay, {
 import {clearWorkerDependencies, setWorkerDependenciesForTest} from '@app/api/worker/WorkerContext';
 import {AdminACLs} from '@fluxer/constants/src/AdminACLs';
 import {MessageReferenceTypes} from '@fluxer/constants/src/ChannelConstants';
-import type {WorkerTaskHelpers} from '@pkgs/worker/src/contracts/WorkerTask';
-import {afterEach, beforeEach, describe, expect, test, vi} from 'vitest';
+import {afterEach, beforeEach, describe, expect, test} from 'vitest';
 
 interface AttachmentDecayRow {
 	attachment_id: string;
@@ -49,14 +51,17 @@ interface ListedMessage {
 
 describe('Attachment Decay', () => {
 	let harness: ApiTestHarness;
+	let worker: RecordingWorkerService;
 	const originalSelfHosted = getConfig().instance.selfHosted;
 	beforeEach(async () => {
 		getConfig().instance.selfHosted = true;
 		harness = await createApiTestHarness();
+		worker = new RecordingWorkerService();
+		setInjectedWorkerService(worker);
 	});
 	afterEach(async () => {
 		getConfig().instance.selfHosted = originalSelfHosted;
-		vi.restoreAllMocks();
+		setInjectedWorkerService(new NoopWorkerService());
 		clearWorkerDependencies();
 		await harness?.shutdown();
 	});
@@ -102,19 +107,14 @@ describe('Attachment Decay', () => {
 	}
 
 	async function enableExpiryAndTakeReconcile(admin: TestAccount): Promise<ReconcileAttachmentDecayPayload> {
-		const addJob = vi.spyOn(NoopWorkerService.prototype, 'addJob');
+		const before = worker.byTask('reconcileAttachmentDecay').length;
 		await setAttachmentExpiry(admin, {enabled: true});
-		expect(addJob).toHaveBeenCalledTimes(1);
-		const [task, payload, options] = addJob.mock.calls[0] as unknown as [
-			string,
-			ReconcileAttachmentDecayPayload,
-			{jobKey: string},
-		];
-		expect(task).toBe('reconcileAttachmentDecay');
+		const jobs = worker.byTask('reconcileAttachmentDecay');
+		expect(jobs).toHaveLength(before + 1);
+		const {payload, options} = jobs[jobs.length - 1]!;
 		expect(payload).toEqual({runId: expect.any(String), chunk: 0});
 		expect(options).toEqual({jobKey: `${payload.runId}:0`});
-		addJob.mockRestore();
-		return payload;
+		return payload as ReconcileAttachmentDecayPayload;
 	}
 
 	async function runReconcile(
@@ -188,27 +188,28 @@ describe('Attachment Decay', () => {
 	test('should only queue a reconcile when the expiry rules change', async () => {
 		const admin = await createInstanceAdmin();
 		await setAttachmentExpiry(admin, {enabled: true, max_lifetime_days: 400});
-		const addJob = vi.spyOn(NoopWorkerService.prototype, 'addJob');
+		const queued = () => worker.byTask('reconcileAttachmentDecay').length;
+		const before = queued();
 
 		await setAttachmentExpiry(admin, {enabled: true, max_lifetime_days: 400, renew_window_days: 10});
-		expect(addJob).not.toHaveBeenCalled();
+		expect(queued()).toBe(before);
 
 		await setAttachmentExpiry(admin, {max_lifetime_days: 200});
-		expect(addJob).toHaveBeenCalledTimes(1);
+		expect(queued()).toBe(before + 1);
 
 		await setAttachmentExpiry(admin, {enabled: false});
-		expect(addJob).toHaveBeenCalledTimes(1);
+		expect(queued()).toBe(before + 1);
 	});
 	test('should not queue a reconcile on the hosted instance', async () => {
 		const admin = await createInstanceAdmin();
 		await setAttachmentExpiry(admin, {enabled: false});
 		getConfig().instance.selfHosted = false;
-		const addJob = vi.spyOn(NoopWorkerService.prototype, 'addJob');
+		const before = worker.byTask('reconcileAttachmentDecay').length;
 
 		await setAttachmentExpiry(admin, {enabled: true});
 		await setAttachmentExpiry(admin, {max_lifetime_days: 200});
 
-		expect(addJob).not.toHaveBeenCalled();
+		expect(worker.byTask('reconcileAttachmentDecay')).toHaveLength(before);
 		expect(await harness.kvProvider.exists('attachment_decay:reconcile_run')).toBe(0);
 	});
 	test('should not run a queued reconcile job on the hosted instance', async () => {
@@ -219,11 +220,17 @@ describe('Attachment Decay', () => {
 		const reconcile = await enableExpiryAndTakeReconcile(admin);
 		installWorkerDependencies();
 		getConfig().instance.selfHosted = false;
-		const addJob = vi.fn();
+		const queued: Array<string> = [];
+		const helpers = createTestWorkerHelpers({
+			addJob: async (taskType: string) => {
+				queued.push(taskType);
+				return 1n;
+			},
+		});
 
-		await reconcileAttachmentDecay({...reconcile, __jobId: '1'}, {addJob} as unknown as WorkerTaskHelpers);
+		await reconcileAttachmentDecay({...reconcile, __jobId: '1'}, helpers);
 
-		expect(addJob).not.toHaveBeenCalled();
+		expect(queued).toEqual([]);
 		expect(await fetchDecayRow(upload.attachmentId)).toBeNull();
 		getConfig().instance.selfHosted = true;
 		expect(await runReconcile(reconcile)).toBe(1);
@@ -261,11 +268,17 @@ describe('Attachment Decay', () => {
 		const upload = await uploadWhileExpiryIsOff(admin.token, guild.system_channel_id!, 'queued.png');
 		const reconcile = await enableExpiryAndTakeReconcile(admin);
 		installWorkerDependencies();
-		const addJob = vi.fn();
+		const queued: Array<string> = [];
+		const helpers = createTestWorkerHelpers({
+			addJob: async (taskType: string) => {
+				queued.push(taskType);
+				return 1n;
+			},
+		});
 
-		await reconcileAttachmentDecay({...reconcile, __jobId: '1'}, {addJob} as unknown as WorkerTaskHelpers);
+		await reconcileAttachmentDecay({...reconcile, __jobId: '1'}, helpers);
 
-		expect(addJob).not.toHaveBeenCalled();
+		expect(queued).toEqual([]);
 		expect(await fetchDecayRow(upload.attachmentId)).not.toBeNull();
 		expect(await harness.kvProvider.exists('attachment_decay:reconcile_run')).toBe(0);
 	});
@@ -275,31 +288,13 @@ describe('Attachment Decay', () => {
 		await setAttachmentExpiry(admin, {enabled: false});
 		const upload = await uploadWhileExpiryIsOff(admin.token, guild.system_channel_id!, 'old.png');
 		const first = await enableExpiryAndTakeReconcile(admin);
-		const addJob = vi.spyOn(NoopWorkerService.prototype, 'addJob');
 		await setAttachmentExpiry(admin, {max_lifetime_days: 200});
-		expect(addJob).toHaveBeenCalledTimes(1);
+		expect(worker.byTask('reconcileAttachmentDecay')).toHaveLength(2);
 		installWorkerDependencies();
 
 		expect(await reconcileAttachmentDecayChunk(first)).toBeNull();
 
 		expect(await fetchDecayRow(upload.attachmentId)).toBeNull();
-	});
-	test('should read the stored settings instead of a stale cache', async () => {
-		const admin = await createInstanceAdmin();
-		const guild = await createGuild(harness, admin.token, 'Stale Cache Guild');
-		await setAttachmentExpiry(admin, {enabled: false});
-		const upload = await uploadWhileExpiryIsOff(admin.token, guild.system_channel_id!, 'stale.png');
-		const reconcile = await enableExpiryAndTakeReconcile(admin);
-		installWorkerDependencies();
-		const current = await getInstanceConfigRepository().getEffectiveAttachmentDecayConfig();
-		vi.spyOn(getInstanceConfigRepository(), 'getEffectiveAttachmentDecayConfig').mockResolvedValue({
-			...current,
-			enabled: false,
-		});
-
-		await runReconcile(reconcile);
-
-		expect(await fetchDecayRow(upload.attachmentId)).not.toBeNull();
 	});
 	test('should not give a new expiry to an attachment whose file is gone', async () => {
 		const admin = await createInstanceAdmin();

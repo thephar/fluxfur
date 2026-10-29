@@ -466,11 +466,12 @@ async function runConfiguredDisplayScreenShare(
 			? await resolveAppShareAudioScope(ActiveScreenShareSource.getPendingWindowAudioScope())
 			: null;
 		const appShareAudioRoute = appShareAudioScope == null ? null : selectAppShareAudioRouteForScope(appShareAudioScope);
-		const linuxAudioSourceMode = requestedAppAudioOnLinux
-			? appShareAudioRouteToSourceMode(appShareAudioRoute)
-			: electronApi.platform === 'linux' && (requestedDesktopAudio || requestedNativePickerAudioOnLinux)
-				? VoiceSettings.getEffectiveScreenShareAudioSourceMode()
-				: null;
+		let linuxAudioSourceMode: ReturnType<typeof appShareAudioRouteToSourceMode> = null;
+		if (requestedAppAudioOnLinux) {
+			linuxAudioSourceMode = appShareAudioRouteToSourceMode(appShareAudioRoute);
+		} else if (electronApi.platform === 'linux' && (requestedDesktopAudio || requestedNativePickerAudioOnLinux)) {
+			linuxAudioSourceMode = VoiceSettings.getEffectiveScreenShareAudioSourceMode();
+		}
 		if (requestedAppAudioOnLinux && appShareAudioRoute === 'window') {
 			try {
 				nativeAudioArmed = await armNativeAudioForNextCapture(sourceId ?? '');

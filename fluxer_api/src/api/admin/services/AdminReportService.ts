@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type {ApiContext} from '@app/api/ApiContext';
+import {buildAdminDownloadUrl} from '@app/api/admin/AdminSignedDownloads';
 import type {AdminAuditService} from '@app/api/admin/services/AdminAuditService';
 import {
 	describeReporterNotice,
@@ -14,7 +15,6 @@ import {
 	type ReportID,
 	type UserID,
 } from '@app/api/BrandedTypes';
-import {Config} from '@app/api/Config';
 import type {ChannelRepository} from '@app/api/channel/ChannelRepository';
 import {makeAttachmentCdnKey} from '@app/api/channel/services/message/MessageHelpers';
 import {
@@ -49,6 +49,7 @@ import type {ReportSearchFilters} from '@fluxer/schema/src/contracts/search/Sear
 import type {ReportNoteListResponse, ReportNoteResponse} from '@fluxer/schema/src/domains/admin/AdminReportNoteSchemas';
 import type {
 	AdminReportReasonsResponse,
+	ReportAdminResponseSchema,
 	ReportItemOutcome,
 	SearchReportsRequest,
 	UpdateReportRequest,
@@ -57,6 +58,7 @@ import type {MessageResponse} from '@fluxer/schema/src/domains/message/MessageRe
 import type {ReportProfileAssetSnapshot} from '@fluxer/schema/src/domains/report/ReportProfileSnapshotSchemas';
 import type {UserPartialResponse} from '@fluxer/schema/src/domains/user/UserResponseSchemas';
 import {seconds} from 'itty-time';
+import type {z} from 'zod';
 
 interface AdminReportServiceDeps {
 	apiContext: ApiContext;
@@ -395,16 +397,16 @@ export class AdminReportService {
 		const reporterInfo = await this.buildUserTag(report.reporterId, requestCache);
 		const reportedUserInfo = await this.buildUserTag(report.reportedUserId, requestCache);
 		const canViewReporterPii = acls.has(AdminACLs.REPORT_VIEW_REPORTER_PII) || acls.has(AdminACLs.WILDCARD);
-		const reportedGuildNsfwLevel =
-			report.reportedGuildNsfw !== null
-				? report.reportedGuildNsfw
-					? 3
-					: 0
-				: await this.getGuildNsfwLevelForContext(
-						report.reportedChannelId,
-						report.reportedGuildId ?? report.guildContextId ?? null,
-						reportLookupCache,
-					);
+		let reportedGuildNsfwLevel: number | null;
+		if (report.reportedGuildNsfw !== null) {
+			reportedGuildNsfwLevel = report.reportedGuildNsfw ? 3 : 0;
+		} else {
+			reportedGuildNsfwLevel = await this.getGuildNsfwLevelForContext(
+				report.reportedChannelId,
+				report.reportedGuildId ?? report.guildContextId ?? null,
+				reportLookupCache,
+			);
+		}
 		const reportedChannelNsfw =
 			report.reportedChannelEffectiveNsfw !== null
 				? report.reportedChannelEffectiveNsfw
@@ -536,20 +538,24 @@ export class AdminReportService {
 		}
 		const asset = (value: ReportProfileAssetSnapshot | null) => this.mapProfileSnapshotAsset(report.reportId, value);
 		const {user, member, guild} = snapshot;
+		const capturedAt = snapshot.captured_at;
+		let userResponse: NonNullable<z.infer<typeof ReportAdminResponseSchema>['reported_profile_snapshot']>['user'] =
+			null;
+		if (user) {
+			userResponse = {
+				id: user.id,
+				username: user.username,
+				discriminator: user.discriminator === null ? null : user.discriminator.toString().padStart(4, '0'),
+				global_name: user.global_name,
+				bio: user.bio,
+				pronouns: user.pronouns,
+				avatar: await asset(user.avatar),
+				banner: await asset(user.banner),
+			};
+		}
 		return {
-			captured_at: snapshot.captured_at,
-			user: user
-				? {
-						id: user.id,
-						username: user.username,
-						discriminator: user.discriminator === null ? null : user.discriminator.toString().padStart(4, '0'),
-						global_name: user.global_name,
-						bio: user.bio,
-						pronouns: user.pronouns,
-						avatar: await asset(user.avatar),
-						banner: await asset(user.banner),
-					}
-				: null,
+			captured_at: capturedAt,
+			user: userResponse,
 			member: member
 				? {
 						guild_id: member.guild_id,
@@ -585,10 +591,11 @@ export class AdminReportService {
 			return {hash: asset.hash, url: null};
 		}
 		try {
-			const url = await this.deps.storageService.getPresignedDownloadURL({
-				bucket: Config.s3.buckets.reports,
+			const url = await buildAdminDownloadUrl(this.deps.storageService, {
+				bucket: 'reports',
 				key: asset.key,
-				expiresIn: seconds('5 minutes'),
+				filename: asset.key.split('/').at(-1) ?? asset.hash,
+				expiresInSeconds: seconds('5 minutes'),
 			});
 			return {hash: asset.hash, url};
 		} catch (error) {
@@ -779,10 +786,11 @@ export class AdminReportService {
 		const filename = String(attachment.filename);
 		const key = makeAttachmentCdnKey(channelId, attachmentId, filename);
 		try {
-			const url = await storageService.getPresignedDownloadURL({
-				bucket: Config.s3.buckets.reports,
+			const url = await buildAdminDownloadUrl(storageService, {
+				bucket: 'reports',
 				key,
-				expiresIn: seconds('5 minutes'),
+				filename,
+				expiresInSeconds: seconds('5 minutes'),
 			});
 			return {
 				id: attachment.attachment_id.toString(),

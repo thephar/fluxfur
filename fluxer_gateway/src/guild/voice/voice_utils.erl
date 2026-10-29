@@ -40,12 +40,12 @@ apply_voice_permissions_to_flags(Flags, VoicePermissions) ->
     SelfStream =
         case maps:get(can_stream, VoicePermissions, true) of
             false -> false;
-            _ -> maps:get(self_stream, Flags, false) =:= true
+            _ -> type_conv:is_true(maps:get(self_stream, Flags, false))
         end,
     SelfVideo =
         case maps:get(can_video, VoicePermissions, true) of
             false -> false;
-            _ -> maps:get(self_video, Flags, false) =:= true
+            _ -> type_conv:is_true(maps:get(self_video, Flags, false))
         end,
     Flags#{
         suppress => Suppress,

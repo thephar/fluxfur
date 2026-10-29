@@ -14,9 +14,10 @@ import {
 } from '@app/api/stripe/BillingConfigCache';
 import {mapGiftCodeToMetadataResponse, mapGiftCodeToResponse} from '@app/api/stripe/StripeModel';
 import type {HonoApp} from '@app/api/types/HonoEnv';
+import {assertTierAllows, NO_TIER_CONTEXT} from '@app/api/user/AccountTier';
 import {lookupGeoip} from '@app/api/utils/IpUtils';
 import {Validator} from '@app/api/Validator';
-import {AppNotFoundHandler} from '@fluxer/errors/src/domains/core/ErrorHandlers';
+import {TierGatedActions} from '@fluxer/constants/src/AccountTierConstants';
 import {StripeWebhookNotAvailableError} from '@fluxer/errors/src/domains/payment/StripeWebhookNotAvailableError';
 import {StripeWebhookSignatureInvalidError} from '@fluxer/errors/src/domains/payment/StripeWebhookSignatureInvalidError';
 import {StripeWebhookSignatureMissingError} from '@fluxer/errors/src/domains/payment/StripeWebhookSignatureMissingError';
@@ -206,6 +207,7 @@ export function StripeController(app: HonoApp) {
 		async (ctx) => {
 			const {code} = ctx.req.valid('param');
 			const userId = ctx.get('user').id;
+			assertTierAllows(ctx.get('user'), TierGatedActions.GIFT_REDEEM, NO_TIER_CONTEXT);
 			await ctx.get('stripeService').gifts.redeemGiftCode(userId, code);
 			return ctx.body(null, 204);
 		},
@@ -327,32 +329,6 @@ export function StripeController(app: HonoApp) {
 			return ctx.json({success: true as const});
 		},
 	);
-	app.post(
-		'/users/@me/age-verification',
-		HostedOnlyRoute,
-		RateLimitMiddleware(RateLimitConfigs.AGE_VERIFICATION),
-		LoginRequired,
-		DefaultUserOnly,
-		OpenAPI({
-			operationId: 'create_age_verification_session',
-			summary: 'Create age verification session',
-			description:
-				'Creates a Stripe checkout session in setup mode to verify the user holds a credit card for UK adult age verification.',
-			responseSchema: UrlResponse,
-			statusCode: 200,
-			security: ['bearerToken', 'sessionToken'],
-			tags: 'Billing',
-		}),
-		async (ctx) => {
-			const ageVerificationService = ctx.get('ageVerificationService');
-			if (!ageVerificationService) {
-				return AppNotFoundHandler(ctx);
-			}
-			const userId = ctx.get('user').id;
-			const url = await ageVerificationService.createVerificationSession(userId);
-			return ctx.json({url});
-		},
-	);
 	app.get(
 		'/premium/refund-eligibility',
 		HostedOnlyRoute,
@@ -414,7 +390,7 @@ export function StripeController(app: HonoApp) {
 		}),
 		async (ctx) => {
 			const userId = ctx.get('user').id;
-			await ctx.get('stripeService').subscriptions.cancelSubscriptionAtPeriodEnd(userId);
+			await ctx.get('stripeService').subscriptions.cancelSubscriptionAtPeriodEnd(userId, 'customer_request');
 			return ctx.body(null, 204);
 		},
 	);

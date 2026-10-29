@@ -25,7 +25,7 @@ export function threadSearchCursor(id: bigint): ThreadSearchCursor {
 	return {createdAt: snowflakeToDate(id).getTime(), idSequence: Number(id & ((1n << TIMESTAMP_SHIFT) - 1n))};
 }
 
-export function toSearchableThread(view: ThreadView): SearchableThread {
+function toSearchableThread(view: ThreadView): SearchableThread {
 	const {channel, state} = view;
 	return {
 		id: channel.id.toString(),

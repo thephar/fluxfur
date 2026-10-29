@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import assert from 'node:assert/strict';
 import {createRoleID, type GuildID, guildIdToRoleId, type RoleID, type UserID} from '@app/api/BrandedTypes';
 import type {ThreadViewer} from '@app/api/experiment/ChannelThreadsGate';
 import type {GuildAuditLogService} from '@app/api/guild/GuildAuditLogService';
@@ -38,7 +39,10 @@ import type {
 } from '@fluxer/schema/src/domains/guild/GuildRequestSchemas';
 import type {GuildResponse} from '@fluxer/schema/src/domains/guild/GuildResponseSchemas';
 import type {GuildRoleResponse} from '@fluxer/schema/src/domains/guild/GuildRoleSchemas';
+import {compareSnowflakes} from '@fluxer/snowflake/src/SnowflakeComparison';
 import type {ICacheService} from '@pkgs/cache/src/ICacheService';
+
+const ROLE_REORDER_LOCK_TTL_SECONDS = 30;
 
 type RoleUpdateData = Partial<{
 	name: string;
@@ -64,12 +68,20 @@ export class GuildRoleService {
 		let myHighestRole: GuildRole | null = null;
 		if (!isOwner) {
 			const member = await this.guildRepository.getMember(guildId, userId);
-			if (member) myHighestRole = this.getUserHighestRole(member, allRoles);
+			if (member) {
+				myHighestRole = this.getUserHighestRole(member, allRoles);
+			}
 		}
 		return (role: GuildRole) => {
-			if (isOwner) return true;
-			if (role.id === everyoneRoleId) return false;
-			if (!myHighestRole) return false;
+			if (isOwner) {
+				return true;
+			}
+			if (role.id === everyoneRoleId) {
+				return false;
+			}
+			if (!myHighestRole) {
+				return false;
+			}
 			return this.isRoleHigherThan(myHighestRole, role);
 		};
 	}
@@ -93,7 +105,9 @@ export class GuildRoleService {
 		const guildData = await this.gatewayService.getGuildData({guildId, userId: initiatorId, skipMembershipCheck: true});
 		const currentRoleCount = await this.guildRepository.countRoles(guildId);
 		const roleLimit = this.resolveGuildLimit(guildData.features, 'max_guild_roles', MAX_GUILD_ROLES);
-		if (currentRoleCount >= roleLimit) throw new MaxGuildRolesError(roleLimit);
+		if (currentRoleCount >= roleLimit) {
+			throw new MaxGuildRolesError(roleLimit);
+		}
 		const permissionMask = THREAD_AWARE_ALL_PERMISSIONS;
 		const permissions = data.permissions !== undefined ? data.permissions & permissionMask : DEFAULT_PERMISSIONS;
 		const roleId = createRoleID(await this.snowflakeService.generate());
@@ -143,7 +157,9 @@ export class GuildRoleService {
 		await checkPermission(Permissions.MANAGE_ROLES);
 		const currentRoleCount = await this.guildRepository.countRoles(guildId);
 		const roleLimit = this.resolveGuildLimit(guildData.features, 'max_guild_roles', MAX_GUILD_ROLES);
-		if (currentRoleCount >= roleLimit) throw new MaxGuildRolesError(roleLimit);
+		if (currentRoleCount >= roleLimit) {
+			throw new MaxGuildRolesError(roleLimit);
+		}
 		const permissions =
 			data.permissions !== undefined
 				? await this.resolveRequestedPermissions({
@@ -229,7 +245,9 @@ export class GuildRoleService {
 		viewer: ThreadViewer | undefined,
 	): Promise<GuildRoleResponse> {
 		const response = mapGuildRoleToResponse(role);
-		if (!(await shouldMaskThreadPermissionBits(guildId, viewer, [role.permissions]))) return response;
+		if (!(await shouldMaskThreadPermissionBits(guildId, viewer, [role.permissions]))) {
+			return response;
+		}
 		return {...response, permissions: stripThreadPermissionBits(role.permissions).toString()};
 	}
 
@@ -373,7 +391,7 @@ export class GuildRoleService {
 		const {checkPermission} = await getGuildAuth(this.gatewayService, this.userRepository, {userId, guildId});
 		await checkPermission(Permissions.MANAGE_ROLES);
 		const lockKey = `guild:${guildId}:role-positions`;
-		const lockToken = await this.cacheService.acquireLock(lockKey, 30);
+		const lockToken = await this.cacheService.acquireLock(lockKey, ROLE_REORDER_LOCK_TTL_SECONDS);
 		if (!lockToken) {
 			throw new ResourceLockedError();
 		}
@@ -393,10 +411,12 @@ export class GuildRoleService {
 		await getGuildAuth(this.gatewayService, this.userRepository, {userId, guildId});
 		const roles = await this.guildRepository.listRoles(guildId);
 		const sortedRoles = [...roles].sort((a, b) => {
-			if (b.position !== a.position) return b.position - a.position;
-			return this.compareRoleIds(a, b);
+			if (b.position !== a.position) {
+				return b.position - a.position;
+			}
+			return compareSnowflakes(a.id, b.id);
 		});
-		const responses = sortedRoles.map(mapGuildRoleToResponse);
+		const roleResponses = sortedRoles.map((role) => ({role, response: mapGuildRoleToResponse(role)}));
 		if (
 			!(await shouldMaskThreadPermissionBits(
 				guildId,
@@ -404,11 +424,11 @@ export class GuildRoleService {
 				sortedRoles.map((role) => role.permissions),
 			))
 		) {
-			return responses;
+			return roleResponses.map(({response}) => response);
 		}
-		return responses.map((response, index) => ({
+		return roleResponses.map(({role, response}) => ({
 			...response,
-			permissions: stripThreadPermissionBits(sortedRoles[index]!.permissions).toString(),
+			permissions: stripThreadPermissionBits(role.permissions).toString(),
 		}));
 	}
 
@@ -430,7 +450,7 @@ export class GuildRoleService {
 		});
 		await checkPermission(Permissions.MANAGE_ROLES);
 		const lockKey = `guild:${guildId}:role-hoist-positions`;
-		const lockToken = await this.cacheService.acquireLock(lockKey, 30);
+		const lockToken = await this.cacheService.acquireLock(lockKey, ROLE_REORDER_LOCK_TTL_SECONDS);
 		if (!lockToken) {
 			throw new ResourceLockedError();
 		}
@@ -455,8 +475,11 @@ export class GuildRoleService {
 			}
 			const changedRoles: Array<GuildRole> = [];
 			for (const update of updates) {
-				const role = roleMap.get(update.roleId)!;
-				if (role.hoistPosition === update.hoistPosition) continue;
+				const role = roleMap.get(update.roleId);
+				assert(role !== undefined);
+				if (role.hoistPosition === update.hoistPosition) {
+					continue;
+				}
 				const updatedRole = await this.guildRepository.upsertRole({
 					...role.toRow(),
 					hoist_position: update.hoistPosition,
@@ -491,7 +514,7 @@ export class GuildRoleService {
 		const {checkPermission} = await getGuildAuth(this.gatewayService, this.userRepository, {userId, guildId});
 		await checkPermission(Permissions.MANAGE_ROLES);
 		const lockKey = `guild:${guildId}:role-hoist-positions`;
-		const lockToken = await this.cacheService.acquireLock(lockKey, 30);
+		const lockToken = await this.cacheService.acquireLock(lockKey, ROLE_REORDER_LOCK_TTL_SECONDS);
 		if (!lockToken) {
 			throw new ResourceLockedError();
 		}
@@ -500,7 +523,9 @@ export class GuildRoleService {
 			const roleMap = new Map(allRoles.map((r) => [r.id, r]));
 			const changedRoles: Array<GuildRole> = [];
 			for (const role of allRoles) {
-				if (role.hoistPosition === null) continue;
+				if (role.hoistPosition === null) {
+					continue;
+				}
 				const updatedRole = await this.guildRepository.upsertRole({...role.toRow(), hoist_position: null});
 				changedRoles.push(updatedRole);
 			}
@@ -544,22 +569,14 @@ export class GuildRoleService {
 		let highestRole: GuildRole | null = null;
 		for (const roleId of member.roleIds) {
 			const role = roleMap.get(roleId);
-			if (!role) continue;
-			if (!highestRole) {
+			if (!role) {
+				continue;
+			}
+			if (!highestRole || this.isRoleHigherThan(role, highestRole)) {
 				highestRole = role;
-			} else {
-				if (this.isRoleHigherThan(role, highestRole)) {
-					highestRole = role;
-				}
 			}
 		}
 		return highestRole;
-	}
-
-	private compareRoleIds(a: GuildRole, b: GuildRole): number {
-		const idA = BigInt(a.id);
-		const idB = BigInt(b.id);
-		return idA < idB ? -1 : idA > idB ? 1 : 0;
 	}
 
 	private isRoleHigherThan(roleA: GuildRole, roleB: GuildRole): boolean {
@@ -567,7 +584,7 @@ export class GuildRoleService {
 			return true;
 		}
 		if (roleA.position === roleB.position) {
-			return BigInt(roleA.id) < BigInt(roleB.id);
+			return compareSnowflakes(roleA.id, roleB.id) < 0;
 		}
 		return false;
 	}
@@ -643,7 +660,8 @@ export class GuildRoleService {
 		}
 		const canManageRole = await this.buildRoleManageCheck(guildId, userId, guildData, allRoles);
 		for (const update of updates) {
-			const role = roleMap.get(update.roleId)!;
+			const role = roleMap.get(update.roleId);
+			assert(role !== undefined);
 			if (canManageRole(role)) {
 				continue;
 			}
@@ -711,7 +729,7 @@ export class GuildRoleService {
 	private getCurrentRoleOrder(allRoles: Array<GuildRole>, everyoneRoleId: RoleID): Array<GuildRole> {
 		return allRoles
 			.filter((role) => role.id !== everyoneRoleId)
-			.sort((a, b) => b.position - a.position || this.compareRoleIds(a, b));
+			.sort((a, b) => b.position - a.position || compareSnowflakes(a.id, b.id));
 	}
 
 	private mergeManageableRoleOrder(params: {
@@ -720,27 +738,28 @@ export class GuildRoleService {
 		explicitPositions: Map<RoleID, number>;
 	}): Array<GuildRole> {
 		const {currentOrder, canManageRole, explicitPositions} = params;
-		const currentIndexById = new Map(currentOrder.map((role, index) => [role.id, index]));
 		const manageableSlotIndices: Array<number> = [];
-		const manageableRoles: Array<GuildRole> = [];
+		const manageableRoles: Array<{role: GuildRole; index: number}> = [];
 		for (const [index, role] of currentOrder.entries()) {
 			if (!canManageRole(role)) {
 				continue;
 			}
 			manageableSlotIndices.push(index);
-			manageableRoles.push(role);
+			manageableRoles.push({role, index});
 		}
 		const sortedManageableRoles = [...manageableRoles].sort((a, b) => {
-			const posA = explicitPositions.has(a.id) ? explicitPositions.get(a.id)! : a.position;
-			const posB = explicitPositions.has(b.id) ? explicitPositions.get(b.id)! : b.position;
+			const posA = explicitPositions.get(a.role.id) ?? a.role.position;
+			const posB = explicitPositions.get(b.role.id) ?? b.role.position;
 			if (posA !== posB) {
 				return posB - posA;
 			}
-			return currentIndexById.get(a.id)! - currentIndexById.get(b.id)!;
+			return a.index - b.index;
 		});
 		const targetOrder = [...currentOrder];
 		for (const [index, slot] of manageableSlotIndices.entries()) {
-			targetOrder[slot] = sortedManageableRoles[index]!;
+			const entry = sortedManageableRoles[index];
+			assert(entry !== undefined);
+			targetOrder[slot] = entry.role;
 		}
 		return targetOrder;
 	}
@@ -759,7 +778,7 @@ export class GuildRoleService {
 		const reorderedRoleSet = new Set(reorderedIds);
 		const nonReorderedRoles = allRoles
 			.filter((role) => role.id !== guildIdToRoleId(guildId) && !reorderedRoleSet.has(role.id))
-			.sort((a, b) => a.position - b.position || this.compareRoleIds(a, b));
+			.sort((a, b) => a.position - b.position || compareSnowflakes(a.id, b.id));
 		const newRoles: Array<GuildRole> = [];
 		if (everyoneRole) {
 			newRoles.push(new GuildRole({...everyoneRole.toRow(), position: 0}));

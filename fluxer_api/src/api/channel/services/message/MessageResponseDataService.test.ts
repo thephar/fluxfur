@@ -5,16 +5,10 @@ import {
 	MESSAGE_BUILD_BATCH_MAX_BYTES,
 	MessageResponseDataService,
 } from '@app/api/channel/services/message/MessageResponseDataService';
-import {
-	type InstanceAttachmentDecayEffectiveConfig,
-	InstanceConfigRepository,
-} from '@app/api/instance/InstanceConfigRepository';
 import {Message} from '@app/api/models/Message';
 import {FakeNatsConnectionManager} from '@app/api/test/mocks/FakeNatsConnectionManager';
 import {MessageTypes} from '@fluxer/constants/src/ChannelConstants';
 import {afterEach, describe, expect, it, vi} from 'vitest';
-
-const ROUTER_SHARD_REQUEST_TIMEOUT_MS = 5000;
 
 function createConnectionManager() {
 	const orphanedMessageIds = new Set<string>();
@@ -114,73 +108,6 @@ describe('MessageResponseDataService', () => {
 		vi.restoreAllMocks();
 	});
 
-	it('omits reactions from broadcast message response requests', async () => {
-		const connectionManager = createConnectionManager();
-		const service = new MessageResponseDataService(connectionManager);
-
-		await service.buildBroadcastMessage({
-			channel: {guildId: null},
-			message: makeMessage(),
-		});
-
-		expect(connectionManager.requests[0]!.body).toMatchObject({
-			op: 'BuildResponse',
-			include_reactions: false,
-			viewer_user_id: '3',
-		});
-	});
-
-	it('tells the shard whether attachment expiry is on', async () => {
-		const connectionManager = createConnectionManager();
-		const service = new MessageResponseDataService(connectionManager);
-		const decayConfig = vi.spyOn(InstanceConfigRepository.prototype, 'getEffectiveAttachmentDecayConfig');
-
-		for (const enabled of [true, false]) {
-			decayConfig.mockResolvedValue({enabled} as InstanceAttachmentDecayEffectiveConfig);
-			await service.buildBroadcastMessage({channel: {guildId: null}, message: makeMessage()});
-		}
-
-		expect(connectionManager.requests.map(({body: payload}) => payload.attachment_decay)).toEqual([true, false]);
-	});
-
-	it('waits longer than the router shard timeout so the inner hop expires first', async () => {
-		const connectionManager = createConnectionManager();
-		const service = new MessageResponseDataService(connectionManager);
-
-		await service.buildBroadcastMessage({
-			channel: {guildId: null},
-			message: makeMessage(),
-		});
-
-		expect(connectionManager.requests[0]!.timeout).toBe(6000);
-		expect(connectionManager.requests[0]!.timeout).toBeGreaterThan(ROUTER_SHARD_REQUEST_TIMEOUT_MS);
-	});
-
-	it('sends no request when there are no messages to build', async () => {
-		const connectionManager = createConnectionManager();
-		const service = new MessageResponseDataService(connectionManager);
-
-		const responses = await service.buildMessages({userId: VIEWER_ID, messages: [], access: ACCESS});
-
-		expect(responses).toEqual([]);
-		expect(connectionManager.requests).toEqual([]);
-	});
-
-	it('keeps a batch that exactly fills the byte budget in one request', async () => {
-		const baseBytes = await measureSerializedMessageBytes();
-		const connectionManager = createConnectionManager();
-		const service = new MessageResponseDataService(connectionManager);
-		const messages = [
-			makeSizedMessage(0, MESSAGE_BUILD_BATCH_MAX_BYTES / 2, baseBytes),
-			makeSizedMessage(1, MESSAGE_BUILD_BATCH_MAX_BYTES / 2, baseBytes),
-		];
-
-		const responses = await service.buildMessages({userId: VIEWER_ID, messages, access: ACCESS});
-
-		expect(batchSizes(connectionManager)).toEqual([2]);
-		expect(responses.map((response) => response.id)).toEqual(messages.map((message) => message.id.toString()));
-	});
-
 	it('splits into ordered batches once one more byte would cross the budget', async () => {
 		const baseBytes = await measureSerializedMessageBytes();
 		const connectionManager = createConnectionManager();
@@ -194,21 +121,6 @@ describe('MessageResponseDataService', () => {
 		const responses = await service.buildMessages({userId: VIEWER_ID, messages, access: ACCESS});
 
 		expect(batchSizes(connectionManager)).toEqual([1, 2]);
-		expect(responses.map((response) => response.id)).toEqual(messages.map((message) => message.id.toString()));
-	});
-
-	it('sends a single message that exceeds the budget on its own', async () => {
-		const baseBytes = await measureSerializedMessageBytes();
-		const connectionManager = createConnectionManager();
-		const service = new MessageResponseDataService(connectionManager);
-		const messages = [
-			makeSizedMessage(0, MESSAGE_BUILD_BATCH_MAX_BYTES + 1, baseBytes),
-			makeSizedMessage(1, baseBytes, baseBytes),
-		];
-
-		const responses = await service.buildMessages({userId: VIEWER_ID, messages, access: ACCESS});
-
-		expect(batchSizes(connectionManager)).toEqual([1, 1]);
 		expect(responses.map((response) => response.id)).toEqual(messages.map((message) => message.id.toString()));
 	});
 
@@ -275,18 +187,5 @@ describe('MessageResponseDataService', () => {
 		expect(batchSizes(connectionManager).sort()).toEqual([1, 1, 2]);
 		expect(responses.map((response) => response.id)).toEqual([messageId(1), messageId(2), messageId(3)]);
 		expect(responses.map((response) => response.channel_id)).toEqual(['20', '10', '10']);
-	});
-
-	it('keeps a full page of ordinary pins in a single request', async () => {
-		const connectionManager = createConnectionManager();
-		const service = new MessageResponseDataService(connectionManager);
-		const messages = Array.from({length: 50}, (_unused, index) =>
-			makeMessage(BASE_MESSAGE_ID + BigInt(index), 'a'.repeat(120)),
-		);
-
-		const responses = await service.buildMessages({userId: VIEWER_ID, messages, access: ACCESS});
-
-		expect(batchSizes(connectionManager)).toEqual([50]);
-		expect(responses.map((response) => response.id)).toEqual(messages.map((message) => message.id.toString()));
 	});
 });

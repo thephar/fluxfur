@@ -2,6 +2,7 @@
 
 import assert from 'node:assert/strict';
 import {assertNonNullObject, assertString} from '@app/features/voice/engine/v2/VoiceEngineV2AppAdapterAssertions';
+import {compareStrings} from '@app/lib/list/CompareStrings';
 import {selectVoiceEngineV2Model} from '@fluxer/voice_engine_v2/src/core/selectors';
 import type {VoiceEngineV2Snapshot} from '@fluxer/voice_engine_v2/src/core/state';
 import type {
@@ -10,10 +11,9 @@ import type {
 	VoiceEngineV2ConnectionStatus,
 	VoiceEngineV2MediaStatus,
 	VoiceEngineV2Model,
-	VoiceEngineV2Participant,
 } from '@fluxer/voice_engine_v2/src/protocol/types';
 
-export type VoiceEngineV2AppProjectionSource = VoiceEngineV2Model | VoiceEngineV2Snapshot;
+type VoiceEngineV2AppProjectionSource = VoiceEngineV2Model | VoiceEngineV2Snapshot;
 
 export type VoiceEngineV2AppParticipantSnapshot = Readonly<{
 	identity: string;
@@ -37,7 +37,7 @@ export type VoiceEngineV2AppParticipantSnapshot = Readonly<{
 	lastSpokeAt: number | null;
 }>;
 
-export interface VoiceEngineV2AppConnectionProjection {
+interface VoiceEngineV2AppConnectionProjection {
 	status: VoiceEngineV2ConnectionStatus;
 	connected: boolean;
 	connecting: boolean;
@@ -55,7 +55,7 @@ export interface VoiceEngineV2AppConnectionProjection {
 	serverRegion: string | null;
 }
 
-export interface VoiceEngineV2AppConnectionFallback {
+interface VoiceEngineV2AppConnectionFallback {
 	connected?: boolean;
 	connecting?: boolean;
 	reconnecting?: boolean;
@@ -85,7 +85,7 @@ interface VoiceEngineV2AppLocalMediaProjection {
 	screenCaptureId: string | null;
 }
 
-export interface VoiceEngineV2AppParticipantProjection {
+interface VoiceEngineV2AppParticipantProjection {
 	participants: Array<VoiceEngineV2AppParticipantSnapshot>;
 	participantIdentities: Array<string>;
 }
@@ -133,22 +133,6 @@ export function selectVoiceEngineV2AppConnection(
 	};
 }
 
-function isProjectionDefinitiveConnection(projection: VoiceEngineV2AppConnectionProjection): boolean {
-	if (projection.connected) return true;
-	if (projection.connecting) return true;
-	if (projection.reconnecting) return true;
-	if (projection.channelId) return true;
-	return false;
-}
-
-function isFallbackEmpty(fallback: VoiceEngineV2AppConnectionFallback): boolean {
-	if (fallback.connected) return false;
-	if (fallback.connecting) return false;
-	if (fallback.reconnecting) return false;
-	if (fallback.channelId) return false;
-	return true;
-}
-
 export function selectVoiceEngineV2AppConnectionWithFallback(
 	source: VoiceEngineV2AppProjectionSource,
 	fallback: VoiceEngineV2AppConnectionFallback,
@@ -156,14 +140,28 @@ export function selectVoiceEngineV2AppConnectionWithFallback(
 	assertNonNullObject(source, 'source');
 	assertNonNullObject(fallback, 'fallback');
 	const projection = selectVoiceEngineV2AppConnection(source);
-	if (isProjectionDefinitiveConnection(projection)) return projection;
-	if (isFallbackEmpty(fallback)) return projection;
+	if (projection.connected || projection.connecting || projection.reconnecting || projection.channelId) {
+		return projection;
+	}
+	if (!fallback.connected && !fallback.connecting && !fallback.reconnecting && !fallback.channelId) {
+		return projection;
+	}
 	const connected = fallback.connected ?? projection.connected;
 	const connecting = fallback.connecting ?? projection.connecting;
 	const reconnecting = fallback.reconnecting ?? projection.reconnecting;
+	let status: VoiceEngineV2ConnectionStatus;
+	if (connected) {
+		status = 'connected';
+	} else if (connecting) {
+		status = 'connecting';
+	} else if (reconnecting) {
+		status = 'reconnecting';
+	} else {
+		status = projection.status;
+	}
 	return {
 		...projection,
-		status: connected ? 'connected' : connecting ? 'connecting' : reconnecting ? 'reconnecting' : projection.status,
+		status,
 		connected,
 		connecting,
 		reconnecting,
@@ -267,7 +265,9 @@ export function selectVoiceEngineV2AppParticipants(
 	source: VoiceEngineV2AppProjectionSource,
 ): VoiceEngineV2AppParticipantProjection {
 	assertNonNullObject(source, 'source');
-	const participants = sortVoiceEngineV2Participants([...voiceEngineV2AppModel(source).participants]);
+	const participants = [...voiceEngineV2AppModel(source).participants].sort(
+		(left, right) => compareStrings(left.identity, right.identity) || compareStrings(left.sid, right.sid),
+	) as Array<VoiceEngineV2AppParticipantSnapshot>;
 	assert.ok(Array.isArray(participants), 'participants must be array');
 	return {
 		participants,
@@ -302,18 +302,4 @@ function voiceEngineV2AppModel(source: VoiceEngineV2AppProjectionSource): VoiceE
 
 function isVoiceEngineV2Snapshot(source: VoiceEngineV2AppProjectionSource): source is VoiceEngineV2Snapshot {
 	return 'nextOperationId' in source;
-}
-
-function sortVoiceEngineV2Participants(
-	participants: Array<VoiceEngineV2Participant>,
-): Array<VoiceEngineV2AppParticipantSnapshot> {
-	return participants.sort(
-		(left, right) => compareStrings(left.identity, right.identity) || compareStrings(left.sid, right.sid),
-	) as Array<VoiceEngineV2AppParticipantSnapshot>;
-}
-
-function compareStrings(left: string, right: string): number {
-	if (left < right) return -1;
-	if (left > right) return 1;
-	return 0;
 }

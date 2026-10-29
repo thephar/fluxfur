@@ -26,10 +26,6 @@ class Sudo {
 		this.token = null;
 		this.expiresAt = null;
 	}
-
-	hasValidToken(): boolean {
-		return this.getValidToken() !== null;
-	}
 }
 
 export default new Sudo();

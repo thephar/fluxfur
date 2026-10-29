@@ -5,7 +5,7 @@ import dns from 'node:dns';
 import type {LookupFunction} from 'node:net';
 import {BlockList, isIP} from 'node:net';
 import {ipToBytes} from '@fluxer/ip_utils/src/IpAddress';
-import {isFqdnHostname} from '@fluxer/schema/src/primitives/UrlValidators';
+import {isFqdnHostname, isSingleLabelHostname} from '@fluxer/schema/src/primitives/UrlValidators';
 import {formatUrlForDiagnostics} from '@pkgs/http_client/src/HttpClientDiagnostics';
 import type {
 	FetchDispatcher,
@@ -243,7 +243,7 @@ export function createPublicInternetRequestUrlPolicy(
 			}
 			return;
 		}
-		if (!isFqdnHostname(normalizedHostname)) {
+		if (!isFqdnHostname(normalizedHostname) && !(allowPrivateAddresses && isSingleLabelHostname(normalizedHostname))) {
 			throw createBlockedRequestError(url, context, 'Hostname is not a valid FQDN');
 		}
 		const resolvedAddresses = await resolveHostname(normalizedHostname);

@@ -65,12 +65,7 @@ async fn messages_page(
     Query(query): Query<MessagesQuery>,
 ) -> Response {
     let config = state.config();
-    let admin_acls = auth
-        .0
-        .admin_user
-        .as_ref()
-        .map(|user| user.acls.as_slice())
-        .unwrap_or(&[]);
+    let admin_acls = auth.0.acls();
     let can_lookup = acl::has_permission(admin_acls, acl::MESSAGE_LOOKUP);
     let can_delete = acl::has_permission(admin_acls, acl::MESSAGE_DELETE);
     let client = AdminApiClient::new(state.http_client(), config, &auth.0.session);

@@ -2,9 +2,18 @@
 
 import {type FormSubmission, type UseFormReturn, useForm} from '@app/features/app/hooks/useForm';
 import {showAccountRestriction} from '@app/features/auth/commands/AuthenticationCommands';
+import {
+	formatRateLimitDuration,
+	RATE_LIMITED_DURATION_BODY_DESCRIPTOR,
+} from '@app/features/i18n/utils/RateLimitDuration';
 import * as RouterUtils from '@app/features/navigation/utils/RouterUtils';
 import {HttpError} from '@app/features/platform/types/EndpointError';
-import {failureMessage, failureValidationErrors} from '@app/features/platform/utils/ResponseInspection';
+import {
+	failureMessage,
+	failureRetryAfterSeconds,
+	failureValidationErrors,
+} from '@app/features/platform/utils/ResponseInspection';
+import {HttpStatus} from '@fluxer/constants/src/HttpConstants';
 import type {I18n} from '@lingui/core';
 import {msg} from '@lingui/core/macro';
 import {useLingui} from '@lingui/react/macro';
@@ -22,6 +31,7 @@ interface UseAuthFormOptions {
 	onSubmit: (values: Record<string, string>) => Promise<AuthFormSubmitResult>;
 	redirectPath?: string;
 	firstFieldName?: string;
+	rateLimitAsFormError?: boolean;
 }
 
 interface ApplyAuthFormErrorsRequest {
@@ -29,6 +39,7 @@ interface ApplyAuthFormErrorsRequest {
 	form: UseFormReturn;
 	i18n: I18n;
 	firstFieldName: string | undefined;
+	rateLimitAsFormError: boolean;
 	setError: (error: string | null) => void;
 	setFieldErrors: (errors: ReadonlyMap<string, string> | null) => void;
 }
@@ -58,6 +69,7 @@ const applyAuthFormErrors = ({
 	form,
 	i18n,
 	firstFieldName,
+	rateLimitAsFormError,
 	setError,
 	setFieldErrors,
 }: ApplyAuthFormErrorsRequest): void => {
@@ -72,7 +84,8 @@ const applyAuthFormErrors = ({
 		return;
 	}
 	const message = getAuthErrorMessage(error, i18n);
-	if (!firstFieldName) {
+	const rateLimited = error instanceof HttpError && error.status === HttpStatus.TOO_MANY_REQUESTS;
+	if (!firstFieldName || (rateLimited && rateLimitAsFormError)) {
 		setError(message);
 		return;
 	}
@@ -81,7 +94,13 @@ const applyAuthFormErrors = ({
 	form.setErrors(fieldErrors);
 };
 
-export function useAuthForm({initialValues, onSubmit, redirectPath, firstFieldName}: UseAuthFormOptions) {
+export function useAuthForm({
+	initialValues,
+	onSubmit,
+	redirectPath,
+	firstFieldName,
+	rateLimitAsFormError = false,
+}: UseAuthFormOptions) {
 	const {i18n} = useLingui();
 	const [error, setError] = useState<string | null>(null);
 	const [fieldErrors, setFieldErrors] = useState<ReadonlyMap<string, string> | null>(null);
@@ -102,7 +121,15 @@ export function useAuthForm({initialValues, onSubmit, redirectPath, firstFieldNa
 				if (!submission.isCurrent()) {
 					return;
 				}
-				applyAuthFormErrors({error: err, form, i18n, firstFieldName, setError, setFieldErrors});
+				applyAuthFormErrors({
+					error: err,
+					form,
+					i18n,
+					firstFieldName,
+					rateLimitAsFormError,
+					setError,
+					setFieldErrors,
+				});
 			}
 		},
 	});
@@ -115,6 +142,17 @@ export function useAuthForm({initialValues, onSubmit, redirectPath, firstFieldNa
 }
 
 export const getAuthErrorMessage = (error: unknown, i18n: I18n): string => {
+	const fieldMessage = failureValidationErrors(error)?.[0]?.message;
+	if (fieldMessage) {
+		return fieldMessage;
+	}
+	const retryAfterSeconds =
+		error instanceof HttpError && error.status === HttpStatus.TOO_MANY_REQUESTS
+			? failureRetryAfterSeconds(error)
+			: undefined;
+	if (retryAfterSeconds != null && retryAfterSeconds > 0) {
+		return i18n._(RATE_LIMITED_DURATION_BODY_DESCRIPTOR, {duration: formatRateLimitDuration(i18n, retryAfterSeconds)});
+	}
 	const message = failureMessage(error);
 	if (message) {
 		return message;

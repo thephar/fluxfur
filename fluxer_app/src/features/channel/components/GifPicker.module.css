@@ -245,9 +245,9 @@
 .gridItemCategoryTitle {
 	position: absolute;
 	top: 0;
-	left: 0;
+	inset-inline-start: 0;
 	bottom: 0;
-	right: 0;
+	inset-inline-end: 0;
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -383,7 +383,7 @@
 	);
 	position: absolute;
 	top: 0.5rem;
-	right: 0.5rem;
+	inset-inline-end: 0.5rem;
 	z-index: 10;
 	opacity: 0;
 	pointer-events: none;
@@ -495,7 +495,7 @@
 
 	border: 0.125rem solid color-mix(in srgb, var(--brand-primary-light) 20%, transparent);
 	border-top-color: var(--brand-primary-light);
-	border-right-color: var(--brand-primary-light);
+	border-inline-end-color: var(--brand-primary-light);
 
 	animation: gifFavoriteSpinner 600ms linear infinite;
 }

@@ -107,8 +107,8 @@ do_request_move_token(Context, ChannelIdValue, Member, SessionId, MoveState, Gui
 -spec handle_move_token_result(
     voice_p2p:join_decision(), {ok, term()} | {error, term()}, map()
 ) -> {reply, map(), guild_state()} | {reply, {error, atom(), atom()}, guild_state()}.
-handle_move_token_result(_Decision, {error, _Reason}, Build) ->
-    move_error_reply(voice_token_failed, Build);
+handle_move_token_result(_Decision, {error, Reason}, Build) ->
+    move_error_reply(guild_voice_connection_token:voice_error_for(Reason), Build);
 handle_move_token_result(Decision, {ok, TokenData}, Build) ->
     case voice_p2p:admit(Decision, TokenData) of
         {reject, ErrorAtom} ->

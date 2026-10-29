@@ -3,7 +3,7 @@
 import {createAuthHarness, createUniqueEmail, createUniqueUsername} from '@app/api/auth/tests/AuthTestUtils';
 import {applySharedListUpdate, resetSharedListsForTests} from '@app/api/infrastructure/activity/SharedLists';
 import type {ApiTestHarness} from '@app/api/test/ApiTestHarness';
-import {createBuilderWithoutAuth} from '@app/api/test/TestRequestBuilder';
+import {createBuilder, createBuilderWithoutAuth} from '@app/api/test/TestRequestBuilder';
 import {afterAll, beforeAll, beforeEach, describe, expect, it} from 'vitest';
 
 interface ValidationErrorResponse {
@@ -45,6 +45,23 @@ describe('Registration validation', () => {
 		} finally {
 			resetSharedListsForTests();
 		}
+	});
+	it('defers a missing date of birth to the date of birth step', async () => {
+		const registered = await createBuilderWithoutAuth<{token: string}>(harness)
+			.post('/auth/register')
+			.body({
+				email: createUniqueEmail(),
+				username: createUniqueUsername(),
+				global_name: 'Test User',
+				password: 'a-strong-password',
+				consent: true,
+			})
+			.execute();
+		const me = await createBuilder<{date_of_birth_required: boolean; traits: Array<string>}>(harness, registered.token)
+			.get('/users/@me')
+			.execute();
+		expect(me.date_of_birth_required).toBe(true);
+		expect(me.traits).toContain('dob_deferred');
 	});
 	it('rejects an impossible calendar date with INVALID_DATE_OF_BIRTH_FORMAT', async () => {
 		for (const dateOfBirth of ['2000-02-30', '2000-13-45']) {

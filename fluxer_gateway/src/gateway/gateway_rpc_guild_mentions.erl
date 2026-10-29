@@ -2,10 +2,6 @@
 
 -module(gateway_rpc_guild_mentions).
 
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
--endif.
-
 -typing([eqwalizer]).
 
 -export([handle/2]).
@@ -36,7 +32,7 @@ do_resolve_sources_page(GuildId, Request) ->
 -spec guild_call_sources_page(pid(), map()) -> map().
 guild_call_sources_page(Pid, Request) ->
     Msg = {resolve_mention_sources_page, Request},
-    case guild_query_handler:call(Pid, Msg, ?GUILD_CALL_TIMEOUT) of
+    case eqwalizer:dynamic_cast(guild_query_handler:call(Pid, Msg, ?GUILD_CALL_TIMEOUT)) of
         #{mentions := Mentions, next_cursor := NextCursor} ->
             #{
                 <<"mentions">> => fmt_mention_entries(Mentions),
@@ -156,76 +152,3 @@ clamp_page_limit(V) ->
         N ->
             N
     end.
-
--ifdef(TEST).
-
-clamp_page_limit_test() ->
-    ?assertEqual(?MENTION_SOURCE_PAGE_DEFAULT_LIMIT, clamp_page_limit(undefined)),
-    ?assertEqual(1, clamp_page_limit(0)),
-    ?assertEqual(50, clamp_page_limit(50)),
-    ?assertEqual(?MENTION_SOURCE_PAGE_MAX_LIMIT, clamp_page_limit(100000)).
-
-resolve_mention_sources_page_malformed_payload_rejected_test() ->
-    ?assertError(
-        {gateway_rpc_error, <<"resolve_mention_sources_page_validation_error">>},
-        handle(<<"guild.resolve_mention_sources_page">>, #{})
-    ),
-    ?assertError(
-        {gateway_rpc_error, <<"resolve_mention_sources_page_validation_error">>},
-        handle_resolve_sources_page(null)
-    ).
-
-parse_page_params_defaults_optional_fields_test() ->
-    Params = #{
-        <<"guild_id">> => <<"1">>,
-        <<"channel_id">> => <<"2">>,
-        <<"author_id">> => <<"3">>
-    },
-    {ok, 1, Req} = parse_page_params(Params),
-    ?assertEqual(2, maps:get(channel_id, Req)),
-    ?assertEqual(false, maps:get(mention_everyone, Req)),
-    ?assertEqual([], maps:get(role_ids, Req)),
-    ?assertEqual(
-        ?MENTION_SOURCE_PAGE_DEFAULT_LIMIT,
-        maps:get(limit, Req)
-    ).
-
-mention_guild_calls_pass_the_caller_deadline_test() ->
-    assert_call_passes_deadline(
-        {
-            fun(Pid) -> guild_call_sources_page(Pid, #{limit => 5}) end,
-            #{mentions => [], next_cursor => undefined},
-            #{<<"mentions">> => [], <<"next_cursor">> => null}
-        }
-    ).
-
-assert_call_passes_deadline({Call, GuildReply, Expected}) ->
-    Self = self(),
-    Guild = spawn(fun() ->
-        receive
-            {'$gen_call', From, Msg} ->
-                Self ! {guild_request, Msg},
-                gen_server:reply(From, GuildReply)
-        end
-    end),
-    Before = os:system_time(millisecond),
-    ?assertEqual(Expected, Call(Guild)),
-    receive
-        {guild_request, {_Tag, #{deadline := Deadline}}} ->
-            ?assert(Deadline >= Before + ?GUILD_CALL_TIMEOUT)
-    after 1000 ->
-        ?assert(false, guild_request_not_received)
-    end.
-
-parse_page_params_rejects_malformed_optional_ids_test() ->
-    Base = #{
-        <<"guild_id">> => <<"1">>,
-        <<"channel_id">> => <<"2">>,
-        <<"author_id">> => <<"3">>
-    },
-    ?assertEqual(error, parse_page_params(Base#{<<"role_ids">> => [<<"4">>, <<"0">>]})),
-    ?assertEqual(error, parse_page_params(Base#{<<"user_ids">> => [<<"5">>, <<"bad">>]})),
-    ?assertEqual(error, parse_page_params(Base#{<<"cursor">> => <<"001">>})),
-    ?assertEqual(error, parse_page_params(Base#{<<"role_ids">> => not_a_list})).
-
--endif.

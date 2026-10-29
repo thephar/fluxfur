@@ -58,11 +58,6 @@ impl PushPlaintextContext {
     }
 }
 
-#[rustler::nif]
-fn available() -> bool {
-    true
-}
-
 #[rustler::nif(schedule = "DirtyCpu")]
 fn render_push_preview_nif<'a>(
     env: Env<'a>,

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import GatewaySessions from '@app/features/gateway/transport/GatewaySessionPool';
+import Guilds from '@app/features/guild/state/Guilds';
 import {AccountScopedWork} from '@app/features/platform/state/AccountScopedWork';
 import {makeAutoObservable, runInAction} from 'mobx';
 
@@ -196,7 +197,7 @@ class MemberPresenceSubscription {
 
 	private syncToGatewayImmediate(guildId: string): void {
 		const socket = GatewaySessions.foregroundConnection.socket;
-		if (!socket) {
+		if (!socket || Guilds.getGuild(guildId)?.visiting === true) {
 			return;
 		}
 		const guildSubs = this.subscriptions.get(guildId);

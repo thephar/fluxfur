@@ -14,6 +14,7 @@ import {observePopoutKeyboardDismiss, resolvePopoutReturnFocus} from '@app/featu
 import KeyboardMode from '@app/features/ui/state/KeyboardMode';
 import LayerManager from '@app/features/ui/state/LayerManager';
 import PopoutState from '@app/features/ui/state/Popout';
+import {toDocumentPlacement} from '@app/features/ui/utils/DocumentPlacement';
 import {isScrollbarDragActive} from '@app/features/ui/utils/ScrollbarDragState';
 import {canUseWindowFocusedHoverControls} from '@app/features/ui/utils/WindowFocusInteractionGuard';
 import {wasPointerDownInside} from '@app/lib/overlay/DismissGuard';
@@ -193,7 +194,7 @@ const PopoutItem: React.FC<PopoutItemProps> = observer(
 			style,
 			beginManualPositioning,
 		} = useAntiShiftFloating(positionReference, {
-			placement: position,
+			placement: toDocumentPlacement(position, target),
 			offsetMainAxis,
 			offsetCrossAxis,
 			shouldAutoUpdate: frozenTargetRect ? false : shouldAutoUpdate,
@@ -475,7 +476,7 @@ export const Popouts: React.FC<PopoutsProps> = observer(({ownerDocument}) => {
 		const prevKeys = prevPopoutKeysRef.current;
 		currentKeys.forEach((key) => {
 			if (!prevKeys.has(key)) {
-				LayerManager.addLayer('popout', key);
+				LayerManager.addLayer('popout', key, undefined, scopeDocument);
 			}
 		});
 		prevKeys.forEach((key) => {
@@ -484,7 +485,7 @@ export const Popouts: React.FC<PopoutsProps> = observer(({ownerDocument}) => {
 			}
 		});
 		prevPopoutKeysRef.current = currentKeys;
-	}, [popouts]);
+	}, [popouts, scopeDocument]);
 	useEffect(() => {
 		return () => {
 			prevPopoutKeysRef.current.forEach((key) => {

@@ -27,13 +27,6 @@ interface DesktopRuntimeSecurityDependencies {
 	readonly localAppAuthorization?: DesktopLocalAppRequestAuthorization;
 }
 
-class DesktopRuntimeSecurityClosedError extends Error {
-	constructor() {
-		super('Desktop runtime security policy is closed');
-		this.name = 'DesktopRuntimeSecurityClosedError';
-	}
-}
-
 class InvalidWebRequestDetailsError extends TypeError {
 	constructor() {
 		super('Electron web request details have an invalid shape');
@@ -52,7 +45,6 @@ export class DesktopRuntimeSecurity {
 	private readonly logger: DesktopRuntimeSecurityLogger;
 	private readonly localAppAuthorization: DesktopLocalAppRequestAuthorization | null;
 	private readonly installedSessions = new Set<Electron.Session>();
-	private acceptingChanges = true;
 
 	constructor(dependencies: DesktopRuntimeSecurityDependencies) {
 		this.logger = dependencies.logger;
@@ -60,7 +52,6 @@ export class DesktopRuntimeSecurity {
 	}
 
 	install(session: Electron.Session): void {
-		this.requireAcceptingChanges();
 		if (this.installedSessions.has(session)) {
 			return;
 		}
@@ -78,25 +69,12 @@ export class DesktopRuntimeSecurity {
 		}
 	}
 
-	cleanup(): void {
-		this.acceptingChanges = false;
-		for (const session of this.installedSessions) {
-			this.uninstall(session);
-		}
-	}
-
 	private uninstall(session: Electron.Session): void {
 		this.installedSessions.delete(session);
 		try {
 			session.webRequest.onBeforeSendHeaders(null);
 		} catch (error) {
 			this.logger.error('Failed to remove desktop runtime security listeners', error);
-		}
-	}
-
-	private requireAcceptingChanges(): void {
-		if (!this.acceptingChanges) {
-			throw new DesktopRuntimeSecurityClosedError();
 		}
 	}
 

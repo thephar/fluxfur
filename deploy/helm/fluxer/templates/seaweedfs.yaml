@@ -4,7 +4,7 @@
 {{- $ctx := dict "root" $ "name" "seaweedfs" "component" "storage" "w" . }}
 {{- $healthz := dict "path" "/healthz" "port" "s3" }}
 {{- $secrets := include "fluxer.secretData" $ | fromJson }}
-{{- $init := $.Files.Get "files/seaweedfs-init.sh" }}
+{{- $init := $.Files.Get "files/seaweedfs-init.sh" | replace "\r" "" }}
 ---
 apiVersion: v1
 kind: Service
@@ -62,6 +62,9 @@ spec:
             - -s3
             - -dir=/data
             - -master.telemetry=false
+            - -master.volumeSizeLimitMB={{ include "fluxer.string" .volumeSizeLimitMB }}
+            - -master.garbageThreshold=0.1
+            - -volume.max={{ include "fluxer.string" .volumeMax }}
             - -ip=127.0.0.1
             - -ip.bind=127.0.0.1
             - -s3.ip.bind=0.0.0.0
@@ -117,6 +120,8 @@ spec:
               value: {{ $.Values.s3.buckets.harvests | quote }}
             - name: FLUXER_SEAWEEDFS_INIT_ATTEMPTS
               value: {{ include "fluxer.string" .initAttempts | quote }}
+            - name: FLUXER_SEAWEEDFS_UPLOADS_TTL
+              value: {{ ternary "off" .uploadsTtl (kindIs "bool" .uploadsTtl) | quote }}
           readinessProbe:
             exec:
               command: ["test", "-f", "/tmp/fluxer-buckets-ready"]

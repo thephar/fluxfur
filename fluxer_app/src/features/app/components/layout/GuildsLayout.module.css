@@ -148,7 +148,7 @@
 .userAreaWrapper {
 	position: absolute;
 	bottom: 0;
-	left: 0;
+	inset-inline-start: 0;
 	width: calc(var(--layout-guild-list-width) + var(--layout-sidebar-width) + 0.0625rem);
 	display: flex;
 	align-items: flex-end;
@@ -237,7 +237,7 @@
 
 .guildIndicator {
 	position: absolute;
-	left: var(--guild-list-indicator-inset);
+	inset-inline-start: var(--guild-list-indicator-inset);
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -257,7 +257,7 @@
 
 .guildBadge {
 	position: absolute;
-	right: -0.25rem;
+	inset-inline-end: -0.25rem;
 	bottom: -0.25rem;
 	pointer-events: none;
 	border-radius: var(--radius-md);
@@ -271,7 +271,7 @@
 
 .guildVoiceBadge {
 	position: absolute;
-	right: -0.25rem;
+	inset-inline-end: -0.25rem;
 	top: -0.25rem;
 	pointer-events: none;
 	z-index: 2;
@@ -294,7 +294,7 @@
 .guildErrorBadge {
 	position: absolute;
 	top: 0;
-	right: 0;
+	inset-inline-end: 0;
 	pointer-events: none;
 }
 
@@ -587,7 +587,7 @@
 }
 
 .guildTooltipStatDot {
-	margin-right: 0.3rem;
+	margin-inline-end: 0.3rem;
 	height: 0.5rem;
 	width: 0.5rem;
 	border-radius: 624.9375rem;
@@ -619,7 +619,7 @@
 	align-items: center;
 	gap: 0.375rem;
 	min-height: 1.875rem;
-	padding-right: 0.25rem;
+	padding-inline-end: 0.25rem;
 }
 
 .guildVoiceIcon {
@@ -647,7 +647,7 @@
 
 .guildInvitesPausedBadge {
 	position: absolute;
-	right: calc(-0.25rem - 0.1875rem);
+	inset-inline-end: calc(-0.25rem - 0.1875rem);
 	bottom: calc(-0.25rem - 0.1875rem);
 	pointer-events: none;
 	background-color: var(--guild-badge-surface);
@@ -747,17 +747,23 @@
 	background-color: transparent;
 }
 
+.guildListDropZoneSlot {
+	position: relative;
+	display: block;
+	height: 0;
+}
+
 .guildListDropZone {
 	position: absolute;
-	left: 0;
-	right: 0;
+	inset-inline-start: 0;
+	inset-inline-end: 0;
 	height: 1.5rem;
 	z-index: 10;
 	pointer-events: none;
 }
 
 .guildListDropZoneBottom {
-	bottom: 0;
+	top: calc(-1 * var(--guild-list-item-gap));
 }
 
 .guildListDropZoneEnabled {
@@ -776,7 +782,7 @@
 }
 
 .guildListDropZoneBottom.guildListDropZoneActive::after {
-	bottom: 0;
+	top: calc(var(--guild-list-item-gap) / 2 - 0.0625rem);
 }
 
 :global(.theme-light) .dropIndicatorTop::before,

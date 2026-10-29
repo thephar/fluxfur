@@ -185,4 +185,19 @@ describe('Limit config storage', () => {
 		expect(limitsOf(savedInEveryone, 'premium')).toEqual(edits);
 		expect(limitsOf(load(savedInEveryone, mirror), 'premium')).toEqual({...DEFAULT_STOCK_LIMITS, ...edits});
 	});
+
+	test('everyone mode drops premium rules whatever the trait case', () => {
+		const sanitized = sanitizeLimitConfigForInstance(
+			{
+				traitDefinitions: ['Premium', 'vip'],
+				rules: [
+					{id: 'loud', filters: {traits: ['PREMIUM']}, limits: {max_guilds: 250}},
+					{id: 'vip', filters: {traits: ['vip']}, limits: {max_guilds: 100}},
+				],
+			},
+			everyone,
+		);
+		expect(sanitized.traitDefinitions).toEqual(['vip']);
+		expect(sanitized.rules.map((rule) => rule.id)).toEqual(['vip']);
+	});
 });

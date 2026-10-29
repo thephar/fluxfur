@@ -298,7 +298,7 @@ fn build_stream_for_pid(
     let nsname = NSString::from_str(&stream_name);
     sck::cfg_set_stream_name_if_available(&cfg, &nsname);
 
-    let source = Source::create(SourceOptions::default()).map_err(|_| BuildStreamErr::Other)?;
+    let source = Source::create(SourceOptions::default());
 
     let stream_alloc = SCStream::alloc();
     let stream: Retained<SCStream> = unsafe {
@@ -386,7 +386,7 @@ fn build_system_stream() -> std::result::Result<BuiltStream, BuildStreamErr> {
     let nsname = NSString::from_str("Fluxer System Audio");
     sck::cfg_set_stream_name_if_available(&cfg, &nsname);
 
-    let source = Source::create(SourceOptions::default()).map_err(|_| BuildStreamErr::Other)?;
+    let source = Source::create(SourceOptions::default());
 
     let stream_alloc = SCStream::alloc();
     let stream: Retained<SCStream> = unsafe {

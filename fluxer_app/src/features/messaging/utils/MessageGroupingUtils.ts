@@ -159,14 +159,18 @@ export function createChannelStream(props: {
 	messages: ChannelMessages;
 	oldestUnreadMessageId: string | null;
 	treatSpam: boolean;
+	hideBlocked: boolean;
 }): Array<ChannelStreamItem> {
-	const {channel, messages, oldestUnreadMessageId, treatSpam} = props;
+	const {channel, messages, oldestUnreadMessageId, treatSpam, hideBlocked} = props;
 	const stream: Array<ChannelStreamItem> = [];
 	let lastDateDividerTimestamp: Date | undefined;
 	let groupId: string | undefined;
 	let lastMessageInGroup: Message | undefined;
 	let unreadTimestamp: number | null = oldestUnreadMessageId ? extractTimestamp(oldestUnreadMessageId) : null;
 	messages.forEach((message): boolean | undefined => {
+		if (hideBlocked && message.blocked && message.isUserMessage() && message.id !== messages.jumpDestinationId) {
+			return undefined;
+		}
 		if (!lastDateDividerTimestamp || !isSameDayBase(lastDateDividerTimestamp, message.timestamp)) {
 			const dateString = DateUtils.getFormattedFullDate(message.timestamp);
 			stream.push({

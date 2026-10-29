@@ -5,6 +5,12 @@ import {Config} from '@app/api/Config';
 import type {GuildRepository} from '@app/api/guild/repositories/GuildRepository';
 import type {GuildService} from '@app/api/guild/services/GuildService';
 import type {IGatewayService} from '@app/api/infrastructure/IGatewayService';
+import type {OperatorPassServices} from '@app/api/middleware/OperatorPassServiceFactory';
+import {getDonationRepository, getEmailService} from '@app/api/middleware/ServiceSingletons';
+import {
+	createOperatorPassFulfilmentService,
+	type OperatorPassFulfilmentService,
+} from '@app/api/operator_pass/OperatorPassFulfilmentService';
 import type {StoreBillingRepository} from '@app/api/store_billing/StoreBillingRepository';
 import type {StoreEntitlementService} from '@app/api/store_billing/StoreEntitlementService';
 import {getProductRegistry, type ProductRegistry} from '@app/api/stripe/ProductRegistry';
@@ -27,6 +33,7 @@ export class StripeService {
 	readonly checkout: StripeCheckoutService;
 	readonly subscriptions: StripeSubscriptionService;
 	readonly gifts: StripeGiftService;
+	readonly operatorPassFulfilment: OperatorPassFulfilmentService | null;
 	readonly premium: StripePremiumService;
 	readonly premiumState: PremiumStateService;
 	readonly refunds: StripeRefundService;
@@ -40,6 +47,7 @@ export class StripeService {
 		private billingRepository: BillingRepository,
 		private storeBillingRepository: StoreBillingRepository | null = null,
 		private storeEntitlementService: StoreEntitlementService | null = null,
+		operatorPassServices: OperatorPassServices,
 	) {
 		this.productRegistry = getProductRegistry();
 		this.stripe = getStripeClient();
@@ -72,17 +80,29 @@ export class StripeService {
 			this.gatewayService,
 			this.storeEntitlementService,
 		);
+		this.operatorPassFulfilment = createOperatorPassFulfilmentService({
+			stripe: this.stripe,
+			userRepository: this.userRepository,
+			emailService: getEmailService(),
+			cacheService: this.cacheService,
+			donationRepository: getDonationRepository(),
+			services: operatorPassServices,
+		});
 		this.gifts = new StripeGiftService(
 			this.stripe,
 			this.userRepository,
 			this.cacheService,
 			this.gatewayService,
-			this.checkout,
 			this.premium,
 			this.subscriptions,
 			this.storeEntitlementService,
 		);
-		this.refunds = new StripeRefundService(this.stripe, this.userRepository, this.subscriptions);
+		this.refunds = new StripeRefundService(
+			this.stripe,
+			this.userRepository,
+			this.subscriptions,
+			this.storeEntitlementService,
+		);
 	}
 
 	getStripe(): Stripe | null {

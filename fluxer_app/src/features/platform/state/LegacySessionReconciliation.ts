@@ -71,7 +71,7 @@ export interface LegacySessionReconciliationResult {
 	readonly reason: LegacySessionReconciliationSkipReason | null;
 }
 
-export class LegacySessionAccountsNotAuthoritativeError extends Error {
+class LegacySessionAccountsNotAuthoritativeError extends Error {
 	public constructor(source: string) {
 		super(`The stored account list is not authoritative (source: ${source})`);
 		this.name = 'LegacySessionAccountsNotAuthoritativeError';
@@ -94,7 +94,7 @@ export function readLegacySessionCredentials(storage: Storage | null): LegacySes
 	return {userId, token};
 }
 
-export function matchLegacySessionAccount(
+function matchLegacySessionAccount(
 	accounts: ReadonlyArray<KeyedStoredAccount>,
 	credentials: LegacySessionCredentials,
 	instance: RuntimeConfigSnapshot,

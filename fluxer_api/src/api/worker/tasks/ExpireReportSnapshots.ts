@@ -22,6 +22,7 @@ import {ms} from 'itty-time';
 
 export const REPORT_COMPLAINT_WINDOW_DAYS = 184;
 export const CHILD_SAFETY_REPORT_RETENTION_DAYS = 365;
+export const REPORT_CONTENT_RETENTION_DAYS = 365;
 const CHILD_SAFETY_CATEGORY = 'child_safety';
 const DECISION_EVIDENCE_RETENTION_MS = EnforcementDecisionEvidence.defaultTtlSeconds! * 1000;
 const DEFAULT_SCAN_PAGE_SIZE = 500;
@@ -62,19 +63,23 @@ export interface ReportRetentionDates {
 
 type ReportRetentionState = 'expired' | 'context_expired' | 'held' | 'retained';
 
-const KEEP_UNTIL_RESOLVED: ReportRetentionDates = {deleteAt: null, contextExpiresAt: null};
+function contentEndsAt(report: IARSubmission): number | null {
+	const filedAt = report.reportedAt.getTime();
+	return Number.isNaN(filedAt) ? null : filedAt + REPORT_CONTENT_RETENTION_DAYS * ms('1 day');
+}
 
 export function reportRetentionDates(
 	report: IARSubmission,
 	policy: ReportRetentionPolicy,
 	decidedAt: Date | null,
 ): ReportRetentionDates {
+	const contentEnd = contentEndsAt(report);
 	if (report.status !== ReportStatus.RESOLVED) {
-		return KEEP_UNTIL_RESOLVED;
+		return {deleteAt: null, contextExpiresAt: contentEnd};
 	}
 	const resolvedAt = (report.resolvedAt ?? report.reportedAt).getTime();
 	if (Number.isNaN(resolvedAt)) {
-		return KEEP_UNTIL_RESOLVED;
+		return {deleteAt: null, contextExpiresAt: contentEnd};
 	}
 	const childSafety = report.category === CHILD_SAFETY_CATEGORY;
 	const ends = [resolvedAt + policy.retentionDays * ms('1 day')];
@@ -85,9 +90,13 @@ export function reportRetentionDates(
 		ends.push(decidedAt.getTime() + DECISION_EVIDENCE_RETENTION_MS);
 	}
 	const dropsContextEarly = report.reporterOutcome === 'no_violation' && !childSafety && !decidedAt;
+	const contextEnds = [
+		contentEnd,
+		dropsContextEarly ? resolvedAt + REPORT_COMPLAINT_WINDOW_DAYS * ms('1 day') : null,
+	].filter((end): end is number => end !== null);
 	return {
 		deleteAt: Math.max(...ends),
-		contextExpiresAt: dropsContextEarly ? resolvedAt + REPORT_COMPLAINT_WINDOW_DAYS * ms('1 day') : null,
+		contextExpiresAt: contextEnds.length > 0 ? Math.min(...contextEnds) : null,
 	};
 }
 
@@ -106,12 +115,14 @@ function reportRetentionState(
 	decidedAt: Date | null,
 ): ReportRetentionState {
 	const {deleteAt, contextExpiresAt} = reportRetentionDates(report, policy, decidedAt);
-	const due =
-		deleteAt !== null && deleteAt <= now.getTime()
-			? 'expired'
-			: contextExpiresAt !== null && contextExpiresAt <= now.getTime() && hasCopiedContext(report)
-				? 'context_expired'
-				: null;
+	let due: 'expired' | 'context_expired' | null;
+	if (deleteAt !== null && deleteAt <= now.getTime()) {
+		due = 'expired';
+	} else if (contextExpiresAt !== null && contextExpiresAt <= now.getTime() && hasCopiedContext(report)) {
+		due = 'context_expired';
+	} else {
+		due = null;
+	}
 	if (due === null) {
 		return 'retained';
 	}
@@ -213,7 +224,12 @@ export async function processReportRetention(
 		}
 	}
 	Logger.info(
-		{...summary, retentionDays: policy.retentionDays, complaintWindowDays: REPORT_COMPLAINT_WINDOW_DAYS},
+		{
+			...summary,
+			retentionDays: policy.retentionDays,
+			complaintWindowDays: REPORT_COMPLAINT_WINDOW_DAYS,
+			contentRetentionDays: REPORT_CONTENT_RETENTION_DAYS,
+		},
 		'Processed report retention',
 	);
 	return summary;

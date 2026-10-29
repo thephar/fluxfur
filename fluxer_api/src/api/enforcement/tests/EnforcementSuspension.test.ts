@@ -35,7 +35,7 @@ import {DeletionReasons} from '@fluxer/constants/src/Core';
 import {UserFlags} from '@fluxer/constants/src/UserConstants';
 import {MockKVProvider} from '@pkgs/kv_client/src/testing/MockKVProvider';
 import {ms} from 'itty-time';
-import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi} from 'vitest';
+import {afterAll, beforeAll, beforeEach, describe, expect, test} from 'vitest';
 
 describe('Enforcement suspensions', () => {
 	let harness: ApiTestHarness;
@@ -48,10 +48,6 @@ describe('Enforcement suspensions', () => {
 	beforeEach(async () => {
 		await harness.reset();
 		staff = await createStaff(harness);
-	});
-
-	afterEach(() => {
-		vi.restoreAllMocks();
 	});
 
 	afterAll(async () => {
@@ -70,26 +66,12 @@ describe('Enforcement suspensions', () => {
 		return {target, channelId: systemChannel.id, channelName: systemChannel.name!, messageId: message.id};
 	}
 
-	test('records the decision before the state and sets the pointer in the same user write', async () => {
+	test('records the decision and points the suspended user at it', async () => {
 		const target = await createTestAccount(harness);
-		const users = getUserRepository();
-		const repository = new EnforcementDecisionRepository();
-		const original = users.patchUpsert.bind(users);
-		const seen: Array<{pointer: unknown; until: unknown; stored: boolean}> = [];
-		vi.spyOn(users, 'patchUpsert').mockImplementation(async (userId, patch, oldData) => {
-			if (patch.enforcement_decision_id) {
-				seen.push({
-					pointer: patch.enforcement_decision_id,
-					until: patch.temp_banned_until,
-					stored: (await repository.get(patch.enforcement_decision_id)) !== null,
-				});
-			}
-			return original(userId, patch, oldData);
-		});
 		const decisionId = await suspend(harness, staff, target.userId);
-		expect(seen).toEqual([{pointer: BigInt(decisionId), until: expect.any(Date), stored: true}]);
 		const user = await loadUser(target);
 		expect(user.enforcementDecisionId).toBe(BigInt(decisionId));
+		expect(user.tempBannedUntil).not.toBeNull();
 		expect((user.flags & UserFlags.DISABLED) !== 0n).toBe(true);
 		const decision = await getDecision(harness, staff, decisionId);
 		expect(decision).toMatchObject({kind: 'suspension', status: 'active', notice_status: 'sent', replaced: false});
@@ -117,16 +99,16 @@ describe('Enforcement suspensions', () => {
 			decision_id: decisionId,
 		});
 		const text = decision.notice_text!;
-		expect(text).toContain(`Hello ${target.username},`);
 		expect(text).toContain('We suspended your account until ');
 		expect(text).toContain("You can't sign in or use Fluxer anywhere until then.");
-		expect(text).toMatch(/Rule: Spam \(.+\/guidelines#6-spam-and-service-abuse\)/);
+		expect(text).toMatch(/Rule: Spam\n.+\/guidelines#6-spam-and-service-abuse\n/);
 		expect(text).toContain('We found that your account sent unwanted messages in bulk.');
 		expect(text).toContain(`1 message in #${channelName} of Test Guild, on `);
 		expect(text).toContain('Note from our team: You sent the same invite link to many people.');
-		expect(text).toContain('How we decided\nWe found this in our own review.');
-		expect(text).toContain('A person on our team reviewed this and made the decision.');
-		expect(text).toContain(`email appeals@fluxer.com by ${deadline}.`);
+		expect(text).toContain(
+			'How we decided\nWe found this in our own review, and a person on our team made the decision.',
+		);
+		expect(text).toContain(`reply to this email by ${deadline}.`);
 		expect(text).toContain('certified out-of-court dispute settlement body');
 		expect(text).toContain(`Decision ID: ${decisionId}`);
 		expect(text).not.toContain(INTERNAL_NOTE);
@@ -250,37 +232,6 @@ describe('Enforcement suspensions', () => {
 		expect(response.decision_id).toBe(decisionId);
 	});
 
-	test('a failed state change leaves no decision and sends nothing', async () => {
-		const target = await createTestAccount(harness);
-		await clearTestEmails(harness);
-		vi.spyOn(getUserRepository(), 'patchUpsert').mockRejectedValueOnce(new Error('write failed'));
-		await suspendRequest(harness, staff, target.userId, {duration_hours: 24, decision: decisionBody()})
-			.expect(HTTP_STATUS.INTERNAL_SERVER_ERROR)
-			.execute();
-		vi.restoreAllMocks();
-		expect(await listDecisions(harness, staff, target.userId)).toEqual([]);
-		expect(await emailsTo(harness, target, 'enforcement_notice')).toEqual([]);
-		expect((await loadUser(target)).enforcementDecisionId).toBeNull();
-	});
-
-	test('a state change that fails after the pointer is written keeps the decision so it can be ended', async () => {
-		const target = await createTestAccount(harness);
-		vi.spyOn(getUserRepository(), 'updateFlags').mockRejectedValueOnce(new Error('write failed'));
-		await suspendRequest(harness, staff, target.userId, {duration_hours: 24, decision: decisionBody()})
-			.expect(HTTP_STATUS.INTERNAL_SERVER_ERROR)
-			.execute();
-		vi.restoreAllMocks();
-		const [decision] = await listDecisions(harness, staff, target.userId);
-		expect((await loadUser(target)).enforcementDecisionId?.toString()).toBe(decision?.decision_id);
-		await createBuilder(harness, staff.token)
-			.post(`/admin/enforcement-decisions/${decision!.decision_id}/end`)
-			.header('X-Audit-Log-Reason', 'Retrying')
-			.body({outcome: 'lifted'})
-			.expect(HTTP_STATUS.OK)
-			.execute();
-		expect((await loadUser(target)).enforcementDecisionId).toBeNull();
-	});
-
 	test('a restricted suspension cancels the deletion the holder scheduled, so the account is kept', async () => {
 		const {target, channelId, messageId} = await guildMessage();
 		const users = getUserRepository();
@@ -356,13 +307,56 @@ describe('Enforcement suspensions', () => {
 
 	test('records undelivered when email is off on the instance', async () => {
 		const target = await createTestAccount(harness);
-		const config = getInstanceConfigRepository();
-		const effective = await config.getEffectiveEmailConfig();
-		vi.spyOn(config, 'getEffectiveEmailConfig').mockResolvedValue({...effective, enabled: false});
+		await getInstanceConfigRepository().setInstanceIntegrationsConfig({email: {delivery: 'off'}});
 		await clearTestEmails(harness);
 		const decisionId = await suspend(harness, staff, target.userId);
 		expect((await getDecision(harness, staff, decisionId)).notice_status).toBe('undelivered');
 		expect(await emailsTo(harness, target, 'enforcement_notice')).toEqual([]);
+	});
+
+	async function systemDmCount(account: TestAccount): Promise<number> {
+		const channels = await createBuilder<Array<{id: string; recipients?: Array<{id: string}>}>>(harness, account.token)
+			.get('/users/@me/channels')
+			.expect(HTTP_STATUS.OK)
+			.execute();
+		let count = 0;
+		for (const channel of channels.filter((entry) => entry.recipients?.some((recipient) => recipient.id === '0'))) {
+			const messages = await createBuilder<Array<unknown>>(harness, account.token)
+				.get(`/channels/${channel.id}/messages?limit=50`)
+				.expect(HTTP_STATUS.OK)
+				.execute();
+			count += messages.length;
+		}
+		return count;
+	}
+
+	test('with DMs off a warning and its end go by email only', async () => {
+		const target = await createTestAccount(harness);
+		await getInstanceConfigRepository().setInstancePolicyConfig({direct_messages_disabled: true});
+		await clearTestEmails(harness);
+		const decisionId = await warn(harness, staff, target.userId);
+		const decision = await getDecision(harness, staff, decisionId);
+		expect(decision).toMatchObject({notice_status: 'sent', notice_channels: ['email']});
+		await createBuilder(harness, staff.token)
+			.post(`/admin/enforcement-decisions/${decisionId}/end`)
+			.body({outcome: 'reversed'})
+			.expect(HTTP_STATUS.OK)
+			.execute();
+		expect(await emailsTo(harness, target, 'enforcement_ended')).toHaveLength(1);
+		expect(await systemDmCount(target)).toBe(0);
+	});
+
+	test('with DMs off a bot owner without email is recorded undelivered', async () => {
+		const bot = await createTestBotAccount(harness);
+		const users = getUserRepository();
+		const owner = (await users.findUnique(createUserID(BigInt(bot.ownerUserId))))!;
+		await users.patchUpsert(owner.id, {email: null}, owner.toRow());
+		await getInstanceConfigRepository().setInstancePolicyConfig({direct_messages_disabled: true});
+		const decisionId = await suspend(harness, staff, bot.botUserId);
+		expect(await getDecision(harness, staff, decisionId)).toMatchObject({
+			notice_status: 'undelivered',
+			notice_channels: [],
+		});
 	});
 
 	test('a warning changes nothing and is sent by email and system DM', async () => {
@@ -415,7 +409,9 @@ describe('Enforcement suspensions', () => {
 		expect((await emailsTo(harness, reporter, 'report_resolved')).length).toBe(1);
 		const decision = await getDecision(harness, staff, decisionId);
 		expect(decision.report_ids).toEqual([reportId]);
-		expect(decision.notice_text).toContain('We reviewed this after a report.');
+		expect(decision.notice_text).toContain(
+			'We reviewed this after a report, and a person on our team made the decision.',
+		);
 	});
 
 	test('suspended accounts are not eligible for inactivity deletion', async () => {

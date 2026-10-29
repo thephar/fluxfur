@@ -564,32 +564,11 @@ function toVoiceEngineV2Stats(rttMs: number | null, tracks: ReadonlyArray<PerTra
 	};
 }
 
-export interface VoiceEngineV2AppStatsHostAdapterScheduler {
-	setInterval(handler: () => void, intervalMs: number): unknown;
-	clearInterval(handle: unknown): void;
-}
-
-export interface VoiceEngineV2AppStatsHostAdapterOptions {
-	now?: () => number;
-	scheduler?: VoiceEngineV2AppStatsHostAdapterScheduler;
-}
-
-const DEFAULT_STATS_SCHEDULER: VoiceEngineV2AppStatsHostAdapterScheduler = {
-	setInterval(handler, intervalMs) {
-		return setInterval(handler, intervalMs);
-	},
-	clearInterval(handle) {
-		clearInterval(handle as NodeJS.Timeout);
-	},
-};
-
 export class VoiceEngineV2AppStatsHostAdapter extends Store {
-	private readonly now: () => number;
-	private readonly scheduler: VoiceEngineV2AppStatsHostAdapterScheduler;
 	private room: Room | null = null;
-	private latencyIntervalId: unknown = null;
-	private statsIntervalId: unknown = null;
-	private statsClockIntervalId: unknown = null;
+	private latencyIntervalId: ReturnType<typeof setInterval> | null = null;
+	private statsIntervalId: ReturnType<typeof setInterval> | null = null;
+	private statsClockIntervalId: ReturnType<typeof setInterval> | null = null;
 	private statsSnapshot: VoiceStatsSnapshot = createVoiceStatsSnapshot();
 	currentLatency: number | null = null;
 	averageLatency: number | null = null;
@@ -601,14 +580,6 @@ export class VoiceEngineV2AppStatsHostAdapter extends Store {
 	subscriberTransport: TransportInfo | null = null;
 	reconnectionCount: number = 0;
 	private graphStatsConnectionId: string | null = null;
-
-	constructor(options: VoiceEngineV2AppStatsHostAdapterOptions = {}) {
-		super();
-		this.now = options.now ?? (() => Date.now());
-		this.scheduler = options.scheduler ?? DEFAULT_STATS_SCHEDULER;
-		assert.equal(typeof this.now, 'function', 'now must be function');
-		assertNonNullObject(this.scheduler, 'scheduler');
-	}
 
 	private transitionStats(event: VoiceStatsEvent): void {
 		this.update(() => {
@@ -660,7 +631,7 @@ export class VoiceEngineV2AppStatsHostAdapter extends Store {
 		assert.ok(room === null || typeof room === 'object', 'room must be null or object');
 		this.update(() => {
 			this.room = room;
-			this.applyStatsEvent({type: 'room.set', roomIdentity: room, now: this.now()});
+			this.applyStatsEvent({type: 'room.set', roomIdentity: room, now: Date.now()});
 		});
 		assert.equal(this.room, room, 'room must be persisted after set');
 	}
@@ -675,7 +646,7 @@ export class VoiceEngineV2AppStatsHostAdapter extends Store {
 				inbound: [],
 			};
 		}
-		const now = this.now();
+		const now = Date.now();
 		assertFiniteNumber(now, 'now');
 		const tracks: Array<PerTrackStats> = [];
 		const activeCounterIds = new Set<string>();
@@ -716,18 +687,18 @@ export class VoiceEngineV2AppStatsHostAdapter extends Store {
 
 	private clearLatencyInterval(): void {
 		if (this.latencyIntervalId === null) return;
-		this.scheduler.clearInterval(this.latencyIntervalId);
+		clearInterval(this.latencyIntervalId);
 		this.latencyIntervalId = null;
 	}
 
 	private clearStatsInterval(): void {
 		if (this.statsIntervalId === null) return;
-		this.scheduler.clearInterval(this.statsIntervalId);
+		clearInterval(this.statsIntervalId);
 		this.statsIntervalId = null;
 	}
 
 	private onLatencyTick(): void {
-		const timestamp = this.now();
+		const timestamp = Date.now();
 		const engineWrap = this.room as RoomWithEngine;
 		if (!engineWrap?.engine?.client?.rtt) {
 			this.transitionStats({type: 'latency.gap', timestamp});
@@ -741,7 +712,7 @@ export class VoiceEngineV2AppStatsHostAdapter extends Store {
 		this.transitionStats({type: 'latency.start'});
 		if (this.latencyIntervalId !== null) return;
 		logger.debug('Starting latency tracking');
-		this.latencyIntervalId = this.scheduler.setInterval(() => this.onLatencyTick(), LATENCY_UPDATE_INTERVAL_MS);
+		this.latencyIntervalId = setInterval(() => this.onLatencyTick(), LATENCY_UPDATE_INTERVAL_MS);
 		assert.ok(this.latencyIntervalId !== null, 'latencyIntervalId must be set');
 	}
 
@@ -753,15 +724,15 @@ export class VoiceEngineV2AppStatsHostAdapter extends Store {
 
 	private startStatsClock(): void {
 		if (this.statsClockIntervalId !== null) return;
-		this.transitionStats({type: 'stats.tick', timestamp: this.now()});
-		this.statsClockIntervalId = this.scheduler.setInterval(() => {
-			this.transitionStats({type: 'stats.tick', timestamp: this.now()});
+		this.transitionStats({type: 'stats.tick', timestamp: Date.now()});
+		this.statsClockIntervalId = setInterval(() => {
+			this.transitionStats({type: 'stats.tick', timestamp: Date.now()});
 		}, STATS_CLOCK_INTERVAL_MS);
 	}
 
 	private stopStatsClock(): void {
 		if (this.statsClockIntervalId === null) return;
-		this.scheduler.clearInterval(this.statsClockIntervalId);
+		clearInterval(this.statsClockIntervalId);
 		this.statsClockIntervalId = null;
 	}
 
@@ -798,7 +769,7 @@ export class VoiceEngineV2AppStatsHostAdapter extends Store {
 		const subscriber = engine.pcManager.subscriber;
 		const peerConnectionMode = engine.pcManager.mode;
 		if (!publisher && !subscriber) return;
-		const now = this.now();
+		const now = Date.now();
 		const tracks: Array<PerTrackStats> = [];
 		const activeCounterIds = new Set<string>();
 		const rtpCounters = new Map<string, VoiceStatsRtpCounter>(decision.rtpCounters);
@@ -882,7 +853,7 @@ export class VoiceEngineV2AppStatsHostAdapter extends Store {
 		this.startStatsClock();
 		if (this.statsIntervalId !== null) return;
 		logger.debug('Starting stats tracking');
-		this.statsIntervalId = this.scheduler.setInterval(() => {
+		this.statsIntervalId = setInterval(() => {
 			void this.runStatsCollectionTick();
 		}, STATS_UPDATE_INTERVAL_MS);
 		assert.ok(this.statsIntervalId !== null, 'statsIntervalId must be set');

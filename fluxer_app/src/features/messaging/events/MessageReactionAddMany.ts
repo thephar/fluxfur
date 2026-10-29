@@ -40,7 +40,7 @@ export function handleMessageReactionAddMany(
 			if (data.guild_id && reaction.member) {
 				GuildMembers.hydrateIfMissing(data.guild_id, reaction.member);
 			}
-			SavedMessages.handleMessageReactionAdd(data.message_id);
+			SavedMessages.handleMessageReactionChange(data.message_id);
 			MessageReactions.handleReactionAdd(data.message_id, reaction.user_id, emoji);
 			ChannelPins.handleMessageReactionAdd(data.channel_id, data.message_id);
 			ForumPosts.handleReaction(
@@ -50,7 +50,7 @@ export function handleMessageReactionAddMany(
 				true,
 				reaction.user_id === Authentication.currentUserId,
 			);
-			MentionFeed.handleMessageReactionAdd(data.message_id);
+			MentionFeed.handleMessageReactionChange(data.message_id);
 			Messages.handleReaction({
 				type: 'MESSAGE_REACTION_ADD',
 				channelId: data.channel_id,

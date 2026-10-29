@@ -3,11 +3,13 @@
 import {
 	createAuthHarness,
 	createTestAccount,
+	createTotpSecret,
 	createUniqueEmail,
 	disableSso,
 	enableSso,
 	setUserACLs,
 	type TestAccount,
+	totpCodeNow,
 } from '@app/api/auth/tests/AuthTestUtils';
 import {Config} from '@app/api/Config';
 import {createChannelInvite, setupTestGuildWithMembers} from '@app/api/guild/tests/GuildTestUtils';
@@ -30,10 +32,18 @@ interface SsoCompleteResponse {
 	redirect_to: string;
 }
 
+interface SsoMfaChallengeResponse {
+	mfa: true;
+	ticket: string;
+	backup_codes: boolean;
+	redirect_to: string;
+}
+
 interface SsoStatusResponse {
 	enabled: boolean;
 	enforced: boolean;
 	display_name?: string;
+	button_label: string | null;
 	redirect_uri: string;
 }
 
@@ -703,6 +713,85 @@ describe('Auth SSO flow', () => {
 				.execute();
 			expect(secondLogin.user_id).not.toBe(firstLogin.user_id);
 		});
+		async function signInWithSso(code: string): Promise<SsoCompleteResponse> {
+			const startData = await createBuilderWithoutAuth<SsoStartResponse>(harness)
+				.post('/auth/sso/start')
+				.body({})
+				.execute();
+			return createBuilderWithoutAuth<SsoCompleteResponse>(harness)
+				.post('/auth/sso/complete')
+				.body({code, state: startData.state})
+				.execute();
+		}
+		it('joins an existing account to the single community when it signs in', async () => {
+			await enableSso(harness, admin.token, {enforced: false});
+			const email = createUniqueEmail('sso-existing-single');
+			const first = await signInWithSso(email);
+			const {owner, guild} = await setupTestGuildWithMembers(harness, 0);
+			await getInstanceConfigRepository().setInstancePolicyConfig({
+				single_community_enabled: true,
+				single_community_guild_id: guild.id,
+			});
+			await createBuilder(harness, owner.token)
+				.get(`/guilds/${guild.id}/members/${first.user_id}`)
+				.expect(404)
+				.execute();
+			const second = await signInWithSso(email);
+			expect(second.user_id).toBe(first.user_id);
+			await createBuilder(harness, owner.token)
+				.get(`/guilds/${guild.id}/members/${first.user_id}`)
+				.expect(200)
+				.execute();
+		});
+		it('keeps a banned account out of the single community when it signs in', async () => {
+			await enableSso(harness, admin.token, {enforced: false});
+			const email = createUniqueEmail('sso-existing-banned');
+			const first = await signInWithSso(email);
+			const {owner, guild} = await setupTestGuildWithMembers(harness, 0);
+			await createBuilder(harness, owner.token)
+				.put(`/guilds/${guild.id}/bans/${first.user_id}`)
+				.body({})
+				.expect(204)
+				.execute();
+			await getInstanceConfigRepository().setInstancePolicyConfig({
+				single_community_enabled: true,
+				single_community_guild_id: guild.id,
+			});
+			const second = await signInWithSso(email);
+			expect(second.token).toBeTruthy();
+			await createBuilder(harness, owner.token)
+				.get(`/guilds/${guild.id}/members/${first.user_id}`)
+				.expect(404)
+				.execute();
+		});
+		it('asks for the second factor before linking an account that has one', async () => {
+			await disableSso(harness, admin.token);
+			const account = await createTestAccount(harness);
+			const secret = createTotpSecret();
+			const enabled = await createBuilder<{backup_codes: Array<{code: string}>}>(harness, account.token)
+				.post('/users/@me/mfa/totp/enable')
+				.body({secret, code: totpCodeNow(secret), password: account.password})
+				.execute();
+			await enableSso(harness, admin.token);
+			const startData = await createBuilderWithoutAuth<SsoStartResponse>(harness)
+				.post('/auth/sso/start')
+				.body({redirect_to: '/channels/@me'})
+				.execute();
+			const challenge = await createBuilderWithoutAuth<SsoMfaChallengeResponse>(harness)
+				.post('/auth/sso/complete')
+				.body({code: account.email, state: startData.state})
+				.execute();
+			expect(challenge).toMatchObject({mfa: true, backup_codes: true, redirect_to: '/channels/@me'});
+			expect(challenge).not.toHaveProperty('token');
+			const linked = await createBuilderWithoutAuth<SsoCompleteResponse>(harness)
+				.post('/auth/login/mfa/totp')
+				.body({ticket: challenge.ticket, code: enabled.backup_codes[0]!.code})
+				.execute();
+			expect(linked.user_id).toBe(account.userId);
+			const again = await signInWithSso(account.email);
+			expect(again.user_id).toBe(account.userId);
+			expect(again.token).toBeTruthy();
+		});
 		it('rejects unverified provider email claims', async () => {
 			const email = createUniqueEmail('sso-unverified');
 			const startData = await createBuilderWithoutAuth<SsoStartResponse>(harness)
@@ -776,5 +865,50 @@ describe('Auth SSO flow', () => {
 			expect(status.enforced).toBe(false);
 			await disableSso(harness, admin.token);
 		});
+		it('reports the configured button text in the status and discovery documents', async () => {
+			await enableSso(harness, admin.token, {enforced: false, button_label: '  Sign in with Acme ID  '});
+			const status = await createBuilderWithoutAuth<SsoStatusResponse>(harness).get('/auth/sso/status').execute();
+			expect(status.button_label).toBe('Sign in with Acme ID');
+			const discovery = await createBuilderWithoutAuth<{sso: SsoStatusResponse}>(harness)
+				.get('/.well-known/fluxer')
+				.execute();
+			expect(discovery.sso.button_label).toBe('Sign in with Acme ID');
+			const adminConfig = await createBuilder<{sso: {button_label: string | null}}>(harness, admin.token)
+				.get('/admin/instance/config')
+				.execute();
+			expect(adminConfig.sso.button_label).toBe('Sign in with Acme ID');
+			await createBuilder(harness, admin.token)
+				.patch('/admin/instance/config')
+				.body({sso: {button_label: '   '}})
+				.execute();
+			const cleared = await createBuilderWithoutAuth<SsoStatusResponse>(harness).get('/auth/sso/status').execute();
+			expect(cleared.button_label).toBeNull();
+			await disableSso(harness, admin.token);
+		});
+		it('keeps the button text when another SSO field changes', async () => {
+			await enableSso(harness, admin.token, {enforced: false, button_label: 'Use Acme ID'});
+			await createBuilder(harness, admin.token)
+				.patch('/admin/instance/config')
+				.body({sso: {display_name: 'Acme'}})
+				.execute();
+			const status = await createBuilderWithoutAuth<SsoStatusResponse>(harness).get('/auth/sso/status').execute();
+			expect(status.button_label).toBe('Use Acme ID');
+			await disableSso(harness, admin.token);
+		});
+		for (const [name, label] of [
+			['too long', 'a'.repeat(65)],
+			['with a line break', 'Sign in\nwith Acme'],
+			['with a bidirectional override', 'Sign in \u202Ewith Acme'],
+		] as const) {
+			it(`rejects button text ${name}`, async () => {
+				await createBuilder(harness, admin.token)
+					.patch('/admin/instance/config')
+					.body({sso: {button_label: label}})
+					.expect(400)
+					.execute();
+				const status = await createBuilderWithoutAuth<SsoStatusResponse>(harness).get('/auth/sso/status').execute();
+				expect(status.button_label).toBeNull();
+			});
+		}
 	});
 });

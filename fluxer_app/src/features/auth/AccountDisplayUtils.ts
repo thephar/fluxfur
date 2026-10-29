@@ -2,7 +2,10 @@
 
 import {type RuntimeConfigSnapshot, runtimeInstanceKey} from '@app/features/app/state/InstanceSnapshotStore';
 import {usesUniqueUsernames} from '@app/features/app/utils/AccountIdentityFeatures';
-import {normalizeInstanceDomain} from '@app/features/auth/flow/instance_selector/InstanceDirectoryStorage';
+import {
+	instanceDomainHost,
+	normalizeInstanceDomain,
+} from '@app/features/auth/flow/instance_selector/InstanceDirectoryStorage';
 import {parseAccountStorageKey} from '@app/features/auth/state/AccountStorageKey';
 import type {Account} from '@app/features/platform/state/AuthSession';
 import {
@@ -53,7 +56,7 @@ export function getAccountDisplayLabels(account: Account): AccountDisplayLabels 
 	};
 }
 
-export function resolveSnapshotInstanceKey(snapshot: RuntimeConfigSnapshot | undefined): string | null {
+function resolveSnapshotInstanceKey(snapshot: RuntimeConfigSnapshot | undefined): string | null {
 	if (snapshot == null) {
 		return null;
 	}
@@ -71,7 +74,7 @@ export function resolveSnapshotInstanceDomain(snapshot: RuntimeConfigSnapshot | 
 	return normalizeInstanceDomain(webAppEndpoint);
 }
 
-export function resolveAccountInstanceDomain(account: Account): string | null {
+function resolveAccountInstanceDomain(account: Account): string | null {
 	return resolveSnapshotInstanceDomain(account.instance);
 }
 
@@ -82,13 +85,8 @@ export function resolveAccountInstanceKey(account: Account): string | null {
 }
 
 export function resolveAccountInstanceLabel(account: Account): string | null {
-	const domain = resolveAccountInstanceDomain(account);
-	if (domain != null) {
-		return domain;
-	}
 	const instanceKey = resolveAccountInstanceKey(account);
-	if (instanceKey == null) {
-		return null;
-	}
-	return normalizeInstanceDomain(instanceKey);
+	const domain =
+		resolveAccountInstanceDomain(account) ?? (instanceKey == null ? null : normalizeInstanceDomain(instanceKey));
+	return domain == null ? null : instanceDomainHost(domain);
 }

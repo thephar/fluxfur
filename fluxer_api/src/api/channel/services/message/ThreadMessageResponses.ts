@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type {ChannelID, GuildID, MessageID, UserID} from '@app/api/BrandedTypes';
+import type {ChannelID, MessageID, UserID} from '@app/api/BrandedTypes';
 import {channelIdToMessageId, createChannelID, createMessageID} from '@app/api/BrandedTypes';
 import type {ChannelRepository} from '@app/api/channel/ChannelRepository';
 import type {AuthenticatedChannel} from '@app/api/channel/services/AuthenticatedChannel';
-import {
-	type MessageResponseDataService,
-	messageResponseAccessForGuild,
+import type {
+	MessageResponseAccessContext,
+	MessageResponseDataService,
 } from '@app/api/channel/services/message/MessageResponseDataService';
 import {mapThreadToResponse} from '@app/api/channel/services/thread/ThreadMappers';
 import {type ThreadViewer, viewerActive} from '@app/api/experiment/ChannelThreadsGate';
@@ -113,6 +113,7 @@ export class ThreadMessageResponses {
 		viewer: ThreadViewer;
 		userId: UserID;
 		authChannel: AuthenticatedChannel;
+		access: MessageResponseAccessContext;
 		responses: Array<MessageResponse>;
 		requestCache: RequestCache;
 		query?: ThreadListQuery;
@@ -137,6 +138,7 @@ export class ThreadMessageResponses {
 		viewer: ThreadViewer;
 		userId: UserID;
 		authChannel: AuthenticatedChannel;
+		access: MessageResponseAccessContext;
 		messageId: MessageID;
 		requestCache: RequestCache;
 	}): Promise<MessageResponse | null> {
@@ -147,8 +149,7 @@ export class ThreadMessageResponses {
 
 	async getFirstMessages(params: {
 		userId: UserID;
-		guildId: GuildID;
-		canReadMessageHistory: boolean;
+		access: MessageResponseAccessContext;
 		threadIds: Array<ChannelID>;
 	}): Promise<Map<string, MessageResponse>> {
 		if (params.threadIds.length === 0) return new Map();
@@ -161,11 +162,7 @@ export class ThreadMessageResponses {
 		const responses = await this.responseDataService.buildMessages({
 			userId: params.userId,
 			messages: found,
-			access: {
-				sourceGuildId: params.guildId,
-				messageHistoryCutoff: null,
-				canReadMessageHistory: params.canReadMessageHistory,
-			},
+			access: params.access,
 		});
 		return new Map(responses.map((response) => [response.channel_id, response]));
 	}
@@ -199,6 +196,7 @@ export class ThreadMessageResponses {
 	private async buildStarter(params: {
 		userId: UserID;
 		authChannel: AuthenticatedChannel;
+		access: MessageResponseAccessContext;
 		requestCache: RequestCache;
 	}): Promise<MessageResponse | null> {
 		const thread = params.authChannel.thread;
@@ -208,7 +206,7 @@ export class ThreadMessageResponses {
 			userId: params.userId,
 			channelId: thread.parent.id,
 			messageId: createMessageID(BigInt(channel.id)),
-			access: messageResponseAccessForGuild(channel.guildId),
+			access: params.access,
 		});
 		const author =
 			source?.author ??

@@ -3,9 +3,12 @@
 use crate::{
     api::types::PremiumBranding,
     config::AdminConfig,
-    templates::layout::{favicon_links, product_name},
+    templates::{
+        layout::{admin_title, favicon_links, product_name},
+        layout_scripts::THEME_INIT_SCRIPT,
+    },
 };
-use maud::{DOCTYPE, Markup, html};
+use maud::{DOCTYPE, Markup, PreEscaped, html};
 
 pub fn login_page(
     config: &AdminConfig,
@@ -19,7 +22,8 @@ pub fn login_page(
             head {
                 meta charset="UTF-8";
                 meta name="viewport" content="width=device-width, initial-scale=1.0";
-                title { "Login ~ Fluxer Admin" }
+                title { "Login ~ " (admin_title(branding)) }
+                script { (PreEscaped(THEME_INIT_SCRIPT)) }
                 link rel="stylesheet" href={(base) "/static/fonts/" (crate::fonts::STYLESHEET_FILE_NAME)};
                 link rel="stylesheet" href={(base) "/static/app.css"};
                 (favicon_links(config, branding))
@@ -31,7 +35,7 @@ pub fn login_page(
                             div class="flex flex-col gap-8 items-center" {
                                 div class="flex flex-col gap-2 items-center" {
                                     h1 class="text-gray-900 tracking-tight text-xl" {
-                                        "Fluxer Admin"
+                                        (admin_title(branding))
                                     }
                                 }
                                 @if let Some(error) = error_message {

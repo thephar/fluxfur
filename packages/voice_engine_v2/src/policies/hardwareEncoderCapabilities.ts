@@ -50,7 +50,7 @@ export function normalizeVoiceEngineV2HardwareEncoderCapabilities(
 	};
 }
 
-export function hasVoiceEngineV2ZeroCopyNativeInput(
+function hasVoiceEngineV2ZeroCopyNativeInput(
 	capabilities: VoiceEngineV2HardwareEncoderCapabilities | null | undefined,
 ): boolean {
 	return (

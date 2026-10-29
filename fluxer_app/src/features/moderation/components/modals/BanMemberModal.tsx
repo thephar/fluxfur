@@ -171,7 +171,8 @@ export const BanMemberModal: React.FC<{guildId: string; targetUser: User}> = obs
 							<source src={BANNED_WEBM} type="video/webm" data-flx="moderation.ban-member-modal.source.video-webm" />
 							<source src={BANNED_MP4} type="video/mp4" data-flx="moderation.ban-member-modal.source.video-mp4" />
 						</video>
-					) : showArtwork ? (
+					) : null}
+					{!motionArtworkAllowed && showArtwork ? (
 						<img
 							src={BANNED_POSTER}
 							alt=""

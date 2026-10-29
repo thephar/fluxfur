@@ -7,6 +7,7 @@ import type {IGatewayService} from '@app/api/infrastructure/IGatewayService';
 import type {UserCacheService} from '@app/api/infrastructure/UserCacheService';
 import {createRequestCache} from '@app/api/middleware/RequestCacheMiddleware';
 import type {User} from '@app/api/models/User';
+import {followOperatorPassWallStanding} from '@app/api/operator_pass/OperatorPassWallStanding';
 import {dispatchUserUpdate, hasPartialUserFieldsChanged} from '@app/api/user/UserMappers';
 import {runAllInOrder} from '@app/api/utils/ConcurrencyUtils';
 
@@ -54,10 +55,12 @@ export async function propagateUserUpdate(
 	const partial = async () => {
 		if (hasPartialUserFieldsChanged(oldUser, updatedUser)) await propagatePartialUserChange(deps, updatedUser);
 	};
+	const wall = () => followOperatorPassWallStanding(oldUser, updatedUser);
 	if (options.continueAfterDispatchFailure) {
-		await runAllInOrder([dispatch, partial], 'Failed to propagate user update');
+		await runAllInOrder([dispatch, partial, wall], 'Failed to propagate user update');
 	} else {
 		await dispatch();
 		await partial();
+		await wall();
 	}
 }

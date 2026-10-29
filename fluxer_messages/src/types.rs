@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 pub use fluxer_common::user_partial::ApiUserPartial;
+use fluxer_common::user_partial::default_instance_name;
 
 use serde::{Deserialize, Serialize};
 
@@ -92,6 +93,8 @@ pub enum MessageRequest {
         include_hidden: bool,
         #[serde(default)]
         threads_mask: bool,
+        #[serde(default = "default_instance_name")]
+        instance_name: String,
     },
     BuildResponse {
         message: Message,
@@ -111,6 +114,8 @@ pub enum MessageRequest {
         include_hidden: bool,
         #[serde(default)]
         threads_mask: bool,
+        #[serde(default = "default_instance_name")]
+        instance_name: String,
     },
     BuildResponses {
         messages: Vec<Message>,
@@ -128,6 +133,8 @@ pub enum MessageRequest {
         include_hidden: bool,
         #[serde(default)]
         threads_mask: bool,
+        #[serde(default = "default_instance_name")]
+        instance_name: String,
     },
     ListResponses {
         channel_id: String,
@@ -151,6 +158,8 @@ pub enum MessageRequest {
         threads_mask: bool,
         #[serde(default)]
         exclude_types: Vec<i32>,
+        #[serde(default = "default_instance_name")]
+        instance_name: String,
     },
     ExtractMentions {
         contents: Vec<String>,

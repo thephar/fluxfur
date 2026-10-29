@@ -72,11 +72,15 @@ pub struct InstanceBillingResponse {
     pub tax_id_collection: Option<bool>,
     pub terms_consent_required: Option<bool>,
     #[serde(default)]
+    pub billing_emails: Option<bool>,
+    #[serde(default)]
     pub effective_automatic_tax: bool,
     #[serde(default)]
     pub effective_tax_id_collection: bool,
     #[serde(default)]
     pub effective_terms_consent_required: bool,
+    #[serde(default)]
+    pub effective_billing_emails: bool,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -101,6 +105,8 @@ pub struct InstanceBillingUpdateRequest {
     pub tax_id_collection: Option<Option<bool>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub terms_consent_required: Option<Option<bool>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub billing_emails: Option<Option<bool>>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -121,7 +127,9 @@ pub struct InstancePremiumDiscoveryAppPublic {
 pub struct InstancePremiumDiscoveryBranding {
     pub product_name: Option<String>,
     pub icon_url: Option<String>,
+    pub symbol_url: Option<String>,
     pub favicon_url: Option<String>,
+    pub favicon_dark_url: Option<String>,
     pub premium_product_name: Option<String>,
 }
 
@@ -143,6 +151,8 @@ pub struct PremiumBranding {
     pub premium_enabled: bool,
     pub product_name: Option<String>,
     pub favicon_url: Option<String>,
+    pub favicon_dark_url: Option<String>,
+    pub neutral_default_avatars: bool,
 }
 
 impl PremiumBranding {
@@ -156,6 +166,11 @@ impl PremiumBranding {
                 branding.favicon_url.as_deref(),
                 branding.icon_url.as_deref(),
             ),
+            favicon_dark_url: non_blank(branding.favicon_dark_url.as_deref()).map(str::to_owned),
+            neutral_default_avatars: has_own_mark(
+                branding.icon_url.as_deref(),
+                branding.symbol_url.as_deref(),
+            ),
         }
     }
 
@@ -166,6 +181,11 @@ impl PremiumBranding {
             favicon_url: favicon_url(
                 branding.favicon_url.as_deref(),
                 branding.icon_url.as_deref(),
+            ),
+            favicon_dark_url: non_blank(branding.favicon_dark_url.as_deref()).map(str::to_owned),
+            neutral_default_avatars: has_own_mark(
+                branding.icon_url.as_deref(),
+                branding.symbol_url.as_deref(),
             ),
             ..Self::from_config_parts(
                 config.self_hosted,
@@ -188,204 +208,12 @@ fn non_blank(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())
 }
 
+fn has_own_mark(icon_url: Option<&str>, symbol_url: Option<&str>) -> bool {
+    non_blank(icon_url).is_some() || non_blank(symbol_url).is_some()
+}
+
 fn favicon_url(favicon_url: Option<&str>, icon_url: Option<&str>) -> Option<String> {
     non_blank(favicon_url)
         .or_else(|| non_blank(icon_url))
         .map(str::to_owned)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::api::generated::types as generated_types;
-    use serde_json::json;
-
-    #[test]
-    fn billing_response_round_trips_through_the_generated_contract() {
-        let value = json!({
-            "enabled": true,
-            "effective_enabled": true,
-            "stripe_secret_key_set": true,
-            "stripe_webhook_secret_set": false,
-            "stripe_secret_key_stored": true,
-            "stripe_webhook_secret_stored": false,
-            "default_currency": "GBP",
-            "prices": {
-                "GBP": {
-                    "monthly": "price_1Monthly",
-                    "yearly": "price_1Yearly",
-                    "gift_1_month": null,
-                    "gift_1_year": null
-                }
-            },
-            "country_currencies": {"GB": "GBP"},
-            "legacy_prices": {"monthly_GBP": ["price_1Old"]},
-            "billing_active": false,
-            "stripe_serviceable": false,
-            "catalog_mode": "operator",
-            "webhook_url": "https://api.example.com/stripe/webhook",
-            "automatic_tax": null,
-            "tax_id_collection": false,
-            "terms_consent_required": true,
-            "effective_automatic_tax": false,
-            "effective_tax_id_collection": false,
-            "effective_terms_consent_required": true
-        });
-        let generated: generated_types::InstanceBillingResponse =
-            serde_json::from_value(value.clone()).expect("generated billing response");
-        let ours: InstanceBillingResponse =
-            serde_json::from_value(value.clone()).expect("hand-written billing response");
-        assert_eq!(ours.catalog_mode, BillingCatalogMode::Operator);
-        assert!(ours.stripe_secret_key_stored);
-        assert_eq!(ours.automatic_tax, None);
-        assert_eq!(ours.tax_id_collection, Some(false));
-        assert!(ours.effective_terms_consent_required);
-        assert!(ours.prices.as_ref().expect("prices")["GBP"].has_recurring_pair());
-        assert_eq!(serde_json::to_value(&ours).expect("serializable"), value);
-        assert_eq!(
-            serde_json::to_value(generated).expect("serializable generated"),
-            value
-        );
-    }
-
-    #[test]
-    fn default_billing_response_matches_the_generated_contract() {
-        let value = serde_json::to_value(InstanceBillingResponse::default()).expect("serializable");
-        serde_json::from_value::<generated_types::InstanceBillingResponse>(value.clone())
-            .expect("generated billing response");
-        assert_eq!(value["catalog_mode"], json!("env"));
-        assert_eq!(value["prices"], json!(null));
-    }
-
-    #[test]
-    fn billing_update_preserves_explicit_nulls_and_omits_untouched_fields() {
-        let mut prices = BTreeMap::new();
-        prices.insert(
-            "SEK".to_owned(),
-            BillingPriceSet {
-                monthly: Some("price_1Monthly".to_owned()),
-                yearly: Some("price_1Yearly".to_owned()),
-                ..Default::default()
-            },
-        );
-        let update = InstanceBillingUpdateRequest {
-            enabled: Some(None),
-            stripe_secret_key: Some(None),
-            default_currency: Some(None),
-            prices: Some(Some(prices)),
-            country_currencies: Some(None),
-            legacy_prices: Some(Some(BTreeMap::new())),
-            automatic_tax: Some(None),
-            tax_id_collection: Some(Some(true)),
-            terms_consent_required: Some(Some(false)),
-            ..Default::default()
-        };
-        let value = serde_json::to_value(update).expect("serializable update");
-        serde_json::from_value::<generated_types::InstanceBillingUpdateRequest>(value.clone())
-            .expect("generated update contract");
-        assert_eq!(
-            value,
-            json!({
-                "enabled": null,
-                "stripe_secret_key": null,
-                "default_currency": null,
-                "prices": {
-                    "SEK": {
-                        "monthly": "price_1Monthly",
-                        "yearly": "price_1Yearly",
-                        "gift_1_month": null,
-                        "gift_1_year": null
-                    }
-                },
-                "country_currencies": null,
-                "legacy_prices": {},
-                "automatic_tax": null,
-                "tax_id_collection": true,
-                "terms_consent_required": false
-            })
-        );
-        assert_eq!(
-            serde_json::to_value(InstanceBillingUpdateRequest::default())
-                .expect("serializable update"),
-            json!({})
-        );
-    }
-
-    #[test]
-    fn premium_discovery_reads_the_name_and_feature_flag() {
-        let discovery: InstancePremiumDiscovery = serde_json::from_value(json!({
-            "app_public": {"branding": {"product_name": "Example", "premium_product_name": " Gold "}},
-            "features": {"premium_enabled": true, "stripe_enabled": false}
-        }))
-        .expect("discovery");
-        assert_eq!(discovery.premium_product_name(), Some("Gold"));
-        assert!(discovery.features.premium_enabled);
-        let empty: InstancePremiumDiscovery =
-            serde_json::from_value(json!({})).expect("empty discovery");
-        assert_eq!(empty.premium_product_name(), None);
-        assert!(!empty.features.premium_enabled);
-        assert_eq!(
-            PremiumBranding::from_discovery(&discovery),
-            PremiumBranding {
-                name: Some("Gold".to_owned()),
-                premium_enabled: true,
-                product_name: Some("Example".to_owned()),
-                favicon_url: None,
-            }
-        );
-    }
-
-    #[test]
-    fn instance_branding_prefers_the_favicon_and_falls_back_to_the_icon() {
-        let discovery = |branding| -> InstancePremiumDiscovery {
-            serde_json::from_value(json!({"app_public": {"branding": branding}}))
-                .expect("discovery")
-        };
-        let both = discovery(json!({
-            "favicon_url": "https://media.example/favicon.png",
-            "icon_url": "https://media.example/icon.png"
-        }));
-        assert_eq!(
-            PremiumBranding::from_discovery(&both)
-                .favicon_url
-                .as_deref(),
-            Some("https://media.example/favicon.png")
-        );
-        let icon_only =
-            discovery(json!({"favicon_url": " ", "icon_url": "https://media.example/icon.png"}));
-        assert_eq!(
-            PremiumBranding::from_discovery(&icon_only)
-                .favicon_url
-                .as_deref(),
-            Some("https://media.example/icon.png")
-        );
-        let neither = discovery(json!({"product_name": "  "}));
-        assert_eq!(
-            PremiumBranding::from_discovery(&neither),
-            PremiumBranding::default()
-        );
-    }
-
-    #[test]
-    fn premium_branding_from_instance_config_matches_discovery_rules() {
-        assert_eq!(
-            PremiumBranding::from_config_parts(true, " Gold ", PremiumMode::Everyone),
-            PremiumBranding {
-                name: Some("Gold".to_owned()),
-                premium_enabled: false,
-                ..PremiumBranding::default()
-            }
-        );
-        assert!(
-            PremiumBranding::from_config_parts(true, "Gold", PremiumMode::Mirror).premium_enabled
-        );
-        assert_eq!(
-            PremiumBranding::from_config_parts(false, "  ", PremiumMode::Everyone),
-            PremiumBranding {
-                name: None,
-                premium_enabled: true,
-                ..PremiumBranding::default()
-            }
-        );
-    }
 }

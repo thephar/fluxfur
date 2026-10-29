@@ -133,7 +133,7 @@ export const useTextareaExpressionHandlers = ({
 			const actualText = `<@${userId}>`;
 			const displayText = `@${NicknameUtils.formatUserTagForStreamerMode(user)}`;
 			const needsSpace = prevValue.length > 0 && !prevValue.endsWith(' ');
-			const prefix = prevValue.length === 0 ? '' : needsSpace ? ' ' : '';
+			const prefix = needsSpace ? ' ' : '';
 			const insertPosition = prevValue.length + prefix.length;
 			const segmentManager = new TextareaSegmentManager();
 			segmentManager.setSegments(segmentManagerRef.current.getSegmentsCopy());

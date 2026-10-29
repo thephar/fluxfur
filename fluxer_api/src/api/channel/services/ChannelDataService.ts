@@ -170,7 +170,6 @@ export class ChannelDataService {
 				authChannel,
 				userId,
 				data: data as Omit<ChannelUpdateThreadRequest, 'type'>,
-				requestCache,
 				auditLogReason,
 			});
 		}

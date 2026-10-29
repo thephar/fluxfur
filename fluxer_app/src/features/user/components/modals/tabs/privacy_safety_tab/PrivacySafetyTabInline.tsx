@@ -10,6 +10,12 @@ import {DataExportTabContent as DataExportTab} from '@app/features/user/componen
 import {ProfilePrivacyTabContent as ProfilePrivacyTab} from '@app/features/user/components/modals/tabs/privacy_safety_tab/ProfilePrivacyTab';
 import {SensitiveContentTabContent as SensitiveContentTab} from '@app/features/user/components/modals/tabs/privacy_safety_tab/SensitiveContentTab';
 import styles from '@app/features/user/components/modals/tabs/TabInline.module.css';
+import {
+	shouldShowDirectMessageSettings,
+	shouldShowFriendSettings,
+	shouldShowFriendsAndDirectMessageSettings,
+} from '@app/features/user/components/settings_utils/SettingsVisibility';
+import {getFriendsAndDirectMessagesSectionLabel} from '@app/features/user/components/settings_utils/section_registry/PrivacySafetySections';
 import {useUserSettingsMutationController} from '@app/features/user/hooks/useUserSettingsMutationController';
 import {
 	ACTIVITY_SHARING_DESCRIPTOR,
@@ -20,11 +26,6 @@ import {msg} from '@lingui/core/macro';
 import {useLingui} from '@lingui/react/macro';
 import {observer} from 'mobx-react-lite';
 import type React from 'react';
-
-const FRIENDS_AND_DIRECT_MESSAGES_DESCRIPTOR = msg({
-	message: 'Friends & direct messages',
-	comment: 'Privacy dashboard section label for who can send friend requests and direct messages.',
-});
 
 const COMMUNICATION_DESCRIPTOR = msg({
 	message: 'Communication',
@@ -57,33 +58,39 @@ export const PrivacyDashboardContent: React.FC = observer(() => {
 			>
 				<ProfilePrivacyTab data-flx="user.privacy-safety-tab.privacy-dashboard-content.profile-privacy-tab" />
 			</SettingsSection>
-			<SettingsSection
-				id="connections"
-				tabType="privacy_safety"
-				title={i18n._(FRIENDS_AND_DIRECT_MESSAGES_DESCRIPTOR)}
-				data-flx="user.privacy-safety-tab.privacy-dashboard-content.connections"
-			>
-				<ConnectionsTab data-flx="user.privacy-safety-tab.privacy-dashboard-content.connections-tab" />
-			</SettingsSection>
-			<SettingsSection
-				id="communication"
-				tabType="privacy_safety"
-				title={i18n._(COMMUNICATION_DESCRIPTOR)}
-				data-flx="user.privacy-safety-tab.privacy-dashboard-content.communication"
-			>
-				<CommunicationTab
-					mutationController={mutationController}
-					data-flx="user.privacy-safety-tab.privacy-dashboard-content.communication-tab"
-				/>
-			</SettingsSection>
-			<SettingsSection
-				id="active-now"
-				tabType="privacy_safety"
-				title={i18n._(ACTIVITY_SHARING_DESCRIPTOR)}
-				data-flx="user.privacy-safety-tab.privacy-dashboard-content.active-now"
-			>
-				<ActiveNowTab data-flx="user.privacy-safety-tab.privacy-dashboard-content.active-now-tab" />
-			</SettingsSection>
+			{shouldShowFriendsAndDirectMessageSettings() && (
+				<SettingsSection
+					id="connections"
+					tabType="privacy_safety"
+					title={i18n._(getFriendsAndDirectMessagesSectionLabel())}
+					data-flx="user.privacy-safety-tab.privacy-dashboard-content.connections"
+				>
+					<ConnectionsTab data-flx="user.privacy-safety-tab.privacy-dashboard-content.connections-tab" />
+				</SettingsSection>
+			)}
+			{shouldShowDirectMessageSettings() && (
+				<SettingsSection
+					id="communication"
+					tabType="privacy_safety"
+					title={i18n._(COMMUNICATION_DESCRIPTOR)}
+					data-flx="user.privacy-safety-tab.privacy-dashboard-content.communication"
+				>
+					<CommunicationTab
+						mutationController={mutationController}
+						data-flx="user.privacy-safety-tab.privacy-dashboard-content.communication-tab"
+					/>
+				</SettingsSection>
+			)}
+			{shouldShowFriendSettings() && (
+				<SettingsSection
+					id="active-now"
+					tabType="privacy_safety"
+					title={i18n._(ACTIVITY_SHARING_DESCRIPTOR)}
+					data-flx="user.privacy-safety-tab.privacy-dashboard-content.active-now"
+				>
+					<ActiveNowTab data-flx="user.privacy-safety-tab.privacy-dashboard-content.active-now-tab" />
+				</SettingsSection>
+			)}
 			<SettingsSection
 				id="sensitive-content"
 				tabType="privacy_safety"

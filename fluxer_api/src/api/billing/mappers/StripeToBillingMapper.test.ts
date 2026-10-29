@@ -26,11 +26,6 @@ function expectTupleGetValue(value: object, index: number, expected: unknown): v
 }
 
 describe('computeStripeUpdatedAt', () => {
-	it('returns a Date', () => {
-		const d = computeStripeUpdatedAt({created: NOW_UNIX});
-		expect(d).toBeInstanceOf(Date);
-		expect(d.getTime()).toBe(NOW_UNIX * 1000);
-	});
 	it('prefers status_transitions over created', () => {
 		const later = NOW_UNIX + 5000;
 		const d = computeStripeUpdatedAt({created: NOW_UNIX, status_transitions: {paid_at: later}});

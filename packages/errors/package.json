@@ -20,7 +20,6 @@
 		"hono": "catalog:"
 	},
 	"devDependencies": {
-		"@messageformat/parser": "catalog:",
 		"@types/node": "catalog:",
 		"typescript": "catalog:ts7",
 		"vitest": "catalog:"

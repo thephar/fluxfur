@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {getElectronAPI, isDesktop} from '@app/features/ui/utils/NativeUtils';
+import {shouldShowDirectMessageSettings} from '@app/features/user/components/settings_utils/SettingsVisibility';
 import type {SearchableSettingDescriptor} from '@app/features/user/components/settings_utils/search_index/SearchIndexTypes';
 import {
 	ANIMATIONS_DESCRIPTOR,
@@ -322,6 +323,7 @@ export const accessibilityIndex: Array<SearchableSettingDescriptor> = [
 		id: 'accessibility-dm-message-previews',
 		tabType: 'accessibility',
 		sectionId: 'visual',
+		isVisible: shouldShowDirectMessageSettings,
 		label: DM_MESSAGE_PREVIEWS_DESCRIPTOR,
 		keywords: [
 			DIRECT_MESSAGE_PREVIEW_DESCRIPTOR,

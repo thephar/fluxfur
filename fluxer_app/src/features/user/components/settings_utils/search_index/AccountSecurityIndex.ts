@@ -11,7 +11,7 @@ import {
 	shouldShowClaimedAccountSettings,
 	shouldShowEmailAccountSettings,
 	shouldShowRecoveryKitSettings,
-} from '@app/features/user/components/settings_utils/search_index/SearchIndexHelpers';
+} from '@app/features/user/components/settings_utils/SettingsVisibility';
 import type {SearchableSettingDescriptor} from '@app/features/user/components/settings_utils/search_index/SearchIndexTypes';
 import {
 	ADDRESS_DESCRIPTOR,

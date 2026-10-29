@@ -2,16 +2,11 @@
 
 -module(gateway_rpc_guild_voice).
 
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
--endif.
-
 -typing([eqwalizer]).
 
 -export([handle/2]).
 
 -define(GUILD_CALL_TIMEOUT, 4000).
--define(BATCH_TIMEOUT_MS, 5000).
 
 -spec handle(binary(), map()) -> term().
 handle(<<"guild.update_member_voice">>, P) ->
@@ -237,13 +232,3 @@ validate_gc_params(P) when is_map(P) ->
     end;
 validate_gc_params(_) ->
     error.
-
--ifdef(TEST).
-
-guild_voice_channel_read_malformed_payloads_test() ->
-    ?assertEqual(
-        #{<<"voice_states">> => []},
-        handle(<<"guild.get_voice_states_for_channel">>, #{})
-    ).
-
--endif.

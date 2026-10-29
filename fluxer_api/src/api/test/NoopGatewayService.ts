@@ -35,6 +35,7 @@ import {THREAD_AWARE_ALL_PERMISSIONS} from '@fluxer/constants/src/ThreadPermissi
 import {UnknownGuildError} from '@fluxer/errors/src/domains/guild/UnknownGuildError';
 import type {GuildMemberResponse} from '@fluxer/schema/src/domains/guild/GuildMemberSchemas';
 import type {GuildResponse} from '@fluxer/schema/src/domains/guild/GuildResponseSchemas';
+import {compareSnowflakes} from '@fluxer/snowflake/src/SnowflakeComparison';
 
 const guildOwners = new Map<string, UserID>();
 const guildMembers = new Map<string, Set<UserID>>();
@@ -66,6 +67,7 @@ function createDummyGuildResponse(params: {guildId: GuildID; userId: UserID}): G
 		afk_channel_id: null,
 		afk_timeout: 60,
 		features: [],
+		badge_ids: [],
 		verification_level: 0,
 		mfa_level: 0,
 		nsfw_level: 0,
@@ -284,7 +286,11 @@ export class NoopGatewayService implements IGatewayService {
 		if (!userHighest || !this.roleOutranks(userHighest, targetRole)) {
 			return false;
 		}
-		return this.checkTargetMember({guildId, userId, targetUserId});
+		return (
+			userId === targetUserId ||
+			guild.ownerId === targetUserId ||
+			this.checkTargetMember({guildId, userId, targetUserId})
+		);
 	}
 
 	async canManageRole(params: {guildId: GuildID; userId: UserID; roleId: RoleID}): Promise<boolean> {
@@ -346,37 +352,6 @@ export class NoopGatewayService implements IGatewayService {
 			return roleA.position > roleB.position;
 		}
 		return String(roleA.id) < String(roleB.id);
-	}
-
-	async getAssignableRoles(params: {guildId: GuildID; userId: UserID}): Promise<Array<RoleID>> {
-		const {guildId, userId} = params;
-		const guild = await guildRepository.findUnique(guildId);
-		if (!guild) {
-			return [];
-		}
-		const roles = await roleRepository.listRoles(guildId);
-		if (guild.ownerId === userId) {
-			return roles.map((role) => role.id);
-		}
-		const member = await guildMemberRepository.getMember(guildId, userId);
-		if (!member) {
-			return [];
-		}
-		const userHighest = this.getHighestRole(member.roleIds, roles);
-		if (!userHighest) {
-			return [];
-		}
-		return roles.filter((role) => this.roleOutranks(userHighest, role)).map((role) => role.id);
-	}
-
-	async getUserMaxRolePosition(params: {guildId: GuildID; userId: UserID}): Promise<number> {
-		const {guildId, userId} = params;
-		const member = await guildMemberRepository.getMember(guildId, userId);
-		if (!member) {
-			return 0;
-		}
-		const roles = await roleRepository.listRoles(guildId);
-		return this.getMaxRolePosition(member.roleIds, roles);
 	}
 
 	async checkTargetMember(params: {guildId: GuildID; userId: UserID; targetUserId: UserID}): Promise<boolean> {
@@ -599,7 +574,7 @@ export class NoopGatewayService implements IGatewayService {
 
 	private async sortedMemberIds(guildId: GuildID): Promise<Array<UserID>> {
 		const members = await guildMemberRepository.listMembers(guildId);
-		return members.map((member) => member.userId).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+		return members.map((member) => member.userId).sort(compareSnowflakes);
 	}
 
 	private async memberResponses(guildId: GuildID, userIds: Array<UserID>): Promise<Array<GuildMemberResponse>> {
@@ -736,23 +711,6 @@ export class NoopGatewayService implements IGatewayService {
 		return (permissions & Permissions.VIEW_CHANNEL) !== 0n;
 	}
 
-	private getMaxRolePosition(
-		memberRoleIds: Set<RoleID>,
-		allRoles: Array<{
-			id: RoleID;
-			position: number;
-		}>,
-	): number {
-		let maxPosition = -1;
-		for (const roleId of memberRoleIds) {
-			const role = allRoles.find((r) => r.id === roleId);
-			if (role) {
-				maxPosition = Math.max(maxPosition, role.position);
-			}
-		}
-		return maxPosition;
-	}
-
 	async getFirstViewableTextChannel(_guildId: GuildID): Promise<ChannelID | null> {
 		return null;
 	}
@@ -845,6 +803,32 @@ export class NoopGatewayService implements IGatewayService {
 	async addTemporaryGuild(_params: {userId: UserID; guildId: GuildID}): Promise<void> {}
 
 	async removeTemporaryGuild(_params: {userId: UserID; guildId: GuildID}): Promise<void> {}
+
+	readonly visitEvents: Array<{kind: 'start' | 'end'; userId: UserID; guildId: GuildID}> = [];
+	private readonly liveVisitors = new Map<string, Array<{userId: UserID; ipKey: string}>>();
+
+	setLiveVisitors(guildId: GuildID, visitors: Array<{userId: UserID; ipKey: string}>): void {
+		this.liveVisitors.set(guildId.toString(), [...visitors]);
+	}
+
+	async startVisit(params: {userId: UserID; guildId: GuildID; operator?: boolean}): Promise<void> {
+		this.visitEvents.push({kind: 'start', userId: params.userId, guildId: params.guildId});
+	}
+
+	async endVisit(params: {userId: UserID; guildId: GuildID}): Promise<void> {
+		this.visitEvents.push({kind: 'end', ...params});
+	}
+
+	async evictVisitors(params: {guildId: GuildID; ipKeys: Array<string>}): Promise<Array<UserID>> {
+		const key = params.guildId.toString();
+		const visitors = this.liveVisitors.get(key) ?? [];
+		const evicted = visitors.filter((visitor) => params.ipKeys.includes(visitor.ipKey));
+		this.liveVisitors.set(
+			key,
+			visitors.filter((visitor) => !params.ipKeys.includes(visitor.ipKey)),
+		);
+		return evicted.map((visitor) => visitor.userId);
+	}
 
 	async syncGroupDmRecipients(_params: {
 		userId: UserID;

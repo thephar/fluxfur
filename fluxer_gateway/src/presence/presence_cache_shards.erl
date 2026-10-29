@@ -280,7 +280,7 @@ merge_bulk_reply(_, AccMap) ->
 
 -spec merge_snapshot_reply(term(), #{integer() => map()}) -> #{integer() => map()}.
 merge_snapshot_reply(Snapshot, AccMap) when is_map(Snapshot) ->
-    maps:merge(AccMap, Snapshot);
+    maps:merge(AccMap, eqwalizer:dynamic_cast(Snapshot));
 merge_snapshot_reply(_, AccMap) ->
     AccMap.
 

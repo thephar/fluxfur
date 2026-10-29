@@ -188,7 +188,7 @@ export const MarkdownTab: React.FC = observer(() => {
 					{label: '[text](url)', content: '[Masked link](https://fluxer.app)'},
 					{label: '<url>', content: '<https://fluxer.app>'},
 					{label: 'url', content: 'https://fluxer.app'},
-					{label: '<email>', content: '<contact@fluxer.app>'},
+					{label: '<email>', content: '<support@fluxer.com>'},
 				],
 			},
 			{

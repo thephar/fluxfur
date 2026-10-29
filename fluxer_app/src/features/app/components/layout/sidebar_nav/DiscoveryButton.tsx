@@ -19,7 +19,7 @@ import {useCallback, useRef} from 'react';
 
 const EXPLORE_COMMUNITIES_DESCRIPTOR = msg({
 	message: 'Explore communities',
-	comment: 'Short label in the sidebar navigation discovery button.',
+	comment: 'Short label in the sidebar button that opens Explore.',
 });
 export const DiscoveryButton = observer(() => {
 	const {i18n} = useLingui();

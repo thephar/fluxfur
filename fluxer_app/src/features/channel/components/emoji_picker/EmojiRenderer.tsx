@@ -169,6 +169,7 @@ export const EmojiRenderer = React.forwardRef<HTMLButtonElement, EmojiRendererPr
 						onClick={handleClick}
 						onContextMenu={handleContextMenu}
 						className={className}
+						aria-label={emoji.name}
 						aria-disabled={isDisabled}
 						aria-selected={isHighlighted}
 						role="option"

@@ -59,11 +59,7 @@ export const ChannelNotificationSettingsDropdown: React.FC<Props> = observer(({c
 		channelNotifications ?? (isGuildChannel ? MessageNotifications.INHERIT : MessageNotifications.ALL_MESSAGES);
 	const channelUnreadBadges = channelOverride?.unread_badges;
 	const currentUnreadBadgesLevel =
-		channelUnreadBadges == null
-			? isGuildChannel
-				? MessageNotifications.INHERIT
-				: MessageNotifications.ALL_MESSAGES
-			: channelUnreadBadges;
+		channelUnreadBadges ?? (isGuildChannel ? MessageNotifications.INHERIT : MessageNotifications.ALL_MESSAGES);
 	const showUnreadBadgeCustomization = AdvancedSettings.unreadBadgeCustomizationEnabled;
 	const categoryId = channel.parentId;
 	const effectiveDefaultLevel = guildId

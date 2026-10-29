@@ -4,8 +4,6 @@
 -typing([eqwalizer]).
 -behaviour(gen_server).
 
--include_lib("fluxer_gateway/include/timeout_config.hrl").
-
 -compile({no_auto_import, [get/1, put/2]}).
 
 -export([
@@ -18,8 +16,7 @@
     get_memory_stats/0,
     rebalance/0,
     handle_nodedown/1,
-    handle_nodeup/1,
-    generation/0
+    handle_nodeup/1
 ]).
 
 -export([put_local/3, delete_local/2, local_snapshot/1]).
@@ -33,7 +30,7 @@
 
 -spec start_link() -> {ok, pid()} | {error, term()}.
 start_link() ->
-    normalize_start_link(gen_server:start_link({local, ?MODULE}, ?MODULE, [], [])).
+    shard_utils:normalize_start_link(gen_server:start_link({local, ?MODULE}, ?MODULE, [], [])).
 
 -spec put(integer(), map()) -> ok.
 put(UserId, Presence) when is_integer(UserId), is_map(Presence) ->
@@ -89,10 +86,6 @@ handle_nodedown(Node) when is_atom(Node) ->
 -spec handle_nodeup(node()) -> ok.
 handle_nodeup(Node) when is_atom(Node) ->
     presence_cache_api:safe_cast_if_enabled({nodeup_cancel_grace, Node}).
-
--spec generation() -> non_neg_integer().
-generation() ->
-    presence_cache_api:generation().
 
 -spec put_local(integer(), map(), state()) -> {ok, state()}.
 put_local(UserId, Presence, State) ->
@@ -174,8 +167,6 @@ handle_call_extended(rebalance, _From, State) ->
     {reply, ok, presence_cache_rebalance:rebalance_ownership(State)};
 handle_call_extended(get_memory_stats, _From, State) ->
     {reply, presence_cache_shards:memory_stats(State), State};
-handle_call_extended(get_generation, _From, State) ->
-    {reply, maps:get(generation, State, 0), State};
 handle_call_extended(_Request, _From, State) ->
     {reply, ok, State}.
 
@@ -231,11 +222,3 @@ handle_info({'ETS-TRANSFER', _Table, _FromPid, _HeirData}, State) ->
     {noreply, State};
 handle_info(_Info, State) ->
     {noreply, presence_cache_pending:ensure_pending_state(State)}.
-
--spec normalize_start_link(gen_server:start_ret()) -> {ok, pid()} | {error, term()}.
-normalize_start_link({ok, Pid}) ->
-    {ok, Pid};
-normalize_start_link({error, Reason}) ->
-    {error, Reason};
-normalize_start_link(ignore) ->
-    {error, ignore}.

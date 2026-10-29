@@ -47,6 +47,10 @@ const VOICE_AND_VIDEO_DESCRIPTOR = msg({
 	message: 'Voice and video',
 	comment: 'Short heading in the keyboard shortcuts cheatsheet.',
 });
+const ACCOUNTS_DESCRIPTOR = msg({
+	message: 'Accounts',
+	comment: 'Short heading in the keyboard shortcuts cheatsheet for shortcuts that switch between signed-in accounts.',
+});
 const MISCELLANEOUS_DESCRIPTOR = msg({
 	message: 'Miscellaneous',
 	comment: 'Short heading in the keyboard shortcuts cheatsheet.',
@@ -114,6 +118,7 @@ export const KeyboardShortcutsCheatsheetModal = observer(() => {
 		drag_and_drop: i18n._(DRAG_AND_DROP_DESCRIPTOR),
 		chat: i18n._(CHAT_DESCRIPTOR),
 		voice_and_video: i18n._(VOICE_AND_VIDEO_DESCRIPTOR),
+		accounts: i18n._(ACCOUNTS_DESCRIPTOR),
 		misc: i18n._(MISCELLANEOUS_DESCRIPTOR),
 	};
 	const sections = useMemo(() => {
@@ -124,6 +129,7 @@ export const KeyboardShortcutsCheatsheetModal = observer(() => {
 			drag_and_drop: [],
 			chat: [],
 			voice_and_video: [],
+			accounts: [],
 			misc: [],
 		};
 		for (const sectionId of DEFAULT_KEYBIND_SECTIONS) {

@@ -87,14 +87,6 @@ class MessageReactionsManager {
 		});
 	}
 
-	replaceMessageReactions(messageId: string, reactions: ReadonlyArray<MessageReaction> | null | undefined): void {
-		this.commitReactionEvent(messageId, {
-			type: 'reaction.hydrate',
-			reactions,
-			currentUserId: Authentication.currentUserId,
-		});
-	}
-
 	private commitReactionEvent(messageId: string, event: ReactionMachineEvent): void {
 		const current = this.messageStates.get(messageId);
 		if (!current && isMissingReactionStateNoop(event)) {
@@ -254,6 +246,7 @@ class MessageReactionsManager {
 	}
 
 	handleFetchSuccess(
+		mode: 'replace' | 'append',
 		messageId: string,
 		users: ReadonlyArray<UserPartial>,
 		emoji: ReactionEmoji,
@@ -271,36 +264,7 @@ class MessageReactionsManager {
 		Users.cacheUsers(users.slice());
 		this.commitReactorEvent(messageId, emoji, entry, {
 			type: 'fetch.success',
-			mode: 'replace',
-			users,
-			requestedLimit,
-			responseHasMore,
-			totalCount,
-			requestId,
-			nextAfter,
-		});
-		this.trackReactors(messageId, emoji, users);
-	}
-
-	handleFetchAppend(
-		messageId: string,
-		users: ReadonlyArray<UserPartial>,
-		emoji: ReactionEmoji,
-		requestedLimit?: number,
-		responseHasMore?: boolean,
-		totalCount?: number,
-		requestId?: number,
-		nextAfter?: string | null,
-	): void {
-		const key = getReactionKey(messageId, emoji);
-		const ignored = this.shouldIgnoreFetchResult(key, requestId);
-		this.settleInFlightRequest(key, requestId);
-		if (ignored) return;
-		const entry = this.getOrCreateReactorEntry(messageId, emoji);
-		Users.cacheUsers(users.slice());
-		this.commitReactorEvent(messageId, emoji, entry, {
-			type: 'fetch.success',
-			mode: 'append',
+			mode,
 			users,
 			requestedLimit,
 			responseHasMore,

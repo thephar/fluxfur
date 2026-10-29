@@ -8,7 +8,7 @@ import type {LimitKey} from '@fluxer/constants/src/LimitConfigMetadata';
 import {resolveLimit} from '@fluxer/limits/src/LimitResolver';
 import type {LimitConfigSnapshot} from '@fluxer/limits/src/LimitTypes';
 
-export interface LimitResolveOptions {
+interface LimitResolveOptions {
 	key: LimitKey;
 	fallback: number;
 	context?: LimitContextInput;

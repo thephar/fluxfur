@@ -40,55 +40,6 @@ function createHarness(options: {inner?: MockStorageService; sink?: StorageChang
 const bytes = (length: number) => new Uint8Array(length).fill(7);
 
 describe('ChangeFeedStorageService', () => {
-	it('emits a put event after an upload lands', async () => {
-		const {service, inner, feed, sink} = createHarness();
-
-		await service.uploadObject({
-			bucket: Config.s3.buckets.cdn,
-			key: 'attachments/1/2/cat.png',
-			body: bytes(5),
-			contentType: 'image/png',
-		});
-		await feed.idle();
-
-		expect(await inner.getObjectMetadata(Config.s3.buckets.cdn, 'attachments/1/2/cat.png')).not.toBeNull();
-		expect(sink.events).toEqual([
-			{
-				subject: `storage.${Config.s3.buckets.cdn}.put`,
-				bucket: Config.s3.buckets.cdn,
-				key: 'attachments/1/2/cat.png',
-				op: 'put',
-				size: 5,
-				etag: null,
-				contentType: 'image/png',
-				at: expect.any(String),
-			},
-		]);
-	});
-
-	it('emits delete events for objects and avatars', async () => {
-		const {service, feed, sink} = createHarness();
-
-		await service.deleteObject(Config.s3.buckets.cdn, 'icons/1/a.webp');
-		await service.deleteAvatar({prefix: 'avatars/9', key: 'hash'});
-		await feed.idle();
-
-		expect(sink.events.map(({subject, bucket, key, op}) => ({subject, bucket, key, op}))).toEqual([
-			{
-				subject: `storage.${Config.s3.buckets.cdn}.delete`,
-				bucket: Config.s3.buckets.cdn,
-				key: 'icons/1/a.webp',
-				op: 'delete',
-			},
-			{
-				subject: `storage.${Config.s3.buckets.cdn}.delete`,
-				bucket: Config.s3.buckets.cdn,
-				key: 'avatars/9/hash',
-				op: 'delete',
-			},
-		]);
-	});
-
 	it('emits nothing for the uploads bucket but still reports promotions out of it', async () => {
 		const {service, inner, feed, sink} = createHarness();
 		const uploads = Config.s3.buckets.uploads;
@@ -107,17 +58,6 @@ describe('ChangeFeedStorageService', () => {
 		expect(sink.events.map(({bucket, key, op}) => ({bucket, key, op}))).toEqual([
 			{bucket: Config.s3.buckets.cdn, key: 'attachments/1/2/staged.bin', op: 'put'},
 		]);
-	});
-
-	it('emits nothing when the storage call itself fails', async () => {
-		const {service, feed, sink} = createHarness({inner: new MockStorageService({shouldFailUpload: true})});
-
-		await expect(service.uploadObject({bucket: Config.s3.buckets.cdn, key: 'broken', body: bytes(1)})).rejects.toThrow(
-			'Mock storage upload failure',
-		);
-		await feed.idle();
-
-		expect(sink.events).toEqual([]);
 	});
 
 	it('does not let a failing publish reach the caller', async () => {

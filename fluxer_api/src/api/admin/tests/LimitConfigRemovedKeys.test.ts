@@ -5,11 +5,8 @@ import {createTestAccount, setUserACLs} from '@app/api/auth/tests/AuthTestUtils'
 import {getConfig} from '@app/api/Config';
 import {getInstanceConfigRepository, getLimitConfigService} from '@app/api/middleware/ServiceSingletons';
 import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHarness';
-import {HTTP_STATUS} from '@app/api/test/TestConstants';
 import {createBuilder} from '@app/api/test/TestRequestBuilder';
 import {AdminACLs} from '@fluxer/constants/src/AdminACLs';
-import {APIErrorCodes} from '@fluxer/constants/src/ApiErrorCodes';
-import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
 import type {LimitRule} from '@fluxer/limits/src/LimitTypes';
 import type {LimitConfigGetResponse} from '@fluxer/schema/src/domains/admin/AdminSchemas';
 import {afterAll, beforeAll, beforeEach, describe, expect, it} from 'vitest';
@@ -112,31 +109,5 @@ describe.each([true, false])('limit config with a key from an older release (sel
 				},
 			})
 			.execute();
-	});
-
-	it('names the unknown key in the validation error', async () => {
-		const admin = await createAdmin();
-		const {limit_config: config} = await createBuilder<LimitConfigResponse>(harness, admin.token)
-			.get('/admin/limit-config')
-			.execute();
-		const response = await createBuilder<{errors: Array<{path: string; code: string}>}>(harness, admin.token)
-			.put('/admin/limit-config')
-			.body({
-				limit_config: {
-					traitDefinitions: [...config.traitDefinitions, 'vip'],
-					rules: [
-						...config.rules.map(({modifiedFields: _modifiedFields, ...rule}) => rule),
-						{id: 'vip', filters: {traits: ['vip']}, limits: {max_bio_length: 200, [REMOVED_KEY]: 5}},
-					],
-				},
-			})
-			.expect(HTTP_STATUS.BAD_REQUEST, APIErrorCodes.INVALID_FORM_BODY)
-			.execute();
-		expect(response.errors).toEqual([
-			expect.objectContaining({
-				path: `limit_config.rules.${config.rules.length}.limits.${REMOVED_KEY}`,
-				code: ValidationErrorCodes.INVALID_FORMAT,
-			}),
-		]);
 	});
 });

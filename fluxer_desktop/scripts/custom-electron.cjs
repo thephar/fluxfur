@@ -6,12 +6,14 @@ const path = require('node:path');
 const {promisify} = require('node:util');
 
 const execFileAsync = promisify(execFile);
-const expectedElectronVersion = '44.9.1';
-const expectedElectronRevision = 'e02265be96c5e13ae43644ef482b718e1e800499';
-const chromiumPatchPath = path.join(
-	__dirname,
-	'../electron/patches/fix_synchronize_vaapi_surfaces_before_output.patch',
-);
+const runtime = require('../electron/runtime.json');
+const expectedElectronVersion = runtime.electronVersion;
+const expectedElectronRevision = runtime.electronRevision;
+const [chromiumPatch, ...otherPatches] = runtime.patches;
+if (chromiumPatch?.series !== 'chromium' || otherPatches.length > 0) {
+	throw new Error('electron/runtime.json must list exactly one Chromium patch.');
+}
+const chromiumPatchPath = path.join(__dirname, '../electron', chromiumPatch.file);
 
 function resolveLinuxElectronDist() {
 	const configuredDirectory = process.env.FLUXER_ELECTRON_DIST?.trim();
@@ -89,11 +91,17 @@ async function verifyLinuxElectronArchive(directory, arch) {
 			throw new Error(`Custom Electron manifest ${field} must be ${JSON.stringify(expected)}: ${manifestPath}`);
 		}
 	}
-	if ((await sha256File(chromiumPatchPath)) !== manifest?.chromiumPatchSha256) {
-		throw new Error(`Custom Electron manifest chromiumPatchSha256 does not match the current patch: ${manifestPath}`);
+	if ((await sha256File(chromiumPatchPath)) !== chromiumPatch.sha256) {
+		throw new Error(`${chromiumPatch.file} does not match the sha256 pinned in electron/runtime.json.`);
 	}
-	if (!/^[a-f0-9]{64}$/.test(manifest.archiveSha256)) {
-		throw new Error(`Custom Electron manifest has no valid archiveSha256: ${manifestPath}`);
+	if (manifest?.chromiumPatchSha256 !== chromiumPatch.sha256) {
+		throw new Error(`Custom Electron manifest chromiumPatchSha256 does not match the pinned patch: ${manifestPath}`);
+	}
+	const pinnedArchiveSha256 = runtime.linux[arch].archiveSha256;
+	if (manifest.archiveSha256 !== pinnedArchiveSha256) {
+		throw new Error(
+			`Custom Electron manifest archiveSha256 must be the ${runtime.releaseTag} archive pinned in electron/runtime.json: ${manifestPath}`,
+		);
 	}
 	const archivePath = path.join(directory, archiveName);
 	if ((await sha256File(archivePath)) !== manifest.archiveSha256) {

@@ -58,9 +58,11 @@ export interface AuthSessionAccountStorage {
 	restoreAccountData(accountKey: string): Promise<StoredAccount | null>;
 	deleteAccount(accountKey: string): Promise<void>;
 	updateAccountValidity(accountKey: string, isValid: boolean, expectedToken?: string): Promise<void>;
+	updateAccountToken(accountKey: string, expectedToken: string, token: string): Promise<void>;
+	updateAccountSwitcherPositions(positions: ReadonlyMap<string, number>): Promise<void>;
 }
 
-export interface AuthSessionHttpOptions {
+interface AuthSessionHttpOptions {
 	readonly headers?: Record<string, string>;
 	readonly auth?: 'session' | 'none';
 	readonly target: InstanceHTTPTarget;
@@ -68,7 +70,7 @@ export interface AuthSessionHttpOptions {
 	readonly retries?: number;
 }
 
-export interface AuthSessionHttp {
+interface AuthSessionHttp {
 	get<T>(url: string, options: AuthSessionHttpOptions): Promise<{body: T}>;
 }
 

@@ -103,14 +103,6 @@ struct Callbacks {
 unsafe impl Send for Source {}
 unsafe impl Sync for Source {}
 
-#[derive(Debug)]
-pub enum SourceCreateError {
-    DispatchQueue,
-}
-
-#[derive(Debug)]
-pub struct ClassRegistrationError;
-
 pub struct DelegateIvars {
     pub source: AtomicPtr<Source>,
 }
@@ -347,7 +339,7 @@ unsafe fn handle_audio_sample(src: &Source, sample_buffer: &CMSampleBuffer) {
 }
 
 impl Source {
-    pub fn create(opts: SourceOptions) -> Result<Box<Source>, SourceCreateError> {
+    pub fn create(opts: SourceOptions) -> Box<Source> {
         assert!(opts.target_sample_rate > 0.0);
         assert!(opts.target_channels > 0);
         let delegate = FluxerSCKAudioSource::new();
@@ -381,7 +373,7 @@ impl Source {
 
         let raw: *mut Source = &mut *src;
         src.delegate.ivars().source.store(raw, Ordering::Release);
-        Ok(src)
+        src
     }
 
     fn lock_callbacks(&self) -> MutexGuard<'_, Callbacks> {

@@ -20,19 +20,19 @@ export interface BrowserLoginHandoffSession {
 	readonly target: BrowserLoginHandoffTarget;
 }
 
-export interface BrowserLoginHandoffStatusResult {
+interface BrowserLoginHandoffStatusResult {
 	readonly status: DesktopHandoffStatus;
 	readonly token: string | null;
 	readonly userId: string | null;
 	readonly userData: UserData | undefined;
 }
 
-export const BrowserLoginHandoffTransportKind = Object.freeze({
+const BrowserLoginHandoffTransportKind = Object.freeze({
 	IPC: 'ipc',
 	RENDERER: 'renderer',
 } as const);
 
-export type BrowserLoginHandoffTransportKind =
+type BrowserLoginHandoffTransportKind =
 	(typeof BrowserLoginHandoffTransportKind)[keyof typeof BrowserLoginHandoffTransportKind];
 
 export interface BrowserLoginHandoffTransport {

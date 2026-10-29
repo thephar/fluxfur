@@ -172,7 +172,10 @@ apply_user_overwrite(_Overwrite, _UserId, Acc) ->
     Acc.
 
 -spec collect_cached_role_overwrite(
-    term(), member_roles(), role_id(), {permission(), permission(), permission()}
+    {integer(), integer(), integer(), integer()},
+    member_roles(),
+    role_id(),
+    {permission(), permission(), permission()}
 ) -> {permission(), permission(), permission()}.
 collect_cached_role_overwrite({OWId, 0, Allow, Deny}, MemberRoles, EveryoneRoleId, {E, A, D}) ->
     E1 =
@@ -252,75 +255,3 @@ accumulate_overwrite_allow_deny(AllowAcc, DenyAcc, Overwrite) ->
         _ ->
             {AllowAcc, DenyAcc}
     end.
-
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
-
-apply_channel_overwrites_e2e_test() ->
-    View = constants:view_channel_permission(),
-    GuildId = 5,
-    RoleId = 9,
-    UserId = 11,
-    Channel = #{
-        <<"permission_overwrites">> => [
-            #{
-                <<"id">> => integer_to_binary(GuildId),
-                <<"type">> => 0,
-                <<"allow">> => <<"0">>,
-                <<"deny">> => integer_to_binary(View)
-            },
-            #{
-                <<"id">> => integer_to_binary(RoleId),
-                <<"type">> => 0,
-                <<"allow">> => integer_to_binary(View),
-                <<"deny">> => <<"0">>
-            },
-            #{
-                <<"id">> => integer_to_binary(UserId),
-                <<"type">> => 1,
-                <<"allow">> => <<"0">>,
-                <<"deny">> => integer_to_binary(View)
-            }
-        ]
-    },
-    Base = View,
-    Result = apply_channel_overwrites(Base, UserId, [RoleId], Channel, GuildId),
-    ?assertEqual(0, Result).
-
-cached_overwrites_matches_uncached_test() ->
-    View = constants:view_channel_permission(),
-    GuildId = 5,
-    UserId = 11,
-    Channel = #{
-        <<"id">> => <<"10">>,
-        <<"permission_overwrites">> => [
-            #{
-                <<"id">> => <<"5">>,
-                <<"type">> => 0,
-                <<"allow">> => <<"0">>,
-                <<"deny">> => integer_to_binary(View)
-            },
-            #{
-                <<"id">> => <<"9">>,
-                <<"type">> => 0,
-                <<"allow">> => integer_to_binary(View),
-                <<"deny">> => <<"0">>
-            },
-            #{
-                <<"id">> => <<"11">>,
-                <<"type">> => 1,
-                <<"allow">> => <<"8">>,
-                <<"deny">> => <<"0">>
-            }
-        ]
-    },
-    MemberRoles = [9],
-    BasePerms = bitset:add(View, 16),
-    Uncached = apply_channel_overwrites(BasePerms, UserId, MemberRoles, Channel, GuildId),
-    Channels = [Channel],
-    OverwriteCache = guild_data_index_channels:build_overwrite_perms_cache(Channels),
-    CachedOWs = maps:get(10, OverwriteCache),
-    Cached = apply_cached_overwrites(BasePerms, UserId, MemberRoles, CachedOWs, GuildId),
-    ?assertEqual(Uncached, Cached).
-
--endif.

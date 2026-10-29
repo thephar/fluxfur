@@ -123,49 +123,10 @@ snapshot_operations(Snapshot) ->
     {ok, state()} | {error, state()}.
 process_rebalance_op(UserId, Operation, State) ->
     OwnerNodes = presence_cache_bulk:resolve_owner_nodes(UserId),
-    {Replicated, State1} = apply_to_owner_nodes(UserId, Operation, OwnerNodes, State),
+    {Replicated, State1} = presence_cache_ops:replicate_to_nodes(
+        UserId, Operation, OwnerNodes, State
+    ),
     finalize_rebalance(UserId, Operation, OwnerNodes, Replicated, State1).
-
--spec apply_to_owner_nodes(integer(), pending_operation(), [node()], state()) ->
-    {boolean(), state()}.
-apply_to_owner_nodes(_UserId, _Operation, [], State) ->
-    {false, State};
-apply_to_owner_nodes(UserId, Operation, OwnerNodes, State) ->
-    TargetNodes = lists:usort(OwnerNodes),
-    lists:foldl(
-        fun(TargetNode, {AllReplicated, AccState}) ->
-            {Result, NextState} = apply_op_to_node(TargetNode, UserId, Operation, AccState),
-            {AllReplicated andalso Result =:= ok, NextState}
-        end,
-        {true, State},
-        TargetNodes
-    ).
-
--spec apply_op_to_node(node(), integer(), pending_operation(), state()) ->
-    {ok | error, state()}.
-apply_op_to_node(TargetNode, UserId, {put, Presence}, State) ->
-    case TargetNode =:= node() of
-        true ->
-            {_Reply, NewState} = presence_cache:put_local(UserId, Presence, State),
-            {ok, NewState};
-        false ->
-            remote_apply_op(TargetNode, {put_local, UserId, Presence}, State)
-    end;
-apply_op_to_node(TargetNode, UserId, delete, State) ->
-    case TargetNode =:= node() of
-        true ->
-            {_Reply, NewState} = presence_cache:delete_local(UserId, State),
-            {ok, NewState};
-        false ->
-            remote_apply_op(TargetNode, {delete_local, UserId}, State)
-    end.
-
--spec remote_apply_op(node(), term(), state()) -> {ok | error, state()}.
-remote_apply_op(TargetNode, Request, State) ->
-    case presence_cache_bulk:safe_remote_call(TargetNode, Request, {error, unavailable}) of
-        ok -> {ok, State};
-        _ -> {error, State}
-    end.
 
 -spec finalize_rebalance(integer(), pending_operation(), [node()], boolean(), state()) ->
     {ok, state()} | {error, state()}.

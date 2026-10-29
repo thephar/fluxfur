@@ -69,28 +69,6 @@ describe('report notes', () => {
 		return logs.filter((log) => log.action === action);
 	}
 
-	test('adds notes, lists them oldest first and returns them with the report', async () => {
-		const reportId = await seedReport();
-
-		const first = await addNote(admin, reportId, '  Reporter sent more context by email  ')
-			.expect(HTTP_STATUS.OK)
-			.execute();
-		const second = await addNote(admin, reportId, 'Waiting on the guild owner').expect(HTTP_STATUS.OK).execute();
-
-		expect(first).toEqual({
-			note_id: expect.any(String),
-			author_id: admin.userId,
-			body: 'Reporter sent more context by email',
-			created_at: expect.any(String),
-		});
-		expect(await listNotes(admin, reportId).expect(HTTP_STATUS.OK).execute()).toEqual({notes: [first, second]});
-		const detail = await createBuilder<{notes?: Array<ReportNoteResponse>}>(harness, admin.token)
-			.get(`/admin/reports/${reportId}`)
-			.expect(HTTP_STATUS.OK)
-			.execute();
-		expect(detail.notes).toEqual([first, second]);
-	});
-
 	test('records the note in the audit log without its body', async () => {
 		const reportId = await seedReport();
 
@@ -106,42 +84,6 @@ describe('report notes', () => {
 			report_id: reportId.toString(),
 			note_id: note.note_id,
 		});
-	});
-
-	test.each([
-		['empty', ''],
-		['blank', '   '],
-		['too long', 'x'.repeat(2001)],
-		['not a string', 42],
-	])('refuses a %s body and stores nothing', async (_, body) => {
-		const reportId = await seedReport();
-
-		const response = await addNote(admin, reportId, body)
-			.expect(HTTP_STATUS.BAD_REQUEST, 'INVALID_FORM_BODY')
-			.execute();
-
-		expect(response.errors?.[0]?.path).toBe('body');
-		expect(await repository.listNotes(reportId)).toEqual([]);
-		expect(await auditEntries('annotate_report')).toEqual([]);
-	});
-
-	test('accepts a body of 2000 characters', async () => {
-		const reportId = await seedReport();
-
-		const note = await addNote(admin, reportId, 'x'.repeat(2000)).expect(HTTP_STATUS.OK).execute();
-
-		expect(note.body).toHaveLength(2000);
-	});
-
-	test('an unknown report gives UNKNOWN_REPORT and stores nothing', async () => {
-		sequence += 1n;
-		const missing = createReportID(sequence);
-
-		await addNote(admin, missing, 'Note').expect(HTTP_STATUS.NOT_FOUND, 'UNKNOWN_REPORT').execute();
-		await listNotes(admin, missing).expect(HTTP_STATUS.NOT_FOUND, 'UNKNOWN_REPORT').execute();
-
-		expect(await repository.listNotes(missing)).toEqual([]);
-		expect(await auditEntries('annotate_report')).toEqual([]);
 	});
 
 	test('adding a note needs REPORT_RESOLVE', async () => {

@@ -26,6 +26,8 @@ import {Logger} from '@app/features/platform/utils/AppLogger';
 import {getElectronAPI} from '@app/features/ui/utils/NativeUtils';
 import {APIErrorCodes} from '@fluxer/constants/src/ApiErrorCodes';
 import {Headers} from '@fluxer/constants/src/Headers';
+import {HttpStatus} from '@fluxer/constants/src/HttpConstants';
+import {MS_PER_SECOND} from '@fluxer/date_utils/src/DateConstants';
 import type {DesktopLocalAppUploadProgress} from '@fluxer/desktop_ipc/src/LocalAppRouteContract';
 import {
 	DESKTOP_LOCAL_APP_HOST,
@@ -90,7 +92,7 @@ interface RestRuntimeRouting {
 	readonly apiVersion: number;
 }
 
-export class RestRuntimeUnavailableError extends Error {
+class RestRuntimeUnavailableError extends Error {
 	constructor() {
 		super('A relative REST request requires an active instance runtime');
 		this.name = 'RestRuntimeUnavailableError';
@@ -322,8 +324,7 @@ async function runWithSudoEscalation<T>(
 			if (sudoApplied) sudo?.onFailure(err);
 			throw err;
 		}
-		if (sudoVerificationFailed) {
-			sudo.onFailure(err);
+		const reprompt = async (nextPhase: SudoPhase): Promise<RestResponse<T>> => {
 			const merged = await awaitAccountScopedInteraction(ticket, sudo.prompt(method, path, err));
 			if (!merged) throw err;
 			return runWithSudoEscalation<T>(
@@ -333,40 +334,22 @@ async function runWithSudoEscalation<T>(
 				method,
 				path,
 				options,
-				'reissued',
+				nextPhase,
 				mergeBody(options, merged),
 			);
+		};
+		if (sudoVerificationFailed) {
+			sudo.onFailure(err);
+			return reprompt('reissued');
 		}
 		switch (phase) {
 			case 'fresh': {
 				sudo.invalidate();
-				const merged = await awaitAccountScopedInteraction(ticket, sudo.prompt(method, path, err));
-				if (!merged) throw err;
-				return runWithSudoEscalation<T>(
-					state,
-					routing,
-					ticket,
-					method,
-					path,
-					options,
-					'reissued',
-					mergeBody(options, merged),
-				);
+				return reprompt('reissued');
 			}
 			case 'reissued': {
 				sudo.onFailure(err);
-				const second = await awaitAccountScopedInteraction(ticket, sudo.prompt(method, path, err));
-				if (!second) throw err;
-				return runWithSudoEscalation<T>(
-					state,
-					routing,
-					ticket,
-					method,
-					path,
-					options,
-					'reissued-twice',
-					mergeBody(options, second),
-				);
+				return reprompt('reissued-twice');
 			}
 			case 'reissued-twice': {
 				sudo.onFailure(err);
@@ -377,20 +360,25 @@ async function runWithSudoEscalation<T>(
 }
 
 function isSudoRequiredFailure(err: unknown): boolean {
-	if (!(err instanceof HttpError) || err.status !== 403) return false;
+	if (!(err instanceof HttpError) || err.status !== HttpStatus.FORBIDDEN) return false;
 	const body = err.body;
-	return typeof body === 'object' && body !== null && (body as Record<string, unknown>).code === 'SUDO_MODE_REQUIRED';
+	return isRecord(body) && body.code === APIErrorCodes.SUDO_MODE_REQUIRED;
 }
 
 function isSudoVerificationFailure(err: unknown): boolean {
-	if (!(err instanceof HttpError) || err.status !== 400) return false;
+	if (!(err instanceof HttpError) || err.status !== HttpStatus.BAD_REQUEST) return false;
 	const body = err.body;
 	if (!isRecord(body) || body.code !== APIErrorCodes.INVALID_FORM_BODY) return false;
 	const errors = body.errors;
 	if (!Array.isArray(errors)) return false;
 	return errors.some((error) => {
 		if (!isRecord(error)) return false;
-		const path = typeof error.path === 'string' ? error.path : typeof error.field === 'string' ? error.field : null;
+		let path: string | null = null;
+		if (typeof error.path === 'string') {
+			path = error.path;
+		} else if (typeof error.field === 'string') {
+			path = error.field;
+		}
 		return path !== null && SUDO_VERIFICATION_ERROR_FIELDS.has(path);
 	});
 }
@@ -606,6 +594,7 @@ function assembleHeaders(input: AssembleHeadersInput): Record<string, string> {
 	const accumulator: Record<string, string> = {};
 	if (input.sameOrigin) {
 		accumulator[Headers.X_FLUXER_FEATURES] = 'view_channel_members_permission,channel_threads';
+		accumulator[Headers.X_FLUXER_CAPABILITIES] = 'guild_visits';
 		accumulator[Headers.X_FLUXER_CLIENT_INSTALLATION_ID] = ClientInstallationId.get();
 	}
 	const contentType = inferContentType(input.body);
@@ -656,13 +645,12 @@ function recordPacing(
 	note?: string,
 	code?: string,
 ): void {
-	const fallbackMs = 1000;
-	const ms =
-		headerMs !== null && headerMs > 0
-			? headerMs
-			: retryAfterSeconds !== null && retryAfterSeconds > 0
-				? retryAfterSeconds * 1000
-				: fallbackMs;
+	let ms = MS_PER_SECOND;
+	if (headerMs !== null && headerMs > 0) {
+		ms = headerMs;
+	} else if (retryAfterSeconds !== null && retryAfterSeconds > 0) {
+		ms = retryAfterSeconds * MS_PER_SECOND;
+	}
 	pacing.set(key, {until: Date.now() + ms, note, code});
 }
 
@@ -744,7 +732,12 @@ function performTransport(plan: Plan, handle: RestRequestHandle): Promise<Transp
 			const headers = parseHeaderBlock(xhr.getAllResponseHeaders());
 			const reply = decodeReply(xhr, plan.parse, headers);
 			const sudoToken = headers[SUDO_HEADER];
-			const receivedSudoToken = sudoToken !== undefined ? sudoToken : plan.sudoApplied ? null : undefined;
+			let receivedSudoToken: string | null | undefined;
+			if (sudoToken !== undefined) {
+				receivedSudoToken = sudoToken;
+			} else if (plan.sudoApplied) {
+				receivedSudoToken = null;
+			}
 			resolve({status: 'reply', reply, receivedSudoToken});
 		};
 		xhr.open(plan.method, plan.url);

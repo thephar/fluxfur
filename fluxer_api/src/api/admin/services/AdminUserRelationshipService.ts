@@ -5,6 +5,7 @@ import {resolveAdminUsers} from '@app/api/admin/models/UserTypes';
 import type {AdminAuditService} from '@app/api/admin/services/AdminAuditService';
 import {createUserID, type UserID} from '@app/api/BrandedTypes';
 import type {Relationship} from '@app/api/models/Relationship';
+import type {UserRelationshipService} from '@app/api/user/services/UserRelationshipService';
 import {RelationshipTypes} from '@fluxer/constants/src/UserConstants';
 import {UnknownUserError} from '@fluxer/errors/src/domains/user/UnknownUserError';
 import type {
@@ -20,6 +21,7 @@ import type {
 interface AdminUserRelationshipServiceDeps {
 	apiContext: ApiContext;
 	auditService: AdminAuditService;
+	userRelationshipService: Pick<UserRelationshipService, 'endFriendship'>;
 }
 
 const CATEGORY_TO_TYPE: Record<RelationshipCategory, number> = {
@@ -41,10 +43,7 @@ export class AdminUserRelationshipService {
 	async listRelationships(data: ListUserRelationshipsRequest): Promise<ListUserRelationshipsResponse> {
 		const {users: userRepository} = this.deps.apiContext.services;
 		const userId = createUserID(data.user_id);
-		const user = await userRepository.findUnique(userId);
-		if (!user) {
-			throw new UnknownUserError();
-		}
+		await userRepository.findUniqueAssert(userId);
 		const relationships = await userRepository.listRelationships(userId);
 		const targetUserIds = new Set<UserID>();
 		for (const rel of relationships) {
@@ -97,10 +96,7 @@ export class AdminUserRelationshipService {
 		const {users: userRepository} = this.deps.apiContext.services;
 		const userId = createUserID(data.user_id);
 		const targetUserId = createUserID(data.target_user_id);
-		const user = await userRepository.findUnique(userId);
-		if (!user) {
-			throw new UnknownUserError();
-		}
+		await userRepository.findUniqueAssert(userId);
 		const type = CATEGORY_TO_TYPE[data.category];
 		const relationship = await userRepository.getRelationship(userId, targetUserId, type);
 		if (!relationship) {
@@ -128,10 +124,7 @@ export class AdminUserRelationshipService {
 		const {auditService} = this.deps;
 		const {users: userRepository} = this.deps.apiContext.services;
 		const userId = createUserID(data.user_id);
-		const user = await userRepository.findUnique(userId);
-		if (!user) {
-			throw new UnknownUserError();
-		}
+		await userRepository.findUniqueAssert(userId);
 		const type = CATEGORY_TO_TYPE[data.category];
 		const allRelationships = await userRepository.listRelationships(userId);
 		const matching: Array<Relationship> = allRelationships.filter((rel) => rel.type === type);
@@ -163,60 +156,32 @@ export class AdminUserRelationshipService {
 	}): Promise<void> {
 		const {users: userRepository, gateway: gatewayService} = this.deps.apiContext.services;
 		switch (category) {
-			case 'friend': {
-				await userRepository.deleteRelationship(userId, targetUserId, RelationshipTypes.FRIEND);
-				await userRepository.deleteRelationship(targetUserId, userId, RelationshipTypes.FRIEND);
-				await gatewayService.dispatchPresence({
-					userId,
-					event: 'RELATIONSHIP_REMOVE',
-					data: {id: targetUserId.toString()},
-				});
-				await gatewayService.dispatchPresence({
-					userId: targetUserId,
-					event: 'RELATIONSHIP_REMOVE',
-					data: {id: userId.toString()},
-				});
-				return;
-			}
-			case 'outgoing_request': {
+			case 'friend':
+				await this.deps.userRelationshipService.endFriendship(userId, targetUserId);
+				break;
+			case 'outgoing_request':
 				await userRepository.deleteRelationship(userId, targetUserId, RelationshipTypes.OUTGOING_REQUEST);
 				await userRepository.deleteRelationship(targetUserId, userId, RelationshipTypes.INCOMING_REQUEST);
-				await gatewayService.dispatchPresence({
-					userId,
-					event: 'RELATIONSHIP_REMOVE',
-					data: {id: targetUserId.toString()},
-				});
-				await gatewayService.dispatchPresence({
-					userId: targetUserId,
-					event: 'RELATIONSHIP_REMOVE',
-					data: {id: userId.toString()},
-				});
-				return;
-			}
-			case 'incoming_request': {
+				break;
+			case 'incoming_request':
 				await userRepository.deleteRelationship(userId, targetUserId, RelationshipTypes.INCOMING_REQUEST);
 				await userRepository.deleteRelationship(targetUserId, userId, RelationshipTypes.OUTGOING_REQUEST);
-				await gatewayService.dispatchPresence({
-					userId,
-					event: 'RELATIONSHIP_REMOVE',
-					data: {id: targetUserId.toString()},
-				});
-				await gatewayService.dispatchPresence({
-					userId: targetUserId,
-					event: 'RELATIONSHIP_REMOVE',
-					data: {id: userId.toString()},
-				});
-				return;
-			}
-			case 'blocked': {
+				break;
+			case 'blocked':
 				await userRepository.deleteRelationship(userId, targetUserId, RelationshipTypes.BLOCKED);
-				await gatewayService.dispatchPresence({
-					userId,
-					event: 'RELATIONSHIP_REMOVE',
-					data: {id: targetUserId.toString()},
-				});
-				return;
-			}
+				break;
+		}
+		await gatewayService.dispatchPresence({
+			userId,
+			event: 'RELATIONSHIP_REMOVE',
+			data: {id: targetUserId.toString()},
+		});
+		if (category !== 'blocked') {
+			await gatewayService.dispatchPresence({
+				userId: targetUserId,
+				event: 'RELATIONSHIP_REMOVE',
+				data: {id: userId.toString()},
+			});
 		}
 	}
 }

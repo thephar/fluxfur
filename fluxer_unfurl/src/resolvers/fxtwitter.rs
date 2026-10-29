@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use super::default_helpers::format_timestamp;
 use super::{ResolveContext, Resolver, ResolverResult};
 use crate::http_fetch;
 use crate::text_limits;
@@ -1000,9 +1001,4 @@ fn escape_markdown(text: &str) -> String {
         out.push(ch);
     }
     out
-}
-
-fn format_timestamp(unix_seconds: i64) -> Option<String> {
-    chrono::DateTime::from_timestamp(unix_seconds, 0)
-        .map(|dt| dt.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
 }

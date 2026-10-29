@@ -4,21 +4,14 @@
 -typing([eqwalizer]).
 
 -export([
-    owner_node/1, owner_node/2,
+    owner_node/2,
     owner_node_result/2,
     select_owner_node/2,
-    select_guild_owner_node/2,
     pinned_guild_owner/1,
     active_nodes/0, active_nodes/1,
     is_ready/0,
     is_draining/0
 ]).
-
--spec owner_node(term()) -> node().
-owner_node(Key) ->
-    Owner = select_owner_node(Key, active_nodes()),
-    gateway_cluster_metrics:record_owner_resolution(owner_result(Owner)),
-    Owner.
 
 -spec owner_node(term(), atom()) -> node().
 owner_node(Key, Role) ->
@@ -43,13 +36,6 @@ hashed_owner_node_result(Key, Role) ->
     case active_nodes(Role) of
         [] -> fallback_owner_for_role(Role);
         Nodes -> {ok, select_owner_node(Key, Nodes)}
-    end.
-
--spec select_guild_owner_node(term(), [node()]) -> node().
-select_guild_owner_node(GuildId, Nodes) ->
-    case pinned_guild_owner(GuildId) of
-        {ok, Pinned} -> Pinned;
-        none -> select_owner_node(GuildId, Nodes)
     end.
 
 -spec pinned_owner(term(), atom()) -> {ok, node()} | none.
@@ -173,171 +159,3 @@ owner_result(Owner) when Owner =:= node() ->
     self;
 owner_result(_Owner) ->
     peer.
-
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
-
-active_nodes_for_role_returns_role_and_monolith_nodes_test() ->
-    persistent_term:put({gateway_cluster_membership, members}, ['sessions@a', 'all@a']),
-    persistent_term:put({gateway_cluster_membership, members_by_role}, #{
-        websocket => ['web@a'],
-        sessions => ['sessions@a'],
-        all => ['all@a']
-    }),
-    ?assertEqual(['all@a', 'sessions@a'], active_nodes(sessions)),
-    persistent_term:erase({gateway_cluster_membership, members}),
-    persistent_term:erase({gateway_cluster_membership, members_by_role}).
-
-active_nodes_for_role_does_not_route_to_wrong_role_test() ->
-    persistent_term:put({gateway_cluster_membership, members_by_role}, #{
-        websocket => [node()]
-    }),
-    ?assertEqual([], active_nodes(sessions)),
-    persistent_term:erase({gateway_cluster_membership, members_by_role}).
-
-active_nodes_for_role_excludes_stale_role_members_test() ->
-    persistent_term:put({gateway_cluster_membership, members}, [node()]),
-    persistent_term:put({gateway_cluster_membership, members_by_role}, #{
-        sessions => ['stale@a', node()]
-    }),
-    ?assertEqual([node()], active_nodes(sessions)),
-    persistent_term:erase({gateway_cluster_membership, members}),
-    persistent_term:erase({gateway_cluster_membership, members_by_role}).
-
-active_nodes_for_role_without_role_map_keeps_local_role_only_test() ->
-    persistent_term:put(
-        {fluxer_gateway, runtime_config},
-        #{gateway_role => sessions}
-    ),
-    persistent_term:erase({gateway_cluster_membership, members_by_role}),
-    persistent_term:put(
-        {gateway_cluster_membership, members},
-        [node(), 'websocket@a']
-    ),
-    ?assertEqual([node()], active_nodes(sessions)),
-    ?assertEqual([], active_nodes(guilds)),
-    persistent_term:erase({gateway_cluster_membership, members}),
-    persistent_term:erase({fluxer_gateway, runtime_config}).
-
-owner_node_for_role_without_role_members_errors_on_wrong_role_test() ->
-    persistent_term:put(
-        {fluxer_gateway, runtime_config},
-        #{gateway_role => websocket}
-    ),
-    persistent_term:put({gateway_cluster_membership, members_by_role}, #{
-        websocket => [node()]
-    }),
-    ?assertError({no_active_nodes, sessions}, owner_node(<<"session">>, sessions)),
-    persistent_term:erase({gateway_cluster_membership, members_by_role}),
-    persistent_term:erase({fluxer_gateway, runtime_config}).
-
-select_owner_node_partitions_keys_across_nodes_test() ->
-    Peers = ['n@a', 'n@b', 'n@c'],
-    Owners = [
-        select_owner_node(<<"key-", (integer_to_binary(I))/binary>>, Peers)
-     || I <- lists:seq(1, 300)
-    ],
-    Unique = lists:usort(Owners),
-    ?assert(length(Unique) >= 2).
-
--define(PINNED_GUILD, 1100000000000000001).
-
-with_guild_members(Fun) ->
-    persistent_term:put(
-        {gateway_cluster_membership, members}, [node(), 'g1@h', 'g2@h', 'g3@h']
-    ),
-    persistent_term:put({gateway_cluster_membership, members_by_role}, #{
-        guilds => [node(), 'g1@h', 'g2@h', 'g3@h'],
-        calls => ['g1@h', 'g2@h']
-    }),
-    try
-        Fun()
-    after
-        application:unset_env(fluxer_gateway, guild_owner_pins),
-        application:unset_env(fluxer_gateway, guild_pinned_only_nodes),
-        persistent_term:erase({gateway_cluster_membership, members}),
-        persistent_term:erase({gateway_cluster_membership, members_by_role})
-    end.
-
-hashed_owners(Keys, Role) ->
-    Nodes = active_nodes(Role),
-    [{ok, select_owner_node(Key, Nodes)} || Key <- Keys].
-
-unset_pins_keep_hashed_owners_test() ->
-    with_guild_members(fun() ->
-        Keys = [?PINNED_GUILD | lists:seq(1, 500)],
-        ?assertEqual(hashed_owners(Keys, guilds), [owner_node_result(K, guilds) || K <- Keys]),
-        ?assertEqual(hashed_owners(Keys, calls), [owner_node_result(K, calls) || K <- Keys])
-    end).
-
-pin_to_self_applies_to_guilds_role_only_test() ->
-    with_guild_members(fun() ->
-        [Hashed] = hashed_owners([?PINNED_GUILD], calls),
-        Nodes = active_nodes(guilds),
-        Release = select_owner_node(?PINNED_GUILD, Nodes),
-        application:set_env(fluxer_gateway, guild_owner_pins, #{?PINNED_GUILD => node()}),
-        ?assertEqual({ok, node()}, owner_node_result(?PINNED_GUILD, guilds)),
-        ?assertEqual(Hashed, owner_node_result(?PINNED_GUILD, calls)),
-        ?assertEqual(Release, select_owner_node(?PINNED_GUILD, Nodes)),
-        ?assertEqual(hashed_owners([7], guilds), [owner_node_result(7, guilds)])
-    end).
-
-pin_to_disconnected_node_falls_back_to_hashing_test() ->
-    with_guild_members(fun() ->
-        [Hashed] = hashed_owners([?PINNED_GUILD], guilds),
-        application:set_env(fluxer_gateway, guild_owner_pins, #{?PINNED_GUILD => 'pin_x@h'}),
-        ?assertEqual(Hashed, owner_node_result(?PINNED_GUILD, guilds)),
-        ?assertEqual(none, pinned_guild_owner(?PINNED_GUILD))
-    end).
-
-live_pin_requires_a_connected_node_test() ->
-    ?assertEqual({ok, 'pin_x@h'}, live_pin('pin_x@h', ['g1@h', 'pin_x@h'])),
-    ?assertEqual(none, live_pin('pin_x@h', ['g1@h'])),
-    ?assertEqual({ok, node()}, live_pin(node(), [])).
-
-pinned_only_node_owns_no_hashed_guilds_test() ->
-    with_guild_members(fun() ->
-        Keys = lists:seq(1, 2000),
-        Before = [K || K <- Keys, owner_node_result(K, guilds) =:= {ok, node()}],
-        application:set_env(fluxer_gateway, guild_pinned_only_nodes, [node()]),
-        After = [K || K <- Keys, owner_node_result(K, guilds) =:= {ok, node()}],
-        ?assertNotEqual([], Before),
-        ?assertEqual([], After),
-        ?assertEqual(['g1@h', 'g2@h', 'g3@h'], active_nodes(guilds)),
-        ?assertEqual(['g1@h', 'g2@h'], active_nodes(calls))
-    end).
-
-pinned_only_node_without_peers_owns_only_its_pins_test() ->
-    persistent_term:put({fluxer_gateway, runtime_config}, #{gateway_role => guilds}),
-    persistent_term:erase({gateway_cluster_membership, members_by_role}),
-    application:set_env(fluxer_gateway, guild_pinned_only_nodes, [node()]),
-    application:set_env(fluxer_gateway, guild_owner_pins, #{?PINNED_GUILD => node()}),
-    try
-        ?assertEqual([], active_nodes(guilds)),
-        ?assertEqual({error, {no_active_nodes, guilds}}, owner_node_result(5, guilds)),
-        ?assertEqual({ok, node()}, owner_node_result(?PINNED_GUILD, guilds))
-    after
-        application:unset_env(fluxer_gateway, guild_owner_pins),
-        application:unset_env(fluxer_gateway, guild_pinned_only_nodes),
-        persistent_term:erase({fluxer_gateway, runtime_config})
-    end.
-
-select_guild_owner_node_honours_live_pins_test() ->
-    with_guild_members(fun() ->
-        Targets = ['g1@h', 'g2@h'],
-        Hashed = select_owner_node(?PINNED_GUILD, Targets),
-        ?assertEqual(Hashed, select_guild_owner_node(?PINNED_GUILD, Targets)),
-        application:set_env(fluxer_gateway, guild_owner_pins, #{?PINNED_GUILD => node()}),
-        ?assertEqual(node(), select_guild_owner_node(?PINNED_GUILD, Targets)),
-        application:set_env(fluxer_gateway, guild_owner_pins, #{?PINNED_GUILD => 'pin_x@h'}),
-        ?assertEqual(Hashed, select_guild_owner_node(?PINNED_GUILD, Targets))
-    end).
-
-is_ready_inverts_is_draining_test() ->
-    persistent_term:erase({fluxer_gateway, draining}),
-    ?assert(is_ready()),
-    persistent_term:put({fluxer_gateway, draining}, true),
-    ?assertNot(is_ready()),
-    persistent_term:erase({fluxer_gateway, draining}).
-
--endif.

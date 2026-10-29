@@ -2,6 +2,7 @@
 
 import {randomUUID} from 'node:crypto';
 import {
+	confirmTestEmail,
 	createAuthHarness,
 	createUniqueEmail,
 	createUniqueUsername,
@@ -23,11 +24,12 @@ import type {ApiTestHarness} from '@app/api/test/ApiTestHarness';
 import {HTTP_STATUS} from '@app/api/test/TestConstants';
 import {createBuilder, createBuilderWithoutAuth} from '@app/api/test/TestRequestBuilder';
 import {AdminACLs} from '@fluxer/constants/src/AdminACLs';
+import {APIErrorCodes} from '@fluxer/constants/src/ApiErrorCodes';
 import {UserFlags} from '@fluxer/constants/src/UserConstants';
 import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
 import {getSameIpDecisionKey} from '@fluxer/ip_utils/src/IpAddress';
 import {ms} from 'itty-time';
-import {afterAll, beforeAll, beforeEach, describe, expect, it, vi} from 'vitest';
+import {afterAll, beforeAll, beforeEach, describe, expect, it} from 'vitest';
 
 function bootstrapRegistrationBody(prefix: string): Record<string, unknown> {
 	return {
@@ -113,20 +115,6 @@ describe('Auth registration', () => {
 	afterAll(async () => {
 		await harness?.shutdown();
 	});
-	it('returns token and user_id', async () => {
-		const email = createUniqueEmail('register');
-		const reg = await registerUser(harness, {
-			email,
-			username: createUniqueUsername('register'),
-			global_name: 'Register User',
-			password: 'a-strong-password',
-			date_of_birth: '2000-01-01',
-			consent: true,
-		});
-		expect(reg.token.length).toBeGreaterThan(0);
-		expect(reg.user_id.length).toBeGreaterThan(0);
-		expect(Object.keys(reg).sort()).toEqual(['token', 'user', 'user_id']);
-	});
 	it('does not flag accounts registered on a development instance as staff', async () => {
 		expect(getConfig().nodeEnv).toBe('development');
 		const reg = await registerUser(harness, {
@@ -160,6 +148,7 @@ describe('Auth registration', () => {
 	it('grants wildcard admin ACL to first accepted self-hosted registration', async () => {
 		await withBootstrapAdminConfig({selfHosted: true, testModeEnabled: true}, async () => {
 			const first = await registerUser(harness, bootstrapRegistrationBody('selfhostadminone'));
+			await getInstanceConfigRepository().setAppPublicConfig({setup: {configured: true}});
 			const second = await registerUser(harness, bootstrapRegistrationBody('selfhostadmintwo'));
 			await expectUserACLs(first.user_id, [AdminACLs.WILDCARD]);
 			await expectUserACLs(second.user_id, []);
@@ -217,17 +206,6 @@ describe('Auth registration', () => {
 			});
 		});
 	});
-	it('derives username from display name when username is omitted', async () => {
-		const reg = await registerUser(harness, {
-			email: createUniqueEmail('derived-username'),
-			password: 'a-strong-password',
-			global_name: 'Magic Tester',
-			date_of_birth: '2000-01-01',
-			consent: true,
-		});
-		const me = (await fetchMe(harness, reg.token)).json as UserMeResponse;
-		expect(me.username).toBe('Magic_Tester');
-	});
 	it('blocks any request from an address on the shared blocked list', async () => {
 		applySharedListUpdate('ip_blocked', '127.0.0.1\n');
 		try {
@@ -250,7 +228,7 @@ describe('Auth registration', () => {
 	it('treats email as case-insensitive across auth flows', async () => {
 		const baseEmail = 'Integration-Test-Case-Email@Example.COM';
 		const password = 'a-strong-password';
-		await registerUser(harness, {
+		const registered = await registerUser(harness, {
 			email: baseEmail,
 			username: createUniqueUsername('caseuser'),
 			global_name: 'Test User',
@@ -258,6 +236,7 @@ describe('Auth registration', () => {
 			date_of_birth: '2000-01-01',
 			consent: true,
 		});
+		await confirmTestEmail(harness, registered.user_id);
 		const loginEmails = [baseEmail.toLowerCase(), baseEmail.toUpperCase(), titleCaseEmail(baseEmail)];
 		for (const email of loginEmails) {
 			const login = await createBuilderWithoutAuth<LoginSuccessResponse>(harness)
@@ -368,20 +347,24 @@ describe('Setup token registration', () => {
 		});
 	});
 
-	it('accepts a setup token padded with whitespace', async () => {
+	it('keeps sign-ups closed after the admin exists until setup is finished', async () => {
 		await withSetupTokenInstance(async () => {
-			const {status, json} = await register({
-				...bootstrapRegistrationBody('paddedtoken'),
-				setup_token: `  ${SETUP_TOKEN}\n`,
-			});
-			expect(status).toBe(HTTP_STATUS.OK);
-			await expectUserACLs(json.user_id!, [AdminACLs.WILDCARD]);
+			await getInstanceConfigRepository().setRegistrationConfig({mode: 'open'});
+			await registerAdmin('closedadmin');
+			const early = await register(bootstrapRegistrationBody('closedearly'));
+			expect(early.status).toBe(HTTP_STATUS.FORBIDDEN);
+			expect(early.json.code).toBe(APIErrorCodes.REGISTRATION_CLOSED);
+			await getInstanceConfigRepository().setAppPublicConfig({setup: {configured: true}});
+			const later = await register(bootstrapRegistrationBody('closedlater'));
+			expect(later.status).toBe(HTTP_STATUS.OK);
+			await expectUserACLs(later.json.user_id!, []);
 		});
 	});
 
 	it('ignores the setup token once the admin exists', async () => {
 		await withSetupTokenInstance(async () => {
 			await registerAdmin('firstadmin');
+			await getInstanceConfigRepository().setAppPublicConfig({setup: {configured: true}});
 			const tokenless = await register(bootstrapRegistrationBody('aftertokenless'));
 			expect(tokenless.status).toBe(HTTP_STATUS.OK);
 			await expectUserACLs(tokenless.json.user_id!, []);
@@ -402,8 +385,21 @@ describe('Setup token registration', () => {
 		});
 	});
 
+	it('refuses an unclaimed registration with the setup token while accounts without an email are off', async () => {
+		await withSetupTokenInstance(async () => {
+			const {status, json} = await register({global_name: 'Unclaimed Operator', setup_token: SETUP_TOKEN});
+			expect(status).toBe(HTTP_STATUS.FORBIDDEN);
+			expect(json.code).toBe(APIErrorCodes.INSTANT_ACCOUNTS_DISABLED);
+			await expect(getInstanceConfigRepository().isAdminBootstrapped()).resolves.toBe(false);
+			const userId = await registerAdmin('afterrefusal');
+			await expectUserACLs(userId, [AdminACLs.WILDCARD]);
+		});
+	});
+
 	it('creates a plain account for an unclaimed registration that presents the setup token', async () => {
 		await withSetupTokenInstance(async () => {
+			await getInstanceConfigRepository().updateCaptchaConfig({enabled: true});
+			await getInstanceConfigRepository().updateAuthConfig({instant_accounts: {enabled: true}});
 			const {status, json} = await register({global_name: 'Unclaimed Operator', setup_token: SETUP_TOKEN});
 			expect(status).toBe(HTTP_STATUS.OK);
 			await expectUserACLs(json.user_id!, []);
@@ -497,6 +493,7 @@ describe('Setup token registration', () => {
 			}
 			const userId = await registerAdmin('limitedoperator', operator);
 			await expectUserACLs(userId, [AdminACLs.WILDCARD]);
+			await getInstanceConfigRepository().setAppPublicConfig({setup: {configured: true}});
 			const next = await register(bootstrapRegistrationBody('limitedmember'), operator);
 			expect(next.status).toBe(TOO_MANY_REQUESTS);
 		});
@@ -538,27 +535,6 @@ describe('Setup token registration', () => {
 			const {status, json} = await register(bootstrapRegistrationBody('hostedtokenless'));
 			expect(status).toBe(HTTP_STATUS.OK);
 			await expectUserACLs(json.user_id!, [AdminACLs.WILDCARD]);
-		});
-	});
-
-	it('releases the admin claim when the account cannot be created', async () => {
-		await withSetupTokenInstance(async () => {
-			const create = vi.spyOn(getUserRepository(), 'create').mockRejectedValueOnce(new Error('insert failed'));
-			try {
-				const failed = await register({...bootstrapRegistrationBody('failedadmin'), setup_token: SETUP_TOKEN});
-				expect(failed.status).toBe(HTTP_STATUS.INTERNAL_SERVER_ERROR);
-				expect(create).toHaveBeenCalledTimes(1);
-			} finally {
-				create.mockRestore();
-			}
-			await expect(getInstanceConfigRepository().isAdminBootstrapped()).resolves.toBe(false);
-			const tokenless = await register(bootstrapRegistrationBody('failedtokenless'));
-			expect(setupTokenErrors(tokenless.json)).toEqual([
-				{path: 'setup_token', code: ValidationErrorCodes.SETUP_TOKEN_REQUIRED},
-			]);
-			const userId = await registerAdmin('retriedadmin');
-			await expectUserACLs(userId, [AdminACLs.WILDCARD]);
-			await expect(getInstanceConfigRepository().getConfig('admin_bootstrap_user_id')).resolves.toBe(userId);
 		});
 	});
 

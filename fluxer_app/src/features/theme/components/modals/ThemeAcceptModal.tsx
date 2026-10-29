@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import * as AccessibilityCommands from '@app/features/accessibility/commands/AccessibilityCommands';
 import {showGenericErrorModal} from '@app/features/app/components/alerts/GenericErrorModalCommands';
 import * as Modal from '@app/features/app/components/dialogs/Modal';
 import type {RuntimeConfigSnapshot} from '@app/features/app/state/InstanceSnapshotStore';
@@ -8,12 +7,14 @@ import {useArboriumHighlightedHtml} from '@app/features/code_highlighting/utils/
 import {COPY_CODE_DESCRIPTOR, SOMETHING_WENT_WRONG_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
 import {Logger} from '@app/features/platform/utils/AppLogger';
 import styles from '@app/features/theme/components/modals/ThemeAcceptModal.module.css';
+import ThemeEditTarget from '@app/features/theme/state/ThemeEditTarget';
 import {buildThemeCssFetchUrl} from '@app/features/theme/utils/ThemeUtils';
+import * as ThemeSettingsCommands from '@app/features/theme_settings/commands/ThemeSettingsCommands';
+import {useCurrentAccountLabels} from '@app/features/theme_settings/hooks/useCurrentAccountLabels';
 import {Button} from '@app/features/ui/button/Button';
 import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
 import * as ToastCommands from '@app/features/ui/commands/ToastCommands';
 import {CopyButton} from '@app/features/ui/components/CopyButton';
-import {formatUserSettingsPath} from '@app/features/user/components/settings_utils/SettingsConstants';
 import {msg} from '@lingui/core/macro';
 import {Trans, useLingui} from '@lingui/react/macro';
 import {observer} from 'mobx-react-lite';
@@ -35,6 +36,19 @@ const WE_COULDN_T_APPLY_THIS_THEME_DESCRIPTOR = msg({
 	message: "We couldn't apply this theme.",
 	comment: 'Error message in the theme accept modal.',
 });
+const REPLACES_DESKTOP_QUICK_CSS_DESCRIPTOR = msg({
+	message: 'This replaces the quick CSS in the desktop app theme.',
+	comment: 'Shown in the modal that applies a shared theme while the desktop app theme is being edited.',
+});
+const REPLACES_ACCOUNT_QUICK_CSS_DESCRIPTOR = msg({
+	message: 'This replaces the quick CSS for {username} on {instanceName}.',
+	comment:
+		"Shown in the modal that applies a shared theme to the current account's own theme. {username} is the account's username and {instanceName} is its instance.",
+});
+const OPEN_IN_THEMES_DESCRIPTOR = msg({
+	message: 'Open in Themes',
+	comment: 'Button in the modal that applied a shared theme. Opens Settings > Themes.',
+});
 const logger = new Logger('ThemeAcceptModal');
 
 interface ThemeAcceptModalProps {
@@ -44,8 +58,10 @@ interface ThemeAcceptModalProps {
 
 export const ThemeAcceptModal = observer(function ThemeAcceptModal({themeId, runtimeSnapshot}: ThemeAcceptModalProps) {
 	const {i18n} = useLingui();
-	const themeSettingsPath = formatUserSettingsPath(i18n, 'appearance', 'theme');
+	const {username, instanceName} = useCurrentAccountLabels();
+	const target = ThemeEditTarget.target;
 	const [isApplying, setIsApplying] = useState(false);
+	const [isApplied, setIsApplied] = useState(false);
 	const [css, setCss] = useState<string | null>(null);
 	const [fetchStatus, setFetchStatus] = useState<'idle' | 'loading' | 'error' | 'ready'>('idle');
 	const [fetchError, setFetchError] = useState<string | null>(null);
@@ -95,9 +111,10 @@ export const ThemeAcceptModal = observer(function ThemeAcceptModal({themeId, run
 		}
 		setIsApplying(true);
 		try {
-			AccessibilityCommands.update({customThemeCss: css});
+			ThemeSettingsCommands.setEditedCustomThemeCss(css);
 			ToastCommands.success(i18n._(THEME_APPLIED_SUCCESSFULLY_DESCRIPTOR));
-			ModalCommands.pop();
+			setIsApplied(true);
+			setIsApplying(false);
 		} catch (error) {
 			logger.error('Failed to apply theme:', error);
 			showGenericErrorModal({
@@ -139,7 +156,9 @@ export const ThemeAcceptModal = observer(function ThemeAcceptModal({themeId, run
 			<Modal.Header title={<Trans>Import theme</Trans>} data-flx="theme.theme-accept-modal.modal-header" />
 			<Modal.Content padding="none" className={styles.content} data-flx="theme.theme-accept-modal.content">
 				<p className={styles.description} data-flx="theme.theme-accept-modal.description">
-					<Trans>This will replace your current custom theme. You can edit it later in {themeSettingsPath}.</Trans>
+					{target === 'desktop'
+						? i18n._(REPLACES_DESKTOP_QUICK_CSS_DESCRIPTOR)
+						: i18n._(REPLACES_ACCOUNT_QUICK_CSS_DESCRIPTOR, {username, instanceName})}
 				</p>
 				<div className={styles.codeContainer} data-flx="theme.theme-accept-modal.code-container">
 					<CopyButton
@@ -158,22 +177,41 @@ export const ThemeAcceptModal = observer(function ThemeAcceptModal({themeId, run
 				</div>
 			</Modal.Content>
 			<Modal.Footer className={styles.footer} data-flx="theme.theme-accept-modal.footer">
-				<Button
-					variant="secondary"
-					onClick={handleDismiss}
-					disabled={isApplying}
-					data-flx="theme.theme-accept-modal.button.dismiss"
-				>
-					<Trans>Cancel</Trans>
-				</Button>
-				<Button
-					onClick={handleApply}
-					disabled={isApplying || fetchStatus !== 'ready'}
-					submitting={isApplying}
-					data-flx="theme.theme-accept-modal.button.apply"
-				>
-					<Trans>Apply</Trans>
-				</Button>
+				{isApplied ? (
+					<>
+						<Button variant="secondary" onClick={handleDismiss} data-flx="theme.theme-accept-modal.button.done">
+							<Trans>Done</Trans>
+						</Button>
+						<Button
+							onClick={() => {
+								ModalCommands.pop();
+								ThemeSettingsCommands.openThemesSettings();
+							}}
+							data-flx="theme.theme-accept-modal.button.open-in-themes"
+						>
+							{i18n._(OPEN_IN_THEMES_DESCRIPTOR)}
+						</Button>
+					</>
+				) : (
+					<>
+						<Button
+							variant="secondary"
+							onClick={handleDismiss}
+							disabled={isApplying}
+							data-flx="theme.theme-accept-modal.button.dismiss"
+						>
+							<Trans>Cancel</Trans>
+						</Button>
+						<Button
+							onClick={handleApply}
+							disabled={isApplying || fetchStatus !== 'ready'}
+							submitting={isApplying}
+							data-flx="theme.theme-accept-modal.button.apply"
+						>
+							<Trans>Apply</Trans>
+						</Button>
+					</>
+				)}
 			</Modal.Footer>
 		</Modal.Root>
 	);

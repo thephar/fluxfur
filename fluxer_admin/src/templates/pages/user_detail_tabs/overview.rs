@@ -2,14 +2,20 @@
 
 use crate::{
     acl, admin_flags,
-    api::types::{AdminUser, LimitConfigResponse, ListUserChangeLogResponse},
+    api::types::{
+        AdminCustomBadgeList, AdminUser, CustomBadgeType, LimitConfigResponse,
+        ListUserChangeLogResponse, account_tier_label,
+    },
     config::AdminConfig,
     templates::components::{
         badge::{BadgeVariant, badge},
-        form::{checkbox, csrf_input, form_actions, submit_button},
+        form::{Checkbox, csrf_input, form_actions, submit_button},
         page_container::{card_with_header, detail_row},
     },
-    templates::pages::enforcement_decision::suspension_label,
+    templates::pages::{
+        badges::{custom_badge_list, custom_badge_picker, no_badges_defined},
+        enforcement_decision::suspension_label,
+    },
     utils::{
         bigint::format_discriminator,
         timestamps::{format_admin_timestamp, snowflake_creation_date},
@@ -18,6 +24,13 @@ use crate::{
 };
 use maud::{Markup, html};
 
+#[derive(Default)]
+pub struct OverviewSources<'a> {
+    pub change_log: Option<&'a ListUserChangeLogResponse>,
+    pub limit_config: Option<&'a LimitConfigResponse>,
+    pub custom_badges: Option<&'a AdminCustomBadgeList>,
+}
+
 pub fn overview_tab(
     config: &AdminConfig,
     user: &AdminUser,
@@ -25,19 +38,19 @@ pub fn overview_tab(
     csrf_token: &str,
     change_log: Option<&ListUserChangeLogResponse>,
 ) -> Markup {
-    render_overview_tab(
-        config, user, admin_acls, csrf_token, change_log, None, false, false,
-    )
+    let sources = OverviewSources {
+        change_log,
+        ..OverviewSources::default()
+    };
+    render_overview_tab(config, user, admin_acls, csrf_token, &sources, false, false)
 }
 
-#[allow(clippy::too_many_arguments)]
-pub fn overview_tab_with_limit_config(
+pub fn overview_tab_with_sources(
     config: &AdminConfig,
     user: &AdminUser,
     admin_acls: &[String],
     csrf_token: &str,
-    change_log: Option<&ListUserChangeLogResponse>,
-    limit_config: Option<&LimitConfigResponse>,
+    sources: &OverviewSources,
     username_sign_in: bool,
 ) -> Markup {
     render_overview_tab(
@@ -45,24 +58,26 @@ pub fn overview_tab_with_limit_config(
         user,
         admin_acls,
         csrf_token,
-        change_log,
-        limit_config,
+        sources,
         true,
         username_sign_in,
     )
 }
 
-#[allow(clippy::too_many_arguments)]
 fn render_overview_tab(
     config: &AdminConfig,
     user: &AdminUser,
     admin_acls: &[String],
     csrf_token: &str,
-    change_log: Option<&ListUserChangeLogResponse>,
-    limit_config: Option<&LimitConfigResponse>,
+    sources: &OverviewSources,
     show_traits: bool,
     username_sign_in: bool,
 ) -> Markup {
+    let OverviewSources {
+        change_log,
+        limit_config,
+        custom_badges,
+    } = *sources;
     html! {
         div class="space-y-6" {
             (restriction_banner(config, user))
@@ -140,6 +155,24 @@ fn render_overview_tab(
                             } @else {
                                 span class="text-neutral-400" { "Not set" }
                             }
+                        }))
+                    }
+                    @if let Some(tier) = user.account_tier {
+                        (detail_row("Account Tier", html! {
+                            (account_tier_label(tier))
+                        }))
+                    }
+                    (detail_row("Sign-in", html! {
+                        @if user.claimed {
+                            "Can sign in from another device"
+                        } @else {
+                            span class="text-orange-600" { "Unclaimed, no way back in after sign-out" }
+                        }
+                        @if !user.has_password { span class="ml-1 text-neutral-500" { "(no password)" } }
+                    }))
+                    @if user.date_of_birth_required {
+                        (detail_row("Date of Birth Step", html! {
+                            span class="text-orange-600" { "Waiting for a date of birth" }
                         }))
                     }
                     @if acl::has_permission(admin_acls, acl::USER_VIEW_DOB) {
@@ -224,6 +257,9 @@ fn render_overview_tab(
             (acls_card(config, user, admin_acls, csrf_token))
             @if show_traits {
                 (traits_card(config, user, admin_acls, csrf_token, limit_config))
+                @if let Some(badges) = custom_badges {
+                    (custom_badges_card(config, user, admin_acls, csrf_token, badges))
+                }
             }
             @if acl::has_permission(admin_acls, acl::USER_VIEW_CONTACT_LOG) {
                 (card_with_header("Contact Change Log", html! {
@@ -302,13 +338,16 @@ fn flags_card(
                 can_update_flags,
                 html! {
                     @for flag in admin_flags::USER_FLAGS {
-                        (checkbox(
-                            "flags[]",
-                            &flag.value.to_string(),
-                            flag.name,
-                            user.flags & flag.value != 0,
-                            can_update_flags && admin_flags::user_flag_is_editable(flag.value, user.flags, suspended),
-                        ))
+                        div class="space-y-0.5" {
+                            (Checkbox {
+                                name: "flags[]",
+                                value: &flag.value.to_string(),
+                                label: flag.name,
+                                checked: user.flags & flag.value != 0,
+                                enabled: can_update_flags && admin_flags::user_flag_is_editable(flag.value, user.flags, suspended),
+                            }.render())
+                            p class="pl-6 text-xs text-neutral-500" { (flag.help) }
+                        }
                     }
                 },
             ))
@@ -321,13 +360,13 @@ fn flags_card(
                 can_update_flags,
                 html! {
                     @for flag in admin_flags::PREMIUM_FLAGS {
-                        (checkbox(
-                            "flags[]",
-                            &flag.value.to_string(),
-                            flag.name,
-                            user.premium_flags & flag.value != 0,
-                            can_update_flags && admin_flags::premium_flag_is_editable(flag.value),
-                        ))
+                        (Checkbox {
+                            name: "flags[]",
+                            value: &flag.value.to_string(),
+                            label: flag.name,
+                            checked: user.premium_flags & flag.value != 0,
+                            enabled: can_update_flags && admin_flags::premium_flag_is_editable(flag.value),
+                        }.render())
                     }
                 },
             ))
@@ -369,16 +408,6 @@ fn flag_form_shell(
     )
 }
 
-fn flag_checkbox(
-    input_name: &str,
-    value: String,
-    label: &str,
-    checked: bool,
-    can_edit: bool,
-) -> Markup {
-    checkbox(input_name, &value, label, checked, can_edit)
-}
-
 fn acls_card(
     config: &AdminConfig,
     user: &AdminUser,
@@ -396,7 +425,13 @@ fn acls_card(
                         div class="grid grid-cols-1 gap-2 sm:grid-cols-2" {
                             @for item in acl::ALL_ACLS {
                                 @let checked = user.acls.iter().any(|value| value == item);
-                                (flag_checkbox("acls[]", item.to_string(), item, checked, true))
+                                (Checkbox {
+                                    name: "acls[]",
+                                    value: item,
+                                    label: item,
+                                    checked,
+                                    enabled: true,
+                                }.render())
                             }
                         }
                         @for item in &user.acls {
@@ -427,6 +462,41 @@ fn acls_card(
     )
 }
 
+fn custom_badges_card(
+    config: &AdminConfig,
+    user: &AdminUser,
+    admin_acls: &[String],
+    csrf_token: &str,
+    badges: &AdminCustomBadgeList,
+) -> Markup {
+    let definitions: Vec<_> = badges.of_type(CustomBadgeType::User).collect();
+    let assigned: Vec<_> = definitions
+        .iter()
+        .copied()
+        .filter(|badge| user.badge_ids.contains(&badge.id))
+        .collect();
+    let can_edit = acl::has_permission(admin_acls, acl::USER_UPDATE_BADGES);
+    card_with_header(
+        "Badges",
+        html! {
+            @if definitions.is_empty() {
+                (no_badges_defined(config, "user badges"))
+            } @else if can_edit {
+                form method="post" action={(config.base_path) "/users/" (user.id) "?action=update_badges&tab=overview"} {
+                    (csrf_input(csrf_token))
+                    div class="space-y-4" {
+                        (custom_badge_picker(&definitions, &user.badge_ids))
+                        (form_actions(html! { (submit_button("Save badges")) }))
+                    }
+                }
+            } @else {
+                (custom_badge_list(&assigned))
+                p class="mt-2 text-xs text-neutral-500" { "You need the user badges permission to change these." }
+            }
+        },
+    )
+}
+
 fn traits_card(
     config: &AdminConfig,
     user: &AdminUser,
@@ -434,8 +504,8 @@ fn traits_card(
     csrf_token: &str,
     limit_config: Option<&LimitConfigResponse>,
 ) -> Markup {
-    let trait_definitions = parse_trait_definitions(limit_config);
-    let custom_traits = custom_traits(user, &trait_definitions);
+    let trait_definitions = parse_trait_definitions(limit_config, config.self_hosted);
+    let custom_traits = custom_traits(user, &trait_definitions, config.self_hosted);
     let can_edit = acl::has_permission(admin_acls, acl::USER_UPDATE_TRAITS);
     card_with_header(
         "Traits",
@@ -452,7 +522,7 @@ fn traits_card(
                     (assigned_traits(&user.traits))
                     p class="text-sm text-red-700" { "Failed to load limit configuration." }
                 }
-                @if trait_definitions.is_empty() {
+                @if trait_definitions.iter().all(|definition| *definition == PREMIUM_TRAIT) {
                     p class="text-neutral-500 text-xs" {
                         "No trait definitions declared. "
                         a href={(config.base_path) "/instance-config"} class="text-blue-600 underline" {
@@ -493,13 +563,13 @@ fn traits_form(
                 @if !trait_definitions.is_empty() {
                     div class="grid grid-cols-1 gap-2 sm:grid-cols-2" {
                         @for definition in trait_definitions {
-                            (flag_checkbox(
-                                "traits[]",
-                                definition.to_string(),
-                                definition,
-                                user.traits.iter().any(|t| t == definition),
-                                true,
-                            ))
+                            (Checkbox {
+                                name: "traits[]",
+                                value: definition,
+                                label: definition,
+                                checked: user.traits.iter().any(|t| t == definition),
+                                enabled: true,
+                            }.render())
                         }
                     }
                 }
@@ -513,8 +583,13 @@ fn traits_form(
                         (custom_traits.join("\n"))
                     }
                     p class="text-neutral-500 text-xs" {
-                        "The premium trait follows each member's subscription or gift and cannot be \
-                         assigned here."
+                        @if config.self_hosted {
+                            "The premium trait gives this account premium limits. Accounts with a \
+                             subscription or gift get them without it."
+                        } @else {
+                            "The premium trait follows each member's subscription or gift and cannot be \
+                             assigned here."
+                        }
                     }
                 }
                 (form_actions(html! {
@@ -525,28 +600,48 @@ fn traits_form(
     }
 }
 
-const DERIVED_TRAITS: [&str; 1] = ["premium"];
+const PREMIUM_TRAIT: &str = "premium";
 
-fn parse_trait_definitions(limit_config: Option<&LimitConfigResponse>) -> Vec<&str> {
-    limit_config
-        .map(|response| {
-            response
-                .limit_config
-                .trait_definitions
-                .iter()
-                .map(|value| value.trim())
-                .filter(|value| !value.is_empty())
-                .filter(|value| !DERIVED_TRAITS.contains(value))
-                .collect()
-        })
-        .unwrap_or_default()
+fn parse_trait_definitions(
+    limit_config: Option<&LimitConfigResponse>,
+    self_hosted: bool,
+) -> Vec<&str> {
+    let Some(response) = limit_config else {
+        return Vec::new();
+    };
+    assignable_trait_definitions(
+        response
+            .limit_config
+            .trait_definitions
+            .iter()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty()),
+        self_hosted,
+    )
 }
 
-fn custom_traits<'a>(user: &'a AdminUser, trait_definitions: &[&str]) -> Vec<&'a str> {
+fn assignable_trait_definitions<'a>(
+    definitions: impl Iterator<Item = &'a str>,
+    self_hosted: bool,
+) -> Vec<&'a str> {
+    let mut assignable: Vec<&str> = definitions
+        .filter(|value| self_hosted || *value != PREMIUM_TRAIT)
+        .collect();
+    if self_hosted && !assignable.contains(&PREMIUM_TRAIT) {
+        assignable.insert(0, PREMIUM_TRAIT);
+    }
+    assignable
+}
+
+fn custom_traits<'a>(
+    user: &'a AdminUser,
+    trait_definitions: &[&str],
+    self_hosted: bool,
+) -> Vec<&'a str> {
     user.traits
         .iter()
         .map(String::as_str)
         .filter(|trait_name| !trait_definitions.contains(trait_name))
-        .filter(|trait_name| !DERIVED_TRAITS.contains(trait_name))
+        .filter(|trait_name| self_hosted || *trait_name != PREMIUM_TRAIT)
         .collect()
 }

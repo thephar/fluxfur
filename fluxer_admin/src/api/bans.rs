@@ -21,15 +21,6 @@ impl AdminApiClient {
         .await
     }
 
-    pub async fn unban_email(&self, email: &str, audit_log_reason: Option<&str>) -> ApiResult<()> {
-        self.delete_blocklist_entry("email", email, None, audit_log_reason)
-            .await
-    }
-
-    pub async fn check_email_ban(&self, email: &str) -> ApiResult<BanCheckResult> {
-        self.check_blocklist_entry("email", email, None).await
-    }
-
     pub async fn ban_ip(
         &self,
         ip: &str,
@@ -53,15 +44,6 @@ impl AdminApiClient {
         .await
     }
 
-    pub async fn unban_ip(&self, ip: &str, audit_log_reason: Option<&str>) -> ApiResult<()> {
-        self.delete_blocklist_entry("ip", ip, None, audit_log_reason)
-            .await
-    }
-
-    pub async fn check_ip_ban(&self, ip: &str) -> ApiResult<BanCheckResult> {
-        self.check_blocklist_entry("ip", ip, None).await
-    }
-
     pub async fn ban_phrase(&self, phrase: &str, audit_log_reason: Option<&str>) -> ApiResult<()> {
         self.create_blocklist_entry(
             "phrase",
@@ -73,19 +55,6 @@ impl AdminApiClient {
             audit_log_reason,
         )
         .await
-    }
-
-    pub async fn unban_phrase(
-        &self,
-        phrase: &str,
-        audit_log_reason: Option<&str>,
-    ) -> ApiResult<()> {
-        self.delete_blocklist_entry("phrase", phrase, None, audit_log_reason)
-            .await
-    }
-
-    pub async fn check_phrase_ban(&self, phrase: &str) -> ApiResult<BanCheckResult> {
-        self.check_blocklist_entry("phrase", phrase, None).await
     }
 
     pub async fn ban_url(&self, url: &str, audit_log_reason: Option<&str>) -> ApiResult<()> {
@@ -103,15 +72,6 @@ impl AdminApiClient {
             audit_log_reason,
         )
         .await
-    }
-
-    pub async fn unban_url(&self, url: &str, audit_log_reason: Option<&str>) -> ApiResult<()> {
-        self.delete_blocklist_entry("url", url, None, audit_log_reason)
-            .await
-    }
-
-    pub async fn check_url_ban(&self, url: &str) -> ApiResult<BanCheckResult> {
-        self.check_blocklist_entry("url", url, None).await
     }
 
     pub async fn ban_url_domain(
@@ -135,19 +95,6 @@ impl AdminApiClient {
             audit_log_reason,
         )
         .await
-    }
-
-    pub async fn unban_url_domain(
-        &self,
-        domain: &str,
-        audit_log_reason: Option<&str>,
-    ) -> ApiResult<()> {
-        self.delete_blocklist_entry("url-domain", domain, None, audit_log_reason)
-            .await
-    }
-
-    pub async fn check_url_domain_ban(&self, domain: &str) -> ApiResult<BanCheckResult> {
-        self.check_blocklist_entry("url-domain", domain, None).await
     }
 
     pub async fn list_url_domain_entries(
@@ -183,20 +130,6 @@ impl AdminApiClient {
             audit_log_reason,
         )
         .await
-    }
-
-    pub async fn unban_file_sha(
-        &self,
-        sha256_hex: &str,
-        audit_log_reason: Option<&str>,
-    ) -> ApiResult<()> {
-        self.delete_blocklist_entry("file-sha", sha256_hex, None, audit_log_reason)
-            .await
-    }
-
-    pub async fn check_file_sha_ban(&self, sha256_hex: &str) -> ApiResult<BanCheckResult> {
-        self.check_blocklist_entry("file-sha", sha256_hex, None)
-            .await
     }
 
     pub async fn bulk_ban_file_shas(
@@ -238,20 +171,6 @@ impl AdminApiClient {
         .await
     }
 
-    pub async fn unban_avatar_hash(
-        &self,
-        hash_short: &str,
-        audit_log_reason: Option<&str>,
-    ) -> ApiResult<()> {
-        self.delete_blocklist_entry("avatar-hash", hash_short, None, audit_log_reason)
-            .await
-    }
-
-    pub async fn check_avatar_hash_ban(&self, hash_short: &str) -> ApiResult<BanCheckResult> {
-        self.check_blocklist_entry("avatar-hash", hash_short, None)
-            .await
-    }
-
     pub async fn ban_profile_substring(
         &self,
         scope: &str,
@@ -268,30 +187,6 @@ impl AdminApiClient {
         .await
     }
 
-    pub async fn unban_profile_substring(
-        &self,
-        scope: &str,
-        substring: &str,
-        audit_log_reason: Option<&str>,
-    ) -> ApiResult<()> {
-        self.delete_blocklist_entry(
-            PROFILE_SUBSTRING_LIST,
-            substring,
-            Some(scope),
-            audit_log_reason,
-        )
-        .await
-    }
-
-    pub async fn check_profile_substring_ban(
-        &self,
-        scope: &str,
-        substring: &str,
-    ) -> ApiResult<BanCheckResult> {
-        self.check_blocklist_entry(PROFILE_SUBSTRING_LIST, substring, Some(scope))
-            .await
-    }
-
     async fn create_blocklist_entry(
         &self,
         list_type: &str,
@@ -306,7 +201,7 @@ impl AdminApiClient {
             .map_err(|error| self.generated_error(error))
     }
 
-    async fn delete_blocklist_entry(
+    pub(crate) async fn delete_blocklist_entry(
         &self,
         list_type: &str,
         entry_value: &str,
@@ -322,7 +217,7 @@ impl AdminApiClient {
             .map_err(|error| self.generated_error(error))
     }
 
-    async fn check_blocklist_entry(
+    pub(crate) async fn check_blocklist_entry(
         &self,
         list_type: &str,
         entry_value: &str,
@@ -339,7 +234,7 @@ impl AdminApiClient {
     }
 }
 
-const PROFILE_SUBSTRING_LIST: &str = "profile-substring";
+pub(crate) const PROFILE_SUBSTRING_LIST: &str = "profile-substring";
 
 const BLOCKLIST_PAGE_SIZE: &str = "200";
 

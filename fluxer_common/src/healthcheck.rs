@@ -6,14 +6,16 @@ use std::{
     time::Duration,
 };
 
-pub async fn run(
-    host: Option<&str>,
-    port: Option<&str>,
-    host_var: &str,
-    port_var: &str,
-    default_port: u16,
-) -> anyhow::Result<()> {
-    let addr = target(host, port, host_var, port_var, default_port)?;
+pub async fn run(host_var: &str, port_var: &str, default_port: u16) -> anyhow::Result<()> {
+    let host = crate::config::env_value(host_var);
+    let port = crate::config::env_value(port_var);
+    let addr = target(
+        host.as_deref(),
+        port.as_deref(),
+        host_var,
+        port_var,
+        default_port,
+    )?;
     probe(addr).await
 }
 

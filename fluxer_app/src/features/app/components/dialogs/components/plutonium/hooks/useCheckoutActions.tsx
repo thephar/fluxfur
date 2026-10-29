@@ -9,14 +9,21 @@ import {
 	UPI_PAYMENT_METHOD,
 } from '@app/features/app/config/I18nDisplayConstants';
 import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
+import {promptForAccountTier} from '@app/features/auth/utils/AccountTierPrompt';
 import {CANCEL_DESCRIPTOR, CLOSE_DESCRIPTOR, OKAY_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
 import {HttpError} from '@app/features/platform/types/EndpointError';
 import {Logger} from '@app/features/platform/utils/AppLogger';
 import type {CheckoutPaymentMethod, PriceIds} from '@app/features/premium/commands/PremiumCommands';
 import * as PremiumCommands from '@app/features/premium/commands/PremiumCommands';
 import PremiumState from '@app/features/premium/state/PremiumState';
+import {forgetPurchaseIntent} from '@app/features/premium/state/PurchaseIntent';
 import {recordPremiumCheckoutReturnIntent} from '@app/features/premium/utils/PremiumCheckoutReturnIntent';
-import {MANAGE_SUBSCRIPTION_DESCRIPTOR} from '@app/features/premium/utils/PremiumMessageDescriptors';
+import {
+	MANAGE_SUBSCRIPTION_DESCRIPTOR,
+	PAYMENT_DISPUTE_OPEN_DESCRIPTOR,
+	PURCHASES_PAUSED_TITLE_DESCRIPTOR,
+} from '@app/features/premium/utils/PremiumMessageDescriptors';
+import {getPremiumPurchaseBlockedReason} from '@app/features/premium/utils/PremiumPurchaseBlock';
 import {getPremiumProductFullName, getStoreName} from '@app/features/premium/utils/PremiumUtils';
 import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
 import {modal} from '@app/features/ui/commands/ModalCommands';
@@ -56,11 +63,11 @@ const USE_ALTERNATIVE_METHOD_BUTTON_DESCRIPTOR = msg({
 	comment: 'Plutonium subscription payment method picker button. Selects the alternative (non-card) method.',
 });
 const EMAIL_VERIFICATION_REQUIRED_TITLE_DESCRIPTOR = msg({
-	message: 'Verify your email first',
+	message: 'Confirm your email first',
 	comment: 'Title of the error modal shown when an unverified account tries to purchase Plutonium.',
 });
 const EMAIL_VERIFICATION_REQUIRED_BODY_DESCRIPTOR = msg({
-	message: 'You need to verify your email before you can purchase {premiumProductFullName}.',
+	message: 'You need to confirm your email before you can purchase {premiumProductFullName}.',
 	comment:
 		'Body of the error modal shown when the account email is unverified and the user tries to purchase Plutonium. Product name is interpolated.',
 });
@@ -170,7 +177,6 @@ const USE_CARD_BUTTON_DESCRIPTOR = msg({
 const logger = new Logger('useCheckoutActions');
 
 type Plan = 'monthly' | 'yearly' | 'gift_1_month' | 'gift_1_year';
-type PremiumPurchaseBlockedReason = 'lifetime' | 'existing_subscription' | 'purchase_disabled';
 
 function getPremiumPurchaseBlockedStoreProvider(body: unknown): 'app_store' | 'google_play' | null {
 	if (!body || typeof body !== 'object' || !('provider' in body)) {
@@ -179,17 +185,6 @@ function getPremiumPurchaseBlockedStoreProvider(body: unknown): 'app_store' | 'g
 	const provider = body.provider;
 	if (provider === 'app_store' || provider === 'google_play') {
 		return provider;
-	}
-	return null;
-}
-
-function getPremiumPurchaseBlockedReason(body: unknown): PremiumPurchaseBlockedReason | null {
-	if (!body || typeof body !== 'object' || !('reason' in body)) {
-		return null;
-	}
-	const reason = body.reason;
-	if (reason === 'lifetime' || reason === 'existing_subscription' || reason === 'purchase_disabled') {
-		return reason;
 	}
 	return null;
 }
@@ -285,7 +280,6 @@ export const useCheckoutActions = (
 									<ConfirmModal
 										title={i18n._(ALREADY_VISIONARY_TITLE_DESCRIPTOR)}
 										description={i18n._(ALREADY_VISIONARY_BODY_DESCRIPTOR)}
-										secondaryText={i18n._(CLOSE_DESCRIPTOR)}
 										data-flx="app.plutonium.use-checkout-actions.handle-checkout-error.confirm-modal"
 									/>
 								)),
@@ -316,7 +310,6 @@ export const useCheckoutActions = (
 										<ConfirmModal
 											title={i18n._(EXISTING_SUBSCRIPTION_TITLE_DESCRIPTOR)}
 											description={description}
-											secondaryText={i18n._(CLOSE_DESCRIPTOR)}
 											data-flx="app.plutonium.use-checkout-actions.handle-checkout-error.confirm-modal--5"
 										/>
 									),
@@ -342,6 +335,18 @@ export const useCheckoutActions = (
 							);
 							return;
 						}
+						if (reason === 'payment_dispute_open') {
+							ModalCommands.push(
+								modal(() => (
+									<ConfirmModal
+										title={i18n._(PURCHASES_PAUSED_TITLE_DESCRIPTOR)}
+										description={i18n._(PAYMENT_DISPUTE_OPEN_DESCRIPTOR)}
+										data-flx="app.plutonium.use-checkout-actions.handle-checkout-error.payment-dispute-open"
+									/>
+								)),
+							);
+							return;
+						}
 						if (reason === 'purchase_disabled') {
 							ModalCommands.push(
 								modal(() => (
@@ -352,7 +357,6 @@ export const useCheckoutActions = (
 												? i18n._(PURCHASES_DISABLED_SELF_HOSTED_BODY_DESCRIPTOR)
 												: i18n._(PURCHASES_DISABLED_BODY_DESCRIPTOR, {supportEmail: SUPPORT_EMAIL})
 										}
-										secondaryText={i18n._(CLOSE_DESCRIPTOR)}
 										data-flx="app.plutonium.use-checkout-actions.handle-checkout-error.confirm-modal--3"
 									/>
 								)),
@@ -368,7 +372,6 @@ export const useCheckoutActions = (
 											? i18n._(CHECKOUT_BLOCKED_SELF_HOSTED_BODY_DESCRIPTOR)
 											: i18n._(CHECKOUT_BLOCKED_BODY_DESCRIPTOR, {supportEmail: SUPPORT_EMAIL})
 									}
-									secondaryText={i18n._(CLOSE_DESCRIPTOR)}
 									data-flx="app.plutonium.use-checkout-actions.handle-checkout-error.confirm-modal--4"
 								/>
 							)),
@@ -434,6 +437,7 @@ export const useCheckoutActions = (
 				return;
 			}
 			const markCheckoutLaunched = () => {
+				forgetPurchaseIntent();
 				if (!isGift) {
 					recordPremiumCheckoutReturnIntent('plutonium');
 				}
@@ -484,7 +488,9 @@ export const useCheckoutActions = (
 					);
 					await openCheckoutUrl(checkoutUrl, {skipMobilePrompt});
 				} catch (error) {
-					handleCheckoutError(error);
+					if (!promptForAccountTier(error, () => void startCheckout({skipMobilePrompt, paymentMethod}))) {
+						handleCheckoutError(error);
+					}
 				} finally {
 					setLoadingCheckout(false);
 				}

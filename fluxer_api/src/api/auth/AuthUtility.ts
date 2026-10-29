@@ -10,6 +10,7 @@ import {clearExpiredSuspension} from '@app/api/enforcement/SuspensionState';
 import type {KVAccountDeletionQueueService} from '@app/api/infrastructure/KVAccountDeletionQueueService';
 import {Logger} from '@app/api/Logger';
 import type {User} from '@app/api/models/User';
+import {followOperatorPassWallStanding} from '@app/api/operator_pass/OperatorPassWallStanding';
 import {isAccountClosed, isSignInRefused} from '@app/api/user/UserHelpers';
 import * as AgeUtils from '@app/api/utils/AgeUtils';
 import * as RandomUtils from '@app/api/utils/RandomUtils';
@@ -39,7 +40,7 @@ function base62Encode(buffer: Uint8Array): string {
 	return encoded;
 }
 
-export async function generateAuthToken(_ctx: ApiContext): Promise<string> {
+export async function generateAuthToken(): Promise<string> {
 	const bytes = await randomBytesAsync(27);
 	let token = base62Encode(new Uint8Array(bytes));
 	if (token.length < 36) {
@@ -51,7 +52,7 @@ export async function generateAuthToken(_ctx: ApiContext): Promise<string> {
 	return `flx_${token}`;
 }
 
-export function generateBackupCodes(_ctx: ApiContext): Array<string> {
+export function generateBackupCodes(): Array<string> {
 	return Array.from({length: 10}, () => {
 		return `${RandomUtils.randomString(4).toLowerCase()}-${RandomUtils.randomString(4).toLowerCase()}`;
 	});
@@ -61,12 +62,12 @@ export function getTokenIdHash(_ctx: ApiContext, token: string): Uint8Array {
 	return new Uint8Array(crypto.createHash('sha256').update(token).digest());
 }
 
-export function validateAge(_ctx: ApiContext, {dateOfBirth, minAge}: ValidateAgeParams): boolean {
+export function validateAge({dateOfBirth, minAge}: ValidateAgeParams): boolean {
 	const birthDate = new Date(dateOfBirth);
 	const age = AgeUtils.calculateAge({
-		year: birthDate.getFullYear(),
-		month: birthDate.getMonth() + 1,
-		day: birthDate.getDate(),
+		year: birthDate.getUTCFullYear(),
+		month: birthDate.getUTCMonth() + 1,
+		day: birthDate.getUTCDate(),
 	});
 	return age >= minAge;
 }
@@ -139,5 +140,6 @@ export async function reactivateOnSignIn(
 		await deletionQueue.removeFromQueue(currentUser.id);
 		Logger.info({userId: currentUser.id}, 'Auto-cancelled deletion on sign-in');
 	}
+	await followOperatorPassWallStanding(user, currentUser);
 	return currentUser;
 }

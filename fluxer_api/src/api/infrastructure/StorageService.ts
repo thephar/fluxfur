@@ -9,11 +9,9 @@ import {promisify} from 'node:util';
 import {Config} from '@app/api/Config';
 import {
 	type IStorageService,
-	type ProcessedStorageObjectMetadata,
 	StorageObjectListingOverflowError,
 	StorageObjectRangeNotSatisfiableError,
 } from '@app/api/infrastructure/IStorageService';
-import {processMediaFile} from '@app/api/infrastructure/StorageObjectHelpers';
 import {Logger} from '@app/api/Logger';
 import {
 	AbortMultipartUploadCommand,
@@ -34,7 +32,6 @@ import {
 import {Upload} from '@aws-sdk/lib-storage';
 import {getSignedUrl} from '@aws-sdk/s3-request-presigner';
 import type {S3ProviderSettings} from '@fluxer/config/src/S3ProviderSettings';
-import {isSupportedMediaContentType} from '@pkgs/mime_utils/src/ContentTypeUtils';
 import {seconds} from 'itty-time';
 import {temporaryFile} from 'tempy';
 
@@ -571,74 +568,6 @@ export class StorageService implements IStorageService {
 			});
 		} finally {
 			await fs.promises.unlink(downloadedSource).catch(() => undefined);
-		}
-	}
-
-	async copyObjectWithMetadataStripping({
-		sourceBucket,
-		sourceKey,
-		destinationBucket,
-		destinationKey,
-		contentType,
-		sourceLocalPath,
-	}: {
-		sourceBucket: string;
-		sourceKey: string;
-		destinationBucket: string;
-		destinationKey: string;
-		contentType: string;
-		sourceLocalPath?: string;
-	}): Promise<ProcessedStorageObjectMetadata | null> {
-		if (!isSupportedMediaContentType(contentType)) {
-			await this.copyObject({
-				sourceBucket,
-				sourceKey,
-				destinationBucket,
-				destinationKey,
-				newContentType: contentType,
-			});
-			return null;
-		}
-		const downloadedSource = sourceLocalPath ?? temporaryFile();
-		const ownsDownload = !sourceLocalPath;
-		const processedPath = temporaryFile();
-		try {
-			if (ownsDownload) {
-				await this.writeObjectToDisk(sourceBucket, sourceKey, downloadedSource);
-			}
-			const processed = await processMediaFile(downloadedSource, processedPath, contentType).catch((error) => {
-				Logger.error({error, contentType, sourceBucket, sourceKey}, 'Failed to strip attachment media metadata');
-				return null;
-			});
-			if (!processed) {
-				await this.copyObject({
-					sourceBucket,
-					sourceKey,
-					destinationBucket,
-					destinationKey,
-					newContentType: contentType,
-				});
-				return null;
-			}
-			await this.uploadObjectFromFile({
-				bucket: destinationBucket,
-				key: destinationKey,
-				filePath: processed.filePath,
-				contentType: processed.contentType,
-				contentLength: processed.contentLength,
-			});
-			return {
-				contentType: processed.contentType,
-				contentLength: processed.contentLength,
-				contentHash: processed.contentHash,
-				...(processed.width != null ? {width: processed.width} : {}),
-				...(processed.height != null ? {height: processed.height} : {}),
-			};
-		} finally {
-			await fs.promises.unlink(processedPath).catch(() => undefined);
-			if (ownsDownload) {
-				await fs.promises.unlink(downloadedSource).catch(() => undefined);
-			}
 		}
 	}
 

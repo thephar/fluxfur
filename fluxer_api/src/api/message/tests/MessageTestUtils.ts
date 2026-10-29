@@ -46,18 +46,6 @@ export async function deleteMessage(
 		.expect(204)
 		.execute();
 }
-export async function pinMessage(
-	harness: ApiTestHarness,
-	token: string,
-	channelId: string,
-	messageId: string,
-): Promise<void> {
-	await createBuilder<void>(harness, token)
-		.put(`/channels/${channelId}/pins/${messageId}`)
-		.body(null)
-		.expect(204)
-		.execute();
-}
 export async function createGuild(harness: ApiTestHarness, token: string, name: string): Promise<GuildResponse> {
 	const guild = await createBuilder<GuildResponse>(harness, token)
 		.post('/guilds')

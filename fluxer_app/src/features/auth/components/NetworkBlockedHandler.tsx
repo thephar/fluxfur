@@ -9,19 +9,16 @@ import {getLocaleDirection} from '@app/features/i18n/utils/LocaleDirection';
 import {Button} from '@app/features/ui/button/Button';
 import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
 import {modal} from '@app/features/ui/commands/ModalCommands';
+import ModalState from '@app/features/ui/state/Modal';
 import type {NetworkBlock} from '@fluxer/schema/src/domains/auth/EnforcementNoticeSchemas';
 import {useLingui} from '@lingui/react/macro';
 import {observer} from 'mobx-react-lite';
 
-let modalShown = false;
+const NETWORK_BLOCKED_MODAL_KEY = 'network-blocked';
 
 const NetworkBlockedModal = observer(function NetworkBlockedModal({block}: {block: NetworkBlock}) {
 	const {i18n} = useLingui();
 	const dir = getLocaleDirection(i18n.locale);
-	const handleTryAgain = () => {
-		modalShown = false;
-		ModalCommands.pop();
-	};
 	return (
 		<Modal.Root size="small" centered className={styles.selectable} data-flx="auth.network-blocked-handler.modal-root">
 			<div className={styles.directionScope} dir={dir} data-flx="auth.network-blocked-handler.direction-scope">
@@ -32,7 +29,7 @@ const NetworkBlockedModal = observer(function NetworkBlockedModal({block}: {bloc
 					</div>
 				</Modal.Content>
 				<Modal.Footer data-flx="auth.network-blocked-handler.footer">
-					<Button onClick={handleTryAgain} data-flx="auth.network-blocked-handler.button.try-again">
+					<Button onClick={ModalCommands.pop} data-flx="auth.network-blocked-handler.button.try-again">
 						{i18n._(TRY_AGAIN_DESCRIPTOR)}
 					</Button>
 				</Modal.Footer>
@@ -42,11 +39,11 @@ const NetworkBlockedModal = observer(function NetworkBlockedModal({block}: {bloc
 });
 
 export function showNetworkBlockedModal(block: NetworkBlock): void {
-	if (modalShown) {
+	if (ModalState.hasModal(NETWORK_BLOCKED_MODAL_KEY)) {
 		return;
 	}
-	modalShown = true;
-	ModalCommands.push(
+	ModalCommands.pushWithKey(
 		modal(() => <NetworkBlockedModal block={block} data-flx="auth.network-blocked-handler.network-blocked-modal" />),
+		NETWORK_BLOCKED_MODAL_KEY,
 	);
 }

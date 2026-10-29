@@ -194,6 +194,10 @@ const navigateForTarget = (target: DeepLinkTarget) => {
 	RouterUtils.transitionTo(dest);
 };
 
+export function isAppDeepLink(rawUrl: string): boolean {
+	return isAppProtocolUrl(rawUrl) && parseDeepLink(rawUrl) !== null;
+}
+
 export function handleDeepLinkUrl(rawUrl: string): boolean {
 	const target = parseDeepLink(rawUrl);
 	if (!target) return false;
@@ -253,7 +257,7 @@ export function isInternalChannelHost(host: string): boolean {
 	if (webAppHost && normalizedHost === webAppHost) {
 		return true;
 	}
-	return OFFICIAL_INTERNAL_APP_HOSTS.includes(normalizedHost);
+	return !RuntimeConfig.isSelfHosted() && OFFICIAL_INTERNAL_APP_HOSTS.includes(normalizedHost);
 }
 
 export function parseChannelUrl(url: string): string | null {

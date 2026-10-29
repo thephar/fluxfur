@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import {Config} from '@app/api/Config';
 import {
 	IMediaService,
 	type MediaProxyMetadataRequest,
 	type MediaProxyMetadataResponse,
 	type MediaProxySniffResponse,
+	type MediaProxyStorageObject,
+	type MediaProxyStrippedObject,
 } from '@app/api/infrastructure/IMediaService';
 import type {IStorageService} from '@app/api/infrastructure/IStorageService';
 
@@ -84,6 +87,23 @@ export class TestMediaService extends IMediaService {
 
 	async sniffUpload(_uploadFilename: string): Promise<MediaProxySniffResponse | null> {
 		return {content_type: null};
+	}
+
+	async stripObjectMetadata(
+		source: MediaProxyStorageObject,
+		contentType: string,
+		outputPath: string,
+	): Promise<MediaProxyStrippedObject | null> {
+		await fs.promises.writeFile(outputPath, await this.storageService.readObject(source.bucket, source.key));
+		return {contentType, width: 100, height: 100};
+	}
+
+	async stripImageMetadata(image: Uint8Array): Promise<Uint8Array | null> {
+		return image;
+	}
+
+	async getAudioDurationSeconds(_base64: string): Promise<number | null> {
+		return null;
 	}
 
 	private analyzeBase64Image(base64: string): MediaProxyMetadataResponse | null {

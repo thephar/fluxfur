@@ -10,7 +10,7 @@ const DURATION_TYPES = new Set<GiftCodeDurationType>(['days', 'weeks', 'months',
 
 interface GenerateGiftCodesOptions {
 	count: number;
-	durationType: GiftCodeDurationType;
+	durationType: GiftCodeDurationType | 'lifetime';
 	durationQuantity: number;
 	createdByUserId: UserID;
 }
@@ -19,7 +19,10 @@ export class AdminCodeGenerationService {
 	constructor(private readonly userRepository: UserRepository) {}
 
 	async generateGiftCodes(options: GenerateGiftCodesOptions): Promise<Array<string>> {
-		const {count, durationType, durationQuantity, createdByUserId} = this.validateOptions(options);
+		const {count, createdByUserId} = this.validateOptions(options);
+		const lifetime = options.durationType === 'lifetime';
+		const durationType = options.durationType === 'lifetime' ? 'months' : options.durationType;
+		const durationQuantity = lifetime ? 0 : options.durationQuantity;
 		const durationMonths = mapGiftCodeDurationToMonths(durationType, durationQuantity);
 		const codes: Array<string> = [];
 		for (let i = 0; i < count; i += 1) {
@@ -41,6 +44,9 @@ export class AdminCodeGenerationService {
 	private validateOptions(options: GenerateGiftCodesOptions): GenerateGiftCodesOptions {
 		if (!Number.isInteger(options.count) || options.count < 1 || options.count > MAX_CODES_PER_REQUEST) {
 			throw new Error(`Gift code count must be between 1 and ${MAX_CODES_PER_REQUEST}`);
+		}
+		if (options.durationType === 'lifetime') {
+			return options;
 		}
 		if (!DURATION_TYPES.has(options.durationType)) {
 			throw new Error(`Unsupported gift code duration type: ${options.durationType}`);

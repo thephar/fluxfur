@@ -78,7 +78,7 @@ export class StripePremiumService {
 		);
 	}
 
-	async setPremiumLifetime(
+	private async setPremiumLifetime(
 		userId: UserID,
 		hasEverPurchased: boolean = false,
 		premiumSinceAnchor: Date | null = null,
@@ -88,7 +88,9 @@ export class StripePremiumService {
 			throw new StripeError('User not found for premium grant');
 		}
 		const now = new Date();
-		const visionarySequence = user.premiumLifetimeSequence ?? (await this.allocateVisionarySequence(userId));
+		const visionarySequence =
+			user.premiumLifetimeSequence ??
+			(Config.instance.selfHosted ? null : await this.allocateVisionarySequence(userId));
 		const updatedUser = await this.userRepository.patchUpsert(
 			userId,
 			{
@@ -315,6 +317,9 @@ export class StripePremiumService {
 	}
 
 	private async addToVisionariesGuild(userId: UserID): Promise<void> {
+		if (Config.instance.selfHosted && !Config.instance.visionariesGuildId) {
+			return;
+		}
 		if (!Config.instance.visionariesGuildId) {
 			throw new StripeError('Visionaries guild id not configured');
 		}

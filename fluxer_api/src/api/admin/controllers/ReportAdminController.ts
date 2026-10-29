@@ -214,7 +214,7 @@ export function ReportAdminController(app: HonoApp) {
 			operationId: 'update_admin_report',
 			summary: 'Update report',
 			description:
-				'Moves a report to the resolved status. resolution is required. actioned also needs the outcome for the reported item, and no_violation sets the outcome no_violation. duplicate needs duplicate_of and takes the outcome stored on that report. The reporter is told the outcome: an account reporter by system DM and email, a Digital Services Act notifier by email. A duplicate of a report with no outcome yet is resolved without telling the reporter. notify_reporter false leaves the public comment out of that notice. Nothing is sent when the reporter account is deleted, or barred from reporting when the report was filed. Creates an audit log entry. Requires REPORT_RESOLVE permission.',
+				'Moves a report to the resolved status. resolution is required. actioned also needs the outcome for the reported item, and no_violation sets the outcome no_violation. duplicate needs duplicate_of and takes the outcome stored on that report. The reporter is told the outcome: an account reporter by system DM and email, a Digital Services Act notifier by email. The system DM is left out when the instance has direct messages turned off. A duplicate of a report with no outcome yet is resolved without telling the reporter. notify_reporter false leaves the public comment out of that notice. Nothing is sent when the reporter account is deleted, or barred from reporting when the report was filed. Creates an audit log entry. Requires REPORT_RESOLVE permission.',
 			responseSchema: ResolveReportResponse,
 			statusCode: 200,
 			security: 'adminApiKey',

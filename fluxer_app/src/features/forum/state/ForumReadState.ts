@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import {ResettableStates} from '@app/features/app/state/ResettableStates';
 import Authentication from '@app/features/auth/state/Authentication';
 import type {Channel} from '@app/features/channel/models/Channel';
 import GatewaySessions from '@app/features/gateway/transport/GatewaySessionPool';
@@ -34,7 +35,7 @@ export function hasForumUnread(forum: Channel): boolean {
 	return isNewPostsUnreadEnabled(forum) && ReadStates.hasUnread(forum.id);
 }
 
-export function isPostNewerThan(
+function isPostNewerThan(
 	post: {id: string; ownerId: string | null},
 	snapshotId: string,
 	currentUserId: string | null,
@@ -159,6 +160,12 @@ class ForumReadState {
 		this.resetRequests();
 	}
 
+	reset(): void {
+		this.resetRequests();
+		this.postUnreads.clear();
+		this.snapshots.clear();
+	}
+
 	purgeGuild(guildId: string): void {
 		for (const [postId, entry] of this.queue) {
 			if (entry.guildId === guildId) this.queue.delete(postId);
@@ -206,4 +213,8 @@ class ForumReadState {
 	}
 }
 
-export default new ForumReadState();
+const forumReadState = new ForumReadState();
+
+ResettableStates.register(forumReadState, () => forumReadState.reset());
+
+export default forumReadState;

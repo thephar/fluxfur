@@ -191,8 +191,8 @@ request_token_and_build(Context, Member, ParsedViewerStreamKey, State, GuildId, 
 
 -spec build_join_reply(voice_p2p:join_decision(), {ok, term()} | {error, term()}, map()) ->
     {reply, map(), guild_state()} | {reply, {error, atom(), atom()}, guild_state()}.
-build_join_reply(_Decision, {error, _Reason}, #{state := State}) ->
-    {reply, gateway_errors:error(voice_token_failed), State};
+build_join_reply(_Decision, {error, Reason}, #{state := State}) ->
+    {reply, gateway_errors:error(guild_voice_connection_token:voice_error_for(Reason)), State};
 build_join_reply(Decision, {ok, TokenData}, #{state := State} = Build) ->
     case voice_p2p:admit(Decision, TokenData) of
         {reject, ErrorAtom} ->

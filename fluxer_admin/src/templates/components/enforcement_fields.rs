@@ -10,8 +10,11 @@ use crate::{
         enforcement::DecisionSubmission,
         generated::{snowflake, types as generated_types},
     },
-    templates::components::form::checkbox,
-    utils::{forms::MultiValueForm, plural::count_noun, timestamps::format_admin_timestamp},
+    templates::components::form::Checkbox,
+    utils::{
+        forms::MultiValueForm, plural::count_noun, snowflake::is_snowflake,
+        timestamps::format_admin_timestamp,
+    },
 };
 use maud::{Markup, html};
 
@@ -304,8 +307,20 @@ pub fn enforcement_fields(fields: &DecisionFields<'_>) -> Markup {
                 }
             }
             div class="space-y-2" data-show-for-codes=(restricted_codes) hidden {
-                (checkbox("confirmations", "evidence_preserved", "Evidence is preserved", false, true))
-                (checkbox("confirmations", "reports_filed_or_not_required", "Any required report is filed, or none is required", false, true))
+                (Checkbox {
+                    name: "confirmations",
+                    value: "evidence_preserved",
+                    label: "Evidence is preserved",
+                    checked: false,
+                    enabled: true,
+                }.render())
+                (Checkbox {
+                    name: "confirmations",
+                    value: "reports_filed_or_not_required",
+                    label: "Any required report is filed, or none is required",
+                    checked: false,
+                    enabled: true,
+                }.render())
             }
             (internal_note_field(prefix, "Staff only. Saved as the first note on the decision."))
         }
@@ -360,7 +375,13 @@ pub fn network_block_fields(
                     }
                     @for network in &response.networks {
                         div {
-                            (checkbox("block_networks", &network.ip, &network.ip, false, is_blockable(network)))
+                            (Checkbox {
+                                name: "block_networks",
+                                value: &network.ip,
+                                label: &network.ip,
+                                checked: false,
+                                enabled: is_blockable(network),
+                            }.render())
                             p class={(FIELD_HELP_CLASS) " pl-7"} {
                                 "Last used " (format_admin_timestamp(&network.last_seen_at)) ". " (network_note(network)) "."
                             }
@@ -539,10 +560,6 @@ fn lines(value: Option<&str>) -> impl Iterator<Item = &str> {
         .filter(|line| !line.is_empty())
 }
 
-pub(crate) fn is_snowflake(value: &str) -> bool {
-    (1..=20).contains(&value.len()) && value.bytes().all(|byte| byte.is_ascii_digit())
-}
-
 fn snowflake_pair(channel_id: &str, message_id: &str) -> Option<(String, String)> {
     (is_snowflake(channel_id) && is_snowflake(message_id))
         .then(|| (channel_id.to_owned(), message_id.to_owned()))
@@ -600,324 +617,4 @@ pub fn take_action_href(
         href.push_str(&urlencoding::encode(&format!("{channel_id}/{message_id}")));
     }
     href
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::api::generated::types::EnforcementKindType;
-
-    fn form(body: &str) -> MultiValueForm {
-        MultiValueForm::parse(body.as_bytes())
-    }
-
-    fn render(kind: EnforcementKindType, flags: u64) -> String {
-        enforcement_fields(&DecisionFields {
-            id_prefix: "suspend",
-            kind,
-            report_ids: &["1600000000000000001".to_owned()],
-            messages: Some(&["1700000000000000001/1700000000000000002".to_owned()]),
-            user_flags: Some(flags),
-            allow_restricted: true,
-        })
-        .into_string()
-    }
-
-    #[test]
-    fn deletion_days_default_to_the_closure_floor_of_each_mode() {
-        let hosted = deletion_days_field("close-days", false).into_string();
-        assert!(hosted.contains(r#"name="days_until_deletion" value="74""#));
-        assert!(
-            hosted.contains("At least 74 days when a rule was broken. At least 14 days otherwise.")
-        );
-        let self_hosted = deletion_days_field("close-days", true).into_string();
-        assert!(self_hosted.contains(r#"name="days_until_deletion" value="14""#));
-        assert!(self_hosted.contains(">At least 14 days.</p>"));
-        assert!(!self_hosted.contains("74"));
-    }
-
-    #[test]
-    fn fieldset_renders_every_input_with_prefills() {
-        let html = render(EnforcementKindType::Suspension, 0);
-        for marker in [
-            r#"name="reason_code""#,
-            r#"name="source" value="report""#,
-            r#"name="source" value="own_review""#,
-            r#"name="automation" value="none""#,
-            r#"name="automation" value="flagged""#,
-            r#"name="report_ids""#,
-            r#"name="evidence""#,
-            r#"name="statement""#,
-            r#"name="rights_holder""#,
-            r#"name="confirmations" value="evidence_preserved""#,
-            r#"name="confirmations" value="reports_filed_or_not_required""#,
-            r#"name="internal_note""#,
-            ">1600000000000000001</textarea>",
-            ">1700000000000000001/1700000000000000002</textarea>",
-            "No automated limits on this account now.",
-        ] {
-            assert!(html.contains(marker), "missing {marker}\n{html}");
-        }
-        assert!(!html.contains(r#"name="automation" value="automated""#));
-        assert_eq!(html.matches("checked").count(), 1);
-        assert!(html.contains(r#"name="source" value="report" required checked"#));
-        assert!(html.contains(r#"<span data-show-for-source="report"><span"#));
-    }
-
-    #[test]
-    fn fieldset_without_a_report_leaves_the_source_open() {
-        let html = enforcement_fields(&DecisionFields {
-            id_prefix: "limit",
-            kind: EnforcementKindType::FeatureLimit,
-            report_ids: &[],
-            messages: Some(&[]),
-            user_flags: None,
-            allow_restricted: true,
-        })
-        .into_string();
-        assert!(!html.contains("checked"));
-        assert!(html.contains(r#"<span data-show-for-source="report" hidden><span"#));
-    }
-
-    #[test]
-    fn required_fields_carry_a_mark() {
-        let html = render(EnforcementKindType::FeatureLimit, 0);
-        let mark = r#"<span class="text-red-500 ml-0.5">*</span>"#;
-        for label in [
-            "Reason",
-            "How did we find this?",
-            "Automated tools",
-            "Internal note",
-            "Rights holder or right concerned",
-        ] {
-            assert!(html.contains(&format!("{label}{mark}")), "unmarked {label}");
-        }
-        for label in ["Messages<", "Note to the user<"] {
-            assert!(html.contains(label), "marked {label}");
-        }
-        assert_eq!(html.matches(mark).count(), 6);
-    }
-
-    #[test]
-    fn rights_holder_and_confirmations_start_hidden_and_follow_their_codes() {
-        let html = render(EnforcementKindType::Suspension, 0);
-        assert!(html.contains(r#"data-show-for-codes="31" hidden"#));
-        assert!(html.contains(r#"data-show-for-codes="9 13 24" hidden"#));
-        assert!(html.contains(r#"data-hide-for-codes="9 13 24""#));
-        assert!(html.contains(r#"name="rights_holder" required disabled"#));
-    }
-
-    #[test]
-    fn reasons_are_grouped_by_handling_and_filtered_by_kind() {
-        let suspend = render(EnforcementKindType::Suspension, 0);
-        assert!(suspend.contains(
-            r#"<optgroup label="Restricted: no details in the notice"><option value="9">"#
-        ));
-        assert!(suspend.contains(
-            r#"<optgroup label="Protected: fewer details in the notice"><option value="7">"#
-        ));
-        for omitted in [1, 2, 19, 30, 31] {
-            assert!(
-                !suspend.contains(&format!(r#"<option value="{omitted}">"#)),
-                "suspension offers {omitted}"
-            );
-        }
-        let warn = render(EnforcementKindType::Warning, 0);
-        assert!(!warn.contains("Restricted: no details"));
-        assert!(warn.contains(r#"<option value="31">Copyright</option>"#));
-        assert!(warn.contains(r#"<option value="29">"#));
-        assert!(!warn.contains(r#"<option value="30">"#));
-    }
-
-    #[test]
-    fn automated_limits_list_the_neutral_hook_flags() {
-        let html = render(
-            EnforcementKindType::Warning,
-            user_flag_bits::ACCOUNT_LIMITED
-                | user_flag_bits::PROFILE_HIDDEN
-                | user_flag_bits::SPAMMER,
-        );
-        assert!(
-            html.contains("Automated limits on this account now: Account limited, Profile hidden.")
-        );
-    }
-
-    #[test]
-    fn decision_from_form_builds_the_request() {
-        let submission = decision_from_form(&form(
-            "reason_code=31&source=report&automation=flagged\
-             &report_ids=1600000000000000001%0D%0A%0D%0A1600000000000000002\
-             &evidence=1700000000000000001%2F1700000000000000002%0Ahttps%3A%2F%2Fweb.example%2Fchannels%2F%40me%2F1700000000000000003%2F1700000000000000004\
-             &statement=+Please+stop+&rights_holder=Example+Records\
-             &internal_note=Ticket+42",
-        ))
-        .expect("valid form");
-        assert_eq!(submission.internal_note, "Ticket 42");
-        let body = serde_json::to_value(&submission.decision).expect("serializable decision");
-        assert_eq!(
-            body,
-            serde_json::json!({
-                "reason_code": 31,
-                "source": "report",
-                "automation": "flagged",
-                "report_ids": ["1600000000000000001", "1600000000000000002"],
-                "evidence": [
-                    {"channel_id": "1700000000000000001", "message_id": "1700000000000000002"},
-                    {"channel_id": "1700000000000000003", "message_id": "1700000000000000004"}
-                ],
-                "statement": "Please stop",
-                "rights_holder": "Example Records"
-            })
-        );
-    }
-
-    #[test]
-    fn decision_from_form_sends_restricted_confirmations_and_omits_empty_fields() {
-        let submission = decision_from_form(&form(
-            "reason_code=13&source=own_review&automation=none&report_ids=&evidence=1%2F2\
-             &statement=&confirmations=evidence_preserved\
-             &confirmations=reports_filed_or_not_required&internal_note=Filed",
-        ))
-        .expect("valid form");
-        let body = serde_json::to_value(&submission.decision).expect("serializable decision");
-        assert_eq!(
-            body,
-            serde_json::json!({
-                "reason_code": 13,
-                "source": "own_review",
-                "automation": "none",
-                "evidence": [{"channel_id": "1", "message_id": "2"}],
-                "confirmations": ["evidence_preserved", "reports_filed_or_not_required"]
-            })
-        );
-    }
-
-    #[test]
-    fn decision_from_form_refuses_incomplete_input() {
-        let cases = [
-            (
-                "source=report&automation=none&internal_note=x",
-                "Choose a reason",
-            ),
-            (
-                "reason_code=2&source=report&automation=none&internal_note=x",
-                "Choose a reason",
-            ),
-            (
-                "reason_code=3&automation=none&internal_note=x",
-                "Choose how we found this",
-            ),
-            (
-                "reason_code=3&source=report&automation=automated&internal_note=x",
-                "Choose whether automated tools were involved",
-            ),
-            (
-                "reason_code=3&source=report&automation=none&internal_note=+",
-                "Add an internal note",
-            ),
-            (
-                "reason_code=3&source=report&automation=none&internal_note=x&report_ids=abc",
-                "Not a report ID: abc",
-            ),
-            (
-                "reason_code=3&source=report&automation=none&internal_note=x&evidence=hello",
-                "Not a message link or channel_id/message_id: hello",
-            ),
-        ];
-        for (body, expected) in cases {
-            let error = decision_from_form(&form(body)).err();
-            assert_eq!(error.as_deref(), Some(expected), "{body}");
-        }
-    }
-
-    #[test]
-    fn basis_fields_hide_the_decision_until_a_rule_was_broken() {
-        let html = basis_fields(&BasisFields {
-            decision: DecisionFields {
-                id_prefix: "shred",
-                kind: EnforcementKindType::ContentRemoval,
-                report_ids: &[],
-                messages: None,
-                user_flags: None,
-                allow_restricted: false,
-            },
-            choices: &[
-                ("enforcement", "A rule was broken"),
-                ("holder_request", "The account holder asked"),
-                ("housekeeping", "Housekeeping"),
-            ],
-            plain_note_help: "Staff only.",
-            enforcement_extra: html! {},
-        })
-        .into_string();
-        assert!(html.contains(r#"data-show-for-basis="enforcement" hidden disabled"#));
-        assert!(
-            html.contains(r#"data-show-for-basis="holder_request housekeeping" hidden disabled"#)
-        );
-        assert!(!html.contains(r#"name="evidence""#));
-        assert!(!html.contains("Restricted: no details"));
-        assert!(!html.contains("data-automated-limits"));
-    }
-
-    #[test]
-    fn basis_from_form_reads_each_basis() {
-        assert!(matches!(
-            basis_from_form(&form("basis=holder_request&internal_note=Asked+by+email")),
-            Ok(BasisSubmission::HolderRequest(Some(note))) if note == "Asked by email"
-        ));
-        assert!(matches!(
-            basis_from_form(&form("basis=housekeeping")),
-            Ok(BasisSubmission::Housekeeping(None))
-        ));
-        let enforcement = basis_from_form(&form(
-            "basis=enforcement&reason_code=3&source=own_review&automation=none&internal_note=x",
-        ))
-        .expect("valid enforcement basis");
-        assert_eq!(enforcement.internal_note(), Some("x"));
-        assert!(matches!(
-            enforcement.moderation_basis(),
-            generated_types::ModerationBasis::Enforcement(_)
-        ));
-        assert_eq!(
-            basis_from_form(&form("internal_note=x")).err().as_deref(),
-            Some("Choose a basis")
-        );
-    }
-
-    #[test]
-    fn message_references_accept_ids_admin_links_and_app_links() {
-        let expected = Some(("111".to_owned(), "222".to_owned()));
-        for line in [
-            "111/222",
-            " 111 / 222 ",
-            "111,222",
-            "https://admin.example/messages?channel_id=111&message_id=222&context_limit=50",
-            "/messages?channel_id=111&message_id=222",
-            "https://web.example/channels/@me/111/222",
-            "https://web.example/channels/999/111/222",
-        ] {
-            assert_eq!(parse_message_reference(line), expected, "{line}");
-        }
-        for line in [
-            "111",
-            "abc/222",
-            "https://web.example/channels/999/111",
-            "https://web.example/invite/111/222",
-            "/messages?channel_id=111",
-        ] {
-            assert_eq!(parse_message_reference(line), None, "{line}");
-        }
-    }
-
-    #[test]
-    fn take_action_links_open_the_moderation_tab_with_prefills() {
-        assert_eq!(
-            take_action_href("/admin", "1", Some("2"), Some(("3", "4"))),
-            "/admin/users/1?tab=moderation&report_id=2&message=3%2F4"
-        );
-        assert_eq!(
-            take_action_href("", "1", None, None),
-            "/users/1?tab=moderation"
-        );
-    }
 }

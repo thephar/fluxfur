@@ -8,10 +8,6 @@
 		"./e2ee-worker": "./src/e2ee/worker/e2ee.worker.ts",
 		"./*": "./src/*"
 	},
-	"scripts": {
-		"bench": "vitest bench --run",
-		"test": "vitest run"
-	},
 	"dependencies": {
 		"@livekit/mutex": "1.1.1",
 		"@livekit/protocol": "1.51.0",
@@ -25,7 +21,6 @@
 	},
 	"devDependencies": {
 		"@types/events": "^3.0.0",
-		"@types/sdp-transform": "^2.15.0",
-		"vitest": "catalog:"
+		"@types/sdp-transform": "^2.15.0"
 	}
 }

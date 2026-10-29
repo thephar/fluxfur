@@ -13,7 +13,7 @@ use crate::{
                 internal_note_field, radio_group, reason_select,
             },
             form::{
-                checkbox, csrf_input, danger_button, form_actions, form_field_group, submit_button,
+                Checkbox, csrf_input, danger_button, form_actions, form_field_group, submit_button,
                 text_input, textarea_input,
             },
             page_container::page_header,
@@ -34,11 +34,7 @@ fn guild_feature_label(feature: &str) -> String {
 
 pub fn bulk_actions_page(config: &AdminConfig, auth: &AuthContext, csrf_token: &str) -> Markup {
     let base = &config.base_path;
-    let admin_acls = auth
-        .admin_user
-        .as_ref()
-        .map(|u| u.acls.as_slice())
-        .unwrap_or(&[]);
+    let admin_acls = auth.acls();
 
     let content = html! {
         (page_header("Bulk Actions", Some("Perform bulk operations on users and guilds")))
@@ -68,7 +64,13 @@ fn guild_feature_checkbox_grid(prefix: &str, include_deprecated: bool) -> Markup
         div class="grid grid-cols-1 gap-3 sm:grid-cols-2" {
             @for feature in GUILD_FEATURES {
                 @if include_deprecated || !DEPRECATED_GUILD_FEATURES.contains(feature) {
-                    (checkbox(prefix, feature, &guild_feature_label(feature), false, true))
+                    (Checkbox {
+                        name: prefix,
+                        value: feature,
+                        label: &guild_feature_label(feature),
+                        checked: false,
+                        enabled: true,
+                    }.render())
                 }
             }
         }
@@ -79,7 +81,13 @@ fn user_flag_checkbox_grid(prefix: &str) -> Markup {
     html! {
         div class="grid grid-cols-1 gap-3 sm:grid-cols-2" {
             @for flag in crate::admin_flags::USER_FLAGS {
-                (checkbox(prefix, &flag.value.to_string(), flag.name, false, true))
+                (Checkbox {
+                    name: prefix,
+                    value: &flag.value.to_string(),
+                    label: flag.name,
+                    checked: false,
+                    enabled: true,
+                }.render())
             }
         }
     }

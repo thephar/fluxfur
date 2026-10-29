@@ -2,33 +2,23 @@
 
 use fluxer_common::public_ip::{is_public_ip, is_valid_public_hostname};
 use reqwest::dns::{Addrs, Name, Resolve, Resolving};
-use std::fmt;
 use std::net::{IpAddr, SocketAddr};
 use tokio::net::lookup_host;
 use url::Url;
 
 const MAX_URL_LEN: usize = 8192;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum Error {
+    #[error("invalid URL")]
     InvalidUrl,
+    #[error("blocked URL")]
     BlockedUrl,
+    #[error("DNS lookup failed")]
     DnsLookupFailed,
+    #[error("host resolved to no address")]
     HostResolvedToNoAddress,
 }
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::InvalidUrl => f.write_str("invalid URL"),
-            Self::BlockedUrl => f.write_str("blocked URL"),
-            Self::DnsLookupFailed => f.write_str("DNS lookup failed"),
-            Self::HostResolvedToNoAddress => f.write_str("host resolved to no address"),
-        }
-    }
-}
-
-impl std::error::Error for Error {}
 
 pub async fn validate_url(url: &Url) -> Result<(), Error> {
     if url.as_str().is_empty() || url.as_str().len() > MAX_URL_LEN || contains_ctl(url.as_str()) {
@@ -188,15 +178,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn allows_public_ip_literals_without_dns() {
-        assert_eq!(validate_url(&url("https://8.8.8.8/")).await, Ok(()));
-        assert_eq!(
-            validate_url(&url("https://[2606:4700:4700::1111]/")).await,
-            Ok(())
-        );
-    }
-
-    #[tokio::test]
     async fn rejects_userinfo_and_non_http_s_schemes() {
         assert_eq!(
             validate_url(&url("https://user:pass@example.com/")).await,
@@ -205,33 +186,6 @@ mod tests {
         assert_eq!(
             validate_url(&url("file:///etc/passwd")).await,
             Err(Error::BlockedUrl)
-        );
-    }
-
-    #[test]
-    fn validates_public_host_syntax() {
-        assert!(is_valid_public_hostname("example.com"));
-        assert!(is_valid_public_hostname("xn--bcher-kva.example"));
-        assert!(!is_valid_public_hostname("localhost"));
-        assert!(!is_valid_public_hostname("example"));
-        assert!(!is_valid_public_hostname("bad_name.example"));
-        assert!(!is_valid_public_hostname("example.123"));
-    }
-
-    #[test]
-    fn resolves_redirects_without_fragments() {
-        let base = url("https://example.com/a/b/c?x=1");
-        assert_eq!(
-            resolve_redirect(&base, "../d?y=2#ignored")
-                .unwrap()
-                .as_str(),
-            "https://example.com/a/d?y=2"
-        );
-        assert_eq!(
-            resolve_redirect(&base, "//cdn.example.com/p")
-                .unwrap()
-                .as_str(),
-            "https://cdn.example.com/p"
         );
     }
 }

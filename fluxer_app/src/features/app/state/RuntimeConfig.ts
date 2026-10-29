@@ -31,10 +31,22 @@ import DeveloperOptions from '@app/features/devtools/state/DeveloperOptions';
 import {Logger} from '@app/features/platform/utils/AppLogger';
 import {getElectronAPI} from '@app/features/ui/utils/NativeUtils';
 import {
+	type EffectiveVerificationBasis,
+	type EmailCodeAvailability,
+	type EmailDeliveryState,
+	EmailDeliveryStates,
+	type GuildJoinGate,
+	GuildJoinGates,
+	type InteractionTierMode,
+	InteractionTierModes,
+	VerificationBases,
+} from '@fluxer/constants/src/AccountConfigConstants';
+import {
 	type AccountIdentityMode,
 	AccountIdentityModes,
 	type TagStyle,
 } from '@fluxer/constants/src/AccountIdentityConstants';
+import {resolveEffectiveVerificationBasis, resolveEmailCodeAvailability} from '@fluxer/constants/src/AccountTierRules';
 import {API_CODE_VERSION} from '@fluxer/constants/src/AppConstants';
 import {InstanceDiscoveryUnreachableError} from '@fluxer/instance_bootstrap/src/Discovery';
 import {InstanceEndpointKind, normalizeInstanceEndpoint} from '@fluxer/instance_bootstrap/src/EndpointNormalization';
@@ -43,6 +55,8 @@ import type {
 	InstanceAppPublic,
 	InstanceCommunity,
 	InstanceFeatures,
+	InstanceGuildBadge,
+	InstanceNotice,
 	InstanceServices,
 	InstanceSso as InstanceSsoConfig,
 } from '@fluxer/instance_bootstrap/src/Types';
@@ -52,13 +66,39 @@ import {makeAutoObservable, observableRef} from 'mobx';
 
 const logger = new Logger('RuntimeConfig');
 
+function emailFeaturesForIdentity(
+	mode: AccountIdentityMode,
+	features: InstanceFeatures,
+): Pick<
+	InstanceFeatures,
+	'emails_enabled' | 'email_delivery_state' | 'verification_basis' | 'identifier_first' | 'email_codes'
+> {
+	if (mode !== AccountIdentityModes.USERNAME) {
+		const wasUsernameMode = features.email_delivery_state === EmailDeliveryStates.OFF_USERNAME_MODE;
+		return {
+			emails_enabled: features.emails_enabled,
+			email_delivery_state: wasUsernameMode ? undefined : features.email_delivery_state,
+			verification_basis: wasUsernameMode ? undefined : features.verification_basis,
+			...(features.identifier_first === undefined ? {} : {identifier_first: features.identifier_first}),
+			...(features.email_codes === undefined ? {} : {email_codes: features.email_codes}),
+		};
+	}
+	return {
+		identifier_first: false,
+		email_codes: false,
+		emails_enabled: false,
+		email_delivery_state: EmailDeliveryStates.OFF_USERNAME_MODE,
+		verification_basis: VerificationBases.LOCAL_CREDENTIAL,
+	};
+}
+
 export {
 	runtimeConfigSnapshotsAreSameInstance,
 	runtimeInstanceKey,
 } from '@app/features/app/state/InstanceSnapshotStore';
 export type {InstanceSsoConfig, RuntimeConfigSnapshot};
 
-export interface ApplyRuntimeConfigSnapshotRequest {
+interface ApplyRuntimeConfigSnapshotRequest {
 	snapshot: RuntimeConfigSnapshot;
 	signal: AbortSignal | null;
 }
@@ -625,9 +665,9 @@ class RuntimeConfig {
 		const current = this.requireActiveSnapshot();
 		this.replaceActiveFeatures({
 			...current.features,
+			...emailFeaturesForIdentity(mode, current.features),
 			account_identity: mode,
 			tag_style: tagStyle,
-			emails_enabled: mode === AccountIdentityModes.USERNAME ? false : current.features.emails_enabled,
 		});
 	}
 
@@ -642,6 +682,8 @@ class RuntimeConfig {
 			...runtime.snapshot,
 			features: resolution.snapshot.features,
 			appPublic: resolution.snapshot.appPublic,
+			notice: resolution.snapshot.notice,
+			guildBadges: resolution.snapshot.guildBadges,
 		});
 		this.activeRuntime = {...runtime, snapshot: usable};
 		this.lifecycleGeneration = nextLifecycleGeneration(this.lifecycleGeneration);
@@ -682,10 +724,9 @@ class RuntimeConfig {
 				premium_enabled: !config.self_hosted || config.policy.premium_mode === 'mirror',
 				stripe_enabled: config.billing.billing_active,
 				stripe_serviceable: config.billing.stripe_serviceable,
+				...emailFeaturesForIdentity(config.account_identity.mode, current.features),
 				account_identity: config.account_identity.mode,
 				tag_style: config.account_identity.tag_style,
-				emails_enabled:
-					config.account_identity.mode === AccountIdentityModes.USERNAME ? false : current.features.emails_enabled,
 			},
 			registration: {
 				mode: config.registration.mode,
@@ -697,6 +738,8 @@ class RuntimeConfig {
 					? config.policy.single_community_guild_id
 					: null,
 				direct_messages_disabled: config.policy.direct_messages_disabled,
+				friends_disabled: config.policy.friends_disabled,
+				personal_notes_enabled: config.policy.personal_notes_enabled,
 				guild_create_access: config.policy.guild_create_access,
 			},
 			services: {
@@ -705,6 +748,7 @@ class RuntimeConfig {
 				bluesky_enabled: config.policy.services_resolved.bluesky_enabled,
 			},
 			appPublic,
+			notice: config.notice,
 		};
 		const usable = this.requireUsableSnapshot(snapshot);
 		const runtime = this.requireActiveRuntime();
@@ -747,10 +791,6 @@ class RuntimeConfig {
 		return this.features.stripe_serviceable;
 	}
 
-	get premiumInfoUrl(): string | null {
-		return this.appPublic.branding.premium_info_url ?? null;
-	}
-
 	get emailsEnabled(): boolean {
 		return this.features.emails_enabled;
 	}
@@ -767,6 +807,40 @@ class RuntimeConfig {
 		return accountIdentityOf(this.features);
 	}
 
+	get emailDeliveryState(): EmailDeliveryState {
+		if (this.features.email_delivery_state !== undefined) return this.features.email_delivery_state;
+		if (this.usesUsernameSignIn) return EmailDeliveryStates.OFF_USERNAME_MODE;
+		return this.emailsEnabled ? EmailDeliveryStates.ON : EmailDeliveryStates.OFF_DISABLED;
+	}
+
+	get verificationBasis(): EffectiveVerificationBasis {
+		return (
+			this.features.verification_basis ??
+			resolveEffectiveVerificationBasis({
+				identityMode: this.accountIdentity,
+				basis: VerificationBases.AUTO,
+				deliveryState: this.emailDeliveryState,
+			})
+		);
+	}
+
+	get interactionTier(): InteractionTierMode {
+		return this.features.interaction_tier ?? InteractionTierModes.LEGACY;
+	}
+
+	get guildJoinGate(): GuildJoinGate {
+		return this.features.guild_join_gate ?? GuildJoinGates.ALWAYS;
+	}
+
+	emailCodeAvailabilityFor(account: {hasEmail: boolean; emailVerified: boolean}): EmailCodeAvailability {
+		return resolveEmailCodeAvailability({
+			identityMode: this.accountIdentity,
+			deliveryState: this.emailDeliveryState,
+			hasEmail: account.hasEmail,
+			emailVerified: account.emailVerified,
+		});
+	}
+
 	get usesUsernameSignIn(): boolean {
 		return usesUsernameSignIn(this.features);
 	}
@@ -781,30 +855,6 @@ class RuntimeConfig {
 
 	get productName(): string {
 		return this.appPublic.branding.product_name;
-	}
-
-	get iconUrl(): string | null {
-		return this.appPublic.branding.icon_url;
-	}
-
-	get symbolUrl(): string | null {
-		return this.appPublic.branding.symbol_url;
-	}
-
-	get logoUrl(): string | null {
-		return this.appPublic.branding.logo_url;
-	}
-
-	get wordmarkUrl(): string | null {
-		return this.appPublic.branding.wordmark_url;
-	}
-
-	get faviconUrl(): string | null {
-		return this.appPublic.branding.favicon_url;
-	}
-
-	get themeColor(): string | null {
-		return this.appPublic.branding.theme_color;
 	}
 
 	get termsUrl(): string | null {
@@ -839,6 +889,26 @@ class RuntimeConfig {
 
 	get directMessagesDisabled(): boolean {
 		return this.community.direct_messages_disabled;
+	}
+
+	get friendsDisabled(): boolean {
+		return this.community.friends_disabled ?? this.community.direct_messages_disabled;
+	}
+
+	get personalNotesEnabled(): boolean {
+		return this.community.personal_notes_enabled ?? true;
+	}
+
+	get dmPickerAvailable(): boolean {
+		return !this.directMessagesDisabled && !this.friendsDisabled;
+	}
+
+	get instanceNotice(): InstanceNotice | null {
+		return this.activeRuntime?.snapshot.notice ?? null;
+	}
+
+	get guildBadges(): ReadonlyArray<InstanceGuildBadge> {
+		return this.activeRuntime?.snapshot.guildBadges ?? [];
 	}
 
 	get gifEnabled(): boolean {

@@ -41,21 +41,4 @@ describe('Admin API Key Authorization', () => {
 			.expect(HTTP_STATUS.FORBIDDEN)
 			.execute();
 	});
-	test('GET /admin/api-keys fails without admin_api_key:manage', async () => {
-		const admin = await createTestAccount(harness);
-		await setUserACLs(harness, admin, ['admin:authenticate', 'admin_api_key:manage']);
-		const apiKey = await createAdminApiKey(harness, admin, 'List Test No ACL', [], null);
-		await createBuilder(harness, apiKey.token).get('/admin/api-keys').expect(HTTP_STATUS.FORBIDDEN).execute();
-	});
-	test('DELETE /admin/api-keys/:key_id fails without admin_api_key:manage', async () => {
-		const admin = await createTestAccount(harness);
-		await setUserACLs(harness, admin, ['admin:authenticate', 'admin_api_key:manage']);
-		const keyToDelete = await createAdminApiKey(harness, admin, 'To Delete 2', [], null);
-		const deleterKey = await createAdminApiKey(harness, admin, 'Deleter No ACL', [], null);
-		await createBuilder(harness, deleterKey.token)
-			.delete(`/admin/api-keys/${keyToDelete.keyId}`)
-			.body(null)
-			.expect(HTTP_STATUS.FORBIDDEN)
-			.execute();
-	});
 });

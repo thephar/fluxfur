@@ -73,7 +73,7 @@ function configFingerprint(): string {
 		.digest('hex');
 }
 
-export async function resolveGooglePlayCredentials(): Promise<GooglePlayServiceAccountCredentials> {
+async function resolveGooglePlayCredentials(): Promise<GooglePlayServiceAccountCredentials> {
 	const cfg = Config.googlePlay;
 	let serviceAccount: z.infer<typeof ServiceAccountJsonSchema> = {};
 	if (hasText(cfg.serviceAccountJsonPath)) {

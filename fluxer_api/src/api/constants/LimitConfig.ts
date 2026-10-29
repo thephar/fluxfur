@@ -42,11 +42,9 @@ export function sanitizeLimitConfigForInstance(
 	if (!selfHosted || premiumMode === 'mirror') {
 		return normalized;
 	}
-	const traitDefinitions = normalized.traitDefinitions.filter((t) => t !== 'premium');
-	const rules = normalized.rules.filter((rule) => {
-		const traits = rule.filters?.traits ?? [];
-		return !traits.includes('premium');
-	});
+	const isPremiumTrait = (trait: string) => trait.toLowerCase() === 'premium';
+	const traitDefinitions = normalized.traitDefinitions.filter((t) => !isPremiumTrait(t));
+	const rules = normalized.rules.filter((rule) => !(rule.filters?.traits ?? []).some(isPremiumTrait));
 	return {
 		traitDefinitions,
 		rules,

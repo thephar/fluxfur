@@ -17,7 +17,7 @@ const logger = createChildLogger('OtherPlatformTemplate');
 const TEMPLATE_ENDPOINT_ORIGIN = 'https://discord.com';
 const TEMPLATE_ENDPOINT_PATH = '/api/v10/guilds/templates/';
 const FETCH_TIMEOUT_MS = 15_000;
-export const MAX_TEMPLATE_RESPONSE_BYTES = 4 * 1024 * 1024;
+const MAX_TEMPLATE_RESPONSE_BYTES = 4 * 1024 * 1024;
 
 let handlersRegistered = false;
 
@@ -39,13 +39,13 @@ function browserPlatformToken(): string {
 	}
 }
 
-export function genericBrowserUserAgent(): string {
+function genericBrowserUserAgent(): string {
 	const chromeMajor = Number.parseInt(process.versions.chrome ?? '', 10);
 	const version = Number.isFinite(chromeMajor) && chromeMajor > 0 ? chromeMajor : 140;
 	return `Mozilla/5.0 (${browserPlatformToken()}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${version}.0.0.0 Safari/537.36`;
 }
 
-export function otherPlatformTemplateUrl(code: string): string {
+function otherPlatformTemplateUrl(code: string): string {
 	return `${TEMPLATE_ENDPOINT_ORIGIN}${TEMPLATE_ENDPOINT_PATH}${code}`;
 }
 
@@ -58,14 +58,18 @@ async function readBoundedText(response: Response): Promise<string> {
 	if (Number.isFinite(declaredLength) && declaredLength > MAX_TEMPLATE_RESPONSE_BYTES) {
 		throw new ResponseTooLargeError();
 	}
-	if (response.body === null) return '';
+	if (response.body === null) {
+		return '';
+	}
 	const reader = response.body.getReader();
 	const chunks: Array<Uint8Array> = [];
 	let received = 0;
 	try {
 		for (;;) {
 			const {done, value} = await reader.read();
-			if (done) break;
+			if (done) {
+				break;
+			}
 			received += value.byteLength;
 			if (received > MAX_TEMPLATE_RESPONSE_BYTES) {
 				throw new ResponseTooLargeError();
@@ -73,12 +77,14 @@ async function readBoundedText(response: Response): Promise<string> {
 			chunks.push(value);
 		}
 	} finally {
-		reader.cancel().catch(() => undefined);
+		reader.cancel().catch((error) => {
+			logger.warn('Template response cancellation failed', error);
+		});
 	}
 	return Buffer.concat(chunks).toString('utf8');
 }
 
-export async function fetchOtherPlatformTemplate(code: unknown): Promise<OtherPlatformTemplateFetchResult> {
+async function fetchOtherPlatformTemplate(code: unknown): Promise<OtherPlatformTemplateFetchResult> {
 	if (!isOtherPlatformTemplateCode(code)) {
 		return failure(OtherPlatformTemplateFetchFailure.INVALID_CODE);
 	}

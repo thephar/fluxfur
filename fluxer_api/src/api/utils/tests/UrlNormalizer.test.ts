@@ -185,3 +185,50 @@ describe('extractLinkHosts', () => {
 		expect(extractLinkHosts(null)).toEqual([]);
 	});
 });
+
+describe('canonicalizeUrl character boundaries', () => {
+	it.each([
+		{name: 'start of heading', input: 'https://example.com/a\x01z', expected: null},
+		{name: 'backspace', input: 'https://example.com/a\x08z', expected: null},
+		{name: 'form feed', input: 'https://example.com/a\x0cz', expected: null},
+		{name: 'last C0 control', input: 'https://example.com/a\x1fz', expected: null},
+		{name: 'space after C0 range', input: 'https://example.com/a z', expected: null},
+		{name: 'delete character', input: 'https://example.com/a\x7fz', expected: 'https://example.com/a%7fz'},
+		{name: 'next line C1 character', input: 'https://example.com/a\x85z', expected: 'https://example.com/a%c2%85z'},
+		{name: 'nonbreaking space', input: 'https://example.com/a\u00a0z', expected: null},
+		{name: 'zero width space', input: 'https://example.com/a\u200bz', expected: 'https://example.com/a%e2%80%8bz'},
+		{name: 'line separator', input: 'https://example.com/a\u2028z', expected: null},
+		{name: 'paragraph separator', input: 'https://example.com/a\u2029z', expected: null},
+		{name: 'byte order mark', input: 'https://example.com/a\ufeffz', expected: null},
+		{
+			name: 'outer Unicode whitespace',
+			input: '\u00a0\ufeffHTTPS://Example.com/Path\u00a0\ufeff',
+			expected: 'https://example.com/path',
+		},
+		{
+			name: 'encoded controls and space',
+			input: 'https://example.com/%00%1F%20',
+			expected: 'https://example.com/%00%1f%20',
+		},
+		{name: 'leading null control', input: '\x00https://example.com/path', expected: null},
+		{name: 'trailing unit separator', input: 'https://example.com/path\x1f', expected: null},
+		{
+			name: 'unpaired high surrogate',
+			input: 'https://example.com/a\ud800z',
+			expected: 'https://example.com/a%ef%bf%bdz',
+		},
+		{
+			name: 'surrogate pair',
+			input: 'https://example.com/a\ud83d\ude00z',
+			expected: 'https://example.com/a%f0%9f%98%80z',
+		},
+		{name: 'query control', input: 'https://example.com/?q=a\x1fz', expected: null},
+		{
+			name: 'query zero width space',
+			input: 'https://example.com/?q=a\u200bz',
+			expected: 'https://example.com/?q=a%e2%80%8bz',
+		},
+	])('$name', ({input, expected}) => {
+		expect(canonicalizeUrl(input)).toBe(expected);
+	});
+});

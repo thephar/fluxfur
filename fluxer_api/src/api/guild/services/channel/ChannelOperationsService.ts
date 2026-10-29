@@ -198,8 +198,12 @@ export class ChannelOperationsService {
 				channelName = ChannelNameType.parse(channelName);
 			}
 		}
-		const requestedNsfwOverride =
-			params.data.nsfw_override !== undefined ? params.data.nsfw_override : params.data.nsfw === true ? true : null;
+		let requestedNsfwOverride: boolean | null;
+		if (params.data.nsfw_override !== undefined) {
+			requestedNsfwOverride = params.data.nsfw_override;
+		} else {
+			requestedNsfwOverride = params.data.nsfw === true ? true : null;
+		}
 		const requestedContentWarningLevel =
 			params.data.content_warning_level === ContentWarningLevel.CONTENT_WARNING
 				? ContentWarningLevel.CONTENT_WARNING

@@ -28,7 +28,7 @@ export interface VoiceEngineV2StatsNetworkSummary {
 	rttMs: number | null;
 }
 
-export interface VoiceEngineV2StatsTrackSummary {
+interface VoiceEngineV2StatsTrackSummary {
 	direction: 'send' | 'recv';
 	kind: 'audio' | 'video' | 'unknown';
 	trackIdentifier: string;
@@ -70,7 +70,7 @@ export interface VoiceEngineV2StatsSummary {
 	remoteScreenShareAudio: VoiceEngineV2StatsTrackSummary | null;
 }
 
-export interface VoiceEngineV2StatsTrackRoleCandidate {
+interface VoiceEngineV2StatsTrackRoleCandidate {
 	direction: 'send' | 'recv';
 	kind: 'audio' | 'video' | 'unknown';
 	rid?: string;
@@ -78,7 +78,7 @@ export interface VoiceEngineV2StatsTrackRoleCandidate {
 	bitrateKbps: number;
 }
 
-export interface VoiceEngineV2StatsTrackPublicationIds {
+interface VoiceEngineV2StatsTrackPublicationIds {
 	localCameraTrackId: string | null;
 	localMicrophoneTrackId: string | null;
 	localScreenShareTrackId: string | null;
@@ -109,7 +109,7 @@ interface IndexedVoiceEngineV2StatsTrack {
 	track: VoiceEngineV2StatsTrackRoleCandidate;
 }
 
-export function asVoiceEngineV2StatsTrackSource(source: unknown): VoiceEngineV2StatsTrackSource {
+function asVoiceEngineV2StatsTrackSource(source: unknown): VoiceEngineV2StatsTrackSource {
 	switch (source) {
 		case VoiceEngineV2StatsTrackSource.Microphone:
 			return VoiceEngineV2StatsTrackSource.Microphone;
@@ -259,7 +259,7 @@ function mergeOutboundTrackGroup(tracks: ReadonlyArray<VoiceEngineV2OutboundStat
 	return merged;
 }
 
-export function coalesceVoiceEngineV2OutboundStats(
+function coalesceVoiceEngineV2OutboundStats(
 	tracks: ReadonlyArray<VoiceEngineV2OutboundStats>,
 ): Array<VoiceEngineV2OutboundStats> {
 	const grouped = new Map<string, Array<VoiceEngineV2OutboundStats>>();

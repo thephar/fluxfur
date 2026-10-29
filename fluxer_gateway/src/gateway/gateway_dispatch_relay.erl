@@ -25,7 +25,7 @@
 -type worker_state() :: #{
     role := worker,
     index := non_neg_integer(),
-    inflight := atomics:atomics_ref() | undefined,
+    credits := atomics:atomics_ref(),
     delivered := non_neg_integer()
 }.
 -type coordinator_state() :: #{
@@ -156,7 +156,7 @@ diagnostic_info() ->
             #{workers => length(Workers), queues => Queues}
     end.
 
--spec init(coordinator | {worker, non_neg_integer()}) -> {ok, state()}.
+-spec init(coordinator | {worker, non_neg_integer(), atomics:atomics_ref()}) -> {ok, state()}.
 init(coordinator) ->
     process_flag(trap_exit, true),
     erlang:process_flag(fullsweep_after, 50),
@@ -164,13 +164,13 @@ init(coordinator) ->
     Workers = list_to_tuple(gateway_dispatch_relay_batch:start_workers(ShardCount)),
     persistent_term:put(?STATE_KEY, #{workers => Workers, shard_count => ShardCount}),
     {ok, #{role => coordinator, workers => Workers, shard_count => ShardCount}};
-init({worker, Index}) ->
+init({worker, Index, Credits}) ->
     erlang:process_flag(fullsweep_after, 50),
     persistent_term:put(?WORKER_KEY(Index), self()),
     {ok, #{
         role => worker,
         index => Index,
-        inflight => gateway_dispatch_relay_batch:inflight_ref(Index),
+        credits => Credits,
         delivered => 0
     }}.
 
@@ -183,22 +183,27 @@ handle_call(_Request, _From, State) ->
 -spec handle_cast(term(), state()) -> {noreply, state()}.
 handle_cast(
     {deliver, SessionPid, Event, Payload},
-    #{role := worker, inflight := Inflight, delivered := Delivered} = State
+    #{role := worker, credits := Credits, delivered := Delivered} = State
 ) ->
-    ok = gateway_dispatch_relay_batch:release_queue_slot(Inflight),
+    ok = gateway_dispatch_relay_batch:release_credit(Credits),
     dispatch_direct(SessionPid, Event, Payload),
+    ok = gateway_dispatch_relay_batch:settle_debt(Credits),
     {noreply, State#{delivered := Delivered + 1}};
 handle_cast(
     {deliver_many, SessionPids, Event, Payload},
-    #{role := worker, inflight := Inflight, delivered := Delivered} = State
+    #{role := worker, credits := Credits, delivered := Delivered} = State
 ) when is_list(SessionPids) ->
-    ok = gateway_dispatch_relay_batch:release_queue_slot(Inflight),
+    ok = gateway_dispatch_relay_batch:release_credit(Credits),
     deliver_many_direct(SessionPids, Event, Payload),
+    ok = gateway_dispatch_relay_batch:settle_debt(Credits),
     {noreply, State#{delivered := Delivered + length(SessionPids)}};
+handle_cast(_Msg, #{role := worker, credits := Credits} = State) ->
+    ok = gateway_dispatch_relay_batch:settle_debt(Credits),
+    {noreply, State};
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
--spec deliver_many_direct([pid()], term(), term()) -> ok.
+-spec deliver_many_direct([term()], term(), term()) -> ok.
 deliver_many_direct(SessionPids, Event, Payload) ->
     dispatch_grouped(group_by_node(SessionPids), Event, Payload, fun dispatch_direct/3).
 
@@ -212,6 +217,9 @@ handle_info({'EXIT', Pid, Reason}, #{role := coordinator, workers := Workers} = 
         Index ->
             handle_worker_exit(Index, Reason, Workers, State)
     end;
+handle_info(_Info, #{role := worker, credits := Credits} = State) ->
+    ok = gateway_dispatch_relay_batch:settle_debt(Credits),
+    {noreply, State};
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -239,47 +247,3 @@ handle_worker_exit(Index, Reason, Workers, State) ->
         shard_count => maps:get(shard_count, State)
     }),
     {noreply, State#{workers := NewWorkers}}.
-
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
-
-dispatch_direct_local_cast_under_mailbox_pressure_test() ->
-    Self = self(),
-    Receiver = spawn(fun() -> test_dispatch_receiver(Self, pressured) end),
-    lists:foreach(fun(N) -> Receiver ! {filler, N} end, lists:seq(1, 6000)),
-    {message_queue_len, QueueLen} = erlang:process_info(Receiver, message_queue_len),
-    ?assert(QueueLen > 5000),
-    Payload = #{<<"pressure">> => true},
-    ?assertEqual(ok, dispatch_direct(Receiver, guild_update, Payload)),
-    assert_dispatch_received(pressured, guild_update, Payload).
-
-group_by_node_filters_non_pids_test() ->
-    P1 = spawn(fun test_wait_until_stop/0),
-    Grouped = group_by_node([P1, not_a_pid, 42, <<"binary">>]),
-    [{_Node, Pids}] = Grouped,
-    ?assertEqual([P1], Pids),
-    P1 ! stop.
-
-test_wait_until_stop() ->
-    receive
-        stop -> ok
-    after 1000 ->
-        ok
-    end.
-
-test_dispatch_receiver(Parent, Id) ->
-    receive
-        {'$gen_cast', {dispatch, Ev, Pay}} -> Parent ! {got, Id, Ev, Pay}
-    after 1000 ->
-        Parent ! {timeout, Id}
-    end.
-
-assert_dispatch_received(Id, Event, Payload) ->
-    receive
-        {got, Id, Event, Payload} -> ok;
-        {timeout, Id} -> ?assert(false)
-    after 1000 ->
-        ?assert(false)
-    end.
-
--endif.

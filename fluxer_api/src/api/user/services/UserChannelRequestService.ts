@@ -84,18 +84,20 @@ export class UserChannelRequestService {
 	}
 
 	async pinChannel(params: UserChannelPinParams): Promise<void> {
-		await this.userChannelService.pinDmChannel({
+		await this.userChannelService.setDmChannelPinned({
 			userId: params.userId,
 			viewer: params.viewer,
 			channelId: params.channelId,
+			pinned: true,
 		});
 	}
 
 	async unpinChannel(params: UserChannelPinParams): Promise<void> {
-		await this.userChannelService.unpinDmChannel({
+		await this.userChannelService.setDmChannelPinned({
 			userId: params.userId,
 			viewer: params.viewer,
 			channelId: params.channelId,
+			pinned: false,
 		});
 	}
 }

@@ -18,6 +18,7 @@ function hasDesktopAppStore(): boolean {
 
 interface AuthLoginInstanceStepProps {
 	readonly extraTopContent: ReactNode;
+	readonly showTitle: boolean;
 	readonly title: ReactNode;
 	readonly initialInstanceUrl: string | null;
 	readonly onContinue: (snapshot: RuntimeConfigSnapshot) => void;
@@ -27,6 +28,7 @@ interface AuthLoginInstanceStepProps {
 
 export function AuthLoginInstanceStep({
 	extraTopContent,
+	showTitle,
 	title,
 	initialInstanceUrl,
 	onContinue,
@@ -39,9 +41,11 @@ export function AuthLoginInstanceStep({
 			data-flx="auth.flow.auth-login-core.auth-login-instance-step.flx-element"
 		>
 			{extraTopContent}
-			<h1 className={loginStyles.title} data-flx="auth.flow.auth-login-core.auth-login-instance-step.h1">
-				{title}
-			</h1>
+			{showTitle ? (
+				<h1 className={loginStyles.title} data-flx="auth.flow.auth-login-core.auth-login-instance-step.h1">
+					{title}
+				</h1>
+			) : null}
 			<flx-auth-login-instance-step-body
 				className={flxElementClassName(styles.inlineStep)}
 				data-flx="auth.flow.auth-login-core.auth-login-instance-step.inline-step"

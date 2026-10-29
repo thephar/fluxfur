@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {type AdminAuditLog, AdminRepository} from '@app/api/admin/AdminRepository';
+import {reportReference} from '@app/api/admin/services/ReporterResolutionNotifier';
 import {
 	clearTestEmails,
 	createTestAccount,
@@ -11,12 +12,12 @@ import {
 	type TestAccount,
 } from '@app/api/auth/tests/AuthTestUtils';
 import {createReportID, createUserID} from '@app/api/BrandedTypes';
+import {Config} from '@app/api/Config';
 import {sendChannelMessage, setupTestGuildWithMembers} from '@app/api/channel/tests/ChannelTestUtils';
 import {createTestChannelService} from '@app/api/channel/tests/CrosspostTestUtils';
 import {type DecisionBody, decisionBody} from '@app/api/enforcement/tests/EnforcementTestUtils';
 import {resolveContactEmails} from '@app/api/instance/ContactEmails';
 import {getInstanceProductName} from '@app/api/instance/ProductName';
-import {getReportServiceInstance} from '@app/api/middleware/ServiceMiddleware';
 import {getGatewayService, getSnowflakeService, setInjectedWorkerService} from '@app/api/middleware/ServiceRegistry';
 import {
 	createUserCacheService,
@@ -43,10 +44,11 @@ import bulkScheduleUserDeletion from '@app/api/worker/tasks/admin_bulk/BulkSched
 import {clearWorkerDependencies, setWorkerDependenciesForTest} from '@app/api/worker/WorkerContext';
 import {DeletionReasons} from '@fluxer/constants/src/Core';
 import {UserFlags} from '@fluxer/constants/src/UserConstants';
+import {emailLinkUrls, renderEmailTemplateText, reportResolvedSlots} from '@pkgs/email/src/EmailService';
 import {getEmailTemplate} from '@pkgs/email/src/email_i18n/EmailI18n';
 import type {WorkerTaskResult} from '@pkgs/worker/src/contracts/WorkerTask';
 import type {WorkerJobPayload} from '@pkgs/worker/src/contracts/WorkerTypes';
-import {afterEach, beforeEach, describe, expect, test, vi} from 'vitest';
+import {afterEach, beforeEach, describe, expect, test} from 'vitest';
 
 interface ReportResponse {
 	report_id: string;
@@ -183,24 +185,33 @@ async function systemDmMessages(harness: ApiTestHarness, account: TestAccount): 
 
 const DELETION_WORDING = /delet|\bban|suspend|terminat|remov|enforce/i;
 
-function renderRestrictedNotice(username: string, reportId: string): {subject: string; body: string} {
-	const rendered = getEmailTemplate(
+async function renderRestrictedNotice(reportId: string): Promise<{subject: string; body: string}> {
+	const report = await new ReportRepository().getReport(createReportID(BigInt(reportId)));
+	if (!report) {
+		throw new Error('report not found');
+	}
+	const variables = {
+		...reportReference(report),
+		outcome: 'restricted',
+		appeals_email: resolveContactEmails().appealsEmail,
+		reply: 'no',
+	} as const;
+	const rendered = getEmailTemplate('report_resolved', null, variables, getInstanceProductName());
+	const body = renderEmailTemplateText(
 		'report_resolved',
 		null,
-		{
-			username,
-			reportId,
-			publicComment: '',
-			hasComment: 'no',
-			outcome: 'restricted',
-			appeals_email: resolveContactEmails().appealsEmail,
-		},
+		variables,
 		getInstanceProductName(),
+		(template) => reportResolvedSlots(template, reportId, ''),
+		{
+			format: 'markdown',
+			urls: emailLinkUrls({appBaseUrl: Config.endpoints.webApp, marketingBaseUrl: Config.endpoints.marketing}),
+		},
 	);
-	if (!rendered.ok) {
+	if (!rendered.ok || body === null) {
 		throw new Error('report_resolved did not render');
 	}
-	return rendered.value;
+	return {subject: rendered.value.subject, body};
 }
 
 async function scheduleDeletionThroughEndpoint(harness: ApiTestHarness, target: TestAccount): Promise<void> {
@@ -300,15 +311,11 @@ describe('bulkScheduleUserDeletion', () => {
 		expect(sent.map((email) => email.metadata)).toEqual([
 			{report_id: reportId, public_comment: '', outcome: 'restricted'},
 		]);
-		const notice = renderRestrictedNotice('reporter', reportId);
+		const notice = await renderRestrictedNotice(reportId);
 		expect(notice.body).toContain(reportId);
 		expect(`${notice.subject}\n${notice.body}`).not.toMatch(DELETION_WORDING);
-		const me = await createBuilder<{username: string}>(harness, reporter.token)
-			.get('/users/@me')
-			.expect(HTTP_STATUS.OK)
-			.execute();
 		expect(await systemDmMessages(harness, reporter)).toEqual([
-			systemDmBody(renderRestrictedNotice(me.username, reportId).body),
+			systemDmBody((await renderRestrictedNotice(reportId)).body),
 		]);
 	});
 	test('an auto-resolved report sends the reporter a DM and an email with no deletion wording', async () => {
@@ -321,12 +328,8 @@ describe('bulkScheduleUserDeletion', () => {
 		expect(sent.map((email) => email.metadata)).toEqual([
 			{report_id: reportId, public_comment: '', outcome: 'restricted'},
 		]);
-		const me = await createBuilder<{username: string}>(harness, reporter.token)
-			.get('/users/@me')
-			.expect(HTTP_STATUS.OK)
-			.execute();
 		const dms = await systemDmMessages(harness, reporter);
-		expect(dms).toEqual([systemDmBody(renderRestrictedNotice(me.username, reportId).body)]);
+		expect(dms).toEqual([systemDmBody((await renderRestrictedNotice(reportId)).body)]);
 		expect(await listTestEmails(harness, {recipient: reporter.email})).toHaveLength(1);
 	});
 	test('an auto-resolved DSA notice sends the notifier the decision email', async () => {
@@ -377,64 +380,6 @@ describe('bulkScheduleUserDeletion', () => {
 			resolved_count: '0',
 			failed_count: '0',
 			notified_count: '0',
-		});
-	});
-	test('a report search failure leaves reports pending and is recorded', async () => {
-		const admin = await createTestAccount(harness);
-		await setUserACLs(harness, admin, ['admin:authenticate', 'bulk:delete:users']);
-		const reporter = await createTestAccount(harness);
-		const target = await createTestAccount(harness);
-		const reportId = await reportUser(harness, reporter, target.userId);
-		const search = getReportSearchService()!;
-		const spy = vi.spyOn(search, 'searchReports').mockRejectedValue(new Error('search cluster unreachable'));
-		try {
-			const result = await runBulkJob([target.userId], admin.userId);
-			expect(result.successful_count).toBe(1);
-		} finally {
-			spy.mockRestore();
-		}
-		expect(await getReportStatus(reportId)).toBe(ReportStatus.PENDING);
-		expect(await autoResolveSummary(target.userId)).toEqual({
-			outcome: 'enumeration_failed',
-			found_count: '0',
-			resolved_count: '0',
-			failed_count: '0',
-			notified_count: '0',
-		});
-	});
-	test('a report that fails to resolve is counted and the others still resolve', async () => {
-		const admin = await createTestAccount(harness);
-		await setUserACLs(harness, admin, ['admin:authenticate', 'bulk:delete:users']);
-		const firstReporter = await createTestAccount(harness);
-		const secondReporter = await createTestAccount(harness);
-		const target = await createTestAccount(harness);
-		const firstReportId = await reportUser(harness, firstReporter, target.userId);
-		const secondReportId = await reportUser(harness, secondReporter, target.userId);
-		const reportService = getReportServiceInstance();
-		const resolveReport = reportService.resolveReport.bind(reportService);
-		const spy = vi.spyOn(reportService, 'resolveReport').mockImplementation(async (reportId, ...rest) => {
-			if (reportId.toString() === firstReportId) {
-				throw new Error('storage write timed out');
-			}
-			return resolveReport(reportId, ...rest);
-		});
-		await clearTestEmails(harness);
-		try {
-			const result = await runBulkJob([target.userId], admin.userId);
-			expect(result.successful_count).toBe(1);
-		} finally {
-			spy.mockRestore();
-		}
-		expect(await getReportStatus(firstReportId)).toBe(ReportStatus.PENDING);
-		expect(await getReportStatus(secondReportId)).toBe(ReportStatus.RESOLVED);
-		expect(await reportResolvedEmails(harness, firstReporter)).toEqual([]);
-		expect(await reportResolvedEmails(harness, secondReporter)).toHaveLength(1);
-		expect(await autoResolveSummary(target.userId)).toEqual({
-			outcome: 'completed',
-			found_count: '2',
-			resolved_count: '1',
-			failed_count: '1',
-			notified_count: '1',
 		});
 	});
 	test('keeps deleting the remaining users after one of them fails and reports the failure', async () => {

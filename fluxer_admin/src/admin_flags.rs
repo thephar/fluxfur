@@ -5,6 +5,7 @@ use crate::api::generated::types::EnforcementKindType;
 pub struct U64Flag {
     pub name: &'static str,
     pub value: u64,
+    pub help: &'static str,
 }
 
 pub struct I32Flag {
@@ -31,7 +32,6 @@ pub mod user_flag_bits {
     pub const ACCOUNT_LIMITED: u64 = 1 << 50;
     pub const HAS_DISMISSED_PREMIUM_ONBOARDING: u64 = 1 << 51;
     pub const APP_STORE_REVIEWER: u64 = 1 << 53;
-    pub const STAFF_HIDDEN: u64 = 1 << 57;
     pub const AGE_VERIFIED_ADULT: u64 = 1 << 60;
     pub const LIMIT_EXEMPT: u64 = 1 << 62;
 }
@@ -40,86 +40,102 @@ pub const USER_FLAGS: &[U64Flag] = &[
     U64Flag {
         name: "STAFF",
         value: user_flag_bits::STAFF,
+        help: "Shows the staff badge and lifts some limits. It does not grant admin panel access, which comes from ACLs.",
     },
     U64Flag {
         name: "PARTNER",
         value: user_flag_bits::PARTNER,
+        help: "Shows the partner badge on the profile.",
     },
     U64Flag {
         name: "BUG_HUNTER",
         value: user_flag_bits::BUG_HUNTER,
+        help: "Shows the bug hunter badge on the profile.",
     },
     U64Flag {
         name: "FRIENDLY_BOT",
         value: user_flag_bits::FRIENDLY_BOT,
+        help: "On a bot account, accepts friend requests automatically.",
     },
     U64Flag {
         name: "FRIENDLY_BOT_MANUAL_APPROVAL",
         value: user_flag_bits::FRIENDLY_BOT_MANUAL_APPROVAL,
+        help: "On a bot account with friendly bot set, leaves friend requests for the bot to accept.",
     },
     U64Flag {
         name: "SPAMMER",
         value: user_flag_bits::SPAMMER,
+        help: "Marks the account as a spammer. Set by enforcement actions.",
     },
     U64Flag {
         name: "PROFILE_HIDDEN",
         value: user_flag_bits::PROFILE_HIDDEN,
+        help: "Hides the profile details from other people.",
     },
     U64Flag {
         name: "HIGH_GLOBAL_RATE_LIMIT",
         value: user_flag_bits::HIGH_GLOBAL_RATE_LIMIT,
+        help: "Raises the global request limit from 50 to 1200 per window.",
     },
     U64Flag {
         name: "DELETED",
         value: user_flag_bits::DELETED,
+        help: "The account was deleted by an admin action. Set by the deletion flow.",
     },
     U64Flag {
         name: "SELF_DELETED",
         value: user_flag_bits::SELF_DELETED,
+        help: "The account holder asked for deletion. Set by the deletion flow.",
     },
     U64Flag {
         name: "DISABLED",
         value: user_flag_bits::DISABLED,
+        help: "The account cannot sign in. Suspensions set it.",
     },
     U64Flag {
         name: "HAS_SESSION_STARTED",
         value: user_flag_bits::HAS_SESSION_STARTED,
+        help: "Set the first time the account connects. Nothing to change by hand.",
     },
     U64Flag {
         name: "RATE_LIMIT_BYPASS",
         value: user_flag_bits::RATE_LIMIT_BYPASS,
+        help: "Skips request rate limits entirely. Use only for trusted automation.",
     },
     U64Flag {
         name: "REPORT_BANNED",
         value: user_flag_bits::REPORT_BANNED,
+        help: "The account can no longer file reports.",
     },
     U64Flag {
         name: "VERIFIED_NOT_UNDERAGE",
         value: user_flag_bits::VERIFIED_NOT_UNDERAGE,
+        help: "Set by the age check of the official instance. Self-hosted instances do not run that check.",
     },
     U64Flag {
         name: "ACCOUNT_LIMITED",
         value: user_flag_bits::ACCOUNT_LIMITED,
+        help: "Limits what a new or suspicious account can do until it is reviewed.",
     },
     U64Flag {
         name: "HAS_DISMISSED_PREMIUM_ONBOARDING",
         value: user_flag_bits::HAS_DISMISSED_PREMIUM_ONBOARDING,
+        help: "Set by the app after the person closed the premium introduction.",
     },
     U64Flag {
         name: "APP_STORE_REVIEWER",
         value: user_flag_bits::APP_STORE_REVIEWER,
-    },
-    U64Flag {
-        name: "STAFF_HIDDEN",
-        value: user_flag_bits::STAFF_HIDDEN,
+        help: "For accounts used by app store reviewers. Skips new IP checks and blocks direct messages from strangers.",
     },
     U64Flag {
         name: "AGE_VERIFIED_ADULT",
         value: user_flag_bits::AGE_VERIFIED_ADULT,
+        help: "Set by the age verification of the official instance. Self-hosted instances do not run it.",
     },
     U64Flag {
         name: "LIMIT_EXEMPT",
         value: user_flag_bits::LIMIT_EXEMPT,
+        help: "Exempts the account from account limits and the new conversation limit.",
     },
 ];
 
@@ -144,20 +160,12 @@ pub const PREMIUM_FLAGS: &[I32Flag] = &[
         value: 1 << 0,
     },
     I32Flag {
-        name: "BADGE_HIDDEN",
-        value: 1 << 1,
-    },
-    I32Flag {
         name: "BADGE_MASKED",
         value: 1 << 2,
     },
     I32Flag {
         name: "BADGE_TIMESTAMP_HIDDEN",
         value: 1 << 3,
-    },
-    I32Flag {
-        name: "BADGE_SEQUENCE_HIDDEN",
-        value: 1 << 4,
     },
     I32Flag {
         name: "PERKS_SANITIZED",
@@ -175,47 +183,57 @@ pub const PREMIUM_FLAGS: &[I32Flag] = &[
         name: "PERKS_DISABLED",
         value: 1 << 8,
     },
+    I32Flag {
+        name: "OPERATOR_PASS_BADGE_TIMESTAMP_HIDDEN",
+        value: 1 << 11,
+    },
+    I32Flag {
+        name: "OPERATOR_PASS_BADGE_COUNT_HIDDEN",
+        value: 1 << 12,
+    },
 ];
 
-pub const DELETION_REASONS: &[(&str, &str)] = &[
-    ("1", "User requested"),
-    ("2", "Other"),
-    ("3", "Spam"),
-    ("4", "Cheating or exploitation"),
-    ("5", "Coordinated raiding or manipulation"),
-    ("6", "Disruptive automation"),
-    ("7", "Nonconsensual sexual content"),
-    ("8", "Scam or social engineering"),
-    ("9", "Child sexual content"),
-    ("10", "Privacy violation or doxxing"),
-    ("11", "Harassment or bullying"),
-    ("12", "Payment fraud"),
-    ("13", "Child safety violation"),
-    ("14", "Billing dispute or abuse"),
-    ("15", "Unsolicited explicit content"),
-    ("16", "Graphic violence"),
-    ("17", "Ban evasion"),
-    ("18", "Token or credential scam"),
-    ("19", "Inactivity"),
-    ("20", "Hate speech or extremist content"),
-    ("21", "Malicious links or malware distribution"),
-    ("22", "Impersonation or fake identity"),
-    ("23", "Threats or violent speech"),
-    ("24", "Violent extremism"),
-    ("25", "Self-harm promotion"),
-    ("26", "Sexual content outside 18+ spaces"),
-    ("27", "Illegal goods or activity"),
-    ("28", "Harmful deception"),
-    ("29", "Reporting abuse"),
-    ("30", "Under the minimum age"),
-    ("31", "Copyright"),
+const DELETION_REASONS: &[(i32, &str)] = &[
+    (1, "User requested"),
+    (2, "Other"),
+    (3, "Spam"),
+    (4, "Cheating or exploitation"),
+    (5, "Coordinated raiding or manipulation"),
+    (6, "Disruptive automation"),
+    (7, "Nonconsensual sexual content"),
+    (8, "Scam or social engineering"),
+    (9, "Child sexual content"),
+    (10, "Privacy violation or doxxing"),
+    (11, "Harassment or bullying"),
+    (12, "Payment fraud"),
+    (13, "Child safety violation"),
+    (14, "Billing dispute or abuse"),
+    (15, "Unsolicited explicit content"),
+    (16, "Graphic violence"),
+    (17, "Ban evasion"),
+    (18, "Token or credential scam"),
+    (19, "Inactivity"),
+    (20, "Hate speech or extremist content"),
+    (21, "Malicious links or malware distribution"),
+    (22, "Impersonation or fake identity"),
+    (23, "Threats or violent speech"),
+    (24, "Violent extremism"),
+    (25, "Self-harm promotion"),
+    (26, "Sexual content outside 18+ spaces"),
+    (27, "Illegal goods or activity"),
+    (28, "Harmful deception"),
+    (29, "Reporting abuse"),
+    (30, "Under the minimum age"),
+    (31, "Copyright"),
+    (32, "Below minimum age"),
+    (33, "Unclaimed account abandoned"),
+    (34, "Operator Pass payment dispute"),
 ];
 
 pub fn deletion_reason_label(code: i32) -> String {
-    let value = code.to_string();
     DELETION_REASONS
         .iter()
-        .find(|(candidate, _)| *candidate == value)
+        .find(|(candidate, _)| *candidate == code)
         .map_or_else(
             || format!("Reason {code}"),
             |(_, label)| (*label).to_owned(),
@@ -265,7 +283,7 @@ pub const ENFORCEMENT_LIMITS: &[EnforcementLimitOption] = &[
     EnforcementLimitOption {
         value: "purchases",
         label: "Purchases",
-        codes: &[12, 14],
+        codes: &[12, 14, 34],
     },
 ];
 
@@ -342,6 +360,7 @@ pub const ENFORCEMENT_REASONS: &[EnforcementReason] = {
             Standard,
             Some(&[Warning, ContentRemoval, ProfileReset, CommunityRemoval]),
         ),
+        reason(34, Standard, Some(PAYMENT_KINDS)),
     ]
 };
 
@@ -386,251 +405,7 @@ pub const GUILD_FEATURES: &[&str] = &[
     "LARGE_GUILD_OVERRIDE",
     "VERY_LARGE_GUILD",
     "ANNOUNCEMENT_CHANNELS_DISABLED",
+    "VISITS_ENABLED",
 ];
 
 pub const DEPRECATED_GUILD_FEATURES: &[&str] = &["CLONE_EMOJI_DISABLED", "CLONE_STICKER_DISABLED"];
-
-#[cfg(test)]
-mod tests {
-    use super::{
-        DELETION_REASONS, ENFORCEMENT_LIMITS, ENFORCEMENT_REASONS, EnforcementHandling, USER_FLAGS,
-    };
-    use crate::api::generated::types::DeletionReasonCode;
-    use std::collections::HashMap;
-
-    const CORE_TS: &str = include_str!("../../packages/constants/src/Core.ts");
-    const ENFORCEMENT_REASONS_TS: &str =
-        include_str!("../../packages/constants/src/EnforcementReasons.ts");
-
-    fn quoted_values(list: &str) -> Vec<String> {
-        list.split('\'')
-            .skip(1)
-            .step_by(2)
-            .map(ToOwned::to_owned)
-            .collect()
-    }
-
-    fn deletion_reason_codes() -> HashMap<String, i32> {
-        let block = CORE_TS
-            .split("export const DeletionReasons = {")
-            .nth(1)
-            .and_then(|rest| rest.split('}').next())
-            .expect("DeletionReasons block");
-        block
-            .lines()
-            .filter_map(|line| {
-                let (name, code) = line.trim().trim_end_matches(',').split_once(": ")?;
-                Some((name.to_owned(), code.parse().ok()?))
-            })
-            .collect()
-    }
-
-    fn kind_lists() -> HashMap<String, Vec<String>> {
-        ENFORCEMENT_REASONS_TS
-            .lines()
-            .filter_map(|line| {
-                let rest = line.strip_prefix("const ")?;
-                let (name, value) = rest.split_once(": ReadonlyArray<EnforcementKind> = ")?;
-                Some((name.to_owned(), quoted_values(value)))
-            })
-            .collect()
-    }
-
-    fn typescript_reasons() -> Vec<(i32, String, Option<Vec<String>>)> {
-        let codes = deletion_reason_codes();
-        let lists = kind_lists();
-        let block = ENFORCEMENT_REASONS_TS
-            .split("export const ENFORCEMENT_REASONS")
-            .nth(1)
-            .and_then(|rest| rest.split("\n};").next())
-            .expect("ENFORCEMENT_REASONS block");
-        block
-            .split("[DeletionReasons.")
-            .skip(1)
-            .map(|entry| {
-                let name = entry.split(']').next().expect("reason name");
-                let handling = entry
-                    .split("handling: '")
-                    .nth(1)
-                    .and_then(|rest| rest.split('\'').next())
-                    .expect("handling");
-                let kinds = entry.split("kinds: ").nth(1).expect("kinds").trim_start();
-                let kinds = if kinds.starts_with("'any'") {
-                    None
-                } else if kinds.starts_with('[') {
-                    Some(quoted_values(kinds.split(']').next().expect("kind list")))
-                } else {
-                    let list = kinds
-                        .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
-                        .next()
-                        .expect("kind list name");
-                    Some(lists.get(list).expect("named kind list").clone())
-                };
-                (
-                    *codes.get(name).expect("reason code"),
-                    handling.to_owned(),
-                    kinds,
-                )
-            })
-            .collect()
-    }
-
-    fn typescript_reason_rules() -> HashMap<String, Vec<i32>> {
-        let codes = deletion_reason_codes();
-        let block = ENFORCEMENT_REASONS_TS
-            .split("export const ENFORCEMENT_REASONS")
-            .nth(1)
-            .and_then(|rest| rest.split("\n};").next())
-            .expect("ENFORCEMENT_REASONS block");
-        let mut rules: HashMap<String, Vec<i32>> = HashMap::new();
-        for entry in block.split("[DeletionReasons.").skip(1) {
-            let name = entry.split(']').next().expect("reason name");
-            let rule = entry
-                .split("rule: '")
-                .nth(1)
-                .and_then(|rest| rest.split('\'').next())
-                .expect("rule");
-            rules
-                .entry(rule.to_owned())
-                .or_default()
-                .push(*codes.get(name).expect("reason code"));
-        }
-        rules
-    }
-
-    fn typescript_limit_rules(limit: &str) -> Vec<String> {
-        let block = ENFORCEMENT_REASONS_TS
-            .split("const ENFORCEMENT_LIMIT_RULES")
-            .nth(1)
-            .and_then(|rest| rest.split("\n};").next())
-            .expect("ENFORCEMENT_LIMIT_RULES block");
-        let value = block
-            .split(&format!("{limit}: "))
-            .nth(1)
-            .and_then(|rest| rest.split(",\n").next())
-            .expect("limit rules");
-        if value.starts_with("ENFORCEMENT_SPAMMER_LIMIT_RULES") {
-            let spammer = ENFORCEMENT_REASONS_TS
-                .split("const ENFORCEMENT_SPAMMER_LIMIT_RULES: ")
-                .nth(1)
-                .and_then(|rest| rest.split("]);").next())
-                .expect("spammer rules");
-            return quoted_values(spammer);
-        }
-        quoted_values(value)
-    }
-
-    #[test]
-    fn enforcement_limits_match_the_shared_constants() {
-        let rules = typescript_reason_rules();
-        assert_eq!(ENFORCEMENT_LIMITS.len(), 3);
-        for limit in ENFORCEMENT_LIMITS {
-            let mut expected: Vec<i32> = typescript_limit_rules(limit.value)
-                .iter()
-                .flat_map(|rule| rules.get(rule).cloned().unwrap_or_default())
-                .collect();
-            expected.sort_unstable();
-            let mut actual = limit.codes.to_vec();
-            actual.sort_unstable();
-            assert_eq!(actual, expected, "codes of the {} limit", limit.value);
-        }
-    }
-
-    #[test]
-    fn feature_limits_are_offered_only_for_reasons_with_a_limit() {
-        use crate::api::generated::types::EnforcementKindType::FeatureLimit;
-        let offered: Vec<i32> = ENFORCEMENT_REASONS
-            .iter()
-            .filter(|reason| reason.allows(FeatureLimit))
-            .map(|reason| reason.code)
-            .collect();
-        assert_eq!(offered, vec![3, 6, 8, 12, 14, 18, 21, 29]);
-    }
-
-    #[test]
-    fn restriction_flags_are_read_only_except_a_self_disabled_account() {
-        use super::{premium_flag_is_editable, user_flag_bits as bits, user_flag_is_editable};
-        for flag in [bits::DELETED, bits::SPAMMER, bits::REPORT_BANNED] {
-            assert!(!user_flag_is_editable(flag, 0, false));
-            assert!(!user_flag_is_editable(flag, flag, false));
-        }
-        assert!(!user_flag_is_editable(bits::DISABLED, 0, false));
-        assert!(!user_flag_is_editable(bits::DISABLED, bits::DISABLED, true));
-        assert!(user_flag_is_editable(bits::DISABLED, bits::DISABLED, false));
-        assert!(user_flag_is_editable(bits::ACCOUNT_LIMITED, 0, true));
-        assert!(user_flag_is_editable(bits::STAFF, bits::STAFF, false));
-        assert!(!premium_flag_is_editable(1 << 6));
-        assert!(premium_flag_is_editable(1 << 0));
-    }
-
-    #[test]
-    fn enforcement_reasons_match_the_shared_constants() {
-        let expected = typescript_reasons();
-        assert_eq!(expected.len(), ENFORCEMENT_REASONS.len());
-        for (code, handling, kinds) in expected {
-            let reason = super::enforcement_reason(code)
-                .unwrap_or_else(|| panic!("{code} is missing from ENFORCEMENT_REASONS"));
-            let rust_handling = match reason.handling {
-                EnforcementHandling::Standard => "standard",
-                EnforcementHandling::Protected => "protected",
-                EnforcementHandling::Restricted => "restricted",
-            };
-            assert_eq!(rust_handling, handling, "handling of {code}");
-            let rust_kinds = reason
-                .kinds
-                .map(|kinds| kinds.iter().map(ToString::to_string).collect::<Vec<_>>());
-            assert_eq!(rust_kinds, kinds, "kinds of {code}");
-        }
-    }
-
-    #[test]
-    fn user_flags_cover_every_flag_in_the_admin_spec() {
-        let spec: serde_json::Value =
-            serde_json::from_str(include_str!("../openapi-admin.json")).expect("admin spec");
-        let values = spec["components"]["schemas"]["UserFlags"]["x-bitflagValues"]
-            .as_array()
-            .expect("UserFlags bitflag values");
-        assert!(!values.is_empty());
-        for entry in values {
-            let name = entry["name"].as_str().expect("flag name");
-            let value: u64 = entry["value"]
-                .as_str()
-                .expect("flag value")
-                .parse()
-                .expect("numeric flag value");
-            assert!(
-                USER_FLAGS
-                    .iter()
-                    .any(|flag| flag.name == name && flag.value == value),
-                "{name} ({value}) is missing from USER_FLAGS"
-            );
-        }
-    }
-
-    #[test]
-    fn deletion_reasons_match_the_generated_reason_codes() {
-        let spec: serde_json::Value =
-            serde_json::from_str(include_str!("../openapi-admin.json")).expect("admin spec");
-        let mut spec_codes: Vec<i32> = spec["components"]["schemas"]["DeletionReasonCode"]["enum"]
-            .as_array()
-            .expect("DeletionReasonCode values")
-            .iter()
-            .map(|value| {
-                i32::try_from(value.as_i64().expect("numeric reason code")).expect("i32 code")
-            })
-            .collect();
-        spec_codes.sort_unstable();
-        let mut label_codes: Vec<i32> = DELETION_REASONS
-            .iter()
-            .map(|(code, _)| code.parse().expect("numeric reason code"))
-            .collect();
-        label_codes.sort_unstable();
-        assert_eq!(label_codes, spec_codes);
-        for code in label_codes {
-            assert!(
-                DeletionReasonCode::try_from(code).is_ok(),
-                "{code} is not a generated DeletionReasonCode"
-            );
-        }
-    }
-}

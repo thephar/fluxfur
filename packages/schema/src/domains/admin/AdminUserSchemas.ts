@@ -7,13 +7,16 @@ import {
 	UserFlags,
 	UserFlagsDescriptions,
 } from '@fluxer/constants/src/UserConstants';
+import {AccountTierSchema} from '@fluxer/schema/src/domains/account/AccountTierSchemas';
 import {ADMIN_ACL_COUNT, AdminAclType} from '@fluxer/schema/src/domains/admin/AdminAclType';
+import {CustomBadgeIdListResponse} from '@fluxer/schema/src/domains/admin/AdminBadgeSchemas';
 import {
 	BulkModerationBasis,
 	ModerationBasis,
 	NetworkBlockRequest,
 	SkippedNetworkBlock,
 } from '@fluxer/schema/src/domains/admin/EnforcementSchemas';
+import {AdminProfileBadgeResponse} from '@fluxer/schema/src/domains/user/ProfileBadgeSchemas';
 import {CalendarDateType} from '@fluxer/schema/src/primitives/DateValidators';
 import {NSFWLevelSchema} from '@fluxer/schema/src/primitives/GuildValidators';
 import {createQueryIntegerType, QueryBooleanType} from '@fluxer/schema/src/primitives/QueryValidators';
@@ -65,6 +68,9 @@ export const UserAdminResponseSchema = z.object({
 	premium_until: z.string().nullable(),
 	premium_grace_ends_at: z.string().nullable(),
 	premium_lifetime_sequence: Int32Type.nullable(),
+	profile_badges: z
+		.array(AdminProfileBadgeResponse)
+		.describe('Every badge the account qualifies for in display order, including ones hidden from the public'),
 	temp_banned_until: z.string().nullable(),
 	pending_deletion_at: z.string().nullable(),
 	pending_bulk_message_deletion_at: z.string().nullable(),
@@ -86,7 +92,14 @@ export const UserAdminResponseSchema = z.object({
 	),
 	acls: z.array(z.string()).max(ADMIN_ACL_COUNT),
 	traits: z.array(z.string()).max(100),
+	badge_ids: CustomBadgeIdListResponse,
 	has_totp: z.boolean(),
+	has_password: z.boolean().describe('Whether the account has a password'),
+	claimed: z.boolean().describe('Whether the account can be signed in to from another device'),
+	account_tier: AccountTierSchema.describe('How far the account has got with setting up a way to sign in'),
+	date_of_birth_required: z
+		.boolean()
+		.describe('Whether the account still has to enter its date of birth, which clients ask for before anything else'),
 	authenticator_types: z.array(Int32Type).max(10),
 	last_active_at: z.string().nullable(),
 	last_active_ip: z.string().nullable(),
@@ -157,6 +170,13 @@ const UserSessionResponse = z.object({
 	client_os: z.string().nullable().describe('Client operating system, if detected'),
 	client_platform: z.string().nullable().describe('Client platform, if detected'),
 	client_location: z.string().nullable().describe('Approximate geo location label for the client IP, if available'),
+	app_platform: z.string().nullable().describe('Platform the native app last reported for this session'),
+	app_version: z.string().nullable().describe('App version the native app last reported for this session'),
+	app_release_channel: z.string().nullable().describe('Release channel the native app last reported for this session'),
+	app_build_number: Int32Type.nullable().describe(
+		'Platform build number the native app last reported for this session',
+	),
+	app_beta_number: Int32Type.nullable().describe('Beta number the native app last reported, for beta builds only'),
 	deleted_at: z.string().nullable().describe('ISO timestamp when the session was terminated, or null if still active'),
 });
 
@@ -165,6 +185,36 @@ export const ListUserSessionsResponse = z.object({
 });
 
 export type ListUserSessionsResponse = z.infer<typeof ListUserSessionsResponse>;
+
+export const ListAppSessionsQuery = z.object({
+	platform: z.enum(['android', 'ios', 'linux', 'desktop']).describe('Native app platform to list sessions for'),
+	release_channel: z.enum(['stable', 'beta', 'canary']).describe('Release channel to list sessions for'),
+	after: createStringType(1, 128)
+		.optional()
+		.describe('The next_cursor value from the previous page. Leave it out for the first page'),
+});
+
+export type ListAppSessionsQuery = z.infer<typeof ListAppSessionsQuery>;
+
+const AppSessionResponse = z.object({
+	user_id: SnowflakeStringType.describe('ID of the user who owns the session'),
+	session_id_hash: createStringType(8, 256).describe('Hashed session identifier (base64url)'),
+	created_at: z.string().describe('ISO timestamp when the session was created'),
+	approx_last_used_at: z.string().describe('ISO timestamp of the session last usage (approximate)'),
+	app_version: z.string().nullable().describe('App version the session last reported'),
+	app_build_number: Int32Type.nullable().describe('Platform build number the session last reported'),
+	app_beta_number: Int32Type.nullable().describe('Beta number the session last reported, for beta builds only'),
+});
+
+export const ListAppSessionsResponse = z.object({
+	sessions: z.array(AppSessionResponse),
+	next_cursor: z
+		.string()
+		.nullable()
+		.describe('Pass this as after to read the next page, or null when this is the last page'),
+});
+
+export type ListAppSessionsResponse = z.infer<typeof ListAppSessionsResponse>;
 
 export const ListUserDmChannelsRequest = z
 	.object({
@@ -308,6 +358,32 @@ export const AdminPasswordResetLinkResponse = z.object({
 });
 
 export type AdminPasswordResetLinkResponse = z.infer<typeof AdminPasswordResetLinkResponse>;
+
+export const AdminSignInLinkResponse = z.object({
+	url: z.string().describe('Sign-in link to open in a browser. It works once and is shown only once'),
+	expires_at: z.iso.datetime().describe('ISO 8601 timestamp when the link stops working'),
+});
+
+export type AdminSignInLinkResponse = z.infer<typeof AdminSignInLinkResponse>;
+
+export const AdminUserCreateRequest = z.object({
+	username: UsernameType.describe('Username for the new account'),
+	email: EmailType.optional().describe(
+		'Email address for the new account. Required on an instance where people sign in with email, and refused where they sign in with a username',
+	),
+	admin: z.boolean().default(false).describe('Whether to give the new account full admin access'),
+});
+
+export type AdminUserCreateRequest = z.infer<typeof AdminUserCreateRequest>;
+
+export const AdminUserCreateResponse = z.object({
+	user: UserAdminResponseSchema,
+	password_reset: AdminPasswordResetLinkResponse.describe(
+		'One-time link the new user opens to choose a password. Hand it to them yourself',
+	),
+});
+
+export type AdminUserCreateResponse = z.infer<typeof AdminUserCreateResponse>;
 
 export const ChangeUsernameRequest = z.object({
 	user_id: SnowflakeType.describe('ID of the user to change username for'),
@@ -479,6 +555,9 @@ export const AdminUserListQuery = z.object({
 	last_active_ip: createStringType(1, 64)
 		.optional()
 		.describe('Restrict the results to the users whose last active IP address matches this one exactly'),
+	acl: AdminAclType.optional().describe(
+		'Restrict the results to the users granted this admin permission, ordered by user ID. Pass * to list the admins with full access',
+	),
 	limit: createQueryIntegerType({defaultValue: 50, minValue: 1, maxValue: 200}).describe(
 		'Maximum number of users to return',
 	),
@@ -591,6 +670,12 @@ export const AdminUserDeletionScheduleRequest = z.object({
 		.optional()
 		.describe('Remove the evidence messages after they are snapshotted into the decision. Enforcement basis only'),
 	block_networks: NetworkBlockRequest.optional(),
+	immediate: z
+		.boolean()
+		.optional()
+		.describe(
+			'Self-hosted instances only. Delete the account now instead of after days_until_deletion, with no notice email. This cannot be undone',
+		),
 });
 
 export type AdminUserDeletionScheduleRequest = z.infer<typeof AdminUserDeletionScheduleRequest>;

@@ -27,6 +27,8 @@ impl AdminApiClient {
         Ok(AccountIdentitySettings {
             mode,
             tag_style: discovery.features.tag_style,
+            emails_enabled: discovery.features.emails_enabled,
+            username_from_provider: discovery.sso.username_from_provider,
         })
     }
 
@@ -54,11 +56,33 @@ impl AdminApiClient {
 
     pub async fn test_saved_instance_smtp_config(
         &self,
+        send_to: Option<&str>,
     ) -> ApiResult<InstanceEmailSmtpTestResponse> {
+        let body = match send_to {
+            Some(address) => serde_json::json!({"send_to": address}),
+            None => serde_json::json!({}),
+        };
         self.send(
             Method::POST,
             "/admin/instance/config/smtp-tests",
-            Some(&serde_json::json!({})),
+            Some(&body),
+            None,
+        )
+        .await
+    }
+
+    pub async fn rename_registration_url(
+        &self,
+        id: &str,
+        label: Option<&str>,
+    ) -> ApiResult<InstanceConfigResponse> {
+        self.send(
+            Method::PATCH,
+            &format!(
+                "/admin/instance/registration-urls/{}",
+                urlencoding::encode(id)
+            ),
+            Some(&serde_json::json!({"label": label})),
             None,
         )
         .await

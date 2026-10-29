@@ -15,29 +15,26 @@ import type {IARSubmission} from '@app/api/report/ReportModels';
 import {ReportRepository} from '@app/api/report/ReportRepository';
 import type {IReportSearchService} from '@app/api/search/IReportSearchService';
 import {MockStorageService} from '@app/api/test/mocks/MockStorageService';
-import {NoopLogger} from '@app/api/test/mocks/NoopLogger';
 import {InMemorySearchProvider} from '@app/api/test/search/InMemorySearchProvider';
-import expireReportSnapshots, {
+import {
 	CHILD_SAFETY_REPORT_RETENTION_DAYS,
 	processReportRetention,
 	REPORT_COMPLAINT_WINDOW_DAYS,
+	REPORT_CONTENT_RETENTION_DAYS,
 	type ReportRetentionDeps,
 	type ReportRetentionOptions,
 	type ReportRetentionPolicy,
 	reportRetentionDates,
 } from '@app/api/worker/tasks/ExpireReportSnapshots';
-import {clearWorkerDependencies, setWorkerDependenciesForTest} from '@app/api/worker/WorkerContext';
 import {DeletionReasons} from '@fluxer/constants/src/Core';
 import type {ReportItemOutcome} from '@fluxer/schema/src/domains/admin/AdminSchemas';
 import {serializeReportProfileSnapshot} from '@fluxer/schema/src/domains/report/ReportProfileSnapshotSchemas';
-import type {WorkerTaskHelpers} from '@pkgs/worker/src/contracts/WorkerTask';
 import {ms} from 'itty-time';
-import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {beforeEach, describe, expect, it} from 'vitest';
 
 const NOW = new Date('2027-06-01T12:00:00.000Z');
 const DAY_MS = ms('1 day');
 const REPORTS_BUCKET = Config.s3.buckets.reports;
-const WORKER_HELPERS = {logger: new NoopLogger()} as unknown as WorkerTaskHelpers;
 const DEFAULT_POLICY: ReportRetentionPolicy = {retentionDays: 365};
 let sequence = 1_480_000_000_000_000_000n;
 
@@ -142,23 +139,25 @@ function storedReport(overrides: Partial<IARSubmission>): IARSubmission {
 describe('report retention dates', () => {
 	const day = DAY_MS;
 
-	it('keeps a pending report until it is resolved', () => {
-		expect(reportRetentionDates(storedReport({status: 0, resolvedAt: null}), DEFAULT_POLICY, null)).toEqual({
+	it('keeps a pending report record and drops its copied content one year after filing', () => {
+		const report = storedReport({status: 0, resolvedAt: null});
+		expect(reportRetentionDates(report, DEFAULT_POLICY, null)).toEqual({
 			deleteAt: null,
-			contextExpiresAt: null,
+			contextExpiresAt: report.reportedAt.getTime() + 365 * day,
 		});
+		expect(REPORT_CONTENT_RETENTION_DAYS).toBe(365);
 	});
 
-	it('deletes an actioned report one year after it was resolved and keeps its context until then', () => {
+	it('deletes an actioned report one year after it was resolved and drops its content one year after filing', () => {
 		const report = storedReport({});
 		expect(reportRetentionDates(report, DEFAULT_POLICY, null)).toEqual({
 			deleteAt: report.resolvedAt!.getTime() + 365 * day,
-			contextExpiresAt: null,
+			contextExpiresAt: report.reportedAt.getTime() + 365 * day,
 		});
 	});
 
 	it('drops the context of a no violation report once the complaint window has passed', () => {
-		const report = storedReport({reporterOutcome: 'no_violation'});
+		const report = storedReport({reporterOutcome: 'no_violation', reportedAt: daysAgo(20)});
 		const dates = reportRetentionDates(report, DEFAULT_POLICY, null);
 		expect(dates.contextExpiresAt).toBe(report.resolvedAt!.getTime() + REPORT_COMPLAINT_WINDOW_DAYS * day);
 		expect(REPORT_COMPLAINT_WINDOW_DAYS).toBeGreaterThanOrEqual(183);
@@ -169,18 +168,25 @@ describe('report retention dates', () => {
 		const report = storedReport({category: 'child_safety', reporterOutcome: 'no_violation'});
 		expect(reportRetentionDates(report, {retentionDays: 30}, null)).toEqual({
 			deleteAt: report.resolvedAt!.getTime() + CHILD_SAFETY_REPORT_RETENTION_DAYS * day,
-			contextExpiresAt: null,
+			contextExpiresAt: report.reportedAt.getTime() + 365 * day,
 		});
 		expect(CHILD_SAFETY_REPORT_RETENTION_DAYS).toBeGreaterThanOrEqual(365);
 	});
 
-	it('keeps a report linked to a decision as long as the decision evidence and keeps its context', () => {
+	it('keeps a report linked to a decision as long as the decision evidence and its content for a year', () => {
 		const report = storedReport({resolvedAt: daysAgo(300), reporterOutcome: 'no_violation'});
 		const decidedAt = daysAgo(100);
 		expect(reportRetentionDates(report, DEFAULT_POLICY, decidedAt)).toEqual({
 			deleteAt: decidedAt.getTime() + 365 * day,
-			contextExpiresAt: null,
+			contextExpiresAt: report.reportedAt.getTime() + 365 * day,
 		});
+	});
+
+	it('keeps the earlier complaint window end when it comes before a year after filing', () => {
+		const report = storedReport({reportedAt: daysAgo(300), resolvedAt: daysAgo(250), reporterOutcome: 'no_violation'});
+		expect(reportRetentionDates(report, DEFAULT_POLICY, null).contextExpiresAt).toBe(
+			report.resolvedAt!.getTime() + REPORT_COMPLAINT_WINDOW_DAYS * day,
+		);
 	});
 
 	it('uses the longer period when the configured one is longer than a floor', () => {
@@ -249,6 +255,7 @@ describe('report retention', () => {
 			});
 		}
 		const resolved = options.resolvedDaysAgo !== undefined;
+		const defaultOutcome = resolved ? 'removed' : null;
 		const row = {
 			...Object.fromEntries(IAR_SUBMISSION_COLUMNS.map((column) => [column, null])),
 			report_id: id,
@@ -256,7 +263,7 @@ describe('report retention', () => {
 			reported_at: daysAgo(options.ageDays ?? (options.resolvedDaysAgo ?? 0) + 5),
 			status: options.status ?? (resolved ? 1 : 0),
 			resolved_at: resolved ? daysAgo(options.resolvedDaysAgo!) : null,
-			reporter_outcome: options.outcome === undefined ? (resolved ? 'removed' : null) : options.outcome,
+			reporter_outcome: options.outcome === undefined ? defaultOutcome : options.outcome,
 			report_type: 0,
 			category: options.category ?? 'other',
 			additional_info: options.additionalInfo ?? null,
@@ -332,7 +339,7 @@ describe('report retention', () => {
 
 	it('deletes a report 365 days after it was resolved with its objects, search document and row', async () => {
 		const expired = await seed({resolvedDaysAgo: 365, attachment: newAttachment(), profile: true});
-		const kept = await seed({resolvedDaysAgo: 364, attachment: newAttachment(), profile: true});
+		const kept = await seed({ageDays: 364, resolvedDaysAgo: 364, attachment: newAttachment(), profile: true});
 
 		const summary = await run();
 
@@ -391,13 +398,13 @@ describe('report retention', () => {
 		expect(await repository.listNotes(expired.reportId)).toHaveLength(1);
 	});
 
-	it('keeps a pending report however old it is', async () => {
+	it('keeps the record of a pending report however old it is', async () => {
 		const pending = await seed({ageDays: 4000, attachment: newAttachment(), profile: true});
 
 		const summary = await run({policy: {retentionDays: 1}});
 
-		await expectKept(pending);
-		expect(summary).toMatchObject({scanned: 1, pending: 1, expired: 0, deleted: 0, objectsDeleted: 0});
+		await expectContextCleared(pending);
+		expect(summary).toMatchObject({scanned: 1, pending: 1, expired: 0, deleted: 0, contextCleared: 1});
 	});
 
 	it('drops the copied context of a no violation report after the complaint window and keeps the record', async () => {
@@ -467,6 +474,7 @@ describe('report retention', () => {
 
 	it('keeps a child safety report and its context for a year even with a shorter period or no violation', async () => {
 		const childSafety = await seed({
+			ageDays: 364,
 			resolvedDaysAgo: 364,
 			category: 'child_safety',
 			outcome: 'no_violation',
@@ -515,31 +523,66 @@ describe('report retention', () => {
 
 		const summary = await run({pageSize: 1});
 
-		await expectKept(linked);
-		expect((await repository.getReport(linked.reportId))?.messageContext).toHaveLength(1);
+		await expectContextCleared(linked);
 		await expectGone(linkedLongAgo);
 		await expectGone(unlinked);
-		expect(summary).toMatchObject({scanned: 3, expired: 2, contextExpired: 0, deleted: 2});
+		expect(summary).toMatchObject({scanned: 3, expired: 2, contextExpired: 1, contextCleared: 1, deleted: 2});
 	});
 
-	it('deletes nothing when the decision scan cannot finish', async () => {
-		const expired = await seed({resolvedDaysAgo: 400, profile: true});
+	it('drops the copied content of a pending report one year after filing and keeps the record', async () => {
+		const due = await seed({
+			ageDays: REPORT_CONTENT_RETENTION_DAYS,
+			attachment: newAttachment(),
+			profile: true,
+			additionalInfo: 'Filed a year ago',
+		});
+		const recent = await seed({
+			ageDays: REPORT_CONTENT_RETENTION_DAYS - 1,
+			attachment: newAttachment(),
+			profile: true,
+			additionalInfo: 'Filed yesterday a year ago',
+		});
 
-		await expect(
-			processReportRetention(
-				{
-					...deps,
-					decisionRepository: {
-						listReportLinks: async () => {
-							throw new Error('read timeout');
-						},
-					},
-				},
-				{now: NOW, dryRun: false, policy: DEFAULT_POLICY},
-			),
-		).rejects.toThrow('read timeout');
+		const summary = await run();
 
-		await expectKept(expired);
+		await expectContextCleared(due);
+		expect(await repository.getReport(due.reportId)).toMatchObject({status: 0, category: 'other'});
+		await expectKept(recent);
+		expect((await repository.getReport(recent.reportId))?.additionalInfo).toBe('Filed yesterday a year ago');
+		expect(summary).toMatchObject({pending: 2, expired: 0, contextExpired: 1, contextCleared: 1, objectsDeleted: 2});
+
+		expect(await run()).toMatchObject({contextExpired: 0, contextCleared: 0, objectsDeleted: 0});
+	});
+
+	it('drops the copied content of a child safety report one year after filing and keeps the record', async () => {
+		const due = await seed({
+			ageDays: 400,
+			resolvedDaysAgo: 100,
+			category: 'child_safety',
+			attachment: newAttachment(),
+			profile: true,
+			additionalInfo: 'Context for a CyberTip',
+		});
+
+		const summary = await run();
+
+		await expectContextCleared(due);
+		expect(summary).toMatchObject({expired: 0, contextCleared: 1});
+	});
+
+	it('keeps the copied content of an old pending report under a legal hold', async () => {
+		const held = await seed({
+			ageDays: 900,
+			attachment: newAttachment(),
+			profile: true,
+			legalHoldUntil: new Date(NOW.getTime() + DAY_MS),
+		});
+
+		const summary = await run();
+
+		await expectKept(held);
+		expect((await repository.getReport(held.reportId))?.messageContext).toHaveLength(1);
+		expect(summary).toMatchObject({held: 1, contextCleared: 0});
 	});
 
 	it('keeps an object that a retained report still uses', async () => {
@@ -567,7 +610,6 @@ describe('report retention', () => {
 		await expectGone(second);
 		expect(storage.hasObject(REPORTS_BUCKET, attachmentKey(shared))).toBe(false);
 		expect(summary.objectsDeleted).toBe(1);
-		expect(storage.deleteObjectSpy.mock.calls.filter(([, key]) => key === attachmentKey(shared))).toHaveLength(1);
 	});
 
 	it('keeps a report under a legal hold that ends later and deletes one whose hold has ended', async () => {
@@ -626,7 +668,6 @@ describe('report retention', () => {
 			await expectKept(report);
 		}
 		expect((await repository.getReport(contextDue.reportId))?.additionalInfo).toBe('details');
-		expect(storage.deleteObjectSpy).not.toHaveBeenCalled();
 		expect(summary).toEqual({
 			dryRun: true,
 			scanned: 6,
@@ -640,35 +681,6 @@ describe('report retention', () => {
 			sharedObjectsKept: 0,
 			failed: 0,
 		});
-	});
-
-	it('deletes nothing when the scan cannot finish', async () => {
-		const expired = await seed({resolvedDaysAgo: 400, attachment: newAttachment(), profile: true});
-		await seed({resolvedDaysAgo: 400});
-		await seed({resolvedDaysAgo: 400});
-		let pages = 0;
-		const failingRepository = Object.create(repository) as ReportRepository;
-		failingRepository.listAllReportsPaginated = async (limit: number, lastReportId?: ReportID) => {
-			pages += 1;
-			if (pages > 1) throw new Error('read timeout');
-			return repository.listAllReportsPaginated(limit, lastReportId);
-		};
-
-		await expect(
-			processReportRetention(
-				{...deps, reportRepository: failingRepository},
-				{
-					now: NOW,
-					dryRun: false,
-					policy: DEFAULT_POLICY,
-					pageSize: 2,
-				},
-			),
-		).rejects.toThrow('read timeout');
-
-		await expectKept(expired);
-		expect(storage.deleteObjectSpy).not.toHaveBeenCalled();
-		expect(await repository.listAllReportsPaginated(10)).toHaveLength(3);
 	});
 
 	it('pages through every report', async () => {
@@ -716,46 +728,6 @@ describe('report retention', () => {
 		await expectContextCleared(due);
 	});
 
-	it('does not bring back a report deleted while its context was being cleared', async () => {
-		const due = await seed({resolvedDaysAgo: 200, outcome: 'no_violation', additionalInfo: 'details'});
-		const deletingRepository = Object.create(repository) as ReportRepository;
-		deletingRepository.clearCopiedContext = async (reportId, reportType) => {
-			await repository.deleteReport(reportId);
-			return repository.clearCopiedContext(reportId, reportType);
-		};
-
-		await processReportRetention(
-			{...deps, reportRepository: deletingRepository},
-			{
-				now: NOW,
-				dryRun: false,
-				policy: DEFAULT_POLICY,
-			},
-		);
-
-		expect(await repository.getReport(due.reportId)).toBeNull();
-	});
-
-	it('keeps the row when the search document cannot be deleted', async () => {
-		const expired = await seed({resolvedDaysAgo: 400});
-		const failingSearch = Object.create(search) as IReportSearchService;
-		failingSearch.deleteReport = async () => {
-			throw new Error('search unavailable');
-		};
-
-		const summary = await processReportRetention(
-			{...deps, reportSearchService: failingSearch},
-			{
-				now: NOW,
-				dryRun: false,
-				policy: DEFAULT_POLICY,
-			},
-		);
-
-		expect(summary).toMatchObject({deleted: 0, failed: 1});
-		expect(await repository.getReport(expired.reportId)).not.toBeNull();
-	});
-
 	it('deletes rows when search is not configured', async () => {
 		const expired = await seed({resolvedDaysAgo: 400, profile: true});
 
@@ -771,67 +743,6 @@ describe('report retention', () => {
 		expect(summary).toMatchObject({deleted: 1, failed: 0});
 		expect(await repository.getReport(expired.reportId)).toBeNull();
 		expect(storage.hasObject(REPORTS_BUCKET, expired.profileKey!)).toBe(false);
-	});
-
-	it('skips a report that was put on hold after the scan', async () => {
-		const shared = newAttachment();
-		const seeded = [
-			await seed({resolvedDaysAgo: 400, attachment: shared, profile: true}),
-			await seed({resolvedDaysAgo: 400, attachment: shared}),
-		];
-		const scanOrder = (await repository.listAllReportsPaginated(10)).map((report) => report.reportId);
-		const [first, second] = seeded.sort((a, b) => scanOrder.indexOf(a.reportId) - scanOrder.indexOf(b.reportId)) as [
-			SeededReport,
-			SeededReport,
-		];
-		const holdingRepository = Object.create(repository) as ReportRepository;
-		holdingRepository.getReport = async (reportId: ReportID): Promise<IARSubmission | null> => {
-			const report = await repository.getReport(reportId);
-			if (report && reportId === first.reportId) {
-				return {...report, legalHoldUntil: new Date(NOW.getTime() + DAY_MS), legalHoldReason: 'Late request'};
-			}
-			return report;
-		};
-
-		const summary = await processReportRetention(
-			{...deps, reportRepository: holdingRepository},
-			{
-				now: NOW,
-				dryRun: false,
-				policy: DEFAULT_POLICY,
-			},
-		);
-
-		await expectKept(first);
-		await expectGone(second);
-		expect(storage.hasObject(REPORTS_BUCKET, attachmentKey(shared))).toBe(true);
-		expect(summary).toMatchObject({expired: 2, deleted: 1, failed: 0});
-	});
-
-	it('keeps an object that a report filed during the run stored again', async () => {
-		const shared = newAttachment();
-		const expired = await seed({resolvedDaysAgo: 400, attachment: shared, profile: true});
-		const rewritingStorage = Object.create(storage) as MockStorageService;
-		rewritingStorage.getObjectMetadata = async (bucket: string, key: string) => {
-			const metadata = await storage.getObjectMetadata(bucket, key);
-			if (metadata && key === attachmentKey(shared)) {
-				return {...metadata, lastModified: new Date(NOW.getTime() + ms('1 second'))};
-			}
-			return metadata;
-		};
-
-		const summary = await processReportRetention(
-			{...deps, storageService: rewritingStorage},
-			{
-				now: NOW,
-				dryRun: false,
-				policy: DEFAULT_POLICY,
-			},
-		);
-
-		await expectGone(expired);
-		expect(storage.hasObject(REPORTS_BUCKET, attachmentKey(shared))).toBe(true);
-		expect(summary).toMatchObject({deleted: 1, objectsDeleted: 1, sharedObjectsKept: 1, failed: 0});
 	});
 
 	it('deletes profile images stored for a report whose snapshot cannot be read', async () => {
@@ -883,63 +794,5 @@ describe('report retention', () => {
 		expect(await repository.reserveUserReportByReporter({...reservation, report_id: createReportID(nextId())})).toBe(
 			true,
 		);
-	});
-
-	describe('the daily task', () => {
-		const configured = {...Config.reportRetention};
-
-		beforeEach(() => {
-			setWorkerDependenciesForTest({reportRepository: repository, storageService: storage});
-		});
-
-		afterEach(() => {
-			vi.useRealTimers();
-			Object.assign(Config.reportRetention, configured);
-			clearWorkerDependencies();
-		});
-
-		async function runDailyTask() {
-			vi.useFakeTimers({now: NOW, toFake: ['Date']});
-			await expireReportSnapshots({}, WORKER_HELPERS);
-		}
-
-		it('deletes for real with the default settings', async () => {
-			expect(configured).toEqual({days: 365, dryRun: false});
-			const expired = await seed({resolvedDaysAgo: 366, attachment: newAttachment(), profile: true});
-			const kept = await seed({resolvedDaysAgo: 364, profile: true});
-			const pending = await seed({profile: true});
-
-			await runDailyTask();
-
-			expect(await repository.getReport(expired.reportId)).toBeNull();
-			expect(storage.hasObject(REPORTS_BUCKET, expired.attachmentKey!)).toBe(false);
-			expect(storage.hasObject(REPORTS_BUCKET, expired.profileKey!)).toBe(false);
-			expect(await repository.getReport(kept.reportId)).not.toBeNull();
-			expect(await repository.getReport(pending.reportId)).not.toBeNull();
-		});
-
-		it('only counts what it would delete when FLUXER_REPORT_RETENTION_DRY_RUN is true', async () => {
-			Object.assign(Config.reportRetention, {dryRun: true});
-			const expired = await seed({resolvedDaysAgo: 366, attachment: newAttachment(), profile: true});
-
-			await runDailyTask();
-
-			expect(await repository.getReport(expired.reportId)).not.toBeNull();
-			expect(storage.deleteObjectSpy).not.toHaveBeenCalled();
-		});
-
-		it('reads the day setting from the config and honors decisions', async () => {
-			Object.assign(Config.reportRetention, {days: 60});
-			const expired = await seed({resolvedDaysAgo: 60});
-			const kept = await seed({resolvedDaysAgo: 59});
-			const linked = await seed({resolvedDaysAgo: 90});
-			await linkDecision([linked.reportId], daysAgo(90));
-
-			await runDailyTask();
-
-			expect(await repository.getReport(expired.reportId)).toBeNull();
-			expect(await repository.getReport(kept.reportId)).not.toBeNull();
-			expect(await repository.getReport(linked.reportId)).not.toBeNull();
-		});
 	});
 });

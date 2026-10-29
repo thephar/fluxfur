@@ -13,6 +13,7 @@ import type {User} from '@app/api/models/User';
 import {enqueueStripeCustomerEmailSync} from '@app/api/stripe/StripeCustomer';
 import {EMAIL_REVERT_TOKEN_TTL_SECONDS} from '@app/api/user/repositories/auth/TokenRepository';
 import {dispatchUserUpdate} from '@app/api/user/UserMappers';
+import {UserTraits} from '@app/api/user/UserTraits';
 import {hashPassword} from '@app/api/utils/PasswordUtils';
 import * as RandomUtils from '@app/api/utils/RandomUtils';
 import {requireConfiguredClientIp} from '@app/api/utils/RequestClientIp';
@@ -42,7 +43,7 @@ export async function issueEmailRevertToken(ctx: ApiContext, params: IssueEmailR
 		user_id: user.id,
 		email: trimmed,
 	});
-	await email.sendEmailChangeRevert(trimmed, user.username, newEmail, token, user.locale);
+	await email.send('email_change_revert', trimmed, {newEmail, token}, user.locale);
 }
 
 const EMAIL_REVERT_CLAIM_KEY_PREFIX = 'auth:email-revert:claimed:';
@@ -91,6 +92,8 @@ export async function revertEmailChange(
 	let updatedUser: User;
 	try {
 		const passwordHash = await hashPassword(password);
+		const traits = user.traits;
+		traits.delete(UserTraits.PASSKEY);
 		updatedUser = await users.patchUpsert(
 			user.id,
 			{
@@ -100,6 +103,7 @@ export async function revertEmailChange(
 				authenticator_types: null,
 				password_hash: passwordHash,
 				password_last_changed_at: new Date(),
+				traits: traits.size > 0 ? traits : null,
 			},
 			user.toRow(),
 		);

@@ -12,11 +12,13 @@ import {
 } from '@app/api/auth/services/PasskeyRelyingParty';
 import {deriveSudoMethods, userHasMfa, userHasSudoCapability} from '@app/api/auth/services/SudoMethods';
 import {createUserID, type UserID} from '@app/api/BrandedTypes';
+import type {UserRow} from '@app/api/database/types/UserTypes';
 import {Logger} from '@app/api/Logger';
 import type {MfaBackupCode} from '@app/api/models/MfaBackupCode';
 import type {User} from '@app/api/models/User';
 import type {WebAuthnCredential} from '@app/api/models/WebAuthnCredential';
 import {dispatchUserUpdate, mapWebAuthnCredentialToResponse} from '@app/api/user/UserMappers';
+import {UserTraits} from '@app/api/user/UserTraits';
 import {constantTimeEquals} from '@app/api/utils/SecretHash';
 import {TotpGenerator} from '@app/api/utils/TotpGenerator';
 import {UserAuthenticatorTypes} from '@fluxer/constants/src/UserConstants';
@@ -107,6 +109,8 @@ interface AvailableMfaMethods {
 	webauthn: boolean;
 	backup_codes: boolean;
 	has_mfa: boolean;
+	email_code: boolean;
+	password: boolean;
 }
 
 interface SetWebAuthnTwoFactorResult {
@@ -303,7 +307,25 @@ export async function verifyWebAuthnRegistration(
 		name,
 		storedRpId(ctx, verified.rpId),
 	);
+	await syncPasskeyTrait(ctx, userId, true);
 	await dispatchWebAuthnCredentialsUpdate(ctx, userId);
+}
+
+function passkeyTraitPatch(user: User, present: boolean): Pick<UserRow, 'traits'> | null {
+	if (user.traits.has(UserTraits.PASSKEY) === present) return null;
+	const traits = user.traits;
+	if (present) traits.add(UserTraits.PASSKEY);
+	else traits.delete(UserTraits.PASSKEY);
+	return {traits: traits.size > 0 ? traits : null};
+}
+
+export async function syncPasskeyTrait(ctx: ApiContext, userId: UserID, present: boolean): Promise<boolean> {
+	const {users, gateway} = ctx.services;
+	const user = await users.findUnique(userId);
+	const patch = user === null ? null : passkeyTraitPatch(user, present);
+	if (user === null || patch === null) return false;
+	await dispatchUserUpdate(gateway, await users.patchUpsert(userId, patch, user.toRow()));
+	return true;
 }
 
 export async function deleteWebAuthnCredential(ctx: ApiContext, userId: UserID, credentialId: string): Promise<void> {
@@ -323,15 +345,22 @@ export async function deleteWebAuthnCredential(ctx: ApiContext, userId: UserID, 
 	}
 	if (remainingCredentials.length === 0) {
 		const user = await users.findUniqueAssert(userId);
-		if (user.authenticatorTypes.has(UserAuthenticatorTypes.WEBAUTHN)) {
+		const webauthnEnabled = user.authenticatorTypes.has(UserAuthenticatorTypes.WEBAUTHN);
+		const patch: Partial<UserRow> = {...passkeyTraitPatch(user, false)};
+		if (webauthnEnabled) {
 			const authenticatorTypes = new Set<number>(user.authenticatorTypes ?? []);
 			authenticatorTypes.delete(UserAuthenticatorTypes.WEBAUTHN);
-			const updatedUser = await users.patchUpsert(userId, {authenticator_types: authenticatorTypes}, user.toRow());
-			if (!userHasMfa(updatedUser)) {
-				await users.clearMfaBackupCodes(userId);
-			}
+			patch.authenticator_types = authenticatorTypes;
+		}
+		if (Object.keys(patch).length > 0) {
+			const updatedUser = await users.patchUpsert(userId, patch, user.toRow());
 			await dispatchUserUpdate(gateway, updatedUser);
-			await botMfaMirror.syncAuthenticatorTypesForOwner(updatedUser);
+			if (webauthnEnabled) {
+				if (!userHasMfa(updatedUser)) {
+					await users.clearMfaBackupCodes(userId);
+				}
+				await botMfaMirror.syncAuthenticatorTypesForOwner(updatedUser);
+			}
 		}
 	}
 	await dispatchWebAuthnCredentialsUpdate(ctx, userId);
@@ -362,7 +391,7 @@ export async function setWebAuthnTwoFactor(
 	if (enabled) {
 		const existingBackupCodes = await users.listMfaBackupCodes(userId);
 		if (existingBackupCodes.every((backupCode) => backupCode.consumed)) {
-			backupCodes = await users.createMfaBackupCodes(userId, AuthUtility.generateBackupCodes(ctx));
+			backupCodes = await users.createMfaBackupCodes(userId, AuthUtility.generateBackupCodes());
 		}
 	} else if (!userHasMfa(updatedUser)) {
 		await users.clearMfaBackupCodes(userId);
@@ -620,7 +649,7 @@ export async function getAvailableMfaMethods(ctx: ApiContext, userId: UserID): P
 	const {users} = ctx.services;
 	const user = await users.findUnique(userId);
 	if (!user) {
-		return {totp: false, webauthn: false, backup_codes: false, has_mfa: false};
+		return {totp: false, webauthn: false, backup_codes: false, has_mfa: false, email_code: false, password: false};
 	}
 	const credentials = await users.listWebAuthnCredentials(userId);
 	const hasPasskeyCredentials = credentials.length > 0;
@@ -630,6 +659,8 @@ export async function getAvailableMfaMethods(ctx: ApiContext, userId: UserID): P
 		webauthn: methods.webauthn,
 		backup_codes: methods.backup_codes,
 		has_mfa: userHasSudoCapability(user, hasPasskeyCredentials),
+		email_code: methods.email_code,
+		password: methods.password,
 	};
 }
 

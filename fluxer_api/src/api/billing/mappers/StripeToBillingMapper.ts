@@ -186,7 +186,7 @@ class BillingMappingError extends Error {
 	}
 }
 
-export function unixToDate(seconds: number | null | undefined): Date | null {
+function unixToDate(seconds: number | null | undefined): Date | null {
 	if (seconds === null || seconds === undefined) {
 		return null;
 	}
@@ -196,7 +196,7 @@ export function unixToDate(seconds: number | null | undefined): Date | null {
 	return new Date(seconds * 1000);
 }
 
-export function safeMetadata(m: Stripe.Metadata | null | undefined): Map<string, string> | null {
+function safeMetadata(m: Stripe.Metadata | null | undefined): Map<string, string> | null {
 	if (m === null || m === undefined) {
 		return null;
 	}
@@ -779,6 +779,15 @@ export function mapStripeChargeToRow(c: Stripe.Charge): {
 	return {primary};
 }
 
+function refundLookupFields(refund: Stripe.Refund, createdAt: Date) {
+	return {
+		stripe_created_at: createdAt,
+		provider_id: refund.id,
+		status: refund.status ?? null,
+		amount: typeof refund.amount === 'number' ? BigInt(refund.amount) : null,
+	};
+}
+
 export function mapStripeRefundToRow(
 	r: Stripe.Refund,
 	hints?: {
@@ -827,30 +836,21 @@ export function mapStripeRefundToRow(
 		chargeId !== null
 			? ({
 					charge_id: chargeId,
-					stripe_created_at: createdAtForLookup,
-					provider_id: r.id,
-					status: r.status ?? null,
-					amount: typeof r.amount === 'number' ? BigInt(r.amount) : null,
+					...refundLookupFields(r, createdAtForLookup),
 				} as BillingRefundByChargeRow)
 			: null;
 	const byPaymentIntent: BillingRefundByPaymentIntentRow | null =
 		paymentIntentId !== null
 			? ({
 					payment_intent_id: paymentIntentId,
-					stripe_created_at: createdAtForLookup,
-					provider_id: r.id,
-					status: r.status ?? null,
-					amount: typeof r.amount === 'number' ? BigInt(r.amount) : null,
+					...refundLookupFields(r, createdAtForLookup),
 				} as BillingRefundByPaymentIntentRow)
 			: null;
 	const byInvoice: BillingRefundByInvoiceRow | null =
 		invoiceId !== null
 			? ({
 					invoice_id: invoiceId,
-					stripe_created_at: createdAtForLookup,
-					provider_id: r.id,
-					status: r.status ?? null,
-					amount: typeof r.amount === 'number' ? BigInt(r.amount) : null,
+					...refundLookupFields(r, createdAtForLookup),
 				} as BillingRefundByInvoiceRow)
 			: null;
 	return {primary, byCharge, byPaymentIntent, byInvoice};

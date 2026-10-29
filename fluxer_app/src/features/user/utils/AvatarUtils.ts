@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import type {RuntimeConfigSnapshot} from '@app/features/app/state/InstanceSnapshotStore';
 import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
 import {
 	buildMediaProxyURL,
@@ -16,6 +17,12 @@ import avatar2 from '@app/media/images/avatars/2.png';
 import avatar3 from '@app/media/images/avatars/3.png';
 import avatar4 from '@app/media/images/avatars/4.png';
 import avatar5 from '@app/media/images/avatars/5.png';
+import neutralAvatar0 from '@app/media/images/avatars/neutral/0.png';
+import neutralAvatar1 from '@app/media/images/avatars/neutral/1.png';
+import neutralAvatar2 from '@app/media/images/avatars/neutral/2.png';
+import neutralAvatar3 from '@app/media/images/avatars/neutral/3.png';
+import neutralAvatar4 from '@app/media/images/avatars/neutral/4.png';
+import neutralAvatar5 from '@app/media/images/avatars/neutral/5.png';
 import {FLUXERBOT_ID} from '@fluxer/constants/src/AppConstants';
 import {
 	MEDIA_PROXY_AVATAR_SIZE_DEFAULT,
@@ -25,24 +32,53 @@ import type {MediaProxyImageSize} from '@fluxer/constants/src/MediaProxyImageSiz
 
 const DEFAULT_AVATAR_PRIMARY_COLORS = [0x4641d9, 0xf0b100, 0x00bba7, 0x2b7fff, 0xad46ff, 0x6a7282];
 const DEFAULT_AVATAR_COUNT = BigInt(DEFAULT_AVATAR_PRIMARY_COLORS.length);
-export const normalizeEndpoint = (endpoint: string): string => endpoint.replace(/\/$/, '');
+const normalizeEndpoint = (endpoint: string): string => endpoint.replace(/\/$/, '');
 export const parseAvatarHash = (value: string) => {
 	const animated = value.startsWith('a_');
 	const hash = animated ? value.slice(2) : value;
 	return {animated, hash};
 };
-export const getDefaultAvatarIndex = (id: string): number => Number(BigInt(id) % DEFAULT_AVATAR_COUNT);
+const getDefaultAvatarIndex = (id: string): number => Number(BigInt(id) % DEFAULT_AVATAR_COUNT);
 export const getDefaultAvatarPrimaryColor = (id: string): number =>
 	DEFAULT_AVATAR_PRIMARY_COLORS[getDefaultAvatarIndex(id)];
 
 const DEFAULT_AVATARS: ReadonlyArray<string> = [avatar0, avatar1, avatar2, avatar3, avatar4, avatar5];
 
+const NEUTRAL_DEFAULT_AVATARS: ReadonlyArray<string> = [
+	neutralAvatar0,
+	neutralAvatar1,
+	neutralAvatar2,
+	neutralAvatar3,
+	neutralAvatar4,
+	neutralAvatar5,
+];
+
 const DEFAULT_AVATAR_ASSET_COUNT = DEFAULT_AVATARS.length;
 
+function brandingReplacesDefaultAvatars(snapshot: RuntimeConfigSnapshot): boolean {
+	const {icon_url, symbol_url} = snapshot.appPublic.branding;
+	return icon_url !== null || symbol_url !== null;
+}
+
+function usesNeutralDefaultAvatars(): boolean {
+	const snapshot = RuntimeConfig.getSnapshotOrNull();
+	return snapshot !== null && RuntimeConfig.isSelfHosted() && brandingReplacesDefaultAvatars(snapshot);
+}
+
+function pickDefaultAvatar(index: number, neutral: boolean): string {
+	const avatars = neutral ? NEUTRAL_DEFAULT_AVATARS : DEFAULT_AVATARS;
+	return avatars[((index % DEFAULT_AVATAR_ASSET_COUNT) + DEFAULT_AVATAR_ASSET_COUNT) % DEFAULT_AVATAR_ASSET_COUNT];
+}
+
 export function getDefaultAvatarURLForIndex(index: number): string {
-	return DEFAULT_AVATARS[
-		((index % DEFAULT_AVATAR_ASSET_COUNT) + DEFAULT_AVATAR_ASSET_COUNT) % DEFAULT_AVATAR_ASSET_COUNT
-	];
+	return pickDefaultAvatar(index, usesNeutralDefaultAvatars());
+}
+
+export function getDefaultAvatarURLForInstance(id: string, instance: RuntimeConfigSnapshot): string {
+	return pickDefaultAvatar(
+		getDefaultAvatarIndex(id),
+		instance.features.self_hosted && brandingReplacesDefaultAvatars(instance),
+	);
 }
 
 export {snapMediaProxyImageSize};

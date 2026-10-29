@@ -320,8 +320,8 @@ const GuildModerationTab: React.FC<{guildId: string}> = observer(({guildId}) => 
 								data-flx="guild.guild-tabs.guild-moderation-tab.section-description--verification-discovery"
 							>
 								<Trans>
-									Communities listed in Discovery require at least email verification. None cannot be selected while
-									Discovery is enabled.
+									Communities listed in Explore need at least email verification. You can't pick "None" while your
+									community is listed in Explore.
 								</Trans>
 							</p>
 						)}
@@ -360,8 +360,8 @@ const GuildModerationTab: React.FC<{guildId: string}> = observer(({guildId}) => 
 								data-flx="guild.guild-tabs.guild-moderation-tab.section-description--2"
 							>
 								<Trans>
-									Communities listed in Discovery are required to scan messages from all members. This setting cannot be
-									changed while Discovery is enabled.
+									Communities listed in Explore must scan messages from all members. You can't change this setting while
+									your community is listed in Explore.
 								</Trans>
 							</p>
 						)}

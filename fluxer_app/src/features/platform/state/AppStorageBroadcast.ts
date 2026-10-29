@@ -32,7 +32,7 @@ interface LockManagerLike {
 	request<T>(name: string, callback: () => Promise<T>): Promise<T>;
 }
 
-export class AppStorageLockUnavailableError extends Error {
+class AppStorageLockUnavailableError extends Error {
 	public constructor(name: string, options?: ErrorOptions) {
 		super(`Web Locks could not serialise app storage operation ${name}`, options);
 		this.name = 'AppStorageLockUnavailableError';

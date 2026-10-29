@@ -26,7 +26,7 @@
 	height: 1rem;
 	color: var(--text-primary-muted);
 	flex-shrink: 0;
-	margin-right: -0.25rem;
+	margin-inline-end: -0.25rem;
 }
 
 .nameButton {
@@ -34,7 +34,7 @@
 	border: none;
 	padding: 0;
 	margin: 0;
-	text-align: left;
+	text-align: start;
 	cursor: pointer;
 	min-width: 0;
 }

@@ -10,7 +10,6 @@
     start_link/0,
     start_or_lookup/1,
     start_or_lookup/2,
-    lookup/1,
     lookup/2,
     local_guild_count/0,
     handoff_to_topology/1,
@@ -38,10 +37,6 @@ start_or_lookup(GuildId) ->
 -spec start_or_lookup(guild_id(), pos_integer()) -> {ok, pid()} | {error, term()}.
 start_or_lookup(GuildId, Timeout) ->
     normalize_pid_reply(call_via_manager({start_or_lookup, GuildId}, Timeout)).
-
--spec lookup(guild_id()) -> {ok, pid()} | {error, term()}.
-lookup(GuildId) ->
-    lookup(GuildId, ?DEFAULT_GEN_SERVER_TIMEOUT).
 
 -spec lookup(guild_id(), pos_integer()) -> {ok, pid()} | {error, term()}.
 lookup(GuildId, Timeout) ->

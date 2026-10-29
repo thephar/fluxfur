@@ -282,11 +282,6 @@ fn render_counter(out: &mut String, name: &str, counter: &super::Counter) -> fmt
     writeln!(out, "{name} {}", counter.get())
 }
 
-fn render_gauge(out: &mut String, name: &str, gauge: &AtomicU64) -> fmt::Result {
-    writeln!(out, "# TYPE {name} gauge")?;
-    writeln!(out, "{name} {}", gauge.load(Ordering::Relaxed))
-}
-
 fn render_request_series(
     out: &mut String,
     name: &str,
@@ -322,8 +317,4 @@ fn render_per_kind_histogram(
     Ok(())
 }
 
-use fluxer_common::metrics::Histogram;
-
-fn render_atomic_counter(out: &mut String, name: &str, counter: &AtomicU64) -> fmt::Result {
-    fluxer_common::metrics::render_counter(out, name, counter)
-}
+use fluxer_common::metrics::{Histogram, render_counter as render_atomic_counter, render_gauge};

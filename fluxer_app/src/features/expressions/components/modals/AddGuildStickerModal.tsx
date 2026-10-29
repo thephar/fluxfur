@@ -182,9 +182,7 @@ export const AddGuildStickerModal = observer(function AddGuildStickerModal({
 							<ConfirmModal
 								title={title}
 								description={renderStickerSizeErrorDescription(message, file.name, i18n)}
-								primaryText={i18n._(BACK_TO_STICKER_DESCRIPTOR)}
-								onPrimary={() => {}}
-								secondaryText={false}
+								secondaryText={i18n._(BACK_TO_STICKER_DESCRIPTOR)}
 								data-flx="expressions.add-guild-sticker-modal.create.size-error-modal"
 							/>
 						)),

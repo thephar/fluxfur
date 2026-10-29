@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import {
 	clearTestEmails,
 	createTestAccount,
@@ -10,8 +12,12 @@ import {
 import {createReportID, createUserID} from '@app/api/BrandedTypes';
 import {setupTestGuildWithMembers} from '@app/api/channel/tests/ChannelTestUtils';
 import {decisionBody, warn} from '@app/api/enforcement/tests/EnforcementTestUtils';
-import {getAdminRepository, getUserRepository} from '@app/api/middleware/ServiceSingletons';
-import {getReportFlowVariant} from '@app/api/report/flows/ReportFlowRegistry';
+import {
+	getAdminRepository,
+	getInstanceConfigRepository,
+	getUserRepository,
+} from '@app/api/middleware/ServiceSingletons';
+import {getReportFlowResponse} from '@app/api/report/flows/ReportFlowRegistry';
 import {ReportRepository} from '@app/api/report/ReportRepository';
 import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHarness';
 import {HTTP_STATUS} from '@app/api/test/TestConstants';
@@ -211,7 +217,7 @@ describe('Admin staff notifications', () => {
 					ticket,
 					report_type: 'guild',
 					guild_id: guild.id,
-					revision_hash: getReportFlowVariant('guild', 'dsa').revisionHash,
+					revision_hash: getReportFlowResponse('guild', 'dsa', 'en-US').revision_hash,
 					steps: [
 						{screen_id: 'community_parts', item_ids: ['activity']},
 						{screen_id: 'root_guild', option_id: 'abuse'},
@@ -296,6 +302,19 @@ describe('Admin staff notifications', () => {
 			expect(sent.map((email) => email.metadata.public_comment)).toEqual(['']);
 		});
 
+		test('with DMs off on the instance the reporter hears back by email only', async () => {
+			const {reporter, reportId} = await fileReport();
+			await getInstanceConfigRepository().setInstancePolicyConfig({direct_messages_disabled: true});
+			await clearTestEmails(harness);
+			await resolve(reportId, {public_comment: 'Handled'});
+			const sent = (await emailsTo(reporter)).filter((email) => email.type === 'report_resolved');
+			expect(sent).toHaveLength(1);
+			expect(await systemDmMessages(reporter)).toEqual([]);
+			const metadata = await auditMetadata('resolve_report', reportId);
+			expect(metadata?.get('reporter_dm_sent')).toBe('false');
+			expect(metadata?.get('reporter_email_sent')).toBe('true');
+		});
+
 		test('a DSA notice emails the verified address and sends no DM', async () => {
 			const {email, reportId} = await fileDsaGuildNotice();
 			await clearTestEmails(harness);
@@ -330,7 +349,7 @@ describe('Admin staff notifications', () => {
 				{report_id: reportId, public_comment: '', outcome: 'action_taken'},
 			]);
 			const [dm] = await systemDmMessages(reporter);
-			expect(dm?.content).toContain('We found that what you reported broke our rules, and we took action.');
+			expect(dm?.content).toContain('What you reported broke our rules, and we took action.');
 			expect(dm?.content).not.toMatch(/warn|restricted|suspend/i);
 			const metadata = await auditMetadata('resolve_report', reportId);
 			expect(metadata?.get('outcome')).toBe('warned');

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {DeletionReasons} from '@fluxer/constants/src/Core';
+import enforcementCases from '@fluxer/constants/src/EnforcementReasonCases.json';
 import {
 	ACCOUNT_DELETION_MIN_DAYS,
 	ENFORCEMENT_APPEAL_WINDOW_DAYS,
@@ -9,9 +10,9 @@ import {
 	ENFORCEMENT_RULES,
 	type EnforcementKind,
 	type EnforcementLimit,
-	type EnforcementReasonCode,
 	isEnforcementKindAllowed,
 	isEnforcementLimitAllowed,
+	isEnforcementReasonCode,
 } from '@fluxer/constants/src/EnforcementReasons';
 import {describe, expect, it} from 'vitest';
 
@@ -38,6 +39,7 @@ const RULE_TABLE = [
 	['privacy', 'guidelines', '1-harassment-threats-and-privacy', true, false],
 	['harassment', 'guidelines', '1-harassment-threats-and-privacy', true, false],
 	['payments', 'terms', '4-4-failed-payments-and-disputes', true, false],
+	['operator_pass_payments', 'operator_pass_terms', '9-payment-disputes', true, false],
 	['unwanted_sexual_content', 'guidelines', '1-harassment-threats-and-privacy', true, false],
 	['violent_content', 'guidelines', '3-violence-extremism-and-self-harm', true, true],
 	['ban_evasion', 'guidelines', '6-spam-and-service-abuse', true, false],
@@ -55,52 +57,17 @@ const RULE_TABLE = [
 	['copyright', 'terms', '3-4-copyright', true, true],
 ] as const;
 
-const CODE_TABLE = [
-	[3, 'spam', 'standard', 'any'],
-	[4, 'service_abuse', 'standard', 'any'],
-	[5, 'raids', 'standard', 'any'],
-	[6, 'automation', 'standard', 'any'],
-	[7, 'intimate_images', 'protected', 'any'],
-	[8, 'fraud', 'standard', 'any'],
-	[9, 'child_safety', 'restricted', ['suspension', 'content_removal']],
-	[10, 'privacy', 'protected', 'any'],
-	[11, 'harassment', 'protected', 'any'],
-	[12, 'payments', 'standard', ['warning', 'suspension', 'closure', 'feature_limit']],
-	[13, 'child_safety', 'restricted', ['suspension', 'content_removal']],
-	[14, 'payments', 'standard', ['warning', 'suspension', 'closure', 'feature_limit']],
-	[15, 'unwanted_sexual_content', 'protected', 'any'],
-	[16, 'violent_content', 'standard', 'any'],
-	[17, 'ban_evasion', 'standard', ['warning', 'suspension', 'closure']],
-	[18, 'fraud', 'standard', 'any'],
-	[20, 'hate', 'standard', 'any'],
-	[21, 'malware', 'standard', 'any'],
-	[22, 'impersonation', 'standard', 'any'],
-	[23, 'threats', 'protected', 'any'],
-	[24, 'violent_extremism', 'restricted', ['suspension', 'content_removal']],
-	[25, 'self_harm', 'standard', ['warning', 'suspension', 'content_removal', 'profile_reset', 'community_removal']],
-	[26, 'adult_content', 'standard', 'any'],
-	[27, 'illegal_activity', 'standard', 'any'],
-	[28, 'harmful_deception', 'standard', 'any'],
-	[29, 'report_abuse', 'standard', ['warning', 'feature_limit', 'suspension']],
-	[30, 'age_requirement', 'standard', ['closure']],
-	[31, 'copyright', 'standard', ['warning', 'content_removal', 'profile_reset', 'community_removal']],
-] as const;
-
-const LIMIT_TABLE: ReadonlyArray<readonly [EnforcementLimit, ReadonlyArray<number>]> = [
-	['direct_messages', [3, 6, 8, 18, 21]],
-	['reports', [29]],
-	['purchases', [12, 14]],
-];
-
-const enforcementCodes = Object.keys(ENFORCEMENT_REASONS).map(Number) as Array<EnforcementReasonCode>;
+const enforcementCodes = Object.keys(ENFORCEMENT_REASONS).map(Number).filter(isEnforcementReasonCode);
 
 describe('ENFORCEMENT_REASONS', () => {
-	it('classifies every deletion reason except the three non-enforcement codes', () => {
+	it('classifies every deletion reason except the non-enforcement codes', () => {
 		const expected = Object.values(DeletionReasons).filter(
 			(code) =>
 				code !== DeletionReasons.USER_REQUESTED &&
 				code !== DeletionReasons.OTHER &&
-				code !== DeletionReasons.INACTIVITY,
+				code !== DeletionReasons.INACTIVITY &&
+				code !== DeletionReasons.BELOW_MINIMUM_AGE &&
+				code !== DeletionReasons.UNCLAIMED_ACCOUNT_ABANDONED,
 		);
 		expect(enforcementCodes.sort((a, b) => a - b)).toEqual(expected.sort((a, b) => a - b));
 	});
@@ -113,7 +80,7 @@ describe('ENFORCEMENT_REASONS', () => {
 				reason.handling,
 				reason.kinds,
 			]),
-		).toEqual(CODE_TABLE);
+		).toEqual(enforcementCases.reasons);
 	});
 
 	it('only names rules that exist', () => {
@@ -123,8 +90,9 @@ describe('ENFORCEMENT_REASONS', () => {
 	});
 
 	it('limits restricted codes to permanent suspension and content removal', () => {
-		for (const code of enforcementCodes) {
-			if (ENFORCEMENT_REASONS[code].handling !== 'restricted') continue;
+		for (const code of enforcementCodes.filter(
+			(candidate) => ENFORCEMENT_REASONS[candidate].handling === 'restricted',
+		)) {
 			expect(ALL_KINDS.filter((kind) => isEnforcementKindAllowed(code, kind))).toEqual([
 				'suspension',
 				'content_removal',
@@ -148,8 +116,10 @@ describe('ENFORCEMENT_RULES', () => {
 });
 
 describe('enforcement limits', () => {
-	it.each(LIMIT_TABLE)('allows %s only for its codes', (limit, codes) => {
-		expect(enforcementCodes.filter((code) => isEnforcementLimitAllowed(code, limit))).toEqual(codes);
+	it('allows each limit only for its listed codes', () => {
+		expect(
+			ALL_LIMITS.map((limit) => [limit, enforcementCodes.filter((code) => isEnforcementLimitAllowed(code, limit))]),
+		).toEqual(enforcementCases.limits);
 	});
 
 	it('allows a feature limit only where some limit applies', () => {

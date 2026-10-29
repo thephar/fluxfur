@@ -119,7 +119,7 @@ const THE_VERIFICATION_CODE_IS_INVALID_OR_EXPIRED_DESCRIPTOR = msg({
 	comment: 'Inline error on the verification step of the DSA report flow when the entered code is rejected.',
 });
 const YOU_MUST_VERIFY_YOUR_EMAIL_BEFORE_SENDING_A_DESCRIPTOR = msg({
-	message: 'You must verify your email before sending a report.',
+	message: 'You must confirm your email before sending a report.',
 	comment:
 		'Inline error on the details step of the DSA report flow when the user has not completed email verification.',
 });
@@ -751,7 +751,7 @@ export const ReportPage = observer(() => {
 				)}
 			</div>
 		);
-	if (RuntimeConfig.usesUsernameSignIn) {
+	if (!RuntimeConfig.emailsEnabled) {
 		return (
 			<div className={styles.page} dir={getLocaleDirection(locale)} data-flx="moderation.report-page.page">
 				<div className={styles.mainColumn} data-flx="moderation.report-page.main-column">

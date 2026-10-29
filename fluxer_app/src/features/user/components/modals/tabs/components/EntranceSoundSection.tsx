@@ -40,9 +40,9 @@ import {MS_PER_SECOND} from '@fluxer/date_utils/src/DateConstants';
 import {msg} from '@lingui/core/macro';
 import {Trans, useLingui} from '@lingui/react/macro';
 import {
+	AtomIcon,
 	ChatCircleTextIcon,
 	CheckIcon,
-	CrownIcon,
 	GlobeHemisphereWestIcon,
 	type Icon,
 	SpeakerHighIcon,
@@ -428,270 +428,266 @@ export const EntranceSoundSection: React.FC = observer(() => {
 		[setSoundForScope],
 	);
 
-	return (
-		<div data-flx="user.entrance-sound-section.div">
-			{!hasVoiceEntranceSounds ? (
-				shouldShowPremiumFeatures() ? (
-					<div className={styles.premiumCard} data-flx="user.entrance-sound-section.premium-card">
-						<div className={styles.premiumCardHeader} data-flx="user.entrance-sound-section.premium-card-header">
-							<CrownIcon
-								weight="fill"
-								size={18}
-								className={styles.premiumCardIcon}
-								data-flx="user.entrance-sound-section.premium-card-icon"
-							/>
-							<span className={styles.premiumCardTitle} data-flx="user.entrance-sound-section.premium-card-title">
-								{i18n._(CUSTOM_ENTRANCE_SOUNDS_PREMIUM_DESCRIPTOR, {
-									premiumProductName: getPremiumProductName(),
-								})}
-							</span>
+	let sectionContent: React.ReactNode;
+	if (hasVoiceEntranceSounds) {
+		sectionContent = (
+			<div className={styles.content} data-flx="user.entrance-sound-section.content">
+				<section
+					className={styles.scopeSection}
+					aria-labelledby={scopePickerLabelId}
+					data-flx="user.entrance-sound-section.scope-section"
+				>
+					<div className={styles.scopeSectionHeader} data-flx="user.entrance-sound-section.scope-section-header">
+						<div className={styles.scopeSectionText} data-flx="user.entrance-sound-section.scope-section-text">
+							<div
+								id={scopePickerLabelId}
+								className={styles.scopeSectionLabel}
+								data-flx="user.entrance-sound-section.scope-section-label"
+							>
+								{i18n._(APPLIES_TO_DESCRIPTOR)}
+							</div>
+							<p className={styles.scopeHint} data-flx="user.entrance-sound-section.scope-hint">
+								{scopeHint}
+							</p>
 						</div>
-						<p
-							className={styles.premiumCardDescription}
-							data-flx="user.entrance-sound-section.premium-card-description"
-						>
-							<Trans>
-								Upload a custom sound that plays automatically when you join a voice channel. Maximum duration:{' '}
-								{maxDurationSeconds} seconds. Max file size: {maxSizeLabel}.
-							</Trans>
-						</p>
-						<Button
-							variant="secondary"
-							small={true}
-							onClick={() => PremiumModalCommands.open()}
-							data-flx="user.entrance-sound-section.button.open"
-						>
-							{i18n._(GET_PREMIUM_DESCRIPTOR, {premiumProductName: getPremiumProductName()})}
-						</Button>
+					</div>
+					<div
+						className={styles.scopeTileGrid}
+						role="group"
+						aria-labelledby={scopePickerLabelId}
+						data-flx="user.entrance-sound-section.scope-tile-grid"
+					>
+						{scopeTileOptions.map((option) => (
+							<ScopeTileButton
+								key={option.value}
+								option={option}
+								selected={selectedScopeId === option.value}
+								onSelect={setSelectedScopeId}
+								dataFlx="user.entrance-sound-section.scope-tile"
+								data-flx="user.entrance-sound-section.scope-tile-button.set-selected-scope-id"
+							/>
+						))}
+					</div>
+					{communityScopeOptions.length > 0 ? (
+						<div className={styles.communityScopePanel} data-flx="user.entrance-sound-section.community-scope-panel">
+							<div
+								className={styles.communityScopeHeader}
+								data-flx="user.entrance-sound-section.community-scope-header"
+							>
+								<span
+									className={styles.communityScopeTitle}
+									data-flx="user.entrance-sound-section.community-scope-title"
+								>
+									{i18n._(COMMUNITY_OVERRIDES_DESCRIPTOR)}
+								</span>
+							</div>
+							<div
+								className={styles.communityScopeList}
+								role="group"
+								aria-label={i18n._(COMMUNITY_OVERRIDES_DESCRIPTOR)}
+								data-flx="user.entrance-sound-section.community-scope-list"
+							>
+								{communityScopeOptions.map((option) => (
+									<ScopeTileButton
+										key={option.value}
+										option={option}
+										selected={selectedScopeId === option.value}
+										onSelect={setSelectedScopeId}
+										compact={true}
+										dataFlx="user.entrance-sound-section.community-scope-tile"
+										data-flx="user.entrance-sound-section.scope-tile-button.set-selected-scope-id--2"
+									/>
+								))}
+							</div>
+						</div>
+					) : null}
+				</section>
+				<div className={styles.controlPanel} data-flx="user.entrance-sound-section.control-panel">
+					<CompactComboboxRow<string, LibrarySoundOption>
+						label={i18n._(SOUND_FOR_THIS_SCOPE_DESCRIPTOR)}
+						value={selectedSound?.id ?? NONE_LIBRARY_VALUE}
+						options={librarySelectOptions}
+						onChange={handleLibrarySelectionChange}
+						controlWidth="large"
+						menuMinWidth={220}
+						dataFlx="user.entrance-sound-section.select--library"
+						data-flx="user.entrance-sound-section.compact-combobox-row.library-selection-change"
+					/>
+				</div>
+				{resolvedSound ? (
+					<div className={styles.soundCard} data-flx="user.entrance-sound-section.sound-card">
+						<div className={styles.soundCardContent} data-flx="user.entrance-sound-section.sound-card-content">
+							<div className={styles.soundCardMain} data-flx="user.entrance-sound-section.sound-card-main">
+								<Tooltip text={i18n._(PREVIEW_SOUND_DESCRIPTOR)} data-flx="user.entrance-sound-section.tooltip">
+									<button
+										type="button"
+										onClick={() => void previewSound(resolvedSound.id)}
+										disabled={isPreviewing}
+										className={styles.previewButton}
+										aria-label={i18n._(PREVIEW_SOUND_DESCRIPTOR)}
+										data-flx="user.entrance-sound-section.preview-button"
+									>
+										<SpeakerHighIcon
+											size={20}
+											weight="fill"
+											className={styles.previewIcon}
+											data-flx="user.entrance-sound-section.preview-icon"
+										/>
+									</button>
+								</Tooltip>
+								<div className={styles.soundInfo} data-flx="user.entrance-sound-section.sound-info">
+									<span className={styles.soundFileName} data-flx="user.entrance-sound-section.sound-file-name">
+										{resolvedSound.name}
+									</span>
+									<span className={styles.soundDuration} data-flx="user.entrance-sound-section.sound-duration">
+										{formatSoundDuration(resolvedSound.durationMs, i18n.locale)}
+									</span>
+								</div>
+							</div>
+							<div className={styles.soundStatus} data-flx="user.entrance-sound-section.sound-status">
+								<span
+									className={clsx(
+										styles.scopeBadge,
+										hasDirectOverride ? styles.scopeBadgeDirect : styles.scopeBadgeInherited,
+									)}
+									data-flx="user.entrance-sound-section.scope-badge"
+								>
+									{hasDirectOverride ? i18n._(SET_HERE_DESCRIPTOR) : i18n._(INHERITED_DESCRIPTOR)}
+								</span>
+								{hasInheritedSound && inheritedFromLabel ? (
+									<span className={styles.inheritedText} data-flx="user.entrance-sound-section.inherited-text">
+										{i18n._(INHERITED_FROM_DESCRIPTOR, {inheritedFromLabel})}
+									</span>
+								) : null}
+							</div>
+						</div>
 					</div>
 				) : (
-					<p
-						className={styles.premiumCardDescription}
-						data-flx="user.entrance-sound-section.premium-card-description--2"
-					>
-						<Trans>Custom entrance sounds are not enabled on this instance.</Trans>
-					</p>
-				)
-			) : (
-				<div className={styles.content} data-flx="user.entrance-sound-section.content">
-					<section
-						className={styles.scopeSection}
-						aria-labelledby={scopePickerLabelId}
-						data-flx="user.entrance-sound-section.scope-section"
-					>
-						<div className={styles.scopeSectionHeader} data-flx="user.entrance-sound-section.scope-section-header">
-							<div className={styles.scopeSectionText} data-flx="user.entrance-sound-section.scope-section-text">
-								<div
-									id={scopePickerLabelId}
-									className={styles.scopeSectionLabel}
-									data-flx="user.entrance-sound-section.scope-section-label"
-								>
-									{i18n._(APPLIES_TO_DESCRIPTOR)}
-								</div>
-								<p className={styles.scopeHint} data-flx="user.entrance-sound-section.scope-hint">
-									{scopeHint}
-								</p>
-							</div>
+					<div className={styles.emptyState} data-flx="user.entrance-sound-section.empty-state">
+						<div className={styles.emptyStateTitle} data-flx="user.entrance-sound-section.empty-state-title">
+							<Trans comment="Empty-state title in entrance sound settings. The selected scope does not have its own entrance sound yet.">
+								No entrance sound set here
+							</Trans>
 						</div>
-						<div
-							className={styles.scopeTileGrid}
-							role="group"
-							aria-labelledby={scopePickerLabelId}
-							data-flx="user.entrance-sound-section.scope-tile-grid"
-						>
-							{scopeTileOptions.map((option) => (
-								<ScopeTileButton
-									key={option.value}
-									option={option}
-									selected={selectedScopeId === option.value}
-									onSelect={setSelectedScopeId}
-									dataFlx="user.entrance-sound-section.scope-tile"
-									data-flx="user.entrance-sound-section.scope-tile-button.set-selected-scope-id"
-								/>
-							))}
-						</div>
-						{communityScopeOptions.length > 0 ? (
-							<div className={styles.communityScopePanel} data-flx="user.entrance-sound-section.community-scope-panel">
-								<div
-									className={styles.communityScopeHeader}
-									data-flx="user.entrance-sound-section.community-scope-header"
-								>
-									<span
-										className={styles.communityScopeTitle}
-										data-flx="user.entrance-sound-section.community-scope-title"
-									>
-										{i18n._(COMMUNITY_OVERRIDES_DESCRIPTOR)}
-									</span>
-								</div>
-								<div
-									className={styles.communityScopeList}
-									role="group"
-									aria-label={i18n._(COMMUNITY_OVERRIDES_DESCRIPTOR)}
-									data-flx="user.entrance-sound-section.community-scope-list"
-								>
-									{communityScopeOptions.map((option) => (
-										<ScopeTileButton
-											key={option.value}
-											option={option}
-											selected={selectedScopeId === option.value}
-											onSelect={setSelectedScopeId}
-											compact={true}
-											dataFlx="user.entrance-sound-section.community-scope-tile"
-											data-flx="user.entrance-sound-section.scope-tile-button.set-selected-scope-id--2"
-										/>
-									))}
-								</div>
-							</div>
-						) : null}
-					</section>
-					<div className={styles.controlPanel} data-flx="user.entrance-sound-section.control-panel">
-						<CompactComboboxRow<string, LibrarySoundOption>
-							label={i18n._(SOUND_FOR_THIS_SCOPE_DESCRIPTOR)}
-							value={selectedSound?.id ?? NONE_LIBRARY_VALUE}
-							options={librarySelectOptions}
-							onChange={handleLibrarySelectionChange}
-							controlWidth="large"
-							menuMinWidth={220}
-							dataFlx="user.entrance-sound-section.select--library"
-							data-flx="user.entrance-sound-section.compact-combobox-row.library-selection-change"
-						/>
 					</div>
-					{resolvedSound ? (
-						<div className={styles.soundCard} data-flx="user.entrance-sound-section.sound-card">
-							<div className={styles.soundCardContent} data-flx="user.entrance-sound-section.sound-card-content">
-								<div className={styles.soundCardMain} data-flx="user.entrance-sound-section.sound-card-main">
-									<Tooltip text={i18n._(PREVIEW_SOUND_DESCRIPTOR)} data-flx="user.entrance-sound-section.tooltip">
-										<button
-											type="button"
-											onClick={() => void previewSound(resolvedSound.id)}
-											disabled={isPreviewing}
-											className={styles.previewButton}
-											aria-label={i18n._(PREVIEW_SOUND_DESCRIPTOR)}
-											data-flx="user.entrance-sound-section.preview-button"
-										>
-											<SpeakerHighIcon
-												size={20}
-												weight="fill"
-												className={styles.previewIcon}
-												data-flx="user.entrance-sound-section.preview-icon"
-											/>
-										</button>
-									</Tooltip>
-									<div className={styles.soundInfo} data-flx="user.entrance-sound-section.sound-info">
-										<span className={styles.soundFileName} data-flx="user.entrance-sound-section.sound-file-name">
-											{resolvedSound.name}
-										</span>
-										<span className={styles.soundDuration} data-flx="user.entrance-sound-section.sound-duration">
-											{formatSoundDuration(resolvedSound.durationMs, i18n.locale)}
-										</span>
-									</div>
-								</div>
-								<div className={styles.soundStatus} data-flx="user.entrance-sound-section.sound-status">
-									<span
-										className={clsx(
-											styles.scopeBadge,
-											hasDirectOverride ? styles.scopeBadgeDirect : styles.scopeBadgeInherited,
-										)}
-										data-flx="user.entrance-sound-section.scope-badge"
-									>
-										{hasDirectOverride ? i18n._(SET_HERE_DESCRIPTOR) : i18n._(INHERITED_DESCRIPTOR)}
-									</span>
-									{hasInheritedSound && inheritedFromLabel ? (
-										<span className={styles.inheritedText} data-flx="user.entrance-sound-section.inherited-text">
-											{i18n._(INHERITED_FROM_DESCRIPTOR, {inheritedFromLabel})}
-										</span>
-									) : null}
-								</div>
-							</div>
+				)}
+				<div className={styles.actions} data-flx="user.entrance-sound-section.actions">
+					<Button
+						variant="primary"
+						className={styles.actionButton}
+						onClick={openUploadDialog}
+						data-flx="user.entrance-sound-section.action-button.open-upload-dialog"
+					>
+						<div className={styles.uploadButtonContent} data-flx="user.entrance-sound-section.upload-button-content">
+							<UploadIcon size={16} data-flx="user.entrance-sound-section.upload-icon" />
+							<span data-flx="user.entrance-sound-section.span">{i18n._(UPLOAD_NEW_DESCRIPTOR)}</span>
 						</div>
-					) : (
-						<div className={styles.emptyState} data-flx="user.entrance-sound-section.empty-state">
-							<div className={styles.emptyStateTitle} data-flx="user.entrance-sound-section.empty-state-title">
-								<Trans comment="Empty-state title in entrance sound settings. The selected scope does not have its own entrance sound yet.">
-									No entrance sound set here
-								</Trans>
-							</div>
-						</div>
-					)}
-					<div className={styles.actions} data-flx="user.entrance-sound-section.actions">
-						<Button
-							variant="primary"
-							className={styles.actionButton}
-							onClick={openUploadDialog}
-							data-flx="user.entrance-sound-section.action-button.open-upload-dialog"
-						>
-							<div className={styles.uploadButtonContent} data-flx="user.entrance-sound-section.upload-button-content">
-								<UploadIcon size={16} data-flx="user.entrance-sound-section.upload-icon" />
-								<span data-flx="user.entrance-sound-section.span">{i18n._(UPLOAD_NEW_DESCRIPTOR)}</span>
-							</div>
-						</Button>
-						<span className={styles.scopeHint} data-flx="user.entrance-sound-section.library-count">
-							{i18n._(LIBRARY_COUNT_DESCRIPTOR, {count: library.length, max: ENTRANCE_SOUND_MAX_PER_USER})}
-						</span>
-					</div>
-					{library.length > 0 ? (
-						<div className={styles.libraryList} data-flx="user.entrance-sound-section.library">
-							{library.map((entry) => {
-								const isActiveHere = selectedSound?.id === entry.id;
-								return (
-									<div key={entry.id} className={styles.soundCard} data-flx="user.entrance-sound-section.library-row">
-										<div className={styles.soundCardContent} data-flx="user.entrance-sound-section.sound-card-content">
-											<div className={styles.soundCardMain} data-flx="user.entrance-sound-section.sound-card-main">
-												<Tooltip
-													text={i18n._(PREVIEW_SOUND_DESCRIPTOR)}
-													data-flx="user.entrance-sound-section.library-tooltip"
-												>
-													<button
-														type="button"
-														onClick={() => void previewSound(entry.id)}
-														disabled={isPreviewing}
-														className={styles.previewButton}
-														aria-label={i18n._(PREVIEW_SOUND_DESCRIPTOR)}
-														data-flx="user.entrance-sound-section.library-preview"
-													>
-														<SpeakerHighIcon
-															size={18}
-															weight="fill"
-															className={styles.previewIcon}
-															data-flx="user.entrance-sound-section.preview-icon"
-														/>
-													</button>
-												</Tooltip>
-												<div className={styles.soundInfo} data-flx="user.entrance-sound-section.sound-info">
-													<span className={styles.soundFileName} data-flx="user.entrance-sound-section.sound-file-name">
-														{entry.name}
-													</span>
-													<span className={styles.soundDuration} data-flx="user.entrance-sound-section.sound-duration">
-														{`${formatSoundDuration(entry.durationMs, i18n.locale)}${isActiveHere ? ` · ${i18n._(ACTIVE_BADGE_DESCRIPTOR)}` : ''}`}
-													</span>
-												</div>
-											</div>
+					</Button>
+					<span className={styles.scopeHint} data-flx="user.entrance-sound-section.library-count">
+						{i18n._(LIBRARY_COUNT_DESCRIPTOR, {count: library.length, max: ENTRANCE_SOUND_MAX_PER_USER})}
+					</span>
+				</div>
+				{library.length > 0 ? (
+					<div className={styles.libraryList} data-flx="user.entrance-sound-section.library">
+						{library.map((entry) => {
+							const isActiveHere = selectedSound?.id === entry.id;
+							return (
+								<div key={entry.id} className={styles.soundCard} data-flx="user.entrance-sound-section.library-row">
+									<div className={styles.soundCardContent} data-flx="user.entrance-sound-section.sound-card-content">
+										<div className={styles.soundCardMain} data-flx="user.entrance-sound-section.sound-card-main">
 											<Tooltip
-												text={i18n._(DELETE_FROM_LIBRARY_DESCRIPTOR)}
-												data-flx="user.entrance-sound-section.library-delete-tooltip"
+												text={i18n._(PREVIEW_SOUND_DESCRIPTOR)}
+												data-flx="user.entrance-sound-section.library-tooltip"
 											>
 												<button
 													type="button"
-													onClick={() => void deleteSound(entry.id)}
-													className={styles.deleteButton}
-													aria-label={i18n._(DELETE_FROM_LIBRARY_DESCRIPTOR)}
-													data-flx="user.entrance-sound-section.library-delete"
+													onClick={() => void previewSound(entry.id)}
+													disabled={isPreviewing}
+													className={styles.previewButton}
+													aria-label={i18n._(PREVIEW_SOUND_DESCRIPTOR)}
+													data-flx="user.entrance-sound-section.library-preview"
 												>
-													<TrashIcon
-														size={16}
-														className={styles.deleteIcon}
-														data-flx="user.entrance-sound-section.delete-icon"
+													<SpeakerHighIcon
+														size={18}
+														weight="fill"
+														className={styles.previewIcon}
+														data-flx="user.entrance-sound-section.preview-icon"
 													/>
 												</button>
 											</Tooltip>
+											<div className={styles.soundInfo} data-flx="user.entrance-sound-section.sound-info">
+												<span className={styles.soundFileName} data-flx="user.entrance-sound-section.sound-file-name">
+													{entry.name}
+												</span>
+												<span className={styles.soundDuration} data-flx="user.entrance-sound-section.sound-duration">
+													{`${formatSoundDuration(entry.durationMs, i18n.locale)}${isActiveHere ? ` · ${i18n._(ACTIVE_BADGE_DESCRIPTOR)}` : ''}`}
+												</span>
+											</div>
 										</div>
+										<Tooltip
+											text={i18n._(DELETE_FROM_LIBRARY_DESCRIPTOR)}
+											data-flx="user.entrance-sound-section.library-delete-tooltip"
+										>
+											<button
+												type="button"
+												onClick={() => void deleteSound(entry.id)}
+												className={styles.deleteButton}
+												aria-label={i18n._(DELETE_FROM_LIBRARY_DESCRIPTOR)}
+												data-flx="user.entrance-sound-section.library-delete"
+											>
+												<TrashIcon
+													size={16}
+													className={styles.deleteIcon}
+													data-flx="user.entrance-sound-section.delete-icon"
+												/>
+											</button>
+										</Tooltip>
 									</div>
-								);
-							})}
-						</div>
-					) : null}
+								</div>
+							);
+						})}
+					</div>
+				) : null}
+			</div>
+		);
+	} else if (shouldShowPremiumFeatures()) {
+		sectionContent = (
+			<div className={styles.premiumCard} data-flx="user.entrance-sound-section.premium-card">
+				<div className={styles.premiumCardHeader} data-flx="user.entrance-sound-section.premium-card-header">
+					<AtomIcon
+						weight="fill"
+						size={18}
+						className={styles.premiumCardIcon}
+						data-flx="user.entrance-sound-section.premium-card-icon"
+					/>
+					<span className={styles.premiumCardTitle} data-flx="user.entrance-sound-section.premium-card-title">
+						{i18n._(CUSTOM_ENTRANCE_SOUNDS_PREMIUM_DESCRIPTOR, {
+							premiumProductName: getPremiumProductName(),
+						})}
+					</span>
 				</div>
-			)}
-		</div>
-	);
+				<p className={styles.premiumCardDescription} data-flx="user.entrance-sound-section.premium-card-description">
+					<Trans>
+						Upload a custom sound that plays automatically when you join a voice channel. Maximum duration:{' '}
+						{maxDurationSeconds} seconds. Max file size: {maxSizeLabel}.
+					</Trans>
+				</p>
+				<Button
+					variant="secondary"
+					small={true}
+					onClick={() => PremiumModalCommands.open()}
+					data-flx="user.entrance-sound-section.button.open"
+				>
+					{i18n._(GET_PREMIUM_DESCRIPTOR, {premiumProductName: getPremiumProductName()})}
+				</Button>
+			</div>
+		);
+	} else {
+		sectionContent = (
+			<p className={styles.premiumCardDescription} data-flx="user.entrance-sound-section.premium-card-description--2">
+				<Trans>Custom entrance sounds are not enabled on this instance.</Trans>
+			</p>
+		);
+	}
+	return <div data-flx="user.entrance-sound-section.div">{sectionContent}</div>;
 });

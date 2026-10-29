@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import {Routes} from '@app/app/Routes';
 import {type RuntimeConfigSnapshot, runtimeInstanceKey} from '@app/features/app/state/InstanceSnapshotStore';
 import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
 import {resolveSnapshotInstanceDomain} from '@app/features/auth/AccountDisplayUtils';
@@ -33,7 +34,9 @@ import {
 	type MfaChallenge,
 	toLoginSuccessPayload,
 } from '@app/features/auth/state/AuthFlow';
-import {accountSignInIdentifier, loginIdentifierField} from '@app/features/auth/utils/AccountSignInIdentifier';
+import {loginIdentifierField} from '@app/features/auth/utils/AccountSignInIdentifier';
+import {describePasskeyError, describePasskeyPromptEnded} from '@app/features/auth/utils/PasskeyErrorMessages';
+import {classifyPasskeyFailure} from '@app/features/auth/utils/PasskeyFailure';
 import * as WebAuthnUtils from '@app/features/auth/utils/WebAuthnUtils';
 import {
 	ForegroundGatewayConnectionRecoverableError,
@@ -47,20 +50,15 @@ import {Platform} from '@app/features/platform/types/Platform';
 import {Logger} from '@app/features/platform/utils/AppLogger';
 import * as ToastCommands from '@app/features/ui/commands/ToastCommands';
 import {isDesktop} from '@app/features/ui/utils/NativeUtils';
-import type {I18n} from '@lingui/core';
 import {msg} from '@lingui/core/macro';
 import {useLingui} from '@lingui/react/macro';
+import {browserSupportsWebAuthn} from '@simplewebauthn/browser';
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 
 const logger = Logger.create('useLoginFlow');
 
 const LOGIN_CONNECTING_STATUS_DELAY_MS = 1500;
 
-export const SESSION_EXPIRED_SIGN_IN_AGAIN_DESCRIPTOR = msg({
-	message: 'Session expired for {identifier}. Sign in again.',
-	comment:
-		'Login layout banner shown when the session for a specific account has expired. Account identifier is interpolated.',
-});
 const PASSKEY_UNAVAILABLE_DESCRIPTOR = msg({
 	message: 'Passkey sign-in is unavailable here.',
 	comment: 'Auth error shown when passkey sign-in cannot run in the current authentication environment.',
@@ -75,7 +73,7 @@ export const PasskeyLoginCapability = Object.freeze({
 export type PasskeyLoginCapability = (typeof PasskeyLoginCapability)[keyof typeof PasskeyLoginCapability];
 
 export function resolveInitialPasskeyLoginCapability(): PasskeyLoginCapability {
-	if (isDesktop() || WebAuthnUtils.isBrowserWebAuthnSupported()) {
+	if (isDesktop() || browserSupportsWebAuthn()) {
 		return PasskeyLoginCapability.AVAILABLE;
 	}
 	return PasskeyLoginCapability.UNAVAILABLE;
@@ -135,7 +133,7 @@ const handleLoginOutcome = async (
 	}
 };
 
-export function isLoginConnectionFailure(error: unknown): boolean {
+function isLoginConnectionFailure(error: unknown): boolean {
 	if (error instanceof AccountReplacementRecoveryFailedError) {
 		return isLoginConnectionFailure(error.errors[0]);
 	}
@@ -257,6 +255,7 @@ export function useLoginFormController({
 				});
 				if (outcome === 'cancelled') {
 					writePasskeyLoginRoute('native');
+					ToastCommands.error(describePasskeyPromptEnded(i18n));
 				}
 			}
 			navigating = outcome === 'navigating';
@@ -272,10 +271,14 @@ export function useLoginFormController({
 			if (AuthenticationCommands.showAccountRestriction(err)) {
 				return;
 			}
-			const userCancelled =
-				err instanceof DOMException && (err.name === 'NotAllowedError' || err.name === 'AbortError');
-			if (isDesktop() && !userCancelled) {
+			const failure = classifyPasskeyFailure(err, isDesktop() ? 'browser_handoff' : 'show_error');
+			if (failure === 'aborted') {
+				return;
+			}
+			if (failure === 'browser_handoff') {
 				onDesktopPasskeyHandoff();
+			} else {
+				ToastCommands.error(describePasskeyError(i18n, err, null) ?? i18n._(COULDN_T_VERIFY_WITH_PASSKEY_DESCRIPTOR));
 			}
 		} finally {
 			if (!navigating) {
@@ -309,22 +312,15 @@ export interface StoredAccountLoginPayload {
 	readonly runtimeSnapshot: RuntimeConfigSnapshot;
 }
 
-function accountIdentifier(account: Account): string {
-	return accountSignInIdentifier(account) ?? account.userData?.username ?? account.userId;
-}
-
-export function sessionExpiredMessage(i18n: I18n, account: Account): string {
-	return i18n._(SESSION_EXPIRED_SIGN_IN_AGAIN_DESCRIPTOR, {identifier: accountIdentifier(account)});
-}
-
-export interface StoredAccountSelectionHandlers {
+interface StoredAccountSelectionHandlers {
+	readonly redirectPath: string | null;
 	readonly onLoginWithStoredAccount: (payload: StoredAccountLoginPayload) => Promise<void>;
 	readonly onSessionExpired: (account: Account) => void;
 }
 
 async function selectStoredAccount(
 	account: Account,
-	{onLoginWithStoredAccount, onSessionExpired}: StoredAccountSelectionHandlers,
+	{redirectPath, onLoginWithStoredAccount, onSessionExpired}: StoredAccountSelectionHandlers,
 ): Promise<void> {
 	if (account.isValid === false) {
 		onSessionExpired(account);
@@ -333,7 +329,10 @@ async function selectStoredAccount(
 	const accountKey = getAccountKey(account);
 	try {
 		if (Accounts.canSwitchAccounts) {
-			await Accounts.switchToAccount(accountKey);
+			await Accounts.switchToAccount(
+				accountKey,
+				redirectPath == null || redirectPath === '' ? Routes.ME : redirectPath,
+			);
 			return;
 		}
 		const {token, userId, runtimeSnapshot} = await Accounts.prepareAccountCredentials(accountKey);
@@ -349,12 +348,14 @@ async function selectStoredAccount(
 }
 
 interface AccountSwitchControllerOptions {
+	redirectPath: string | null;
 	onError: (message: string) => void;
-	onSessionExpired: (account: Account, message: string) => void;
+	onSessionExpired: (account: Account) => void;
 	onLoginWithStoredAccount: (payload: StoredAccountLoginPayload) => Promise<void>;
 }
 
 export function useAccountSwitchController({
+	redirectPath,
 	onError,
 	onSessionExpired,
 	onLoginWithStoredAccount,
@@ -363,23 +364,20 @@ export function useAccountSwitchController({
 	const [isSwitching, setIsSwitching] = useState(false);
 	const switchToAccount = useCallback(
 		async (account: Account) => {
-			const handleSessionExpired = (expiredAccount: Account) => {
-				onSessionExpired(expiredAccount, sessionExpiredMessage(i18n, expiredAccount));
-			};
 			if (account.isValid === false) {
-				handleSessionExpired(account);
+				onSessionExpired(account);
 				return;
 			}
 			setIsSwitching(true);
 			try {
-				await selectStoredAccount(account, {onLoginWithStoredAccount, onSessionExpired: handleSessionExpired});
+				await selectStoredAccount(account, {redirectPath, onLoginWithStoredAccount, onSessionExpired});
 			} catch (error) {
 				onError(getAuthErrorMessage(error, i18n));
 			} finally {
 				setIsSwitching(false);
 			}
 		},
-		[i18n, onError, onLoginWithStoredAccount, onSessionExpired],
+		[i18n, onError, onLoginWithStoredAccount, onSessionExpired, redirectPath],
 	);
 	return {isSwitching, switchToAccount};
 }
@@ -452,6 +450,7 @@ export function useMfaController({ticket, methods, inviteCode, onLoginSuccess}: 
 				navigating = outcome === 'navigating';
 				if (outcome === 'cancelled') {
 					preferLegacyRef.current = false;
+					ToastCommands.error(describePasskeyPromptEnded(i18n));
 				}
 				if (typeof outcome === 'string') {
 					return;
@@ -464,10 +463,8 @@ export function useMfaController({ticket, methods, inviteCode, onLoginSuccess}: 
 			if (AuthenticationCommands.showAccountRestriction(error)) {
 				return;
 			}
-			const userCancelled =
-				error instanceof DOMException && (error.name === 'NotAllowedError' || error.name === 'AbortError');
-			if (!userCancelled) {
-				ToastCommands.error(i18n._(COULDN_T_VERIFY_WITH_PASSKEY_DESCRIPTOR));
+			if (classifyPasskeyFailure(error, 'show_error') !== 'aborted') {
+				ToastCommands.error(describePasskeyError(i18n, error, null) ?? i18n._(COULDN_T_VERIFY_WITH_PASSKEY_DESCRIPTOR));
 			}
 		} finally {
 			if (!navigating) {

@@ -28,10 +28,11 @@ import {
 	rawStorageKind,
 	readRawStorageItem,
 	writeRawStorageItem,
+	ZOOM_PREBOOT_MIRROR_STORAGE_KEY,
 } from '@app/features/platform/state/PrebootMirror';
 import {countTelemetryEvent, TelemetryEvent} from '@app/features/platform/utils/AppTelemetry';
 
-export type StorageChangeSource = 'local' | 'external';
+type StorageChangeSource = 'local' | 'external';
 
 export interface StorageChangeEvent {
 	key: string | null;
@@ -75,14 +76,13 @@ interface LoadedScopeCache {
 export const GLOBAL_APP_STORAGE_SCOPE = 'global';
 export const UNAUTHENTICATED_APP_STORAGE_SCOPE = 'unauthenticated';
 
-const APP_STORAGE_SCOPED_ENABLED = true;
-
 export const RAW_MIRROR_SCOPE_PREFIX = 'fluxer:app-storage-mirror:';
 
 const RAW_ONLY_APP_STORAGE_KEYS: ReadonlySet<string> = new Set([
 	AppStorageKey.AUTH_SESSION_TOKEN,
 	AppStorageKey.AUTH_SESSION_USER_ID,
 	GATEWAY_PREBOOT_SESSION_STORAGE_KEY,
+	ZOOM_PREBOOT_MIRROR_STORAGE_KEY,
 	'runtimeConfig',
 	'AccountManager',
 ]);
@@ -97,9 +97,9 @@ const RAW_MIRRORED_APP_STORAGE_KEYS: ReadonlySet<string> = new Set([
 	...PREBOOT_MIRROR_KEYS,
 	...PRE_HYDRATION_APP_STORAGE_KEYS,
 	AppStorageKey.ACCESSIBILITY_LEGACY_STORE,
+	AppStorageKey.ACCOUNT_THEME,
 	AppStorageKey.MESSAGING_DRAFTS,
 	AppStorageKey.MESSAGING_MESSAGE_EDIT,
-	AppStorageKey.THEME,
 ]);
 
 let activeScope: string = UNAUTHENTICATED_APP_STORAGE_SCOPE;
@@ -123,10 +123,6 @@ function isContentAppStorageKey(key: string): boolean {
 
 function isGlobalStorageKey(key: string): boolean {
 	return isGlobalAppStorageKey(key) || resolveLegacyAppStorageKey(key)?.row.scope === 'global';
-}
-
-function scopedStorageActive(): boolean {
-	return scopedStorageEngaged;
 }
 
 function normalizeAppStorageScope(scope: string | null | undefined): string {
@@ -249,7 +245,7 @@ function readThroughLegacyValue(key: string): string | null {
 }
 
 function readValue(key: string): string | null {
-	if (!scopedStorageActive()) {
+	if (!scopedStorageEngaged) {
 		return readRawStorageItem(key);
 	}
 	if (RAW_ONLY_APP_STORAGE_KEYS.has(key)) {
@@ -293,7 +289,7 @@ function forgetDeletedKey(scope: string, key: string): void {
 }
 
 function writeValue(key: string, value: string | null): void {
-	if (!scopedStorageActive() || RAW_ONLY_APP_STORAGE_KEYS.has(key)) {
+	if (!scopedStorageEngaged || RAW_ONLY_APP_STORAGE_KEYS.has(key)) {
 		writeRawStorageItem(key, value);
 		return;
 	}
@@ -312,14 +308,14 @@ function writeValue(key: string, value: string | null): void {
 }
 
 function hasUnsettledWriteFailure(key: string): boolean {
-	if (!scopedStorageActive() || RAW_ONLY_APP_STORAGE_KEYS.has(key)) {
+	if (!scopedStorageEngaged || RAW_ONLY_APP_STORAGE_KEYS.has(key)) {
 		return false;
 	}
 	return writeQueue.hasFailure(storageScopeForKey(key), key);
 }
 
 function allKeys(): Array<string> {
-	if (!scopedStorageActive()) {
+	if (!scopedStorageEngaged) {
 		return rawStorageKeys();
 	}
 	const keys = [...scopedCache.keys()];
@@ -477,6 +473,7 @@ async function loadCacheForScope(scope: string): Promise<LoadedScopeCache> {
 	takeDeletedKeys();
 	if (scope !== GLOBAL_APP_STORAGE_SCOPE) {
 		for (const [key, entry] of await backend.load(scope)) {
+			if (isGlobalStorageKey(key)) continue;
 			values.set(key, entry.value);
 		}
 		takeDeletedKeys();
@@ -554,7 +551,7 @@ async function adoptRemoteDeletedKeys(scope: string): Promise<void> {
 }
 
 async function applyRemoteCommit(scope: string, key: string): Promise<void> {
-	if (!scopedStorageActive() || (scope !== GLOBAL_APP_STORAGE_SCOPE && scope !== activeScope)) {
+	if (!scopedStorageEngaged || (scope !== GLOBAL_APP_STORAGE_SCOPE && scope !== activeScope)) {
 		return;
 	}
 	if (key === AppStorageKey.ACCOUNT_RESET_KEPT_KEYS) {
@@ -594,7 +591,7 @@ async function applyRemoteCommit(scope: string, key: string): Promise<void> {
 }
 
 async function applyRemoteScopeReload(scope: string): Promise<void> {
-	if (!scopedStorageActive() || (scope !== GLOBAL_APP_STORAGE_SCOPE && scope !== activeScope)) {
+	if (!scopedStorageEngaged || (scope !== GLOBAL_APP_STORAGE_SCOPE && scope !== activeScope)) {
 		return;
 	}
 	const reloadScope = activeScope;
@@ -625,7 +622,7 @@ async function applyRemoteScopeReload(scope: string): Promise<void> {
 
 if (typeof window !== 'undefined' && rawStorageKind() !== 'memory') {
 	window.addEventListener('storage', (event: StorageEvent) => {
-		if (scopedStorageActive() || !isRawStorageArea(event.storageArea)) {
+		if (scopedStorageEngaged || !isRawStorageArea(event.storageArea)) {
 			return;
 		}
 		notifyListeners({
@@ -645,10 +642,6 @@ export function getAppStorageScope(): string {
 	return activeScope;
 }
 
-export function mutationsBlocked(): boolean {
-	return storageMutationsBlocked;
-}
-
 export function onBeforeAppStorageScopeChange(listener: AppStorageScopeListener): () => void {
 	beforeScopeChangeListeners.add(listener);
 	return () => {
@@ -663,7 +656,7 @@ export function subscribeAppStorageScope(listener: AppStorageScopeListener): () 
 	};
 }
 
-export async function initializeAppStorage(options?: {readonly scoped?: boolean}): Promise<void> {
+export async function initializeAppStorage(): Promise<void> {
 	if (storageInitialized) {
 		await flushAppStorageWrites();
 		return;
@@ -671,13 +664,8 @@ export async function initializeAppStorage(options?: {readonly scoped?: boolean}
 	if (initializePromise !== null) {
 		return initializePromise;
 	}
-	const scoped = options?.scoped ?? APP_STORAGE_SCOPED_ENABLED;
 	const completion = runTransition(async () => {
 		if (storageInitialized) {
-			return;
-		}
-		if (!scoped) {
-			storageInitialized = true;
 			return;
 		}
 		scopedStorageEngaged = true;
@@ -735,7 +723,7 @@ export async function activateAppStorageScope(scope: string | null): Promise<voi
 	const nextScope = normalizeAppStorageScope(scope);
 	await runTransition(async () => {
 		const previousScope = activeScope;
-		if (!scopedStorageActive()) {
+		if (!scopedStorageEngaged) {
 			activeScope = nextScope;
 			return;
 		}
@@ -751,7 +739,7 @@ export async function activateAppStorageScope(scope: string | null): Promise<voi
 export async function deleteAppStorageScope(scope: string): Promise<void> {
 	const normalizedScope = normalizeAppStorageScope(scope);
 	await runTransition(async () => {
-		if (!scopedStorageActive()) {
+		if (!scopedStorageEngaged) {
 			removeEntries(collectEntries(() => true));
 			return;
 		}
@@ -782,7 +770,7 @@ export async function deleteAppStorageScope(scope: string): Promise<void> {
 export async function resetActiveAccountScope(keysToKeep: ReadonlyArray<string>): Promise<void> {
 	const keepSet = new Set(keysToKeep);
 	await runTransition(async () => {
-		if (!scopedStorageActive()) {
+		if (!scopedStorageEngaged) {
 			removeEntries(collectEntries((key) => !keepSet.has(key)));
 			return;
 		}
@@ -810,7 +798,7 @@ export async function resetActiveAccountScope(keysToKeep: ReadonlyArray<string>)
 export async function resetAppStorage(keysToKeep: ReadonlyArray<string>): Promise<void> {
 	const keepSet = new Set(keysToKeep);
 	await runTransition(async () => {
-		if (!scopedStorageActive()) {
+		if (!scopedStorageEngaged) {
 			removeEntries(collectEntries((key) => !keepSet.has(key)));
 			return;
 		}

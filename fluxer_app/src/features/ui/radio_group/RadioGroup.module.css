@@ -61,7 +61,7 @@
 	gap: var(--spacing-1);
 	width: 100%;
 	align-items: flex-start;
-	text-align: left;
+	text-align: start;
 }
 
 .customContent {

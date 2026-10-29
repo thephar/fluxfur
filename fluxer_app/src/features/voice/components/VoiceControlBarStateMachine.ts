@@ -13,7 +13,7 @@ export type VoiceControlBarDeafenLabel = 'moderatorDeafened' | 'undeafen' | 'dea
 export type VoiceControlBarCameraLabel = 'noPermission' | 'limitReached' | 'userCapReached' | 'turnOff' | 'turnOn';
 export type VoiceControlBarScreenShareLabel = 'noPermission' | 'end' | 'start';
 
-export interface VoiceControlBarSignals {
+interface VoiceControlBarSignals {
 	isDeafened: boolean;
 	isGuildMuted: boolean;
 	isGuildDeafened: boolean;

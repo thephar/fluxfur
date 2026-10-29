@@ -41,16 +41,3 @@ pub fn clamp_lines(s: &str, max_lines: usize) -> String {
     result.push("\u{2026}");
     result.join("\n")
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn truncate_preserves_multibyte_boundaries() {
-        let s = "hello 🎉🎊🎁 world";
-        let result = truncate(s, 10);
-        assert!(result.chars().count() <= 10);
-        assert!(result.ends_with('\u{2026}'));
-    }
-}

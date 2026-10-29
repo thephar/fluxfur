@@ -45,7 +45,7 @@ export function sendThreadStarter(thread: Channel, payload: ThreadStarterPayload
 	});
 }
 
-export function useCooldownSeconds(until: number): number {
+function useCooldownSeconds(until: number): number {
 	const [now, setNow] = useState(() => Date.now());
 	useEffect(() => {
 		if (until <= Date.now()) return;

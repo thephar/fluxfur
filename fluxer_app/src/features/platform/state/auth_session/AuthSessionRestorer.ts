@@ -21,7 +21,7 @@ import type {
 	StoredSessionMirror,
 } from '@app/features/platform/state/auth_session/SessionCredentialMirror';
 
-export type AuthSessionSignedOutReason = 'no-session-pointer' | ActiveStoredAccountUnresolvedReason;
+type AuthSessionSignedOutReason = 'no-session-pointer' | ActiveStoredAccountUnresolvedReason;
 
 export type AuthSessionInitialization =
 	| {

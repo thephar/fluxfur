@@ -4,8 +4,10 @@ import {Nagbar} from '@app/features/app/components/layout/Nagbar';
 import {NagbarButton} from '@app/features/app/components/layout/NagbarButton';
 import {NagbarContent} from '@app/features/app/components/layout/NagbarContent';
 import {NAGBAR_TONES, NagbarToneKind} from '@app/features/app/components/layout/NagbarTones';
+import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
 import * as PlutoniumPageCommands from '@app/features/premium/commands/PlutoniumPageCommands';
 import PremiumState from '@app/features/premium/state/PremiumState';
+import {getSubscriptionRenewalDate} from '@app/features/premium/utils/PremiumSubscriptionClassification';
 import {
 	getPremiumProductFullName,
 	getPremiumProductName,
@@ -32,6 +34,11 @@ const PREMIUM_ONBOARDING_VISIONARY_MESSAGE_DESCRIPTOR = msg({
 		'Welcome to {premiumProductFullName}. You have lifetime access as a Visionary. Explore your {premiumProductName} perks.',
 	comment:
 		'Premium onboarding nagbar body for lifetime premium users. Visionary is the lifetime premium tier name. {premiumProductFullName} is the full premium product name. {premiumProductName} is the short product name.',
+});
+const PREMIUM_ONBOARDING_LIFETIME_MESSAGE_DESCRIPTOR = msg({
+	message: 'Welcome to {premiumProductFullName}. You have lifetime access. Explore your {premiumProductName} perks.',
+	comment:
+		'Premium onboarding nagbar body for lifetime premium users on a self-hosted instance. {premiumProductFullName} is the full premium product name. {premiumProductName} is the short product name.',
 });
 const PREMIUM_ONBOARDING_CANCELING_MESSAGE_DESCRIPTOR = msg({
 	message:
@@ -65,8 +72,9 @@ const VIEW_PREMIUM_FEATURES_DESCRIPTOR = msg({
 
 function useOnboardingMessage(i18n: I18n): string {
 	const user = Users.currentUser;
-	const storeSubscription =
-		user != null && PremiumState.loadedForUserId === user.id ? getStoreOwnedSubscription(PremiumState.state) : null;
+	const premiumState = user != null && PremiumState.loadedForUserId === user.id ? PremiumState.state : null;
+	const storeSubscription = getStoreOwnedSubscription(premiumState);
+	const billingSubscription = premiumState?.billing.subscription ?? null;
 	return useMemo(() => {
 		const premiumProductFullName = getPremiumProductFullName();
 		const premiumProductName = getPremiumProductName();
@@ -78,7 +86,12 @@ function useOnboardingMessage(i18n: I18n): string {
 		const premiumUntil = user.premiumUntil;
 		const willCancel = storeSubscription ? !storeSubscription.will_renew : user.premiumWillCancel;
 		if (isVisionary) {
-			return i18n._(PREMIUM_ONBOARDING_VISIONARY_MESSAGE_DESCRIPTOR, {premiumProductFullName, premiumProductName});
+			return i18n._(
+				RuntimeConfig.isSelfHosted()
+					? PREMIUM_ONBOARDING_LIFETIME_MESSAGE_DESCRIPTOR
+					: PREMIUM_ONBOARDING_VISIONARY_MESSAGE_DESCRIPTOR,
+				{premiumProductFullName, premiumProductName},
+			);
 		}
 		if (willCancel && premiumUntil) {
 			const formattedDate = getFormattedFullDate(premiumUntil);
@@ -88,8 +101,11 @@ function useOnboardingMessage(i18n: I18n): string {
 				formattedDate,
 			});
 		}
-		if (billingCycle && premiumUntil) {
-			const formattedDate = getFormattedFullDate(premiumUntil);
+		const renewsAt = storeSubscription
+			? premiumUntil
+			: getSubscriptionRenewalDate(premiumUntil ?? null, billingSubscription);
+		if (billingCycle && renewsAt) {
+			const formattedDate = getFormattedFullDate(renewsAt);
 			if (billingCycle === 'monthly') {
 				return i18n._(PREMIUM_ONBOARDING_MONTHLY_MESSAGE_DESCRIPTOR, {
 					premiumProductFullName,
@@ -112,7 +128,7 @@ function useOnboardingMessage(i18n: I18n): string {
 			});
 		}
 		return i18n._(PREMIUM_ONBOARDING_DEFAULT_MESSAGE_DESCRIPTOR, {premiumProductFullName, premiumProductName});
-	}, [i18n.locale, user, storeSubscription]);
+	}, [i18n.locale, user, storeSubscription, billingSubscription]);
 }
 
 export const PremiumOnboardingNagbar = observer(function PremiumOnboardingNagbar({isMobile}: {isMobile: boolean}) {

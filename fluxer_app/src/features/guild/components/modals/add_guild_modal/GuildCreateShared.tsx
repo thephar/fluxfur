@@ -6,8 +6,6 @@ import {ExternalLink} from '@app/features/app/components/shared/ExternalLink';
 import {AVATAR_RECOMMENDED_SIZE_LABEL, STATIC_IMAGE_FORMATS} from '@app/features/app/config/I18nDisplayConstants';
 import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
 import {GlobalLimits} from '@app/features/app/utils/GlobalLimits';
-import {openClaimAccountModal} from '@app/features/auth/components/modals/ClaimAccountModal';
-import {useVerifyEmailAction} from '@app/features/auth/hooks/useVerifyEmailAction';
 import {AssetCropModal, AssetType} from '@app/features/expressions/components/modals/AssetCropModal';
 import {openAssetSourceModal} from '@app/features/expressions/components/modals/AssetSourceModal';
 import {isAnimatedFile} from '@app/features/expressions/utils/AnimatedImageUtils';
@@ -27,17 +25,18 @@ import {
 import {openFilePicker} from '@app/features/messaging/utils/FilePickerUtils';
 import {formatFileSize} from '@app/features/messaging/utils/FileUtils';
 import {readBlobAsDataUrl} from '@app/features/platform/utils/BlobDataUrl';
-import {remFromPx} from '@app/features/theme/layout/RemFromPx';
 import {Button} from '@app/features/ui/button/Button';
 import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
 import {modal} from '@app/features/ui/commands/ModalCommands';
 import {Input} from '@app/features/ui/components/form/FormInput';
 import Users from '@app/features/user/state/Users';
+import {AccountGateSlate} from '@app/features/user/utils/AccountGatePresentation';
+import {canPerform} from '@app/features/user/utils/AccountGates';
+import {TierGatedActions} from '@fluxer/constants/src/AccountTierConstants';
 import {getAcceptString} from '@fluxer/constants/src/AssetFormatPolicy';
 import type {I18n, MessageDescriptor} from '@lingui/core';
 import {ph} from '@lingui/core/macro';
 import {Trans, useLingui} from '@lingui/react/macro';
-import {EnvelopeSimpleIcon} from '@phosphor-icons/react';
 import type React from 'react';
 import {useCallback, useState} from 'react';
 import type {UseFormReturn} from 'react-hook-form';
@@ -148,57 +147,14 @@ export function useGuildCreateIconField({
 	return {previewIconUrl, iconName, handleOpenIconUpload, handleClearIcon};
 }
 
-const GuildCreateVerifyEmailButton = ({dataFlx}: {dataFlx: string}) => {
-	const verifyEmailAction = useVerifyEmailAction();
-	return (
-		<Button
-			onClick={verifyEmailAction.onClick}
-			disabled={verifyEmailAction.submitting}
-			submitting={verifyEmailAction.submitting}
-			data-flx={`${dataFlx}.button.push`}
-		>
-			{verifyEmailAction.text}
-		</Button>
-	);
-};
-
 export function renderGuildCreateAccountGate(dataFlx: string): React.ReactNode {
-	const currentUser = Users.currentUser;
-	if (currentUser != null && !currentUser.isClaimed()) {
-		return (
-			<div className={styles.formContainer} data-flx={`${dataFlx}.form-container`}>
-				<div className={styles.verificationNotice} data-flx={`${dataFlx}.verification-notice`}>
-					<EnvelopeSimpleIcon size={remFromPx(32)} weight="fill" data-flx={`${dataFlx}.envelope-simple-icon`} />
-					<p data-flx={`${dataFlx}.p`}>
-						<Trans>You need to claim your account before you can create a community.</Trans>
-					</p>
-					<Button
-						onClick={() => openClaimAccountModal({force: true})}
-						data-flx={`${dataFlx}.button.open-claim-account-modal`}
-					>
-						<Trans>Claim your account</Trans>
-					</Button>
-				</div>
-			</div>
-		);
-	}
-	if (currentUser?.verified === false) {
-		return (
-			<div className={styles.formContainer} data-flx={`${dataFlx}.form-container--2`}>
-				<div className={styles.verificationNotice} data-flx={`${dataFlx}.verification-notice--2`}>
-					<EnvelopeSimpleIcon size={remFromPx(32)} weight="fill" data-flx={`${dataFlx}.envelope-simple-icon--2`} />
-					<p data-flx={`${dataFlx}.p--2`}>
-						<Trans>You need to verify your email address before you can create a community.</Trans>
-					</p>
-					<GuildCreateVerifyEmailButton
-						dataFlx={dataFlx}
-						data-flx="guild.add-guild-modal.guild-create-shared.render-guild-create-account-gate.guild-create-verify-email-button"
-					/>
-				</div>
-			</div>
-		);
-	}
-	return null;
+	const gate = canPerform(Users.currentUser, TierGatedActions.GUILD_CREATE);
+	if (gate.allowed) return null;
+	return (
+		<div className={styles.formContainer} data-flx={`${dataFlx}.form-container`}>
+			<AccountGateSlate gate={gate} data-flx={`${dataFlx}.account-gate-slate`} />
+		</div>
+	);
 }
 
 interface GuildCreateFieldsOptions extends ReturnType<typeof useGuildCreateIconField> {

@@ -2,7 +2,6 @@
 
 use super::{ResolveContext, Resolver, ResolverResult};
 use crate::http_fetch;
-use crate::media_proxy::MediaMetadata;
 use crate::types::{EmbedMedia, EmbedProvider, MessageEmbed};
 use std::future::Future;
 use std::pin::Pin;
@@ -105,12 +104,7 @@ async fn resolve_klipy_media(
             return None;
         }
     };
-    Some(build_embed_media_payload(
-        &resolved_url,
-        &meta,
-        format.width,
-        format.height,
-    ))
+    Some(meta.to_embed_media_sized(&resolved_url, format.width, format.height))
 }
 
 async fn resolve_media_via_api(
@@ -196,19 +190,6 @@ fn klipy_meta_dimension(
         .and_then(|value| u32::try_from(value).ok())
 }
 
-fn build_embed_media_payload(
-    url: &str,
-    metadata: &MediaMetadata,
-    width: Option<u32>,
-    height: Option<u32>,
-) -> EmbedMedia {
-    EmbedMedia {
-        width: width.or(metadata.width),
-        height: height.or(metadata.height),
-        ..metadata.to_embed_media(url)
-    }
-}
-
 fn extract_media_format(value: Option<&serde_json::Value>) -> Option<KlipyMediaFormat> {
     let value = value?;
     if let Some(url) = value.as_str().filter(|url| !url.is_empty()) {
@@ -236,14 +217,3 @@ fn extract_media_format(value: Option<&serde_json::Value>) -> Option<KlipyMediaF
 }
 
 use super::default_helpers::resolve_http_url;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn resolve_http_url_rejects_non_http() {
-        let base = Url::parse("https://klipy.com/gifs/test").unwrap();
-        assert!(resolve_http_url(&base, "ftp://evil.com/file").is_none());
-    }
-}

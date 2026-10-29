@@ -366,6 +366,10 @@ export class KVClient implements IKVProvider {
 		return await this.execute('ttl', async () => this.client.ttl(key));
 	}
 
+	async incr(key: string): Promise<number> {
+		return await this.execute('incr', async () => this.client.incr(key));
+	}
+
 	async getdel(key: string): Promise<string | null> {
 		return await this.execute('getdel', async () => {
 			const result = await this.client.call('GETDEL', key);

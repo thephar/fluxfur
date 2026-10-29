@@ -59,8 +59,8 @@ const NO_STICKERS_AVAILABLE_DESCRIPTOR = msg({
 	message: 'No stickers yet',
 	comment: 'Empty-state text in the channel and chat stickers picker.',
 });
-const JOIN_A_COMMUNITY_WITH_STICKERS_TO_GET_STARTED_DESCRIPTOR = msg({
-	message: 'Join a community to unlock stickers.',
+const STICKERS_FROM_YOUR_COMMUNITIES_DESCRIPTOR = msg({
+	message: 'Stickers added to your communities show up here.',
 	comment: 'Empty-state hint in the channel and chat stickers picker.',
 });
 const NO_STICKERS_MATCH_YOUR_SEARCH_DESCRIPTOR = msg({
@@ -241,7 +241,7 @@ export const StickersPicker = observer(
 						<PickerEmptyState
 							icon={StickerIcon}
 							title={i18n._(NO_STICKERS_AVAILABLE_DESCRIPTOR)}
-							description={i18n._(JOIN_A_COMMUNITY_WITH_STICKERS_TO_GET_STARTED_DESCRIPTOR)}
+							description={i18n._(STICKERS_FROM_YOUR_COMMUNITIES_DESCRIPTOR)}
 							data-flx="channel.stickers-picker.picker-empty-state"
 						/>
 					</div>

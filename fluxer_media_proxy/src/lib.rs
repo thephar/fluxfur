@@ -10,7 +10,6 @@ mod coalescer;
 pub mod config;
 pub mod constants;
 pub mod disposition;
-pub mod healthcheck;
 pub mod http_client;
 pub mod http_headers;
 pub mod image_quality;

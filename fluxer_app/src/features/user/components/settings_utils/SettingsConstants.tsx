@@ -18,6 +18,7 @@ import {
 	type SettingsSectionId,
 	type UserSettingsTabType,
 } from '@app/features/user/components/settings_utils/SettingsSectionRegistry';
+import {shouldShowClaimedAccountSettings} from '@app/features/user/components/settings_utils/SettingsVisibility';
 import {
 	ACCESSIBILITY_DESCRIPTOR,
 	ACCOUNT_DESCRIPTOR as ACCOUNT_SECURITY_DESCRIPTOR,
@@ -32,7 +33,6 @@ import {
 	PRIVACY_DESCRIPTOR as PRIVACY_SAFETY_DESCRIPTOR,
 	SHORTCUTS_DESCRIPTOR,
 } from '@app/features/user/components/settings_utils/section_registry/SharedDescriptors';
-import Users from '@app/features/user/state/Users';
 import {
 	GIFTS_DESCRIPTOR as GIFTS_AND_CODES_DESCRIPTOR,
 	LOOK_AND_FEEL_DESCRIPTOR,
@@ -42,10 +42,10 @@ import type {I18n, MessageDescriptor} from '@lingui/core';
 import {msg} from '@lingui/core/macro';
 import {Trans} from '@lingui/react/macro';
 import {
+	AtomIcon,
 	BellIcon,
 	ChatCircleIcon,
 	CodeIcon,
-	CrownIcon,
 	DesktopIcon,
 	DevicesIcon,
 	EyeSlashIcon,
@@ -61,6 +61,7 @@ import {
 	ProhibitIcon,
 	RobotIcon,
 	ShieldIcon,
+	SwatchesIcon,
 	TranslateIcon,
 	UserIcon,
 	UserListIcon,
@@ -103,6 +104,10 @@ const ADVANCED_SETTINGS_DESCRIPTOR = msg({
 	message: 'Advanced',
 	comment: 'User settings tab for power-user and experimental application preferences.',
 });
+const THEMES_DESCRIPTOR = msg({
+	message: 'Themes',
+	comment: 'User settings tab for the base theme, theme files, colors, fonts and quick CSS.',
+});
 const DESIGN_SYSTEM_DESCRIPTOR = msg({
 	message: 'Design system',
 	comment: 'Developer settings tab showing UI component examples.',
@@ -126,6 +131,7 @@ interface SettingsTabDescriptor {
 	label: SettingsTabLabel;
 	icon: Icon;
 	iconWeight?: IconWeight;
+	isVisible?: () => boolean;
 }
 
 export function getCategoryLabel(category: UserSettingsTabCategories): React.ReactElement {
@@ -147,6 +153,7 @@ const ALL_TABS_DESCRIPTORS: Array<SettingsTabDescriptor> = [
 		category: 'user_settings',
 		label: PROFILE_DESCRIPTOR,
 		icon: UserIcon,
+		isVisible: shouldShowClaimedAccountSettings,
 	},
 	{
 		type: 'account_security',
@@ -165,6 +172,7 @@ const ALL_TABS_DESCRIPTORS: Array<SettingsTabDescriptor> = [
 		category: 'user_settings',
 		label: CONNECTIONS_DESCRIPTOR,
 		icon: UserListIcon,
+		isVisible: shouldShowClaimedAccountSettings,
 	},
 	{
 		type: 'authorized_apps',
@@ -188,19 +196,27 @@ const ALL_TABS_DESCRIPTORS: Array<SettingsTabDescriptor> = [
 		type: 'plutonium',
 		category: 'billing',
 		label: getPremiumProductFullName,
-		icon: CrownIcon,
+		icon: AtomIcon,
+		isVisible: shouldShowPremiumFeatures,
 	},
 	{
 		type: 'gift_inventory',
 		category: 'billing',
 		label: GIFTS_AND_CODES_DESCRIPTOR,
 		icon: GiftIcon,
+		isVisible: shouldShowPremiumFeatures,
 	},
 	{
 		type: 'appearance',
 		category: 'app_settings',
 		label: LOOK_AND_FEEL_DESCRIPTOR,
 		icon: PaintBrushIcon,
+	},
+	{
+		type: 'themes',
+		category: 'app_settings',
+		label: THEMES_DESCRIPTOR,
+		icon: SwatchesIcon,
 	},
 	{
 		type: 'notifications',
@@ -244,6 +260,7 @@ const ALL_TABS_DESCRIPTORS: Array<SettingsTabDescriptor> = [
 		category: 'app_settings',
 		label: DESKTOP_SETTINGS_DESCRIPTOR,
 		icon: DesktopIcon,
+		isVisible: isDesktop,
 	},
 	{
 		type: 'advanced_settings',
@@ -334,38 +351,21 @@ export function formatUserSettingsPath(
 	return parts.filter(Boolean).join(' > ');
 }
 
-export const getSettingsTabs = (i18n: I18n): Array<SettingsTab> => {
-	const allTabs = ALL_TABS_DESCRIPTORS.map((tab) => ({
-		...tab,
+export const getSettingsTabs = (i18n: I18n): Array<SettingsTab> =>
+	ALL_TABS_DESCRIPTORS.filter(
+		(tab) => !ACCOUNT_NESTED_TAB_TYPES.some((tabType) => tabType === tab.type) && (tab.isVisible?.() ?? true),
+	).map((tab) => ({
+		type: tab.type,
+		category: tab.category,
 		label: getUserSettingsTabLabel(i18n, tab.type),
+		icon: tab.icon,
+		iconWeight: tab.iconWeight,
 	}));
-	const showPremium = shouldShowPremiumFeatures();
-	const showClaimedAccountUi = shouldShowClaimedAccountUi();
-	return allTabs.filter((tab) => {
-		if (!showClaimedAccountUi && (tab.type === 'my_profile' || tab.type === 'linked_accounts')) {
-			return false;
-		}
-		if (ACCOUNT_NESTED_TAB_TYPES.some((tabType) => tabType === tab.type)) {
-			return false;
-		}
-		if (!showPremium && (tab.type === 'plutonium' || tab.type === 'gift_inventory')) {
-			return false;
-		}
-		if (tab.type === 'desktop_settings' && !isDesktop()) {
-			return false;
-		}
-		return true;
-	});
-};
 
 export interface SettingsSubtab {
 	type: UserSettingsSubtabType;
 	parentTab: UserSettingsTabType;
 	label: string;
-}
-
-function shouldShowClaimedAccountUi(): boolean {
-	return Users.getCurrentUser()?.isClaimed() ?? true;
 }
 
 function getDesktopSettingsTabLabel(i18n: I18n): string {
@@ -382,17 +382,8 @@ function getDesktopSettingsTabLabel(i18n: I18n): string {
 }
 
 export const getSettingsSubtabs = (i18n: I18n): Array<SettingsSubtab> => {
-	const showClaimedAccountUi = shouldShowClaimedAccountUi();
 	return registryGetAllSectionDefinitions()
-		.filter((section) => {
-			if (!showClaimedAccountUi && (section.id === 'account' || section.id === 'security')) {
-				return false;
-			}
-			if ('isVisible' in section && section.isVisible && !section.isVisible()) {
-				return false;
-			}
-			return true;
-		})
+		.filter((section) => !('isVisible' in section && section.isVisible && !section.isVisible()))
 		.map((section) => ({
 			type: section.id,
 			parentTab: section.tabType,

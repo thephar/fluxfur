@@ -2,7 +2,10 @@
 
 import DeveloperOptions from '@app/features/devtools/state/DeveloperOptions';
 import {getPremiumGraceEndDate} from '@app/features/premium/utils/PremiumGrace';
-import {classifyPremiumSubscription} from '@app/features/premium/utils/PremiumSubscriptionClassification';
+import {
+	classifyPremiumSubscription,
+	getSubscriptionRenewalDate,
+} from '@app/features/premium/utils/PremiumSubscriptionClassification';
 import {getStoreOwnedSubscription} from '@app/features/premium/utils/PremiumUtils';
 import type {User} from '@app/features/user/models/User';
 import {UserPremiumTypes} from '@fluxer/constants/src/UserConstants';
@@ -27,6 +30,7 @@ export interface SubscriptionStatusInfo {
 	premiumWillCancel: boolean;
 	billingCycle: string | null;
 	actualPremiumUntil: Date | null;
+	renewsAt: Date | null;
 	isGiftSubscription: boolean;
 	isGiftGrace: boolean;
 	canStartSubscription: boolean;
@@ -37,6 +41,8 @@ export interface SubscriptionStatusInfo {
 	shouldUseReactivateQuickAction: boolean;
 	shouldUseChangePlanQuickAction: boolean;
 }
+
+const EXPIRED_STATE_DURATION_MS = 30 * MS_PER_DAY;
 
 const parseOptionalDate = (value: string | null | undefined): Date | null => {
 	if (!value) return null;
@@ -70,11 +76,14 @@ export const useSubscriptionStatus = (
 			parseOptionalDate(effective?.premium_until) ??
 			currentUser?.premiumUntil ??
 			null);
-	const premiumGraceEndsAt = useScenarioOverride
-		? null
-		: storeSubscription
-			? parseOptionalDate(storeSubscription.grace_ends_at)
-			: (parseOptionalDate(actual?.premium_grace_ends_at) ?? currentUser?.premiumGraceEndsAt ?? null);
+	let premiumGraceEndsAt: Date | null = null;
+	if (!useScenarioOverride) {
+		if (storeSubscription) {
+			premiumGraceEndsAt = parseOptionalDate(storeSubscription.grace_ends_at);
+		} else {
+			premiumGraceEndsAt = parseOptionalDate(actual?.premium_grace_ends_at) ?? currentUser?.premiumGraceEndsAt ?? null;
+		}
+	}
 	const perksDisabled = effective?.premium_perks_disabled ?? currentUser?.premiumPerksDisabled ?? false;
 	const hasPaidPremium = premiumType != null && premiumType > UserPremiumTypes.NONE;
 	const isVisionary = premiumType === UserPremiumTypes.LIFETIME;
@@ -82,18 +91,22 @@ export const useSubscriptionStatus = (
 		useScenarioOverride || DeveloperOptions.hasEverPurchasedOverride !== null
 			? (DeveloperOptions.hasEverPurchasedOverride ?? false)
 			: (actual?.has_ever_purchased ?? currentUser?.hasEverPurchased ?? false);
-	const premiumWillCancel =
-		useScenarioOverride || DeveloperOptions.premiumWillCancelOverride !== null
-			? (DeveloperOptions.premiumWillCancelOverride ?? false)
-			: storeSubscription
-				? !storeSubscription.will_renew
-				: (actual?.premium_will_cancel ?? currentUser?.premiumWillCancel ?? false);
-	const billingCycle =
-		useScenarioOverride || DeveloperOptions.premiumBillingCycleOverride !== null
-			? DeveloperOptions.premiumBillingCycleOverride
-			: storeSubscription
-				? storeSubscription.billing_cycle
-				: (actual?.premium_billing_cycle ?? currentUser?.premiumBillingCycle ?? null);
+	let premiumWillCancel: boolean;
+	if (useScenarioOverride || DeveloperOptions.premiumWillCancelOverride !== null) {
+		premiumWillCancel = DeveloperOptions.premiumWillCancelOverride ?? false;
+	} else if (storeSubscription) {
+		premiumWillCancel = !storeSubscription.will_renew;
+	} else {
+		premiumWillCancel = actual?.premium_will_cancel ?? currentUser?.premiumWillCancel ?? false;
+	}
+	let billingCycle: string | null;
+	if (useScenarioOverride || DeveloperOptions.premiumBillingCycleOverride !== null) {
+		billingCycle = DeveloperOptions.premiumBillingCycleOverride;
+	} else if (storeSubscription) {
+		billingCycle = storeSubscription.billing_cycle;
+	} else {
+		billingCycle = actual?.premium_billing_cycle ?? currentUser?.premiumBillingCycle ?? null;
+	}
 	const isStoreGrace = storeSubscription?.state === 'grace' && premiumGraceEndsAt != null;
 	const gracePeriodInfo = useMemo((): GracePeriodInfo => {
 		if (isVisionary) {
@@ -119,7 +132,7 @@ export const useSubscriptionStatus = (
 		}
 		const now = new Date();
 		const anchorDate = expiryDate ?? graceEndDate;
-		const expiredStateEndDate = new Date(anchorDate.getTime() + 30 * MS_PER_DAY);
+		const expiredStateEndDate = new Date(anchorDate.getTime() + EXPIRED_STATE_DURATION_MS);
 		const isInGracePeriod = (isStoreGrace || !expiryDate || now > expiryDate) && now <= graceEndDate;
 		const isExpired = now > graceEndDate;
 		const showExpiredState = isExpired && now <= expiredStateEndDate;
@@ -127,6 +140,7 @@ export const useSubscriptionStatus = (
 		return {isInGracePeriod, isExpired, graceEndDate, showExpiredState, isPaymentRecovery};
 	}, [premiumUntil, premiumGraceEndsAt, isVisionary, billingCycle, isStoreGrace]);
 	const {isInGracePeriod, isExpired: isFullyExpired, showExpiredState} = gracePeriodInfo;
+	const billingSubscription = useScenarioOverride ? null : (premiumState?.billing.subscription ?? null);
 	const {isGiftSubscription, isGiftGrace, canStartSubscription} = classifyPremiumSubscription({
 		hasPaidPremium,
 		isVisionary,
@@ -137,8 +151,11 @@ export const useSubscriptionStatus = (
 		isFullyExpired,
 		billingKnown: !useScenarioOverride && premiumState != null,
 		storeOwnershipKnown: useScenarioOverride || premiumState != null,
-		billingSubscription: useScenarioOverride ? null : (premiumState?.billing.subscription ?? null),
+		billingSubscription,
 	});
+	const renewsAt = storeSubscription
+		? parseOptionalDate(storeSubscription.expires_at)
+		: getSubscriptionRenewalDate(premiumUntil, billingSubscription);
 	const isPremium = useDeveloperOverride
 		? hasPaidPremium && !isFullyExpired && !perksDisabled
 		: (effective?.is_premium ?? currentUser?.isPremium() ?? false);
@@ -176,6 +193,7 @@ export const useSubscriptionStatus = (
 		premiumWillCancel,
 		billingCycle,
 		actualPremiumUntil: premiumUntil,
+		renewsAt,
 		isGiftSubscription,
 		isGiftGrace,
 		canStartSubscription,

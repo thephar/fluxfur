@@ -250,7 +250,13 @@ const EmbedVideo: FC<EmbedVideoProps> = observer(
 				detachMediaElementSource(inlineVideo);
 			};
 		}, [isPlayingInline]);
-		const {shouldBlur, gateReason, canReveal, reveal: revealSensitiveMedia} = useMatureMedia(nsfw, channelId);
+		const {
+			shouldBlur,
+			shouldBlock,
+			gateReason,
+			canReveal,
+			reveal: revealSensitiveMedia,
+		} = useMatureMedia(nsfw, channelId);
 		const shouldLoadMedia = isNearViewport && !shouldBlur;
 		const defaultName =
 			title || deriveDefaultNameFromMessage({message, attachmentId, embedIndex, url: embedUrl || src, proxyUrl: src});
@@ -507,22 +513,13 @@ const EmbedVideo: FC<EmbedVideoProps> = observer(
 		const handleMediaPointerEnter = useCallback(() => {
 			setMetadataProbeArmed(true);
 		}, []);
-		const containerStyles: React.CSSProperties = isMobile
-			? {
-					aspectRatio,
-					width: remFromPx(dimensions.width),
-					maxWidth: '100%',
-				}
-			: fillContainer
-				? {
-						width: '100%',
-						height: '100%',
-					}
-				: {
-						width: remFromPx(dimensions.width),
-						maxWidth: '100%',
-						aspectRatio,
-					};
+		let containerStyles: React.CSSProperties = {aspectRatio, width: remFromPx(dimensions.width), maxWidth: '100%'};
+		if (!isMobile && fillContainer) {
+			containerStyles = {width: '100%', height: '100%'};
+		}
+		if (shouldBlock) {
+			return null;
+		}
 		if (shouldBlur) {
 			return (
 				<div

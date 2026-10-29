@@ -11,6 +11,7 @@ import {
 } from '@app/features/app/components/dialogs/shared/RecipientList';
 import selectorStyles from '@app/features/app/components/dialogs/shared/SelectorModalStyles.module.css';
 import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
+import {promptForAccountTier} from '@app/features/auth/utils/AccountTierPrompt';
 import type {Channel} from '@app/features/channel/models/Channel';
 import Channels from '@app/features/channel/state/Channels';
 import * as ChannelUtils from '@app/features/channel/utils/ChannelUtils';
@@ -37,6 +38,7 @@ import {failureCode} from '@app/features/platform/utils/ResponseInspection';
 import StreamerMode from '@app/features/streamer_mode/state/StreamerMode';
 import {remFromPx} from '@app/features/theme/layout/RemFromPx';
 import {Button} from '@app/features/ui/button/Button';
+import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
 import {Combobox} from '@app/features/ui/components/form/FormCombobox';
 import {Input} from '@app/features/ui/components/form/FormInput';
 import {Switch} from '@app/features/ui/components/form/FormSwitch';
@@ -262,6 +264,11 @@ const InviteModalContent = observer(function InviteModalContent({
 					temporary: options?.temporary,
 				});
 				setInvite(newInvite);
+			} catch (error) {
+				if (!promptForAccountTier(error)) {
+					throw error;
+				}
+				ModalCommands.pop();
 			} finally {
 				setLoading(false);
 			}
@@ -275,11 +282,12 @@ const InviteModalContent = observer(function InviteModalContent({
 	}, [loadInvite, isUsingVanityUrl]);
 	const title = i18n._(INVITE_FRIENDS_TO_DESCRIPTOR, {guildName: guild.name});
 	const invitesDisabled = guild.features.has(GuildFeatures.INVITES_DISABLED);
-	const inviteUrl = isUsingVanityUrl
-		? InviteUtils.getVanityInviteUrl(inviteCapability.vanityUrlCode!)
-		: invite
-			? `${RuntimeConfig.inviteEndpoint}/${invite.code}`
-			: '';
+	let inviteUrl = '';
+	if (isUsingVanityUrl) {
+		inviteUrl = InviteUtils.getVanityInviteUrl(inviteCapability.vanityUrlCode);
+	} else if (invite) {
+		inviteUrl = `${RuntimeConfig.inviteEndpoint}/${invite.code}`;
+	}
 	const hideInviteLinks = StreamerMode.shouldHideInviteLinks;
 	const displayedInviteUrl = hideInviteLinks && inviteUrl ? i18n._(LINK_HIDDEN_WHILE_SHARING_DESCRIPTOR) : inviteUrl;
 	const handleCopy = useCopyLinkHandler(inviteUrl, true);

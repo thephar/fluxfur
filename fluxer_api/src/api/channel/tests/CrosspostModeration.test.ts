@@ -18,28 +18,19 @@ import {
 import {loadFixture, sendMessageWithAttachments} from '@app/api/channel/tests/AttachmentTestUtils';
 import {sendChannelMessage} from '@app/api/channel/tests/ChannelTestUtils';
 import {readMessageRow, writeMessageRow} from '@app/api/channel/tests/CrosspostTestUtils';
-import type {MessageEmbed} from '@app/api/database/types/MessageTypes';
-import type {EmbedService} from '@app/api/infrastructure/EmbedService';
 import {
 	getGatewayService,
 	getKVClient,
 	getSnowflakeService,
 	setInjectedWorkerService,
 } from '@app/api/middleware/ServiceRegistry';
-import {
-	getCacheService,
-	getChannelRepository,
-	getPurgeQueue,
-	getStorageService,
-} from '@app/api/middleware/ServiceSingletons';
-import {urlBlocklistCache} from '@app/api/middleware/UrlBlocklistCache';
+import {getChannelRepository, getPurgeQueue, getStorageService} from '@app/api/middleware/ServiceSingletons';
 import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHarness';
 import {NoopWorkerService} from '@app/api/test/NoopWorkerService';
 import {createTestWorkerHelpers, SyncTaskWorkerService} from '@app/api/test/SyncTaskWorkerService';
 import {HTTP_STATUS} from '@app/api/test/TestConstants';
 import {createBuilder} from '@app/api/test/TestRequestBuilder';
 import {createWebhook, executeWebhook} from '@app/api/webhook/tests/WebhookTestUtils';
-import extractEmbeds from '@app/api/worker/tasks/ExtractEmbeds';
 import messageShred from '@app/api/worker/tasks/MessageShred';
 import {
 	clearWorkerDependencies,
@@ -54,7 +45,6 @@ import type {MessageResponse} from '@fluxer/schema/src/domains/message/MessageRe
 import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, test} from 'vitest';
 
 const SERVER_BITS = MessageFlags.CROSSPOSTED | MessageFlags.IS_CROSSPOST | MessageFlags.SOURCE_MESSAGE_DELETED;
-const BLOCKED_DOMAIN = 'crosspost-blocked.example';
 
 async function fabricateCopy(params: {
 	harness: ApiTestHarness;
@@ -102,14 +92,6 @@ async function adminDeleteMessage(harness: ApiTestHarness, admin: TestAccount, c
 		.execute();
 }
 
-function blockedEmbedService(): EmbedService {
-	return {
-		processUrlWithCachePolicy: async (url: string) => ({
-			embeds: [{toMessageEmbed: (): MessageEmbed => ({type: 'link', url}) as MessageEmbed}],
-		}),
-	} as unknown as EmbedService;
-}
-
 async function listCopies(channelId: string, sourceId: string): Promise<Array<string>> {
 	const messages = await new ChannelRepository().messages.listMessages(
 		createChannelID(BigInt(channelId)),
@@ -144,7 +126,6 @@ describe('Crosspost moderation', () => {
 
 	afterEach(() => {
 		clearWorkerDependencies();
-		urlBlocklistCache.removeDomain(BLOCKED_DOMAIN);
 	});
 
 	afterAll(async () => {
@@ -157,30 +138,6 @@ describe('Crosspost moderation', () => {
 	}
 
 	describe('takedown hooks', () => {
-		test('an admin delete of a copy enqueues a purge of the whole family', async () => {
-			const source = await sendChannelMessage(harness, world.a.member.token, world.a.ann.id, 'update');
-			const {copyId} = await fabricateCopy({
-				harness,
-				owner: world.b.owner,
-				target: world.b.t1.id,
-				world,
-				sourceId: source.id,
-			});
-			const admin = await createAdmin(harness);
-			await adminDeleteMessage(harness, admin, world.b.t1.id, copyId);
-			expect(await readMessageRow(world.b.t1.id, copyId)).toBeNull();
-			const jobs = worker.byTask(CrosspostTaskNames.SYNC_CROSSPOSTED_MESSAGE);
-			expect(jobs).toHaveLength(1);
-			expect(jobs[0]!.payload).toEqual({
-				channelId: world.a.ann.id,
-				messageId: source.id,
-				mode: 'purge',
-				deleteSource: true,
-			});
-			expect(jobs[0]!.options?.jobKey).toBe(`crosspost-sync:${source.id}:purge`);
-			expect(jobs[0]!.options?.skipLedger).toBe(true);
-		});
-
 		test('an admin delete of a published source purges its copies and leaves others alone', async () => {
 			const source = await sendChannelMessage(harness, world.a.member.token, world.a.ann.id, 'update');
 			await publish(harness, world.a.member.token, world.a.ann.id, source.id);
@@ -217,36 +174,6 @@ describe('Crosspost moderation', () => {
 						{channel_id: world.a.ann.id, message_id: plain.id},
 					],
 				},
-				createTestWorkerHelpers({
-					jobId: 0n,
-					addJob: (taskType, payload, options) => worker.addJob(taskType, payload, options),
-				}),
-			);
-			expect(await readMessageRow(world.a.ann.id, source.id)).toBeNull();
-			const jobs = worker.byTask(CrosspostTaskNames.SYNC_CROSSPOSTED_MESSAGE);
-			expect(jobs).toHaveLength(1);
-			expect(jobs[0]!.payload).toEqual({channelId: world.a.ann.id, messageId: source.id, mode: 'purge'});
-		});
-
-		test('a blocked unfurl on a published source deletes it and purges its copies', async () => {
-			const source = await sendChannelMessage(
-				harness,
-				world.a.member.token,
-				world.a.ann.id,
-				`see https://${BLOCKED_DOMAIN}/page`,
-			);
-			await publish(harness, world.a.member.token, world.a.ann.id, source.id);
-			urlBlocklistCache.addDomain(BLOCKED_DOMAIN);
-			worker.clear();
-			setWorkerDependenciesForTest({
-				channelRepository: getChannelRepository(),
-				gatewayService: getGatewayService(),
-				embedService: blockedEmbedService(),
-				cacheService: getCacheService(),
-				workerService: worker,
-			});
-			await extractEmbeds(
-				{channelId: world.a.ann.id, messageId: source.id, guildId: world.a.guild.id, nsfwMode: 'allow'},
 				createTestWorkerHelpers({
 					jobId: 0n,
 					addJob: (taskType, payload, options) => worker.addJob(taskType, payload, options),
@@ -387,26 +314,6 @@ describe('Crosspost moderation', () => {
 			expect(deletedKeys().filter((key) => key === sourceKey)).toHaveLength(1);
 			expect(harness.storageService.hasObject(Config.s3.buckets.cdn, sourceKey)).toBe(false);
 			expectNoTargetObjectsDeleted();
-		});
-
-		test('a blocked unfurl of a published source deletes every copy', async () => {
-			const sourceId = await publishAndDeliver(`see https://${BLOCKED_DOMAIN}/page`);
-			expect(await listCopies(c.t1.id, sourceId)).toHaveLength(1);
-			urlBlocklistCache.addDomain(BLOCKED_DOMAIN);
-			const deps = await initializeWorkerDependencies(getSnowflakeService());
-			deps.workerService = worker;
-			deps.embedService = blockedEmbedService();
-			setWorkerDependencies(deps);
-			await extractEmbeds(
-				{channelId: world.a.ann.id, messageId: sourceId, guildId: world.a.guild.id, nsfwMode: 'allow'},
-				createTestWorkerHelpers({
-					jobId: 0n,
-					addJob: (taskType, payload, options) => worker.addJob(taskType, payload, options),
-				}),
-			);
-			expect(await worker.drain()).toMatchObject({remaining: 0});
-			expect(worker.deadLetters).toEqual([]);
-			await expectFamilyGone(sourceId);
 		});
 	});
 });

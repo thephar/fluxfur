@@ -61,16 +61,22 @@ export function subscribeLinuxAppearance(listener: LinuxAppearanceListener): Lin
 				contrast: mod.readContrast(),
 				accent: mod.readAccentColor(),
 			};
-			if (event.namespace === 'org.freedesktop.appearance') {
-				if (event.key === 'color-scheme' && event.uint32 != null) {
-					snapshot.colorScheme =
-						event.uint32 === 1 ? 'prefer-dark' : event.uint32 === 2 ? 'prefer-light' : 'no-preference';
-				} else if (event.key === 'contrast' && event.uint32 != null) {
-					snapshot.contrast = event.uint32 === 1 ? 'high' : 'no-preference';
-				} else if (event.key === 'accent-color') {
-					snapshot.accent =
-						event.accent && event.accent.r >= 0 && event.accent.g >= 0 && event.accent.b >= 0 ? event.accent : null;
+			if (event.namespace !== 'org.freedesktop.appearance') {
+				listener(snapshot);
+				return;
+			}
+			if (event.key === 'color-scheme' && event.uint32 != null) {
+				snapshot.colorScheme = 'no-preference';
+				if (event.uint32 === 1) {
+					snapshot.colorScheme = 'prefer-dark';
+				} else if (event.uint32 === 2) {
+					snapshot.colorScheme = 'prefer-light';
 				}
+			} else if (event.key === 'contrast' && event.uint32 != null) {
+				snapshot.contrast = event.uint32 === 1 ? 'high' : 'no-preference';
+			} else if (event.key === 'accent-color') {
+				snapshot.accent =
+					event.accent && event.accent.r >= 0 && event.accent.g >= 0 && event.accent.b >= 0 ? event.accent : null;
 			}
 			listener(snapshot);
 		});

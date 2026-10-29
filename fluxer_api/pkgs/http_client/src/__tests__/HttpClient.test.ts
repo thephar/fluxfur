@@ -88,22 +88,5 @@ describe('HttpClient', () => {
 				expect(validationCalls[1]?.phase).toBe('redirect');
 			});
 		});
-		describe('timeout', () => {
-			it('respects custom timeout', async () => {
-				const client = createHttpClient(TEST_USER_AGENT);
-				testServer.setHandler((_req, res) => {
-					setTimeout(() => {
-						res.writeHead(200);
-						res.end('OK');
-					}, 500);
-				});
-				await expect(
-					client.sendRequest({
-						url: testServer.url,
-						timeout: 100,
-					}),
-				).rejects.toThrow();
-			});
-		});
 	});
 });

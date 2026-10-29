@@ -168,13 +168,16 @@ export const PrivacySetupModal = observer(() => {
 		],
 		[i18n, currentChoice, currentTag],
 	);
-	const summary = !changed
-		? i18n._(PRIVACY_SETUP_SUMMARY_NONE_DESCRIPTOR)
-		: applying
-			? i18n._(PRIVACY_SETUP_SUMMARY_APPLY_DESCRIPTOR)
-			: affected.length > 0
-				? i18n._(PRIVACY_SETUP_SUMMARY_FUTURE_DESCRIPTOR)
-				: i18n._(PRIVACY_SETUP_SUMMARY_FUTURE_ONLY_DESCRIPTOR);
+	let summary: string;
+	if (!changed) {
+		summary = i18n._(PRIVACY_SETUP_SUMMARY_NONE_DESCRIPTOR);
+	} else if (applying) {
+		summary = i18n._(PRIVACY_SETUP_SUMMARY_APPLY_DESCRIPTOR);
+	} else if (affected.length > 0) {
+		summary = i18n._(PRIVACY_SETUP_SUMMARY_FUTURE_DESCRIPTOR);
+	} else {
+		summary = i18n._(PRIVACY_SETUP_SUMMARY_FUTURE_ONLY_DESCRIPTOR);
+	}
 	const handleClose = useCallback(() => {
 		ModalCommands.pop();
 	}, []);

@@ -334,7 +334,7 @@ export const UserProfileActionsSheet: React.FC<UserProfileActionsSheetProps> = o
 			}
 		}
 		if (!isCurrentUser) {
-			if (relationshipType === RelationshipTypes.FRIEND && !RuntimeConfig.directMessagesDisabled) {
+			if (relationshipType === RelationshipTypes.FRIEND && !RuntimeConfig.friendsDisabled) {
 				menuGroups.push({
 					items: [
 						{

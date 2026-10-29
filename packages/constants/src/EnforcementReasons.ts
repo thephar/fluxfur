@@ -14,6 +14,7 @@ export type EnforcementRuleKey =
 	| 'privacy'
 	| 'harassment'
 	| 'payments'
+	| 'operator_pass_payments'
 	| 'unwanted_sexual_content'
 	| 'violent_content'
 	| 'ban_evasion'
@@ -45,11 +46,15 @@ export type EnforcementLimit = 'direct_messages' | 'reports' | 'purchases';
 
 export type EnforcementReasonCode = Exclude<
 	ValueOf<typeof DeletionReasons>,
-	typeof DeletionReasons.USER_REQUESTED | typeof DeletionReasons.OTHER | typeof DeletionReasons.INACTIVITY
+	| typeof DeletionReasons.USER_REQUESTED
+	| typeof DeletionReasons.OTHER
+	| typeof DeletionReasons.INACTIVITY
+	| typeof DeletionReasons.BELOW_MINIMUM_AGE
+	| typeof DeletionReasons.UNCLAIMED_ACCOUNT_ABANDONED
 >;
 
 interface EnforcementRule {
-	policy: 'guidelines' | 'terms';
+	policy: 'guidelines' | 'terms' | 'operator_pass_terms';
 	anchor: string;
 	barsNewAccounts: boolean;
 	showOnNetworkScreen: boolean;
@@ -88,6 +93,12 @@ export const ENFORCEMENT_RULES: Readonly<Record<EnforcementRuleKey, EnforcementR
 	payments: {
 		policy: 'terms',
 		anchor: '4-4-failed-payments-and-disputes',
+		barsNewAccounts: true,
+		showOnNetworkScreen: false,
+	},
+	operator_pass_payments: {
+		policy: 'operator_pass_terms',
+		anchor: '9-payment-disputes',
 		barsNewAccounts: true,
 		showOnNetworkScreen: false,
 	},
@@ -165,6 +176,11 @@ export const ENFORCEMENT_REASONS: Readonly<Record<EnforcementReasonCode, Enforce
 		handling: 'standard',
 		kinds: ['warning', 'content_removal', 'profile_reset', 'community_removal'],
 	},
+	[DeletionReasons.OPERATOR_PASS_PAYMENT_DISPUTE]: {
+		rule: 'operator_pass_payments',
+		handling: 'standard',
+		kinds: PAYMENT_KINDS,
+	},
 };
 
 const ENFORCEMENT_SPAMMER_LIMIT_RULES: ReadonlySet<EnforcementRuleKey> = new Set([
@@ -177,7 +193,7 @@ const ENFORCEMENT_SPAMMER_LIMIT_RULES: ReadonlySet<EnforcementRuleKey> = new Set
 const ENFORCEMENT_LIMIT_RULES: Readonly<Record<EnforcementLimit, ReadonlySet<EnforcementRuleKey>>> = {
 	direct_messages: ENFORCEMENT_SPAMMER_LIMIT_RULES,
 	reports: new Set(['report_abuse']),
-	purchases: new Set(['payments']),
+	purchases: new Set(['payments', 'operator_pass_payments']),
 };
 
 const ACCOUNT_KINDS: ReadonlySet<EnforcementKind> = new Set(['suspension', 'closure']);

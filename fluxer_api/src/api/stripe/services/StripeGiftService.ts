@@ -15,12 +15,13 @@ import type {User} from '@app/api/models/User';
 import type {StoreEntitlementService} from '@app/api/store_billing/StoreEntitlementService';
 import {getBillingBranding} from '@app/api/stripe/BillingBranding';
 import type {ProductInfo} from '@app/api/stripe/ProductRegistry';
+import {isPastStripeTrialLimit} from '@app/api/stripe/StripeGiftTrialMetadata';
 import {mirrorSubscription} from '@app/api/stripe/StripeMirror';
-import type {StripeCheckoutService} from '@app/api/stripe/services/StripeCheckoutService';
 import type {StripePremiumService} from '@app/api/stripe/services/StripePremiumService';
-import type {StripeSubscriptionService} from '@app/api/stripe/services/StripeSubscriptionService';
+import type {GiftTrialExtension, StripeSubscriptionService} from '@app/api/stripe/services/StripeSubscriptionService';
 import {bumpGiftInventory} from '@app/api/user/GiftInventory';
 import type {UserRepository} from '@app/api/user/repositories/UserRepository';
+import {getEffectivePremiumUntil} from '@app/api/user/UserHelpers';
 import {dispatchUserUpdate} from '@app/api/user/UserMappers';
 import {UserPremiumTypes} from '@fluxer/constants/src/UserConstants';
 import {CannotRedeemPlutoniumWithVisionaryError} from '@fluxer/errors/src/domains/payment/CannotRedeemPlutoniumWithVisionaryError';
@@ -40,7 +41,6 @@ export class StripeGiftService {
 		private userRepository: UserRepository,
 		private cacheService: ICacheService,
 		private gatewayService: IGatewayService,
-		private checkoutService: StripeCheckoutService,
 		private premiumService: StripePremiumService,
 		private subscriptionService: StripeSubscriptionService,
 		private storeEntitlementService: StoreEntitlementService | null = null,
@@ -123,8 +123,6 @@ export class StripeGiftService {
 				},
 				'Loaded redeemer state for gift redemption',
 			);
-			this.checkoutService.validateUserCanPurchase(user);
-			Logger.debug({userId, giftCode: code}, 'Redeemer passed gift purchase validation');
 			if (user.premiumType === UserPremiumTypes.LIFETIME) {
 				Logger.debug({userId, giftCode: code}, 'Rejecting redemption for lifetime user');
 				throw new CannotRedeemPlutoniumWithVisionaryError((await getBillingBranding()).premiumName);
@@ -210,6 +208,7 @@ export class StripeGiftService {
 						giftCode.durationQuantity,
 						false,
 					);
+					await this.stopStoreRenewalsPastTrialLimit(userId);
 				}
 				Logger.debug({userId, giftCode: code}, 'Completed entitlement grant path for redeemed gift');
 			} catch (entitlementError: unknown) {
@@ -366,15 +365,14 @@ export class StripeGiftService {
 			},
 			'Attempting to stack gift duration onto active Stripe subscription',
 		);
+		let extension: GiftTrialExtension;
 		try {
-			const subscription = await this.subscriptionService.extendSubscriptionWithGiftTrialDuration(
+			extension = await this.subscriptionService.extendSubscriptionWithGiftTrialDuration(
 				user,
 				giftCode.durationType,
 				giftCode.durationQuantity,
 				code,
 			);
-			Logger.debug({userId: user.id, giftCode: code}, 'Stacked gift duration onto Stripe subscription');
-			return {subscription};
 		} catch (error: unknown) {
 			if (!this.shouldFallbackToPremiumFieldGrant(error)) {
 				Logger.error(
@@ -406,6 +404,32 @@ export class StripeGiftService {
 			);
 			return null;
 		}
+		if (extension.kind === 'past_trial_limit') {
+			if (!user.premiumWillCancel) {
+				await this.subscriptionService.cancelSubscriptionAtPeriodEnd(user.id, 'gift_past_trial_limit');
+			}
+			Logger.info(
+				{userId: user.id, giftCode: code, stripeSubscriptionId: user.stripeSubscriptionId},
+				'Gift is past the Stripe trial limit; subscription ends at period end and the gift follows it',
+			);
+			return null;
+		}
+		Logger.debug({userId: user.id, giftCode: code}, 'Stacked gift duration onto Stripe subscription');
+		return {subscription: extension.kind === 'extended' ? extension.subscription : null};
+	}
+
+	private async stopStoreRenewalsPastTrialLimit(userId: UserID): Promise<void> {
+		const user = await this.userRepository.findUnique(userId);
+		const giftedUntil = user ? getEffectivePremiumUntil(user) : null;
+		if (
+			!user ||
+			user.stripeSubscriptionId ||
+			!giftedUntil ||
+			!isPastStripeTrialLimit(giftedUntil.getTime(), Date.now())
+		) {
+			return;
+		}
+		await this.storeEntitlementService?.stopGooglePlayRenewals(userId);
 	}
 
 	private hasCurrentSubscriptionState(user: User): boolean {

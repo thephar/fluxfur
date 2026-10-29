@@ -106,8 +106,7 @@ export const CANCEL_DESCRIPTOR = msg({
 });
 export const OKAY_DESCRIPTOR = msg({
 	message: 'Okay',
-	comment:
-		'Generic acknowledgement button on an informational alert. Closes the alert. Use for benign confirms; for "I have read and understood" use UNDERSTOOD_DESCRIPTOR.',
+	comment: 'Generic acknowledgement button on an informational alert. Closes the alert.',
 });
 export const GO_BACK_DESCRIPTOR = msg({
 	message: 'Go back',
@@ -158,6 +157,10 @@ export const CREATE_DESCRIPTOR = msg({
 	message: 'Create',
 	comment: 'Generic primary action label that creates the item described by the current dialog or form.',
 });
+export const ADD_EMAIL_DESCRIPTOR = msg({
+	message: 'Add email',
+	comment: 'Button that opens or submits the flow to add an email to an account made without one.',
+});
 export const CLAIM_ACCOUNT_DESCRIPTOR = msg({
 	message: 'Claim account',
 	comment: 'Generic account action label that opens or submits the flow to secure an unclaimed account.',
@@ -171,8 +174,8 @@ export const VERIFY_DESCRIPTOR = msg({
 	comment: 'Generic primary action label that confirms a code, identity check, or account verification step.',
 });
 export const VERIFY_EMAIL_DESCRIPTOR = msg({
-	message: 'Verify email',
-	comment: 'Shared action or page-title label for starting or completing email address verification.',
+	message: 'Confirm email',
+	comment: 'Shared action or page-title label for starting or completing email address confirmation.',
 });
 export const ENABLE_TWO_FACTOR_AUTH_DESCRIPTOR = msg({
 	message: 'Enable two-factor auth',
@@ -301,10 +304,6 @@ export const MATURE_CONTENT_DESCRIPTOR = msg({
 	message: 'Mature content',
 	comment: 'Generic title or label for content marked for mature audiences.',
 });
-export const COMPLETE_MATURE_CONTENT_CHECK_DESCRIPTOR = msg({
-	message: 'Complete mature content check',
-	comment: 'Action label that starts the credit-card check used to unlock mature content in supported regions.',
-});
 export const PROCEED_DESCRIPTOR = msg({
 	message: 'Proceed',
 	comment: 'Generic action label that confirms proceeding past a content warning or mature-content gate.',
@@ -312,10 +311,6 @@ export const PROCEED_DESCRIPTOR = msg({
 export const RESET_MATURE_CONTENT_AGREE_STATE_DESCRIPTOR = msg({
 	message: 'Reset mature content agreement state',
 	comment: 'Developer tool action that forgets a local mature-content gate acknowledgement.',
-});
-export const UNDERSTOOD_DESCRIPTOR = msg({
-	message: 'Understood',
-	comment: 'Acknowledgement button on an informational modal. Closes the modal after the user has read the message.',
 });
 export const CLOSE_DESCRIPTOR = msg({
 	message: 'Close',
@@ -618,6 +613,11 @@ export const SUBMIT_FEEDBACK_DESCRIPTOR = msg({
 	message: 'Submit feedback',
 	comment: 'Settings menu entry that opens the feedback website, where people suggest features and report problems.',
 });
+export const DONATE_DESCRIPTOR = msg({
+	message: 'Donate',
+	comment:
+		'Settings menu entry that opens the donation page on the website, where people can give money to support Fluxer.',
+});
 export const OPENS_IN_BROWSER_DESCRIPTOR = msg({
 	message: 'Opens in your browser',
 	comment:
@@ -704,9 +704,9 @@ export const JOIN_COMMUNITY_DESCRIPTOR = msg({
 	comment: 'Generic action label that accepts a community invite / joins a community.',
 });
 export const DISCOVERABLE_COMMUNITY_DESCRIPTOR = msg({
-	message: 'Discoverable community',
+	message: 'Listed in Explore',
 	comment:
-		'Label for a community that anyone can find through discovery. Used in the community badge and as the community subtitle in expression info cards. Keep it concise.',
+		'Label for a community listed in Explore, where anyone can find it. Used in the community badge and as the community subtitle in expression info cards. Keep it concise.',
 });
 export const INVITES_DESCRIPTOR = msg({
 	message: 'Invites',
@@ -873,7 +873,7 @@ export const CONFIRM_NEW_PASSWORD_DESCRIPTOR = msg({
 	comment: 'Generic field label for retyping the password the user is choosing.',
 });
 export const PASSWORDS_DO_NOT_MATCH_DESCRIPTOR = msg({
-	message: 'Passwords do not match',
+	message: "The passwords don't match.",
 	comment: 'Validation error shown when a password and its confirmation field differ.',
 });
 export const DISPLAY_NAME_OPTIONAL_DESCRIPTOR = msg({
@@ -896,17 +896,9 @@ export const THEME_DESCRIPTOR = msg({
 	message: 'Theme',
 	comment: 'Generic label for the app theme selector.',
 });
-export const INVALID_STATUS_DESCRIPTOR = msg({
-	message: 'Invalid status',
-	comment: 'Callback page title shown when an external flow returns an unrecognized status.',
-});
 export const ACTIVE_ACCOUNT_DESCRIPTOR = msg({
 	message: 'Active account',
 	comment: 'Short status label for the account currently signed in.',
-});
-export const ADD_ACCOUNT_DESCRIPTOR = msg({
-	message: 'Add account',
-	comment: 'Generic action label that starts signing in to an additional account.',
 });
 
 export const MESSAGE_COUNT_DESCRIPTOR = msg({
@@ -936,5 +928,6 @@ export const AVAILABLE_DESCRIPTOR = msg({
 
 export const SAVE_PERCENT_DESCRIPTOR = msg({
 	message: 'Save {percent}%',
-	comment: 'Badge on the one-year option in the gift purchase dialog. percent is a whole number such as 17.',
+	comment:
+		'Short caption next to a yearly price, in the gift purchase dialog and under the yearly Plutonium price, saying how much the yearly plan saves over paying monthly. Shown as written, never uppercased, so use normal sentence case. percent is a whole number such as 17.',
 });

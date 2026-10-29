@@ -328,8 +328,10 @@ function buildEmojiAutocompleteEmojiOptions(
 	) {
 		return emojiAutocompleteOptionsCache.options;
 	}
-	const allEmojis =
-		showDefaultEmojis || showCustomEmojis ? (hasQuery ? Emoji.search(channel, query, 10) : allUnfilteredEmojis) : [];
+	let allEmojis: typeof allUnfilteredEmojis = [];
+	if (showDefaultEmojis || showCustomEmojis) {
+		allEmojis = hasQuery ? Emoji.search(channel, query, 10) : allUnfilteredEmojis;
+	}
 	const permissionFiltered = filterEmojisForAutocomplete(ctx.i18n, allEmojis, channel);
 	const filteredEmojis = permissionFiltered.filter((emoji) => {
 		const isCustom = !!emoji.guildId;
@@ -365,11 +367,10 @@ export function buildEmojiAutocompleteOptions(ctx: EmojiAutocompleteContext): Ar
 		? Sticker.searchWithChannel(ctx.channel, hasQuery ? query : '').slice(0, hasQuery ? 5 : undefined)
 		: [];
 	const filteredStickers = filterStickersForAutocomplete(ctx.i18n, allStickers, ctx.channel);
-	const stickerResults = hasQuery
-		? filteredStickers
-		: showStickers
-			? StickerPicker.getFrecentStickers(filteredStickers, 3)
-			: [];
+	let stickerResults = filteredStickers;
+	if (!hasQuery) {
+		stickerResults = showStickers ? StickerPicker.getFrecentStickers(filteredStickers, 3) : [];
+	}
 	const stickerOptions: Array<AutocompleteOption> = stickerResults.map((sticker) => ({
 		type: 'sticker' as const,
 		sticker,

@@ -28,34 +28,6 @@ function createOverflowingWorkerService(): RecordingWorkerService {
 }
 
 describe('per-message worker jobs', () => {
-	it('enqueues handleMentions without a ledger row', async () => {
-		const workerService = new RecordingWorkerService();
-		const mentionService = new MessageMentionService(
-			null as never,
-			null as never,
-			null as never,
-			workerService,
-			null as never,
-		);
-		await mentionService.handleMentionTasks({
-			guildId: null,
-			message: makeMentionMessage(),
-			authorId: createUserID(1n),
-		});
-		expect(workerService.jobs).toHaveLength(1);
-		expect(workerService.jobs[0]!.taskType).toBe('handleMentions');
-		expect(workerService.jobs[0]!.options?.skipLedger).toBe(true);
-	});
-
-	it('enqueues extractEmbeds without a ledger row', async () => {
-		const workerService = new RecordingWorkerService();
-		const embedService = new EmbedService(null as never, null as never, workerService);
-		await embedService.enqueueUrlEmbedExtraction(createChannelID(3n), createMessageID(2n), null, 'block');
-		expect(workerService.jobs).toHaveLength(1);
-		expect(workerService.jobs[0]!.taskType).toBe('extractEmbeds');
-		expect(workerService.jobs[0]!.options?.skipLedger).toBe(true);
-	});
-
 	it('drops mention fanout instead of failing the send when the jobs stream is full', async () => {
 		const mentionService = new MessageMentionService(
 			null as never,

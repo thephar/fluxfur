@@ -1,19 +1,26 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {
+	clearTestEmails,
 	createTestAccount,
 	createUniqueEmail,
 	createUniqueUsername,
+	listTestEmails,
 	setUserACLs,
 } from '@app/api/auth/tests/AuthTestUtils';
+import {createUserID} from '@app/api/BrandedTypes';
 import {Config} from '@app/api/Config';
+import {createApiContext} from '@app/api/CreateApiContext';
 import {createChannelInvite, createGuild, setupTestGuildWithMembers} from '@app/api/guild/tests/GuildTestUtils';
-import {getInstanceConfigRepository} from '@app/api/middleware/ServiceSingletons';
+import {getAdminRepository, getInstanceConfigRepository} from '@app/api/middleware/ServiceSingletons';
 import type {ApiTestHarness} from '@app/api/test/ApiTestHarness';
 import {createApiTestHarness} from '@app/api/test/ApiTestHarness';
 import {HTTP_STATUS} from '@app/api/test/TestConstants';
 import {createBuilder, createBuilderWithoutAuth} from '@app/api/test/TestRequestBuilder';
+import {setPendingDeletionAt, triggerDeletionWorker} from '@app/api/user/tests/UserTestUtils';
+import {isDeletionComplete} from '@app/api/user/UserHelpers';
 import {AdminACLs} from '@fluxer/constants/src/AdminACLs';
+import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
 import type {PendingRegistrationListResponse} from '@fluxer/schema/src/domains/admin/AdminSchemas';
 import type {AdminUsersMeResponse} from '@fluxer/schema/src/domains/admin/AdminUserSchemas';
 import {afterAll, beforeAll, beforeEach, describe, expect, it} from 'vitest';
@@ -106,7 +113,7 @@ describe('pending registration approval and the stock community', () => {
 		await createBuilder(harness, admin.token)
 			.patch(`/admin/instance/pending-registrations/${outsider.userId}`)
 			.body({status: 'approved'})
-			.expect(HTTP_STATUS.OK)
+			.expect(HTTP_STATUS.NOT_FOUND)
 			.execute();
 
 		await createBuilder(harness, owner.token)
@@ -360,5 +367,133 @@ describe('pending registration approval and the stock community', () => {
 			.expect(HTTP_STATUS.OK)
 			.execute();
 		expect(decided.pending_registrations).toEqual([]);
+	});
+
+	it('emails the applicant when the registration is approved, and not when it is rejected', async () => {
+		const admin = await setUserACLs(harness, await createTestAccount(harness), [
+			AdminACLs.AUTHENTICATE,
+			AdminACLs.REGISTRATION_REVIEW,
+		]);
+		await getInstanceConfigRepository().setRegistrationConfig({mode: 'approval'});
+		const approvedBody = invitedRegistrationBody('approvedmail');
+		const rejectedBody = invitedRegistrationBody('rejectedmail');
+		const approved = await createBuilderWithoutAuth<PendingRegistrationResponse>(harness)
+			.post('/auth/register')
+			.body(approvedBody)
+			.execute();
+		const rejected = await createBuilderWithoutAuth<PendingRegistrationResponse>(harness)
+			.post('/auth/register')
+			.body(rejectedBody)
+			.execute();
+		await clearTestEmails(harness);
+
+		await createBuilder(harness, admin.token)
+			.patch(`/admin/instance/pending-registrations/${approved.user_id}`)
+			.body({status: 'approved'})
+			.expect(HTTP_STATUS.OK)
+			.execute();
+		await createBuilder(harness, admin.token)
+			.patch(`/admin/instance/pending-registrations/${rejected.user_id}`)
+			.body({status: 'rejected'})
+			.expect(HTTP_STATUS.OK)
+			.execute();
+
+		const approvedEmails = await listTestEmails(harness, {recipient: approvedBody.email as string});
+		expect(approvedEmails.map((email) => email.type)).toEqual(['registration_approved']);
+		expect(await listTestEmails(harness, {recipient: rejectedBody.email as string})).toEqual([]);
+	});
+
+	it('deletes the account on rejection, records it, and lets the email register again', async () => {
+		const admin = await setUserACLs(harness, await createTestAccount(harness), [
+			AdminACLs.AUTHENTICATE,
+			AdminACLs.REGISTRATION_REVIEW,
+		]);
+		await getInstanceConfigRepository().setRegistrationConfig({mode: 'approval'});
+		const body = invitedRegistrationBody('rejecteddeleted');
+		const rejected = await createBuilderWithoutAuth<PendingRegistrationResponse>(harness)
+			.post('/auth/register')
+			.body(body)
+			.execute();
+		await clearTestEmails(harness);
+
+		await createBuilder(harness, admin.token)
+			.patch(`/admin/instance/pending-registrations/${rejected.user_id}`)
+			.body({status: 'rejected'})
+			.expect(HTTP_STATUS.OK)
+			.execute();
+
+		const users = createApiContext().services.users;
+		const scheduled = await users.findUniqueAssert(createUserID(BigInt(rejected.user_id)));
+		expect(scheduled.pendingDeletionAt!.getTime()).toBeLessThanOrEqual(Date.now());
+		const audit = (await getAdminRepository().listAllAuditLogsPaginated(1000)).filter(
+			(log) => log.action === 'reject_registration' && log.targetId.toString() === rejected.user_id,
+		);
+		expect(audit.map((log) => Object.fromEntries(log.metadata))).toEqual([
+			{pending_deletion_at: scheduled.pendingDeletionAt!.toISOString()},
+		]);
+		const {json} = await createBuilderWithoutAuth<{errors: Array<{path: string; code: string}>}>(harness)
+			.post('/auth/register')
+			.body({...body, username: createUniqueUsername('rejectedagain')})
+			.expect(HTTP_STATUS.BAD_REQUEST, 'INVALID_FORM_BODY')
+			.executeWithResponse();
+		expect(json.errors).toEqual([
+			expect.objectContaining({path: 'email', code: ValidationErrorCodes.EMAIL_ALREADY_IN_USE}),
+		]);
+
+		await triggerDeletionWorker(harness);
+
+		expect(isDeletionComplete(await users.findUniqueAssert(createUserID(BigInt(rejected.user_id))))).toBe(true);
+		expect(await listTestEmails(harness, {recipient: body.email as string})).toEqual([]);
+		const again = await createBuilderWithoutAuth<PendingRegistrationResponse>(harness)
+			.post('/auth/register')
+			.body({...body, username: createUniqueUsername('rejectedagain')})
+			.execute();
+		expect(again.user_id).not.toBe(rejected.user_id);
+		const listed = await createBuilder<PendingRegistrationListResponse>(harness, admin.token)
+			.get('/admin/instance/pending-registrations')
+			.expect(HTTP_STATUS.OK)
+			.execute();
+		expect(listed.pending_registrations.map((entry) => entry.user_id)).toEqual([again.user_id]);
+	});
+
+	it('leaves an account that was not waiting untouched', async () => {
+		const admin = await setUserACLs(harness, await createTestAccount(harness), [
+			AdminACLs.AUTHENTICATE,
+			AdminACLs.REGISTRATION_REVIEW,
+		]);
+		const outsider = await createTestAccount(harness);
+		await clearTestEmails(harness);
+
+		for (const status of ['approved', 'rejected'] as const) {
+			await createBuilder(harness, admin.token)
+				.patch(`/admin/instance/pending-registrations/${outsider.userId}`)
+				.body({status})
+				.expect(HTTP_STATUS.NOT_FOUND)
+				.execute();
+		}
+
+		expect(await listTestEmails(harness, {recipient: outsider.email})).toEqual([]);
+		await createBuilder(harness, outsider.token).get('/users/@me').expect(HTTP_STATUS.OK).execute();
+	});
+
+	it('drops the pending registration when the account is deleted', async () => {
+		const admin = await setUserACLs(harness, await createTestAccount(harness), [
+			AdminACLs.AUTHENTICATE,
+			AdminACLs.REGISTRATION_REVIEW,
+		]);
+		await getInstanceConfigRepository().setRegistrationConfig({mode: 'approval'});
+		const pending = await createBuilderWithoutAuth<PendingRegistrationResponse>(harness)
+			.post('/auth/register')
+			.body(invitedRegistrationBody('deletedpending'))
+			.execute();
+
+		await setPendingDeletionAt(harness, pending.user_id, new Date(Date.now() - 1000));
+		await triggerDeletionWorker(harness);
+
+		const listed = await createBuilder<PendingRegistrationListResponse>(harness, admin.token)
+			.get('/admin/instance/pending-registrations')
+			.expect(HTTP_STATUS.OK)
+			.execute();
+		expect(listed.pending_registrations.map((entry) => entry.user_id)).not.toContain(pending.user_id);
 	});
 });

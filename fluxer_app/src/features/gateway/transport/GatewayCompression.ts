@@ -15,7 +15,7 @@ export type CompressionType = 'none' | 'zstd-stream';
 
 const ZSTD_STREAM_LEVEL = 3;
 
-export class GatewayCompressionError extends Error {
+class GatewayCompressionError extends Error {
 	readonly compression: CompressionType;
 	readonly originalError: unknown;
 

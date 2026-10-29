@@ -42,7 +42,7 @@ export interface DesktopModuleEnsureResult {
 	readonly status: DesktopModuleEnsureStatus;
 }
 
-export interface DesktopPendingModuleUpdate {
+interface DesktopPendingModuleUpdate {
 	readonly modules: ReadonlyArray<string>;
 }
 

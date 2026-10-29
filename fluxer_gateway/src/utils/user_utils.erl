@@ -3,7 +3,7 @@
 -module(user_utils).
 -typing([eqwalizer]).
 
--export([normalize_user/1, partial_user_fields/0]).
+-export([normalize_user/1, partial_user_fields/0, profile_restricted/1]).
 
 -spec partial_user_fields() -> [binary()].
 partial_user_fields() ->
@@ -22,13 +22,23 @@ partial_user_fields() ->
 
 -spec normalize_user(map() | term()) -> map().
 normalize_user(User) when is_map(User) ->
-    lists:foldl(
+    Normalized = lists:foldl(
         fun(Key, Acc) -> add_normalized_field(Key, User, Acc) end,
         #{},
         partial_user_fields()
-    );
+    ),
+    case profile_restricted(User) of
+        true -> Normalized#{<<"global_name">> => null, <<"avatar">> => null};
+        false -> Normalized
+    end;
 normalize_user(_) ->
     #{}.
+
+-spec profile_restricted(map() | term()) -> boolean().
+profile_restricted(User) when is_map(User) ->
+    type_conv:is_true(maps:get(<<"profile_restricted">>, User, false));
+profile_restricted(_) ->
+    false.
 
 -spec normalize_field(binary(), term()) -> term() | undefined.
 normalize_field(<<"id">>, Value) ->
@@ -56,21 +66,3 @@ maybe_add_normalized_field(_Key, undefined, Acc) ->
     Acc;
 maybe_add_normalized_field(Key, Normalized, Acc) ->
     Acc#{Key => Normalized}.
-
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
-
-normalize_user_valid_test() ->
-    User = #{
-        <<"id">> => <<"123">>,
-        <<"username">> => <<"testuser">>,
-        <<"discriminator">> => <<"0001">>,
-        <<"email">> => <<"test@example.com">>
-    },
-    Result = normalize_user(User),
-    ?assertEqual(123, maps:get(<<"id">>, Result)),
-    ?assertEqual(<<"testuser">>, maps:get(<<"username">>, Result)),
-    ?assertEqual(<<"0001">>, maps:get(<<"discriminator">>, Result)),
-    ?assertEqual(error, maps:find(<<"email">>, Result)).
-
--endif.

@@ -43,7 +43,7 @@ export interface ResolvedAccountRestoration {
 	readonly usedMirroredCredential: boolean;
 }
 
-export interface UnresolvedAccountRestoration {
+interface UnresolvedAccountRestoration {
 	readonly kind: 'unresolved';
 	readonly reason: 'missing-account';
 }
@@ -172,6 +172,7 @@ export class AuthSessionAccountCatalog {
 			presenceIntent: data.presenceIntent,
 			lastActive: data.lastActive,
 			isValid: data.isValid ?? true,
+			...(data.switcherPosition === undefined ? {} : {switcherPosition: data.switcherPosition}),
 		};
 	}
 

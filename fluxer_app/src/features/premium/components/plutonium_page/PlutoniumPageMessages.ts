@@ -4,15 +4,18 @@ import {msg} from '@lingui/core/macro';
 
 export const MONTHLY_PRICE_DESCRIPTOR = msg({
 	message: '{monthlyPrice}/mo',
-	comment: 'Compact monthly price on the Plutonium page hero. Preserve the monthlyPrice placeholder exactly.',
+	comment:
+		'Compact monthly price on the Plutonium page hero. Preserve the monthlyPrice placeholder exactly. The price is shown bold and any text around it in a lighter style, so keep the period words outside the placeholder.',
 });
 export const YEARLY_PRICE_DESCRIPTOR = msg({
 	message: '{yearlyPrice}/yr',
-	comment: 'Compact yearly price on the Plutonium page hero. Preserve the yearlyPrice placeholder exactly.',
+	comment:
+		'Compact yearly price on the Plutonium page hero. Preserve the yearlyPrice placeholder exactly. The price is shown bold and any text around it in a lighter style, so keep the period words outside the placeholder.',
 });
 export const PRICE_OR_DESCRIPTOR = msg({
 	message: 'or',
-	comment: 'Compact conjunction between the monthly and yearly price on the Plutonium page hero.',
+	comment:
+		'Compact conjunction between the monthly and yearly price on the Plutonium page hero. On narrow screens it starts the second line, right before the yearly price.',
 });
 export const DONATION_HINT_DESCRIPTOR = msg({
 	message: "Just want to support {productName}'s open source development? {donateLink}.",
@@ -246,7 +249,7 @@ export const PURCHASE_BLOCKED_CLAIM_DESCRIPTOR = msg({
 		'Plutonium page note under disabled buttons for unclaimed accounts. premiumProductName is the paid tier name.',
 });
 export const PURCHASE_BLOCKED_VERIFY_DESCRIPTOR = msg({
-	message: 'Verify your email to buy {premiumProductName}.',
+	message: 'Confirm your email to buy {premiumProductName}.',
 	comment:
 		'Plutonium page note under disabled buttons for unverified accounts. premiumProductName is the paid tier name.',
 });

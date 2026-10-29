@@ -63,7 +63,7 @@ async fn discovery_page(
                 (
                     None,
                     None,
-                    Some("Failed to load pending discovery applications.".to_owned()),
+                    Some("Failed to load pending applications to Explore.".to_owned()),
                 )
             }
         }
@@ -75,7 +75,7 @@ async fn discovery_page(
                 (
                     None,
                     None,
-                    Some("Failed to load listed discovery guilds.".to_owned()),
+                    Some("Failed to load guilds listed in Explore.".to_owned()),
                 )
             }
         }
@@ -112,8 +112,8 @@ async fn discovery_approve(
         config,
         result,
         "approve discovery application",
-        "Discovery application approved",
-        "Failed to approve discovery application",
+        "Application to Explore approved",
+        "Failed to approve application to Explore",
         "pending",
     )
 }
@@ -136,8 +136,8 @@ async fn discovery_reject(
         config,
         result,
         "reject discovery application",
-        "Discovery application rejected",
-        "Failed to reject discovery application",
+        "Application to Explore rejected",
+        "Failed to reject application to Explore",
         "pending",
     )
 }
@@ -160,8 +160,8 @@ async fn discovery_remove(
         config,
         result,
         "remove discovery guild",
-        "Guild removed from discovery",
-        "Failed to remove guild from discovery",
+        "Guild removed from Explore",
+        "Failed to remove guild from Explore",
         "listed",
     )
 }
@@ -177,18 +177,18 @@ async fn discovery_form(
         Ok(Form(form)) => form,
         Err(error) => {
             tracing::warn!(%error, "{log_label}");
-            return Err(Box::new(flash::redirect_with_flash(
+            return Err(Box::new(flash::redirect_error(
+                config,
                 &target,
-                FlashData::error("Invalid form data"),
-                config.secure_cookies(),
+                "Invalid form data",
             )));
         }
     };
     let Some(guild_id) = clean_string(form.guild_id.as_deref().unwrap_or("")) else {
-        return Err(Box::new(flash::redirect_with_flash(
+        return Err(Box::new(flash::redirect_error(
+            config,
             &target,
-            FlashData::error("Guild ID is required"),
-            config.secure_cookies(),
+            "Guild ID is required",
         )));
     };
     Ok((form, guild_id))

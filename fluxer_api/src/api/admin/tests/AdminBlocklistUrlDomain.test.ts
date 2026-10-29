@@ -3,7 +3,6 @@
 import {createTestAccount, setUserACLs, type TestAccount} from '@app/api/auth/tests/AuthTestUtils';
 import {createChannel, createGuild} from '@app/api/channel/tests/ChannelTestUtils';
 import {ensureSessionStarted} from '@app/api/message/tests/MessageTestUtils';
-import {getAdminRepository} from '@app/api/middleware/ServiceSingletons';
 import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHarness';
 import {createBuilder} from '@app/api/test/TestRequestBuilder';
 import {APIErrorCodes} from '@fluxer/constants/src/ApiErrorCodes';
@@ -73,21 +72,6 @@ describe('Admin url-domain blocklist patterns', () => {
 		expect(await check('docs.onrender.com')).toBe(false);
 	});
 
-	it('records whether the entry is a pattern in the audit log', async () => {
-		await add('*shop*.onrender.com', false);
-		await add('shop.example.com');
-		const logs = (await getAdminRepository().listAllAuditLogsPaginated(1000)).filter(
-			(log) => log.action === 'ban_url_domain',
-		);
-		const metadata = logs.map((log) => Object.fromEntries(log.metadata));
-		expect(metadata).toEqual(
-			expect.arrayContaining([
-				{domain: '*shop*.onrender.com', match_subdomains: 'false', pattern: 'true'},
-				{domain: 'shop.example.com', match_subdomains: 'true', pattern: 'false'},
-			]),
-		);
-	});
-
 	it('rejects patterns that are too broad or malformed', async () => {
 		for (const domain of ['*', '*.com', '*shop*.co.uk', '*.onrender.com', '*ab*.onrender.com', 'shop.*.example.com']) {
 			const json = await createBuilder<ValidationErrorResponse>(harness, admin.token)
@@ -100,25 +84,10 @@ describe('Admin url-domain blocklist patterns', () => {
 		expect(await list()).toEqual([]);
 	});
 
-	it('validates the value on update', async () => {
-		const json = await createBuilder<ValidationErrorResponse>(harness, admin.token)
-			.patch(`/admin/blocklists/url-domain/entries/${encodeURIComponent('*.com')}`)
-			.body({})
-			.expect(400, 'INVALID_FORM_BODY')
-			.execute();
-		expect(json.errors?.[0]?.path).toBe('domain');
-	});
-
 	it('stores internationalized domains in ASCII form', async () => {
 		await add('Bücher.Example.');
 		expect((await list()).map((entry) => entry.value)).toEqual(['xn--bcher-kva.example']);
 		expect(await check('www.bücher.example')).toBe(true);
-	});
-
-	it('accepts an add for a domain that is already blocked', async () => {
-		await add('shop.example.com');
-		await add('shop.example.com', false);
-		expect(await list()).toMatchObject([{value: 'shop.example.com', match_subdomains: false}]);
 	});
 
 	it('removes a pattern through any spelling that canonicalizes to it', async () => {

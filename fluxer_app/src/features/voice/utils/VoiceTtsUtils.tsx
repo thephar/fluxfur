@@ -149,7 +149,6 @@ function hasRecentlySpoken(messageId: string): boolean {
 
 interface SpeakTextOptions {
 	text: string;
-	interrupt?: boolean;
 	maxLength?: number;
 	rate?: number;
 	onStart?: () => void;
@@ -174,10 +173,8 @@ interface SpeakCallbacks {
 
 function speakText(options: SpeakTextOptions): void {
 	ensureInitialized();
-	const {text, interrupt = true, maxLength, rate, onStart, onEnd, onError} = options;
-	if (interrupt) {
-		stopSpeaking();
-	}
+	const {text, maxLength, rate, onStart, onEnd, onError} = options;
+	stopSpeaking();
 	const sessionId = beginSpeechSession();
 	const callbacks: SpeakCallbacks = {onStart, onEnd, onError};
 	if (canUseNativeSpeech()) {

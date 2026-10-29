@@ -8,7 +8,6 @@ import {
 import type {Account} from '@app/features/platform/state/AuthSession';
 import {useLingui} from '@lingui/react/macro';
 import type React from 'react';
-import {useCallback} from 'react';
 
 interface AccountDisplayIdentityView {
 	readonly isAvailable: boolean;
@@ -45,18 +44,6 @@ export function useAccountDisplayIdentityView(account: Account): AccountDisplayI
 	return createAccountDisplayIdentityView(
 		getAccountDisplayLabels(account),
 		i18n._(ACCOUNT_DETAILS_UNAVAILABLE_DESCRIPTOR),
-	);
-}
-
-export function useAccountDisplayIdentityViewFormatter(): (account: Account) => AccountDisplayIdentityView {
-	const {i18n} = useLingui();
-	return useCallback(
-		(account: Account) =>
-			createAccountDisplayIdentityView(
-				getAccountDisplayLabels(account),
-				i18n._(ACCOUNT_DETAILS_UNAVAILABLE_DESCRIPTOR),
-			),
-		[i18n],
 	);
 }
 

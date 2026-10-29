@@ -97,7 +97,7 @@ function generateRobotsTxt() {
 	return 'User-agent: *\nAllow: /\n';
 }
 
-export class StaticFilesPlugin {
+class StaticFilesPlugin {
 	constructor(options = {}) {
 		this.staticCdnEndpoint = options.staticCdnEndpoint;
 		this.fontsDir = options.fontsDir;

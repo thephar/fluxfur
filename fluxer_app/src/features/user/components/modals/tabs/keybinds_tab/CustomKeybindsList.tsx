@@ -115,6 +115,30 @@ export const CustomKeybindsList: React.FC<{searchQuery: string}> = observer(({se
 		);
 	};
 	const hasAnyOverrides = allCustomKeybinds.length > 0 || disableBuiltinKeybinds;
+	let customList: React.ReactNode;
+	if (customKeybinds.length === 0) {
+		customList = (
+			<div className={styles.emptyState} data-flx="user.keybinds-tab.custom-keybinds-list.empty-state">
+				<Trans>No custom shortcuts yet.</Trans>
+			</div>
+		);
+	} else if (filteredKeybinds.length === 0) {
+		customList = (
+			<div className={styles.emptyState} data-flx="user.keybinds-tab.custom-keybinds-list.empty-state--2">
+				<Trans>No custom shortcuts match that search.</Trans>
+			</div>
+		);
+	} else {
+		customList = filteredKeybinds.map((entry) => (
+			<CustomKeybindRow
+				key={entry.id}
+				entry={entry}
+				conflictLabel={conflictLabels.get(entry.id) ?? null}
+				onRemove={() => Keybind.removeCustomKeybind(entry.id)}
+				data-flx="user.keybinds-tab.custom-keybinds-list.custom-keybind-row"
+			/>
+		));
+	}
 	return (
 		<div className={styles.customSection} data-flx="user.keybinds-tab.custom-keybinds-list.custom-section">
 			<div className={styles.customHeader} data-flx="user.keybinds-tab.custom-keybinds-list.custom-header">
@@ -179,25 +203,7 @@ export const CustomKeybindsList: React.FC<{searchQuery: string}> = observer(({se
 				/>
 			</div>
 			<div className={styles.customList} data-flx="user.keybinds-tab.custom-keybinds-list.custom-list">
-				{customKeybinds.length === 0 ? (
-					<div className={styles.emptyState} data-flx="user.keybinds-tab.custom-keybinds-list.empty-state">
-						<Trans>No custom shortcuts yet.</Trans>
-					</div>
-				) : filteredKeybinds.length === 0 ? (
-					<div className={styles.emptyState} data-flx="user.keybinds-tab.custom-keybinds-list.empty-state--2">
-						<Trans>No custom shortcuts match that search.</Trans>
-					</div>
-				) : (
-					filteredKeybinds.map((entry) => (
-						<CustomKeybindRow
-							key={entry.id}
-							entry={entry}
-							conflictLabel={conflictLabels.get(entry.id) ?? null}
-							onRemove={() => Keybind.removeCustomKeybind(entry.id)}
-							data-flx="user.keybinds-tab.custom-keybinds-list.custom-keybind-row"
-						/>
-					))
-				)}
+				{customList}
 			</div>
 		</div>
 	);

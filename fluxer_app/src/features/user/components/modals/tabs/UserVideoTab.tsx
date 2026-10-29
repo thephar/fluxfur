@@ -48,7 +48,7 @@ import {resolveEffectiveDeviceId} from '@app/features/voice/utils/VoiceDeviceMan
 import type {I18n} from '@lingui/core';
 import {msg, ph} from '@lingui/core/macro';
 import {Trans, useLingui} from '@lingui/react/macro';
-import {CrownIcon, GearIcon} from '@phosphor-icons/react';
+import {AtomIcon, GearIcon} from '@phosphor-icons/react';
 import {observer} from 'mobx-react-lite';
 import type React from 'react';
 import {useCallback, useMemo} from 'react';
@@ -228,41 +228,56 @@ export const VideoTab: React.FC<VideoTabProps> = observer(({voiceSettings}) => {
 			section: getAdvancedSettingsCategorySectionId('media'),
 		});
 	}, []);
-	return (
-		<div className={styles.content} data-flx="user.video-tab.content">
-			{devices.length === 0 && permissionStatus !== 'loading' ? (
-				<div className={styles.deviceNotice} data-flx="user.video-tab.device-notice">
-					<div className={styles.deviceNoticeText} data-flx="user.video-tab.device-notice-text">
-						<div className={styles.deviceNoticeTitle} data-flx="user.video-tab.device-notice-title">
-							<Trans>No camera found</Trans>
-						</div>
-						<p className={styles.deviceNoticeDescription} data-flx="user.video-tab.device-notice-description">
-							{permissionStatus === 'denied' ? (
-								<Trans comment="Shown in video settings on the macOS app when camera access is denied. {ph({PRODUCT_NAME: RuntimeConfig.productName})} is the app name. Keep 'System Settings', 'Privacy & Security' and the permission name as macOS shows them in this language.">
-									Allow {ph({PRODUCT_NAME: RuntimeConfig.productName})} to access your camera in System Settings →
-									Privacy & Security → Camera.
-								</Trans>
-							) : permissionStatus === 'granted' ? (
-								<Trans>Connect a camera and try again.</Trans>
-							) : (
-								i18n._(PRODUCT_NEEDS_CAMERA_ACCESS_DESCRIPTOR, {productName: RuntimeConfig.productName})
-							)}
-						</p>
-					</div>
-					{permissionStatus !== 'granted' ? (
-						<Button
-							variant="secondary"
-							small={true}
-							onClick={() => {
-								void requestPermission();
-							}}
-							data-flx="user.video-tab.button"
-						>
-							<Trans>Allow camera</Trans>
-						</Button>
-					) : null}
+	const contentClassName = styles.content;
+	let deviceNotice: React.ReactNode = null;
+	if (devices.length === 0 && permissionStatus !== 'loading') {
+		const noticeClassName = styles.deviceNotice;
+		const noticeTextClassName = styles.deviceNoticeText;
+		const noticeTitle = (
+			<div className={styles.deviceNoticeTitle} data-flx="user.video-tab.device-notice-title">
+				<Trans>No camera found</Trans>
+			</div>
+		);
+		const descriptionClassName = styles.deviceNoticeDescription;
+		let noticeDescription: React.ReactNode;
+		if (permissionStatus === 'denied') {
+			noticeDescription = (
+				<Trans comment="Shown in video settings on the macOS app when camera access is denied. {ph({PRODUCT_NAME: RuntimeConfig.productName})} is the app name. Keep 'System Settings', 'Privacy & Security' and the permission name as macOS shows them in this language.">
+					Allow {ph({PRODUCT_NAME: RuntimeConfig.productName})} to access your camera in System Settings → Privacy &
+					Security → Camera.
+				</Trans>
+			);
+		} else if (permissionStatus === 'granted') {
+			noticeDescription = <Trans>Connect a camera and try again.</Trans>;
+		} else {
+			noticeDescription = i18n._(PRODUCT_NEEDS_CAMERA_ACCESS_DESCRIPTOR, {productName: RuntimeConfig.productName});
+		}
+		deviceNotice = (
+			<div className={noticeClassName} data-flx="user.video-tab.device-notice">
+				<div className={noticeTextClassName} data-flx="user.video-tab.device-notice-text">
+					{noticeTitle}
+					<p className={descriptionClassName} data-flx="user.video-tab.device-notice-description">
+						{noticeDescription}
+					</p>
 				</div>
-			) : null}
+				{permissionStatus !== 'granted' ? (
+					<Button
+						variant="secondary"
+						small={true}
+						onClick={() => {
+							void requestPermission();
+						}}
+						data-flx="user.video-tab.button"
+					>
+						<Trans>Allow camera</Trans>
+					</Button>
+				) : null}
+			</div>
+		);
+	}
+	return (
+		<div className={contentClassName} data-flx="user.video-tab.content">
+			{deviceNotice}
 			<div className={styles.controlGroup} data-flx="user.video-tab.camera-settings-group">
 				<CompactComboboxRow
 					label={i18n._(CAMERA_2_DESCRIPTOR)}
@@ -316,7 +331,7 @@ export const VideoTab: React.FC<VideoTabProps> = observer(({voiceSettings}) => {
 				{!hasHigherQuality && showPremium && (
 					<div className={styles.premiumCard} data-flx="user.video-tab.premium-card">
 						<div className={styles.premiumHeader} data-flx="user.video-tab.premium-header">
-							<CrownIcon
+							<AtomIcon
 								weight="fill"
 								size={remFromPx(18)}
 								className={styles.premiumIcon}
@@ -354,7 +369,7 @@ export const VideoTab: React.FC<VideoTabProps> = observer(({voiceSettings}) => {
 				/>
 				{!hasHigherQuality && showPremium && (
 					<div className={styles.frameRateNote} data-flx="user.video-tab.frame-rate-note">
-						<CrownIcon
+						<AtomIcon
 							weight="fill"
 							size={remFromPx(14)}
 							className={styles.frameRateIcon}
@@ -382,7 +397,7 @@ export const VideoTab: React.FC<VideoTabProps> = observer(({voiceSettings}) => {
 				)}
 				{screenShareState.saved !== null && (
 					<div className={styles.frameRateNote} data-flx="user.video-tab.tier-limit-note">
-						<CrownIcon
+						<AtomIcon
 							weight="fill"
 							size={remFromPx(14)}
 							className={styles.frameRateIcon}

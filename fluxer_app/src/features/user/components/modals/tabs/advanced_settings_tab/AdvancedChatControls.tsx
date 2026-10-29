@@ -46,7 +46,7 @@ import {msg} from '@lingui/core/macro';
 import {Trans, useLingui} from '@lingui/react/macro';
 import {GearIcon} from '@phosphor-icons/react';
 import {observer} from 'mobx-react-lite';
-import {useCallback} from 'react';
+import {type ReactNode, useCallback} from 'react';
 
 const SHOW_MESSAGE_ACTION_BAR_DESCRIPTOR = msg({
 	message: 'Show message action bar',
@@ -279,14 +279,18 @@ const SearchProviderSettingsModal = observer(({mode, title}: SearchProviderSetti
 	const handleClose = useCallback(() => {
 		ModalCommands.pop();
 	}, []);
-	const content =
-		mode === 'image' ? (
+	let content: ReactNode;
+	if (mode === 'image') {
+		content = (
 			<ReverseImageSearchContent data-flx="user.advanced-settings-tab.provider-settings-modal.reverse-image-search-content" />
-		) : mode === 'translate' ? (
-			<TranslatorsContent data-flx="user.advanced-settings-tab.provider-settings-modal.translators-content" />
-		) : (
+		);
+	} else if (mode === 'translate') {
+		content = <TranslatorsContent data-flx="user.advanced-settings-tab.provider-settings-modal.translators-content" />;
+	} else {
+		content = (
 			<TextSearchEnginesContent data-flx="user.advanced-settings-tab.provider-settings-modal.search-engines-content" />
 		);
+	}
 	return (
 		<Modal.Root
 			size="medium"
@@ -457,16 +461,24 @@ const SwitchGroupSettingsModal = observer(({mode, title}: SwitchGroupSettingsMod
 	const handleClose = useCallback(() => {
 		ModalCommands.pop();
 	}, []);
-	const content =
-		mode === 'message-action-bar' ? (
+	let content: ReactNode;
+	if (mode === 'message-action-bar') {
+		content = (
 			<MessageActionBarContent data-flx="user.advanced-settings-tab.advanced-chat-controls.switch-group-settings-modal.message-action-bar-content" />
-		) : mode === 'media-buttons' ? (
+		);
+	} else if (mode === 'media-buttons') {
+		content = (
 			<MediaButtonsContent data-flx="user.advanced-settings-tab.advanced-chat-controls.switch-group-settings-modal.media-buttons-content" />
-		) : mode === 'expression-autocomplete' ? (
+		);
+	} else if (mode === 'expression-autocomplete') {
+		content = (
 			<ExpressionAutocompleteContent data-flx="user.advanced-settings-tab.advanced-chat-controls.switch-group-settings-modal.expression-autocomplete-content" />
-		) : (
+		);
+	} else {
+		content = (
 			<InputButtonsContent data-flx="user.advanced-settings-tab.advanced-chat-controls.switch-group-settings-modal.input-buttons-content" />
 		);
+	}
 	return (
 		<Modal.Root
 			size="medium"

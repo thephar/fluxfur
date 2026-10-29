@@ -26,26 +26,22 @@ import {
 	type RememberedSkeletonDMSidebarLayout,
 	type RememberedSkeletonGuildChannelList,
 	type RememberedSkeletonGuildRailItem,
-	type RememberedSkeletonGuildRailLayout,
 	type RememberedSkeletonMemberGroup,
 	resolveDefaultSkeletonComposerLayout,
 	resolveDefaultSkeletonMessagePresentation,
 	SKELETON_DEFAULT_FRIENDS_LAYOUT,
 	SKELETON_DEFAULT_VOICE_PRESENCE,
 	SKELETON_GUILD_RAIL_COLLAPSED_FOLDER_CHILD_LIMIT,
-	SKELETON_GUILD_RAIL_FALLBACK_ITEMS,
 	SKELETON_GUILD_RAIL_ORGANIZED_VISUAL_ROW_LIMIT,
 	SkeletonGuildBannerPlacement,
 	SkeletonGuildRailItemIndicator,
 	SkeletonGuildRailItemKind,
 } from '@app/features/app/components/skeleton/SkeletonLayoutMemory';
 import {
-	skeletonDirectMessagesDisabled,
-	skeletonDiscoveryAvailable,
-	skeletonGifEnabled,
-	skeletonSelfHosted,
-	skeletonSingleCommunityEnabled,
-} from '@app/features/app/components/skeleton/SkeletonRuntimeConfig';
+	resolveSkeletonRailProjection,
+	type SkeletonRailProjection,
+} from '@app/features/app/components/skeleton/SkeletonRailProjection';
+import {skeletonGifEnabled, skeletonSelfHosted} from '@app/features/app/components/skeleton/SkeletonRuntimeConfig';
 import {AppStorageKey} from '@app/features/platform/state/AppStorageKeys';
 import {
 	GATEWAY_PREBOOT_SESSION_STORAGE_KEY,
@@ -61,9 +57,9 @@ import {GATEWAY_PREBOOT_SESSION_PRESENT} from '@fluxer/desktop_ipc/src/StorageCo
 
 export const SHELL_HINT_VERSION = 4;
 
-export const SHELL_HINT_NAGBAR_TONE_ORDER: ReadonlyArray<NagbarToneKind> = Object.freeze(Object.values(NagbarToneKind));
+const SHELL_HINT_NAGBAR_TONE_ORDER: ReadonlyArray<NagbarToneKind> = Object.freeze(Object.values(NagbarToneKind));
 
-export const SHELL_HINT_CHANNEL_KIND_CODES: Readonly<Record<ChatSkeletonChannelKind, number>> = Object.freeze({
+const SHELL_HINT_CHANNEL_KIND_CODES: Readonly<Record<ChatSkeletonChannelKind, number>> = Object.freeze({
 	[ChatSkeletonChannelKind.GUILD]: 0,
 	[ChatSkeletonChannelKind.GUILD_VOICE]: 1,
 	[ChatSkeletonChannelKind.DM]: 2,
@@ -123,7 +119,6 @@ const DM_ACTION_FRIENDS_BIT = 1;
 const DM_ACTION_PERSONAL_NOTES_BIT = 2;
 const DM_ACTION_PREMIUM_BIT = 4;
 const GUILD_PATH_SEGMENT_INDEX = 2;
-const SHOWS_DOWNLOAD_ACTION = !Platform.isElectron && !Platform.isPWA;
 
 function clampRounded(value: number, min: number, max: number): number {
 	if (!Number.isFinite(value)) {
@@ -152,45 +147,6 @@ function pathSegment(pathname: string, index: number): string | null {
 	return segment;
 }
 
-interface RailProjection {
-	readonly fluxerVisible: boolean;
-	readonly favoritesVisible: boolean;
-	readonly inlineDmUnreadFlags: ReadonlyArray<boolean>;
-	readonly selectedInlineDmRowIndex: number;
-	readonly outageVisible: boolean;
-	readonly organizedItems: ReadonlyArray<RememberedSkeletonGuildRailItem>;
-	readonly selectedItemIndex: number;
-	readonly discoveryVisible: boolean;
-	readonly addGuildVisible: boolean;
-	readonly downloadVisible: boolean;
-	readonly helpVisible: boolean;
-	readonly scrollTopPx: number;
-}
-
-function resolveRailProjection(layout: RememberedSkeletonGuildRailLayout | null): RailProjection {
-	const communityActionsAvailable = !skeletonSingleCommunityEnabled();
-	const inlineDmRowCount = layout?.inlineDmRowCount ?? 0;
-	const rememberedUnread = layout?.inlineDmUnreadFlags ?? [];
-	const inlineDmUnreadFlags = Array.from(
-		{length: inlineDmRowCount},
-		(_unused, index) => rememberedUnread[index] === true,
-	);
-	return {
-		fluxerVisible: layout?.fluxerVisible ?? !skeletonDirectMessagesDisabled(),
-		favoritesVisible: layout?.favoritesVisible ?? true,
-		inlineDmUnreadFlags,
-		selectedInlineDmRowIndex: layout?.selectedInlineDmRowIndex ?? NO_SELECTED_ROW_INDEX,
-		outageVisible: layout?.outageVisible ?? false,
-		organizedItems: layout?.organizedItems ?? SKELETON_GUILD_RAIL_FALLBACK_ITEMS,
-		selectedItemIndex: layout?.selectedItemIndex ?? NO_SELECTED_ROW_INDEX,
-		discoveryVisible: layout?.discoveryVisible ?? skeletonDiscoveryAvailable(),
-		addGuildVisible: layout?.addGuildVisible ?? communityActionsAvailable,
-		downloadVisible: layout?.downloadVisible ?? SHOWS_DOWNLOAD_ACTION,
-		helpVisible: layout?.helpVisible ?? true,
-		scrollTopPx: layout?.scrollTopPx ?? 0,
-	};
-}
-
 function encodeRailItem(item: RememberedSkeletonGuildRailItem): Array<number> {
 	const indicator = RAIL_ITEM_INDICATOR_CODES[item.indicator];
 	if (item.kind === SkeletonGuildRailItemKind.COLLAPSED_FOLDER) {
@@ -212,7 +168,7 @@ function encodeRailItem(item: RememberedSkeletonGuildRailItem): Array<number> {
 	return [RAIL_ITEM_KIND_CODES[item.kind], indicator];
 }
 
-function resolveSelectedTopRowIndex(pathname: string, rail: RailProjection): number {
+function resolveSelectedTopRowIndex(pathname: string, rail: SkeletonRailProjection): number {
 	const leadingTopRowCount = flag(rail.fluxerVisible) + flag(rail.favoritesVisible);
 	if ((Routes.isDMRoute(pathname) || Routes.isSpecialPage(pathname)) && rail.fluxerVisible) {
 		return 0;
@@ -226,7 +182,7 @@ function resolveSelectedTopRowIndex(pathname: string, rail: RailProjection): num
 	return NO_SELECTED_ROW_INDEX;
 }
 
-function resolveRailBottomMask(rail: RailProjection): number {
+function resolveRailBottomMask(rail: SkeletonRailProjection): number {
 	let mask = 0;
 	if (rail.discoveryVisible) mask |= RAIL_BOTTOM_DISCOVERY_BIT;
 	if (rail.addGuildVisible) mask |= RAIL_BOTTOM_ADD_GUILD_BIT;
@@ -294,7 +250,7 @@ export function writeShellHint(): void {
 		const mobileBrowser = Platform.isMobileBrowser;
 		const viewportWidth = Window.windowSize.width;
 		const mobile = mobileBrowser || viewportWidth < MOBILE_ENABLE_BREAKPOINT_PX;
-		const rail = resolveRailProjection(getRememberedSkeletonGuildRailLayout());
+		const rail = resolveSkeletonRailProjection(getRememberedSkeletonGuildRailLayout());
 		const dmSidebar = shell.sidebar === SkeletonSidebarVariant.DM ? resolveDMSidebarLayout(mobile) : null;
 		const guildId =
 			shell.sidebar === SkeletonSidebarVariant.GUILD ? pathSegment(pathname, GUILD_PATH_SEGMENT_INDEX) : null;
@@ -380,7 +336,7 @@ export function writeShellHint(): void {
 			vh: clampRounded(voice.panelHeightPx, 0, MAX_VOICE_PANEL_HEIGHT_PX),
 			vc: flag(voice.connected),
 			mr: flag(mobile && showsMobileGuildRail(pathname)),
-			ms: flag(mobile && showsMobileSidebar(pathname)),
+			ms: flag(mobile && shell.sidebar !== SkeletonSidebarVariant.NONE && showsMobileSidebar(pathname)),
 			mn: flag(mobile && showsMobileBottomNav(pathname)),
 			fa: flag(friends.activeNowVisible),
 			fn: friends.activeNowCards

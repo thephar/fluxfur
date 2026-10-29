@@ -41,17 +41,20 @@ export function useCallHeaderState(channel?: Channel | null): CallHeaderState {
 	const isDeviceInRoomForChannelCall = Boolean(matchesConnectionContext && MediaEngine.room);
 	const isDeviceConnectingToChannelCall =
 		matchesConnectionContext && (MediaEngine.connecting || (MediaEngine.connected && !isDeviceInRoomForChannelCall));
-	const controlsVariant: CallHeaderControlsVariant = !callExistsAndOngoing
-		? 'hidden'
-		: isDeviceInRoomForChannelCall
-			? 'inCall'
-			: isRingingForCurrentUserOnThisDevice
-				? 'incoming'
-				: isDeviceConnectingToChannelCall
-					? 'connecting'
-					: isCurrentUserParticipantInCall
-						? 'inCall'
-						: 'join';
+	let controlsVariant: CallHeaderControlsVariant;
+	if (!callExistsAndOngoing) {
+		controlsVariant = 'hidden';
+	} else if (isDeviceInRoomForChannelCall) {
+		controlsVariant = 'inCall';
+	} else if (isRingingForCurrentUserOnThisDevice) {
+		controlsVariant = 'incoming';
+	} else if (isDeviceConnectingToChannelCall) {
+		controlsVariant = 'connecting';
+	} else if (isCurrentUserParticipantInCall) {
+		controlsVariant = 'inCall';
+	} else {
+		controlsVariant = 'join';
+	}
 	return {
 		call,
 		callExistsAndOngoing,

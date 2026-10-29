@@ -15,9 +15,9 @@ import {useLingui} from '@lingui/react/macro';
 import {observer} from 'mobx-react-lite';
 
 const EMAIL_VERIFICATION_NAGBAR_MESSAGE_DESCRIPTOR = msg({
-	message: 'Hey {displayName}, please verify your email address.',
+	message: 'Hey {displayName}, please confirm your email address.',
 	comment:
-		'Nagbar warning shown when the current user still needs to verify email. displayName is the user display name.',
+		'Nagbar warning shown when the current user still needs to confirm their email. A verification email is sent when the account is created, and the button next to this sends another one or opens the code entry dialog. displayName is the user display name.',
 });
 const EMAIL_BOUNCED_NAGBAR_MESSAGE_DESCRIPTOR = msg({
 	message: "Hey {displayName}, we can't deliver email to your address. Add a working email to verify your account.",
@@ -46,8 +46,8 @@ export const EmailVerificationNagbar = observer(({isMobile}: {isMobile: boolean}
 	return (
 		<Nagbar
 			isMobile={isMobile}
-			backgroundColor={NAGBAR_TONES[NagbarToneKind.ALERT].backgroundColor}
-			textColor={NAGBAR_TONES[NagbarToneKind.ALERT].textColor}
+			backgroundColor={NAGBAR_TONES[NagbarToneKind.NEUTRAL].backgroundColor}
+			textColor={NAGBAR_TONES[NagbarToneKind.NEUTRAL].textColor}
 			data-flx="app.app-layout.nagbars.email-verification-nagbar.nagbar"
 		>
 			<NagbarContent

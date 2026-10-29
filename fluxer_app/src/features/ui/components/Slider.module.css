@@ -65,13 +65,13 @@
 .resetAccessory {
 	color: var(--text-muted);
 	font-size: 0.875rem;
-	margin-left: auto;
+	margin-inline-start: auto;
 }
 
 @media (max-width: 480px) {
 	.resetAccessory {
 		flex-basis: 100%;
-		margin-left: 0;
+		margin-inline-start: 0;
 	}
 }
 
@@ -262,7 +262,7 @@
 	min-width: 1.5rem;
 	position: absolute;
 	top: 0;
-	transform: translateX(-50%);
+	transform: translateX(calc(-50% * var(--slider-mark-direction, 1)));
 	user-select: none;
 	-webkit-user-select: none;
 }
@@ -280,7 +280,11 @@
 
 .markEndpointEnd {
 	align-items: flex-end;
-	transform: translateX(-100%);
+	transform: translateX(calc(-100% * var(--slider-mark-direction, 1)));
+}
+
+:global(html[dir='rtl']) .mark {
+	--slider-mark-direction: -1;
 }
 
 .markValue {

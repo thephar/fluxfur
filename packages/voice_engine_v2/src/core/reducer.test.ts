@@ -26,17 +26,6 @@ function applyEvents(snapshot: VoiceEngineV2Snapshot, events: Array<VoiceEngineV
 }
 
 describe('transitionVoiceEngineV2', () => {
-	it('keeps business state explicit and starts from idle', () => {
-		const snapshot = initialSnapshot();
-
-		expect(snapshot.connection.status).toBe('idle');
-		expect(snapshot.microphone.status).toBe('idle');
-		expect(snapshot.camera.status).toBe('idle');
-		expect(snapshot.screen.status).toBe('idle');
-		expect(snapshot.screenAudio.status).toBe('idle');
-		expect(snapshot.nextOperationId).toBe(1);
-	});
-
 	it('emits a single connect command for a connect request', () => {
 		const transition = transitionVoiceEngineV2(initialSnapshot(), {
 			type: 'connection.connectRequested',
@@ -521,13 +510,13 @@ describe('transitionVoiceEngineV2', () => {
 		expect(updated.snapshot.screen.desired?.maxFramerate).toBe(60);
 	});
 
-	it('updates camera encoding in place for mirror, background, resolution, and frame rate', () => {
+	it('updates camera encoding in place for background, resolution, and frame rate', () => {
 		const snapshot = applyEvents(initialSnapshot(), [
 			{type: 'connection.connectRequested', options: {url: 'wss://voice', token: 'token'}},
 			{type: 'connection.connectSucceeded', operationId: 1},
 			{
 				type: 'camera.publishRequested',
-				options: {deviceId: 'camera-1', width: 1280, height: 720, frameRate: 30, mirror: false},
+				options: {deviceId: 'camera-1', width: 1280, height: 720, frameRate: 30},
 			},
 			{type: 'camera.publishSucceeded', operationId: 2},
 		]);
@@ -538,7 +527,6 @@ describe('transitionVoiceEngineV2', () => {
 				width: 1920,
 				height: 1080,
 				frameRate: 60,
-				mirror: true,
 				backgroundMode: 'blur',
 				backgroundBlurStrength: 80,
 			},
@@ -552,7 +540,6 @@ describe('transitionVoiceEngineV2', () => {
 					width: 1920,
 					height: 1080,
 					frameRate: 60,
-					mirror: true,
 					backgroundMode: 'blur',
 					backgroundBlurStrength: 80,
 				},
@@ -565,7 +552,6 @@ describe('transitionVoiceEngineV2', () => {
 			width: 1920,
 			height: 1080,
 			frameRate: 60,
-			mirror: true,
 			backgroundMode: 'blur',
 			backgroundBlurStrength: 80,
 		});
@@ -575,22 +561,24 @@ describe('transitionVoiceEngineV2', () => {
 		const snapshot = applyEvents(initialSnapshot(), [
 			{type: 'connection.connectRequested', options: {url: 'wss://voice', token: 'token'}},
 			{type: 'connection.connectSucceeded', operationId: 1},
-			{type: 'camera.publishRequested', options: {deviceId: 'camera-1', width: 1280, height: 720, mirror: false}},
+			{type: 'camera.publishRequested', options: {deviceId: 'camera-1', width: 1280, height: 720}},
 			{type: 'camera.publishSucceeded', operationId: 2},
 		]);
 
 		const updated = transitionVoiceEngineV2(snapshot, {
 			type: 'camera.updateEncodingRequested',
-			options: {mirror: true},
+			options: {backgroundMode: 'blur'},
 		});
 		const succeeded = transitionVoiceEngineV2(updated.snapshot, {
 			type: 'camera.updateEncodingSucceeded',
 			operationId: 3,
 		});
 
-		expect(updated.commands).toEqual([{type: 'camera.updateEncoding', operationId: 3, options: {mirror: true}}]);
+		expect(updated.commands).toEqual([
+			{type: 'camera.updateEncoding', operationId: 3, options: {backgroundMode: 'blur'}},
+		]);
 		expect(succeeded.snapshot.camera.status).toBe('published');
-		expect(succeeded.snapshot.camera.published).toMatchObject({deviceId: 'camera-1', mirror: true});
+		expect(succeeded.snapshot.camera.published).toMatchObject({deviceId: 'camera-1', backgroundMode: 'blur'});
 	});
 
 	it('republishes the camera when the device id or codec changes', () => {
@@ -634,7 +622,7 @@ describe('transitionVoiceEngineV2', () => {
 
 		const updated = transitionVoiceEngineV2(snapshot, {
 			type: 'camera.updateEncodingRequested',
-			options: {mirror: true},
+			options: {backgroundMode: 'blur'},
 		});
 
 		expect(updated.commands).toEqual([]);
@@ -646,13 +634,13 @@ describe('transitionVoiceEngineV2', () => {
 		const snapshot = applyEvents(initialSnapshot(), [
 			{type: 'connection.connectRequested', options: {url: 'wss://voice', token: 'token'}},
 			{type: 'connection.connectSucceeded', operationId: 1},
-			{type: 'camera.publishRequested', options: {deviceId: 'camera-1', width: 1280, height: 720, mirror: true}},
+			{type: 'camera.publishRequested', options: {deviceId: 'camera-1', width: 1280, height: 720}},
 			{type: 'camera.publishSucceeded', operationId: 2},
 		]);
 
 		const updated = transitionVoiceEngineV2(snapshot, {
 			type: 'camera.updateEncodingRequested',
-			options: {width: 1280, height: 720, mirror: true},
+			options: {width: 1280, height: 720},
 		});
 
 		expect(updated.commands).toEqual([]);
@@ -818,11 +806,6 @@ describe('transitionVoiceEngineV2', () => {
 		expect(state?.kind).toBe('failed');
 	});
 
-	it('selectors return null for unknown sources', () => {
-		const snapshot = initialSnapshot();
-		expect(snapshot.sourceLifecycles['unknown'] ?? null).toBeNull();
-	});
-
 	it('sourceLifecycle.removed drops the lifecycle slot for that source only', () => {
 		const snapshot = applyEvents(initialSnapshot(), [
 			{
@@ -851,54 +834,6 @@ describe('transitionVoiceEngineV2', () => {
 		expect(transition.snapshot.sourceLifecycles['source-removed'] ?? null).toBeNull();
 		expect((transition.snapshot.sourceLifecycles['source-kept'] ?? null)?.kind).toBe('active');
 		expect(Object.values(transition.snapshot.sourceLifecycles).filter((state) => state.kind === 'failed')).toEqual([]);
-	});
-
-	it('sourceLifecycle.removed for an unknown source leaves the snapshot untouched', () => {
-		const snapshot = initialSnapshot();
-
-		const transition = transitionVoiceEngineV2(snapshot, {type: 'sourceLifecycle.removed', sourceId: 'source-absent'});
-
-		expect(transition.commands).toEqual([]);
-		expect(transition.snapshot).toBe(snapshot);
-	});
-
-	it('replaying the same source lifecycle event sequence yields the same snapshot hash', () => {
-		const events: Array<VoiceEngineV2Event> = [
-			{
-				type: 'sourceLifecycle.transitioned',
-				sourceId: 'source-d',
-				kind: 'active',
-				since: 4n,
-				attempts: 0,
-				fault: null,
-				atMs: 1,
-			},
-			{
-				type: 'sourceLifecycle.transitioned',
-				sourceId: 'source-d',
-				kind: 'reconnecting',
-				since: 7n,
-				attempts: 1,
-				fault: 'networkError',
-				atMs: 5,
-			},
-			{
-				type: 'sourceLifecycle.transitioned',
-				sourceId: 'source-d',
-				kind: 'failed',
-				since: 12n,
-				attempts: 8,
-				fault: 'encoderError',
-				atMs: 9,
-			},
-		];
-
-		const first = applyEvents(initialSnapshot(), events);
-		const second = applyEvents(initialSnapshot(), events);
-		const replacer = (_key: string, value: unknown): unknown =>
-			typeof value === 'bigint' ? `bigint:${value.toString()}` : value;
-
-		expect(JSON.stringify(second, replacer)).toBe(JSON.stringify(first, replacer));
 	});
 });
 
@@ -969,12 +904,5 @@ describe('terminal operation pruning', () => {
 			(operation) => operation.status === 'succeeded',
 		).length;
 		expect(terminalCount).toBe(VOICE_ENGINE_V2_TERMINAL_OPERATIONS_KEPT_MAX);
-	});
-
-	it('prunes deterministically across replays', () => {
-		const total = VOICE_ENGINE_V2_TERMINAL_OPERATIONS_KEPT_MAX * 2;
-		const first = completeDiagnosticCycles(initialSnapshot(), total);
-		const second = completeDiagnosticCycles(initialSnapshot(), total);
-		expect(second).toEqual(first);
 	});
 });

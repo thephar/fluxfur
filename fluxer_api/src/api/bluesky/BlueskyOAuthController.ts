@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {BlueskyOAuthStateInvalidError, BlueskyOAuthStoreError} from '@app/api/bluesky/BlueskyOAuthStores';
+import {BlueskyOAuthStateInvalidError, BlueskyOAuthStoreError} from '@app/api/bluesky/BlueskyOAuthErrors';
 import type {BlueskyAuthorizeResult} from '@app/api/bluesky/IBlueskyOAuthService';
 import {Config} from '@app/api/Config';
 import {BlueskyOAuthAuthorizationFailedError} from '@app/api/connection/errors/BlueskyOAuthAuthorizationFailedError';

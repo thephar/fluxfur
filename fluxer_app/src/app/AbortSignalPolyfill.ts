@@ -20,7 +20,7 @@ function abortSignalAny(signals: Iterable<AbortSignal>): AbortSignal {
 	return controller.signal;
 }
 
-export function installAbortSignalPolyfill(target: typeof AbortSignal = AbortSignal): void {
+function installAbortSignalPolyfill(target: typeof AbortSignal = AbortSignal): void {
 	if (typeof target.timeout !== 'function') {
 		target.timeout = abortSignalTimeout;
 	}

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import {ResettableStates} from '@app/features/app/state/ResettableStates';
 import Channels from '@app/features/channel/state/Channels';
 import GatewaySessions from '@app/features/gateway/transport/GatewaySessionPool';
 import Guilds from '@app/features/guild/state/Guilds';
@@ -32,7 +33,7 @@ interface GuildMemberUpdateAction {
 	member: GuildMemberData;
 }
 
-export interface PendingJumpDispatch {
+interface PendingJumpDispatch {
 	messageId: string;
 	flash?: boolean;
 	offset?: number;
@@ -623,6 +624,12 @@ class Messages {
 		return hasChanges;
 	}
 
+	forgetUnfocusedVisitChannel(channelId: string): void {
+		if (SelectedChannel.currentChannelId === channelId) return;
+		this.clearMessages(channelId);
+		this.notifyChange();
+	}
+
 	handleGuildThreadsPurged(guildId: string): void {
 		ChannelMessages.forEach(({channelId}) => {
 			if (Channels.getChannel(channelId)?.guildId === guildId) {
@@ -745,6 +752,8 @@ class Messages {
 }
 
 const messages = new Messages();
+
+ResettableStates.register(messages, () => messages.handleSessionInvalidated());
 
 AccountScopedWork.registerTransition({
 	suspend: () => {},

@@ -162,7 +162,7 @@
 	text-transform: uppercase;
 	letter-spacing: 0.02em;
 	color: var(--text-tertiary);
-	text-align: left;
+	text-align: start;
 	white-space: nowrap;
 }
 
@@ -186,7 +186,7 @@
 .progressBar {
 	position: absolute;
 	top: 0;
-	left: 0;
+	inset-inline-start: 0;
 	width: 30%;
 	height: 100%;
 	background-color: var(--brand-primary-light);
@@ -299,8 +299,8 @@
 
 .actionsColumn {
 	justify-content: center;
-	padding-left: 0.5rem;
-	padding-right: 0.5rem;
+	padding-inline-start: 0.5rem;
+	padding-inline-end: 0.5rem;
 }
 
 .nameCell {
@@ -479,14 +479,6 @@
 	align-items: center;
 	gap: 0.5rem;
 	min-width: 0;
-}
-
-.footerRight {
-	display: flex;
-	align-items: center;
-	gap: 0.75rem;
-	min-width: 0;
-	margin-inline-start: auto;
 }
 
 .footerLabel {

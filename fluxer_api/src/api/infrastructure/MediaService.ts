@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import fs from 'node:fs';
+import {Readable} from 'node:stream';
+import {pipeline} from 'node:stream/promises';
+import type {ReadableStream as NodeReadableStream} from 'node:stream/web';
 import {signAttachmentUrl} from '@app/api/attachment/AttachmentUrls';
 import {Config} from '@app/api/Config';
 import {
@@ -10,6 +14,8 @@ import {
 	type MediaProxyMetadataResponse,
 	type MediaProxyNsfwMode,
 	type MediaProxySniffResponse,
+	type MediaProxyStorageObject,
+	type MediaProxyStrippedObject,
 } from '@app/api/infrastructure/IMediaService';
 import {Logger} from '@app/api/Logger';
 import * as FetchUtils from '@app/api/utils/FetchUtils';
@@ -24,6 +30,16 @@ type MediaProxyRequestBody =
 	| {
 			type: 'upload';
 			upload_filename: string;
+	  }
+	| {
+			type: 's3';
+			bucket: string;
+			key: string;
+			content_type: string;
+	  }
+	| {
+			type: 'base64';
+			base64: string;
 	  };
 
 const MEDIA_PROXY_METADATA_MAX_BYTES = 256 * 1024;
@@ -32,6 +48,12 @@ const MEDIA_PROXY_ERROR_MAX_BYTES = 16 * 1024;
 const MEDIA_PROXY_SNIFF_MAX_BYTES = 1024;
 const MEDIA_PROXY_REQUEST_TIMEOUT_MS = ms('30 seconds');
 const MEDIA_PROXY_SNIFF_TIMEOUT_MS = ms('2 seconds');
+const MEDIA_PROXY_STRIP_TIMEOUT_MS = ms('10 minutes') + ms('30 seconds');
+const MEDIA_PROXY_STRIPPED_IMAGE_MAX_BYTES = 64 * 1024 * 1024;
+const MEDIA_PROXY_AUDIO_DURATION_TIMEOUT_MS = ms('5 seconds');
+const MEDIA_PROXY_AUDIO_DURATION_MAX_BYTES = 1024;
+const MEDIA_PROXY_WIDTH_HEADER = 'x-fluxer-media-width';
+const MEDIA_PROXY_HEIGHT_HEADER = 'x-fluxer-media-height';
 const MEDIA_PROXY_BUFFERED_INPUT_MAX_BYTES = 500 * 1024 * 1024;
 const MEDIA_PROXY_SPOOLED_INPUT_BYTES_PER_SECOND = 16 * 1024 * 1024;
 
@@ -64,6 +86,24 @@ function isMediaProxyMetadataResponse(value: unknown): value is MediaProxyMetada
 		typeof value.nsfw === 'boolean' &&
 		(value.nsfw_probability === undefined || typeof value.nsfw_probability === 'number')
 	);
+}
+
+function isMediaProxyAudioDurationResponse(value: unknown): value is {duration_seconds: number | null} {
+	return isJsonRecord(value) && (value.duration_seconds === null || typeof value.duration_seconds === 'number');
+}
+
+function positiveIntegerHeader(headers: Headers, name: string): number | undefined {
+	const value = Number(headers.get(name));
+	return Number.isSafeInteger(value) && value > 0 ? value : undefined;
+}
+
+function strippedObjectFromHeaders(headers: Headers, fallbackContentType: string): MediaProxyStrippedObject {
+	const width = positiveIntegerHeader(headers, MEDIA_PROXY_WIDTH_HEADER);
+	const height = positiveIntegerHeader(headers, MEDIA_PROXY_HEIGHT_HEADER);
+	return {
+		contentType: headers.get('content-type') ?? fallbackContentType,
+		...(width && height ? {width, height} : {}),
+	};
 }
 
 function metadataResponseLimit(request: MediaProxyMetadataRequest): number {
@@ -186,6 +226,68 @@ export class MediaService extends IMediaService {
 			return {content_type: sniff.content_type};
 		} catch (error) {
 			Logger.error({error, uploadFilename}, 'Failed to read media proxy sniff response');
+			return null;
+		}
+	}
+
+	async stripObjectMetadata(
+		source: MediaProxyStorageObject,
+		contentType: string,
+		outputPath: string,
+	): Promise<MediaProxyStrippedObject | null> {
+		const response = await this.makeRequest(
+			'/_strip',
+			{type: 's3', bucket: source.bucket, key: source.key, content_type: contentType},
+			MEDIA_PROXY_STRIP_TIMEOUT_MS,
+		);
+		if (!response?.body) return null;
+		try {
+			await pipeline(
+				Readable.fromWeb(response.body as NodeReadableStream<Uint8Array>),
+				fs.createWriteStream(outputPath),
+			);
+			return strippedObjectFromHeaders(response.headers, contentType);
+		} catch (error) {
+			Logger.error({error, bucket: source.bucket, key: source.key}, 'Failed to read media proxy strip response');
+			return null;
+		}
+	}
+
+	async stripImageMetadata(image: Uint8Array): Promise<Uint8Array | null> {
+		const response = await this.makeRequest(
+			'/_strip',
+			{type: 'base64', base64: Buffer.from(image).toString('base64')},
+			MEDIA_PROXY_REQUEST_TIMEOUT_MS,
+		);
+		if (!response) return null;
+		try {
+			return await FetchUtils.streamToBufferWithLimit(response.body, {
+				maxBytes: MEDIA_PROXY_STRIPPED_IMAGE_MAX_BYTES,
+				headers: response.headers,
+				description: 'Media proxy strip response',
+			});
+		} catch (error) {
+			Logger.error({error}, 'Failed to read media proxy strip response');
+			return null;
+		}
+	}
+
+	async getAudioDurationSeconds(base64: string): Promise<number | null> {
+		const response = await this.makeRequest(
+			'/_audio_duration',
+			{type: 'base64', base64},
+			MEDIA_PROXY_AUDIO_DURATION_TIMEOUT_MS,
+		);
+		if (!response) return null;
+		try {
+			const responseText = await FetchUtils.streamToStringWithLimit(response.body, {
+				maxBytes: MEDIA_PROXY_AUDIO_DURATION_MAX_BYTES,
+				headers: response.headers,
+				description: 'Media proxy audio duration response',
+			});
+			return parseJsonWithGuard(responseText, isMediaProxyAudioDurationResponse)?.duration_seconds ?? null;
+		} catch (error) {
+			Logger.error({error}, 'Failed to read media proxy audio duration response');
 			return null;
 		}
 	}

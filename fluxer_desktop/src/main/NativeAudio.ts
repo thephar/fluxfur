@@ -2,6 +2,7 @@
 
 import {randomUUID} from 'node:crypto';
 import {createRequire} from 'node:module';
+import {errorMessage} from '@electron/common/ErrorMessage';
 import {createChildLogger} from '@electron/common/Logger';
 import type {
 	NativeAudioApplication,
@@ -258,9 +259,12 @@ function loadNativeAudioAddon(): NativeAddonLoadResult {
 			const processSupported = backendInfo?.processSupported ?? processInclude;
 			const systemSupported = backendInfo?.systemSupported ?? (processExclude || sessionMixer);
 			const systemExcludesSelf = backendInfo?.systemExcludesSelf ?? (processExclude || sessionMixer);
-			const systemLoopbackMode =
-				backendInfo?.systemLoopbackMode ??
-				(processExclude ? 'process-exclude' : sessionMixer ? 'session-mixer' : 'unavailable');
+			let systemLoopbackMode = backendInfo?.systemLoopbackMode;
+			if (systemLoopbackMode == null && processExclude) {
+				systemLoopbackMode = 'process-exclude';
+			} else if (systemLoopbackMode == null) {
+				systemLoopbackMode = sessionMixer ? 'session-mixer' : 'unavailable';
+			}
 			if (!processSupported && !systemSupported) {
 				cachedLoadResult = {
 					platform: process.platform,
@@ -707,12 +711,12 @@ async function startNativeAudioCapture(
 	const macCaptureScope =
 		loadResult.platform === 'darwin' && options?.macCaptureScope === 'system' ? 'system' : 'process';
 	const macSystemCapture = loadResult.platform === 'darwin' && macCaptureScope === 'system';
-	const winCaptureScope =
-		loadResult.platform === 'win32' && options?.winCaptureScope === 'session-mixer'
-			? 'session-mixer'
-			: loadResult.platform === 'win32' && options?.winCaptureScope === 'system'
-				? 'system'
-				: 'process';
+	let winCaptureScope: 'process' | 'system' | 'session-mixer' = 'process';
+	if (loadResult.platform === 'win32' && options?.winCaptureScope === 'session-mixer') {
+		winCaptureScope = 'session-mixer';
+	} else if (loadResult.platform === 'win32' && options?.winCaptureScope === 'system') {
+		winCaptureScope = 'system';
+	}
 	const winSystemCapture =
 		loadResult.platform === 'win32' && (winCaptureScope === 'system' || winCaptureScope === 'session-mixer');
 	const winEndpoints = loadResult.platform === 'win32' ? options?.winEndpoints : undefined;
@@ -738,14 +742,12 @@ async function startNativeAudioCapture(
 	if (!availability.available) {
 		throw new Error(`Native audio capture unavailable (${availability.reason ?? 'unknown'})`);
 	}
-	const requestedScope: 'process' | 'system' =
-		winSystemCapture || macSystemCapture
-			? 'system'
-			: linuxRule
-				? linuxRule.include && linuxRule.include.length > 0
-					? 'process'
-					: 'system'
-				: 'process';
+	let requestedScope: 'process' | 'system' = 'process';
+	if (winSystemCapture || macSystemCapture) {
+		requestedScope = 'system';
+	} else if (linuxRule && !(linuxRule.include && linuxRule.include.length > 0)) {
+		requestedScope = 'system';
+	}
 	const capability = availability.capabilities?.[requestedScope];
 	if (capability === false) {
 		throw new Error(
@@ -839,7 +841,7 @@ async function startNativeAudioCapture(
 			}
 		},
 		onError: (error) => {
-			const detail = error instanceof Error ? error.message : String(error);
+			const detail = errorMessage(error);
 			logger.warn('Native audio capture emitted error', {captureId, error});
 			stopActiveSession(session, 'addon-error', detail).catch((stopError) =>
 				logger.warn('stopActiveSession failed after addon error', {captureId, error: stopError}),

@@ -110,6 +110,8 @@ export interface HistoryAdapter {
 	listen(listener: (location: HistoryLocation, action: 'pop') => void): () => void;
 	go(delta: number): void;
 	back(): void;
+	markBoundary(): void;
+	canGo(delta: number): boolean;
 	readonly location: URL;
 }
 

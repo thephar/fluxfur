@@ -154,7 +154,7 @@ describe('Enforcement closures', () => {
 		const response = await closeRequest(harness, staff, target.userId, {days_until_deletion: 30, basis: {type}})
 			.expect(HTTP_STATUS.CONFLICT, APIErrorCodes.ENFORCEMENT_DECISION_OWNS_STATE)
 			.execute();
-		expect((response as unknown as {decision_id: string}).decision_id).toBe(decisionId);
+		expect(response).toMatchObject({decision_id: decisionId});
 		expect((await loadUser(target)).pendingDeletionAt).toBeNull();
 	});
 

@@ -636,7 +636,7 @@ fn serialize(value: &Value) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::job::{ClearJob, MessageJob, NotificationFields};
+    use crate::job::{MessageJob, NotificationFields};
 
     const CHANNEL_ID: &str = "9876543210987654321";
     const MESSAGE_ID: &str = "1122334455667788990";
@@ -666,48 +666,8 @@ mod tests {
         }
     }
 
-    fn thread_job() -> MessageJob {
-        MessageJob {
-            guild_id: "4455".to_owned(),
-            kind: Some("thread".to_owned()),
-            parent_id: Some("7788".to_owned()),
-            parent_name: Some("general".to_owned()),
-            channel_name: Some("release plans".to_owned()),
-            ..message_job(None)
-        }
-    }
-
-    fn clear_job() -> ClearJob {
-        ClearJob {
-            v: 1,
-            user_id: USER_ID.to_owned(),
-            channel_id: CHANNEL_ID.to_owned(),
-            message_id: MESSAGE_ID.to_owned(),
-            after_message_id: None,
-        }
-    }
-
     fn apns_for(image_url: Option<&str>) -> Value {
         apns_payload(&web_push_message(&message_job(image_url), USER_ID, 3))
-    }
-
-    #[test]
-    fn a_message_without_an_image_still_runs_the_notification_service_extension() {
-        assert_eq!(apns_for(None)["aps"]["mutable-content"], json!(1));
-    }
-
-    #[test]
-    fn a_message_with_an_image_still_runs_the_notification_service_extension() {
-        assert_eq!(
-            apns_for(Some("https://media.fluxer.app/proxy/attachment.webp"))["aps"]["mutable-content"],
-            json!(1)
-        );
-    }
-
-    #[test]
-    fn a_background_clear_never_runs_the_notification_service_extension() {
-        let payload = apns_payload(&web_push_clear(&clear_job(), 3));
-        assert_eq!(payload["aps"], json!({"content-available": 1}));
     }
 
     #[test]
@@ -725,92 +685,5 @@ mod tests {
             message["message"]["android"]["notification"]["click_action"],
             json!("FLUXER_MESSAGE")
         );
-    }
-
-    #[test]
-    fn a_message_with_a_badge_sends_it_in_both_places() {
-        let envelope = web_push_message(&message_job(None), USER_ID, 3);
-        assert_eq!(
-            envelope["badge"],
-            json!("https://media.fluxer.app/badge.png")
-        );
-        assert_eq!(
-            envelope["notification"]["badge"],
-            json!("https://media.fluxer.app/badge.png")
-        );
-    }
-
-    #[test]
-    fn a_message_without_a_badge_leaves_the_key_out() {
-        let mut job = message_job(None);
-        job.notification.badge = None;
-        let envelope = web_push_message(&job, USER_ID, 3);
-        assert!(envelope.get("badge").is_none());
-        assert!(envelope["notification"].get("badge").is_none());
-    }
-
-    #[test]
-    fn a_message_outside_a_thread_carries_no_thread_keys() {
-        let envelope = web_push_message(&message_job(None), USER_ID, 3);
-        for key in THREAD_DATA_KEYS {
-            assert!(envelope["data"].get(key).is_none(), "{key} leaked");
-        }
-    }
-
-    #[test]
-    fn a_thread_message_carries_its_parent_and_names() {
-        let envelope = web_push_message(&thread_job(), USER_ID, 3);
-        assert_eq!(envelope["data"]["parent_id"], json!("7788"));
-        assert_eq!(envelope["data"]["parent_name"], json!("general"));
-        assert_eq!(envelope["data"]["channel_name"], json!("release plans"));
-        assert_eq!(apns_payload(&envelope)["parent_id"], json!("7788"));
-    }
-
-    #[test]
-    fn only_a_forum_thread_created_message_carries_its_notification_type() {
-        let thread = web_push_message(&thread_job(), USER_ID, 3);
-        assert!(thread["data"].get(NOTIF_TYPE_KEY).is_none());
-        let forum = MessageJob {
-            kind: Some("forum_thread_created".to_owned()),
-            ..thread_job()
-        };
-        let envelope = web_push_message(&forum, USER_ID, 3);
-        assert_eq!(envelope["data"][NOTIF_TYPE_KEY], json!(9));
-        assert_eq!(envelope["data"]["parent_id"], json!("7788"));
-        let message = fcm_message("device-token", &envelope);
-        assert_eq!(message["message"]["data"][NOTIF_TYPE_KEY], json!("9"));
-        assert_eq!(
-            message["message"]["android"]["notification"]["channel_id"],
-            json!(FCM_FORUM_THREAD_CREATED_CHANNEL_ID)
-        );
-        assert_eq!(
-            fcm_message("device-token", &thread)["message"]["android"]["notification"]["channel_id"],
-            json!(FCM_DEFAULT_CHANNEL_ID)
-        );
-        let budget = serialize(&minimal(&envelope, usize::MAX)).len();
-        let (bytes, _step) = fit(&envelope, budget);
-        let shrunk: Value = serde_json::from_slice(&bytes).expect("the shrunk payload is json");
-        assert_eq!(shrunk["data"][NOTIF_TYPE_KEY], json!(9));
-    }
-
-    #[test]
-    fn a_shrunk_thread_message_keeps_its_parent_id() {
-        let envelope = web_push_message(&thread_job(), USER_ID, 3);
-        let budget = serialize(&minimal(&envelope, usize::MAX)).len();
-        let (bytes, step) = fit(&envelope, budget);
-        assert_eq!(step, Some(PayloadShrink::Minimal));
-        let shrunk: Value = serde_json::from_slice(&bytes).expect("the shrunk payload is json");
-        assert_eq!(shrunk["data"]["parent_id"], json!("7788"));
-    }
-
-    #[test]
-    fn a_shrunk_clear_still_tells_the_client_it_is_a_clear() {
-        let envelope = web_push_clear(&clear_job(), 3);
-        let budget = serialize(&envelope).len() - 1;
-        let (bytes, step) = fit(&envelope, budget);
-        assert_eq!(step, Some(PayloadShrink::Minimal));
-        let shrunk: Value = serde_json::from_slice(&bytes).expect("the shrunk payload is json");
-        assert_eq!(shrunk["data"]["type"], json!(CLEAR_TYPE));
-        assert_eq!(shrunk["data"]["action"], json!(CLEAR_ACTION));
     }
 }

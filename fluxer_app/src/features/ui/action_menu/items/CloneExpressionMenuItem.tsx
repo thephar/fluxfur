@@ -46,11 +46,7 @@ export const CloneExpressionMenuItem = observer(
 		if (!emoji.id) return null;
 		const emojiId = emoji.id;
 
-		const cloningAllowed = sourceGuild
-			? config.cloningAllowed(sourceGuild)
-			: metadataState?.data
-				? metadataState.data.allowCloning
-				: null;
+		const cloningAllowed = sourceGuild ? config.cloningAllowed(sourceGuild) : metadataState?.data?.allowCloning;
 		const isLoadingPermission = needsMetadataLookup && (metadataState?.loading ?? false);
 		if (cloningAllowed !== true && !isLoadingPermission) return null;
 		const eligible = Guilds.getGuilds()

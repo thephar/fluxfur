@@ -44,7 +44,7 @@ function resolveCoordinateDocument(path: string): string {
 	return match && document ? `${match[1]}/${document}` : path;
 }
 
-export function resolveDownloadObjectPath(requestPath: string): string | null {
+function resolveDownloadObjectPath(requestPath: string): string | null {
 	if (!requestPath.startsWith(DOWNLOAD_PREFIX)) {
 		return null;
 	}

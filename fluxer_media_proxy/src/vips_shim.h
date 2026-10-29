@@ -41,8 +41,6 @@ void fluxer_vips_error_clear(void);
 const char *fluxer_vips_error_buffer(void);
 void fluxer_vips_tune_for_server(int per_pipeline_threads);
 int fluxer_vips_probe_animated(const void *buf, size_t len, int *width, int *height, int *pages, int *bands, int *format);
-int fluxer_apng_probe(const void *buf, size_t len, int max_frames,
-                      size_t max_total_pixels, int *width, int *height, int *frames);
 VipsImage *fluxer_vips_image_new_from_buffer(const void *buf, size_t len, const char *option_string);
 VipsImage *fluxer_vips_image_new_from_memory(const void *data, size_t size, int width, int height, int bands, int format);
 VipsImage *fluxer_vips_image_new_from_memory_copy(const void *data, size_t size, int width, int height, int bands, int format);
@@ -59,6 +57,7 @@ int fluxer_vips_set_animation_loop_count(VipsImage *image, int loop_count);
 int fluxer_vips_read_delays_ms(VipsImage *image, int n_pages, int **out_delays, int *out_len);
 int fluxer_vips_autorot(
     VipsImage *in, long long deadline_monotonic_ms, VipsImage **out);
+int fluxer_vips_srgb_without_alpha(VipsImage *in, VipsImage **out);
 int fluxer_vips_extract_area(VipsImage *in, VipsImage **out, int left, int top, int width, int height);
 int fluxer_vips_resize(VipsImage *in, VipsImage **out, double scale);
 int fluxer_vips_join_animation_pages(
@@ -125,14 +124,6 @@ int fluxer_ffmpeg_resize_gif(
     size_t *out_capacity
 );
 
-int fluxer_validate_gif_animation(
-    const void *gif_data,
-    size_t gif_len,
-    int max_frames,
-    int max_duration_ms,
-    size_t max_total_pixels
-);
-
 int fluxer_ffmpeg_video_thumbnail_ex(
     const void *media_data,
     size_t media_len,
@@ -172,6 +163,30 @@ int fluxer_av_metadata(
     int max_width,
     int max_height,
     struct fluxer_av_metadata_out *out
+);
+
+int fluxer_av_strip_metadata(
+    const void *media_data,
+    size_t media_len,
+    const char *demuxer,
+    const char *muxer,
+    int faststart,
+    const char *output_path,
+    long long deadline_monotonic_ms
+);
+
+struct fluxer_av_audio_duration_out {
+    double frames_seconds;
+    int frame_count;
+    double stream_seconds;
+    double format_seconds;
+};
+
+int fluxer_av_audio_duration(
+    const void *media_data,
+    size_t media_len,
+    long long deadline_monotonic_ms,
+    struct fluxer_av_audio_duration_out *out
 );
 
 int fluxer_ffmpeg_decode_apng(

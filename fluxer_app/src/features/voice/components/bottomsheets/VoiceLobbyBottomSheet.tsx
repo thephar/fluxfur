@@ -25,6 +25,7 @@ import {VOICE_CAMERA_USER_LIMIT_REACHED_DESCRIPTOR} from '@app/features/voice/en
 import {useCameraUserCapBlocked} from '@app/features/voice/hooks/useCameraUserCapBlocked';
 import {usePendingVoiceConnection} from '@app/features/voice/hooks/usePendingVoiceConnection';
 import LocalVoiceState from '@app/features/voice/state/LocalVoiceState';
+import VoiceSettings from '@app/features/voice/state/VoiceSettings';
 import {
 	getVoiceDeafenedByModeratorsStatusLabel,
 	VOICE_DEAFEN_DESCRIPTOR,
@@ -255,7 +256,7 @@ export const VoiceLobbyBottomSheet = observer(function VoiceLobbyBottomSheet({
 						}}
 						currentLatency={currentLatency}
 						voiceServerEndpoint={voiceServerEndpoint}
-						connectionId={connectionId}
+						connectionId={VoiceSettings.showVoiceConnectionId ? connectionId : null}
 						audioPacketLoss={voiceStats?.audioPacketLoss}
 						jitter={voiceStats?.jitter}
 					/>

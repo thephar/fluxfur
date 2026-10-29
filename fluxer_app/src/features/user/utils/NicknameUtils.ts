@@ -54,7 +54,7 @@ export function getNickname(user: User, guildId?: string | null, channelId?: str
 	return formatNicknameForStreamerMode(getUntruncatedNickname(user, guildId, channelId));
 }
 
-export function truncateStreamerModeName(name: string): string {
+function truncateStreamerModeName(name: string): string {
 	const trimmed = name.trim();
 	if (!trimmed) return '…';
 	return `${Array.from(trimmed)[0]}…`;

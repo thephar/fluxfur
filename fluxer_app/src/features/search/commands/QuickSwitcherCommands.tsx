@@ -2,11 +2,13 @@
 
 import {Routes} from '@app/app/Routes';
 import {UserSettingsModal} from '@app/features/app/components/dialogs/LoadableSettingsModals';
+import {switchToSavedAccount} from '@app/features/auth/utils/AccountSwitcherModalUtils';
 import * as PrivateChannelCommands from '@app/features/channel/commands/PrivateChannelCommands';
 import {focusChannelTextareaAfterNavigation} from '@app/features/messaging/utils/ChannelTextareaFocusUtils';
 import {goToMessage, parseMessagePath} from '@app/features/messaging/utils/MessageNavigator';
 import * as NavigationCommands from '@app/features/navigation/commands/NavigationCommands';
 import SelectedChannel from '@app/features/navigation/state/SelectedChannel';
+import {handleDeepLinkUrl, isAppDeepLink} from '@app/features/navigation/utils/DeepLinkUtils';
 import * as RouterUtils from '@app/features/navigation/utils/RouterUtils';
 import QuickSwitcher from '@app/features/search/state/QuickSwitcher';
 import type {QuickSwitcherExecutableResult} from '@app/features/search/state/QuickSwitcherTypes';
@@ -39,9 +41,25 @@ export async function confirmSelection(): Promise<void> {
 	await switchTo(result);
 }
 
+export async function switchToOtherAccount(accountKey: string, redirectAfterSwitch?: string): Promise<void> {
+	await switchToSavedAccount({
+		accountKey,
+		redirectAfterSwitch,
+		onSelectCurrent: redirectAfterSwitch === undefined ? null : () => RouterUtils.transitionTo(redirectAfterSwitch),
+	});
+}
+
 export async function switchTo(result: QuickSwitcherExecutableResult): Promise<void> {
 	try {
 		switch (result.type) {
+			case QuickSwitcherResultTypes.ACCOUNT: {
+				void switchToOtherAccount(result.accountKey);
+				break;
+			}
+			case QuickSwitcherResultTypes.ACCOUNT_CHANNEL: {
+				void switchToOtherAccount(result.accountKey, Routes.guildChannel(result.guildId ?? ME, result.channelId));
+				break;
+			}
 			case QuickSwitcherResultTypes.USER: {
 				const channelId = result.dmChannelId ?? (await PrivateChannelCommands.ensureDMChannel(result.user.id));
 				NavigationCommands.selectChannel(ME, channelId);
@@ -101,6 +119,10 @@ export async function switchTo(result: QuickSwitcherExecutableResult): Promise<v
 				break;
 			}
 			case QuickSwitcherResultTypes.LINK: {
+				if (isAppDeepLink(result.path)) {
+					handleDeepLinkUrl(result.path);
+					break;
+				}
 				const parsed = parseMessagePath(result.path);
 				if (parsed) {
 					const viewContext = result.path.startsWith(Routes.favoritesChannel(parsed.channelId))

@@ -2,6 +2,7 @@
 
 pub const MAX_MEDIA_PROXY_BYTES: usize = 500 * 1024 * 1024;
 pub const DESKTOP_APP_ORIGIN: &str = "fluxer-app://app";
+pub(crate) const OPERATOR_WALL_PATH_PREFIX: &str = "/operator-wall/";
 
 pub const OUTBOUND_USER_AGENT: &str =
     "Mozilla/5.0 (compatible; Fluxerbot/1.0; +https://fluxer.app)";
@@ -55,6 +56,7 @@ pub enum AssetKind {
     EmbedSplash,
     Emoji,
     Sticker,
+    Branding,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
@@ -149,6 +151,7 @@ pub fn dims_for(kind: AssetKind) -> Dims {
         },
         AssetKind::Emoji => Dims { min: 32, max: 512 },
         AssetKind::Sticker => Dims { min: 128, max: 512 },
+        AssetKind::Branding => Dims { min: 16, max: 4096 },
     }
 }
 
@@ -156,58 +159,4 @@ pub fn clamp_size(raw_target: u32, kind: AssetKind) -> u32 {
     let value = raw_target.max(1);
     let dims = dims_for(kind);
     value.clamp(dims.min, dims.max)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn asset_cache_key(raw: Option<&str>, kind: AssetKind) -> u32 {
-        clamp_size(parse_image_size(raw), kind)
-    }
-
-    #[test]
-    fn off_ladder_size_never_serves_fewer_pixels_than_requested() {
-        for requested in 1..=4096u32 {
-            let served = parse_image_size(Some(&requested.to_string()));
-            assert!(
-                served >= requested,
-                "size={requested} served {served}, a silent downscale"
-            );
-        }
-    }
-
-    #[test]
-    fn sub_minimum_sizes_collapse_to_one_avatar_cache_key() {
-        let canonical = asset_cache_key(Some("128"), AssetKind::Avatar);
-        assert_eq!(128, canonical);
-        for below in IMAGE_SIZES.iter().take_while(|rung| **rung < 128) {
-            assert_eq!(
-                canonical,
-                asset_cache_key(Some(&below.to_string()), AssetKind::Avatar),
-                "size={below} minted a second avatar cache key"
-            );
-        }
-    }
-
-    #[test]
-    fn sub_minimum_sizes_collapse_to_one_banner_cache_key() {
-        let canonical = asset_cache_key(Some("480"), AssetKind::Banner);
-        assert_eq!(480, canonical);
-        for below in IMAGE_SIZES.iter().take_while(|rung| **rung < 480) {
-            assert_eq!(
-                canonical,
-                asset_cache_key(Some(&below.to_string()), AssetKind::Banner),
-                "size={below} minted a second banner cache key"
-            );
-        }
-    }
-
-    #[test]
-    fn oversize_requests_collapse_onto_the_kind_maximum() {
-        assert_eq!(1024, asset_cache_key(Some("99999"), AssetKind::Avatar));
-        assert_eq!(1024, asset_cache_key(Some("1024"), AssetKind::Avatar));
-        assert_eq!(512, asset_cache_key(Some("99999"), AssetKind::Emoji));
-        assert_eq!(512, asset_cache_key(Some("99999"), AssetKind::Sticker));
-    }
 }

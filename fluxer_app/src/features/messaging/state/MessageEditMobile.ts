@@ -14,18 +14,12 @@ class MessageEditMobile {
 		if (this.editingMessageIds[channelId] === messageId) {
 			return;
 		}
-		const currentMessageId = this.editingMessageIds[channelId];
-		if (currentMessageId) {
-		}
 		this.editingMessageIds[channelId] = messageId;
 	}
 
 	stopEditingMobile(channelId: string): void {
 		if (!(channelId in this.editingMessageIds)) {
 			return;
-		}
-		const messageId = this.editingMessageIds[channelId];
-		if (messageId) {
 		}
 		delete this.editingMessageIds[channelId];
 	}

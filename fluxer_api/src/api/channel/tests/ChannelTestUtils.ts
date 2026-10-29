@@ -207,34 +207,6 @@ export async function removeRecipientFromGroupDm(
 	await createBuilder(harness, token).delete(`/channels/${channelId}/recipients/${userId}`).expect(204).execute();
 }
 
-interface SeedPrivateChannelsResult {
-	group_dms: Array<{
-		channel_id: string;
-		last_message_id: string;
-	}>;
-	dms: Array<{
-		channel_id: string;
-		last_message_id: string;
-	}>;
-}
-
-export async function seedPrivateChannels(
-	harness: ApiTestHarness,
-	_token: string,
-	userId: string,
-	params: {
-		group_dm_count?: number;
-		dm_count?: number;
-		recipients?: Array<string>;
-		clear_existing?: boolean;
-	},
-): Promise<SeedPrivateChannelsResult> {
-	return createBuilder<SeedPrivateChannelsResult>(harness, '')
-		.post(`/test/users/${userId}/private-channels`)
-		.body(params)
-		.execute();
-}
-
 export {
 	acceptInvite,
 	addMemberRole,

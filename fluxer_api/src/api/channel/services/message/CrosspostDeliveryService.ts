@@ -50,6 +50,7 @@ import type {Message} from '@app/api/models/Message';
 import type {Webhook} from '@app/api/models/Webhook';
 import {deleteMessageSearchDocuments} from '@app/api/search/MessageSearchIndexCleanup';
 import type {UserRepository} from '@app/api/user/repositories/UserRepository';
+import {compareText} from '@app/api/utils/StringComparison';
 import type {WebhookRepository} from '@app/api/webhook/WebhookRepository';
 import {
 	CROSSPOST_PENDING_RECLAIM_AFTER_MS,
@@ -151,7 +152,7 @@ function toStableValue(value: unknown): unknown {
 	if (value instanceof Map) {
 		return [...value.entries()]
 			.map(([key, entry]) => [String(key), toStableValue(entry)] as const)
-			.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+			.sort(([a], [b]) => compareText(a, b));
 	}
 	if (Array.isArray(value)) return value.map(toStableValue);
 	if (typeof value === 'object') {
@@ -251,7 +252,7 @@ export class CrosspostDeliveryService {
 		return {kind: 'ready', context};
 	}
 
-	isSourceGuildActive(guild: GuildResponse): boolean {
+	private isSourceGuildActive(guild: GuildResponse): boolean {
 		return (
 			!isGuildUnavailable(guild) &&
 			!isOperationDisabled(guild, GuildOperations.SEND_MESSAGE) &&

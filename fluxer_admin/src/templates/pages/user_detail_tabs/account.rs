@@ -13,7 +13,7 @@ use crate::{
     templates::components::{
         alert::{AlertVariant, alert},
         enforcement_fields::{BasisFields, DecisionFields, FIELD_HELP_CLASS, basis_fields},
-        form::{checkbox, csrf_input, form_actions, submit_button},
+        form::{Checkbox, csrf_input, form_actions, submit_button},
         page_container::card_with_header,
     },
     utils::timestamps::format_admin_timestamp,
@@ -30,6 +30,8 @@ const BTN_CLS: &str = "w-full inline-flex items-center justify-center rounded-md
 pub struct AccountTabOptions<'a> {
     pub admin_acls: &'a [String],
     pub account_identity: AccountIdentityMode,
+    pub username_from_sso: bool,
+    pub reset_link_available: bool,
     pub password_reset_link: Option<&'a PasswordResetLinkResponse>,
 }
 
@@ -42,10 +44,10 @@ pub fn account_tab(
     options: &AccountTabOptions<'_>,
 ) -> Markup {
     let base = &config.base_path;
-    let username_sign_in = options.account_identity.is_username();
-    let can_create_reset_link = username_sign_in
+    let identity = options.account_identity;
+    let can_create_reset_link = options.reset_link_available
         && acl::has_permission(options.admin_acls, acl::USER_CREATE_PASSWORD_RESET_LINK);
-    let can_revoke_recovery_kit = username_sign_in
+    let can_revoke_recovery_kit = identity.is_username()
         && !user.bot
         && acl::has_permission(options.admin_acls, acl::USER_DELETE_RECOVERY_KIT);
     html! {
@@ -53,9 +55,13 @@ pub fn account_tab(
             @if can_create_reset_link {
                 (password_reset_link_card(base, user, csrf_token, options.password_reset_link))
             }
-            (edit_account_card(base, user, csrf_token, username_sign_in))
+            (edit_account_card(base, user, csrf_token, identity, options.username_from_sso))
             (sessions_card(config, sessions))
-            (quick_actions_card(base, user, csrf_token, username_sign_in, can_revoke_recovery_kit))
+            (quick_actions_card(base, user, csrf_token, &QuickActions {
+                identity,
+                send_reset_email: !options.reset_link_available,
+                can_revoke_recovery_kit,
+            }))
             (clear_fields_card(base, user, csrf_token))
             (user_status_card(base, user, csrf_token))
             (security_actions_card(base, user, csrf_token))
@@ -133,13 +139,13 @@ fn edit_account_card(
     base: &str,
     user: &AdminUser,
     csrf_token: &str,
-    username_sign_in: bool,
+    identity: AccountIdentityMode,
+    username_from_sso: bool,
 ) -> Markup {
     html! {
         (card_with_header("Edit Account Information", html! {
             div class="grid gap-4 md:grid-cols-2" {
-                (post_form(base, &user.id, "change_username", "account",
-                    "Are you sure you want to change this user\\'s username?", html! {
+                (post_form(base, &user.id, "change_username", "account", html! {
                     p class="text-sm font-medium text-neutral-700" { "Change Username:" }
                     input type="text" name="username" placeholder="New username"
                         required class=(INPUT_CLS);
@@ -151,10 +157,14 @@ fn edit_account_card(
                     (form_actions(html! {
                         (submit_button("Change Username"))
                     }))
+                    @if username_from_sso && !user.bot {
+                        p class="text-sm text-neutral-500" {
+                            "Usernames come from your SSO provider. The person's next SSO sign-in replaces this change."
+                        }
+                    }
                 }, csrf_token))
-                @if !username_sign_in {
-                    (post_form(base, &user.id, "change_email", "account",
-                        "Are you sure you want to change this user\\'s email address?", html! {
+                @if !identity.is_username() {
+                    (post_form(base, &user.id, "change_email", "account", html! {
                         p class="text-sm font-medium text-neutral-700" { "Change Email:" }
                         input type="email" name="email" placeholder="New email address"
                             required class=(INPUT_CLS);
@@ -163,8 +173,7 @@ fn edit_account_card(
                         }))
                     }, csrf_token))
                 }
-                (post_form(base, &user.id, "change_dob", "account",
-                    "Are you sure you want to change this user\\'s date of birth?", html! {
+                (post_form(base, &user.id, "change_dob", "account", html! {
                     p class="text-sm font-medium text-neutral-700" { "Change Date of Birth:" }
                     input type="date" name="date_of_birth"
                         value=(user.date_of_birth.as_deref().unwrap_or(""))
@@ -192,13 +201,13 @@ fn sessions_card(config: &AdminConfig, sessions: &[UserSession]) -> Markup {
                         p class="text-xs font-medium uppercase tracking-wide text-neutral-500" { "Active" }
                     }
                     @for s in &active {
-                        (session_entry(base, s, false))
+                        (session_entry(base, s))
                     }
                     @if !terminated.is_empty() {
                         p class="mt-4 text-xs font-medium uppercase tracking-wide text-neutral-400" { "Terminated" }
                     }
                     @for s in &terminated {
-                        (session_entry(base, s, true))
+                        (session_entry(base, s))
                     }
                 }
             }
@@ -206,7 +215,8 @@ fn sessions_card(config: &AdminConfig, sessions: &[UserSession]) -> Markup {
     }
 }
 
-fn session_entry(base: &str, s: &UserSession, is_tombstone: bool) -> Markup {
+fn session_entry(base: &str, s: &UserSession) -> Markup {
+    let is_tombstone = s.deleted_at.is_some();
     let border_cls = if is_tombstone {
         "rounded-lg border border-neutral-200 bg-neutral-100/60 p-4 opacity-75"
     } else {
@@ -248,31 +258,55 @@ fn session_entry(base: &str, s: &UserSession, is_tombstone: bool) -> Markup {
                 @if let Some(ref l) = s.client_location {
                     (meta_cell("Location", html! { (l) }))
                 }
+                @if let Some(app) = session_app_label(s) {
+                    (meta_cell("App", html! { (app) }))
+                }
             }
         }
     }
+}
+
+fn session_app_label(s: &UserSession) -> Option<String> {
+    let mut parts = Vec::new();
+    if let Some(ref version) = s.app_version {
+        parts.push(version.clone());
+    }
+    if let Some(build) = s.app_build_number {
+        parts.push(format!("build {build}"));
+    }
+    match (s.app_release_channel.as_deref(), s.app_beta_number) {
+        (Some(channel), Some(beta)) => parts.push(format!("{channel} {beta}")),
+        (Some(channel), None) => parts.push(channel.to_owned()),
+        (None, _) => {}
+    }
+    (!parts.is_empty()).then(|| parts.join(", "))
+}
+
+struct QuickActions {
+    identity: AccountIdentityMode,
+    send_reset_email: bool,
+    can_revoke_recovery_kit: bool,
 }
 
 fn quick_actions_card(
     base: &str,
     user: &AdminUser,
     csrf_token: &str,
-    username_sign_in: bool,
-    can_revoke_recovery_kit: bool,
+    actions: &QuickActions,
 ) -> Markup {
     html! {
         (card_with_header("Quick Actions", html! {
             div class="flex flex-wrap gap-3" {
-                @if !user.email_verified && !username_sign_in {
-                    (action_form(base, &user.id, "verify_email", "account", None,
+                @if !user.email_verified && !actions.identity.is_username() {
+                    (action_form(base, &user.id, "verify_email", "account",
                         "Verify Email", csrf_token))
                 }
-                @if !username_sign_in {
-                    (action_form(base, &user.id, "send_password_reset", "account", None,
+                @if actions.send_reset_email {
+                    (action_form(base, &user.id, "send_password_reset", "account",
                         "Send Password Reset", csrf_token))
                 }
-                @if can_revoke_recovery_kit {
-                    (action_form(base, &user.id, "revoke_recovery_kit", "account", None,
+                @if actions.can_revoke_recovery_kit {
+                    (action_form(base, &user.id, "revoke_recovery_kit", "account",
                         "Revoke Recovery Kit", csrf_token))
                 }
             }
@@ -301,11 +335,41 @@ fn clear_fields_card(base: &str, user: &AdminUser, csrf_token: &str) -> Markup {
                 (csrf_input(csrf_token))
                 div class="space-y-4" {
                     div class="grid grid-cols-2 gap-3 md:grid-cols-3" {
-                        @if user.avatar.is_some() { (checkbox("fields[]", "avatar", "Avatar", false, true)) }
-                        @if user.banner.is_some() { (checkbox("fields[]", "banner", "Banner", false, true)) }
-                        @if user.bio.is_some() { (checkbox("fields[]", "bio", "Bio", false, true)) }
-                        @if user.pronouns.is_some() { (checkbox("fields[]", "pronouns", "Pronouns", false, true)) }
-                        @if user.global_name.is_some() { (checkbox("fields[]", "global_name", "Display name", false, true)) }
+                        @if user.avatar.is_some() { (Checkbox {
+                            name: "fields[]",
+                            value: "avatar",
+                            label: "Avatar",
+                            checked: false,
+                            enabled: true,
+                        }.render()) }
+                        @if user.banner.is_some() { (Checkbox {
+                            name: "fields[]",
+                            value: "banner",
+                            label: "Banner",
+                            checked: false,
+                            enabled: true,
+                        }.render()) }
+                        @if user.bio.is_some() { (Checkbox {
+                            name: "fields[]",
+                            value: "bio",
+                            label: "Bio",
+                            checked: false,
+                            enabled: true,
+                        }.render()) }
+                        @if user.pronouns.is_some() { (Checkbox {
+                            name: "fields[]",
+                            value: "pronouns",
+                            label: "Pronouns",
+                            checked: false,
+                            enabled: true,
+                        }.render()) }
+                        @if user.global_name.is_some() { (Checkbox {
+                            name: "fields[]",
+                            value: "global_name",
+                            label: "Display name",
+                            checked: false,
+                            enabled: true,
+                        }.render()) }
                     }
                     (basis_fields(&BasisFields {
                         decision: DecisionFields {
@@ -338,13 +402,11 @@ fn clear_fields_card(base: &str, user: &AdminUser, csrf_token: &str) -> Markup {
 }
 
 fn user_status_card(base: &str, user: &AdminUser, csrf_token: &str) -> Markup {
-    let is_bot = user.bot;
-    let is_sys = user.system;
     html! {
         (card_with_header("User Status", html! {
             div class="grid grid-cols-1 gap-4 md:grid-cols-2" {
-                (status_toggle(base, &user.id, "set_bot_status", is_bot, "bot", csrf_token))
-                (status_toggle(base, &user.id, "set_system_status", is_sys, "system", csrf_token))
+                (status_toggle(base, user, UserStatus::Bot, csrf_token))
+                (status_toggle(base, user, UserStatus::System, csrf_token))
             }
         }))
     }
@@ -355,11 +417,9 @@ fn security_actions_card(base: &str, user: &AdminUser, csrf_token: &str) -> Mark
         (card_with_header("Security Actions", html! {
             div class="grid grid-cols-1 gap-3 md:grid-cols-2" {
                 @if user.has_totp {
-                    (action_form(base, &user.id, "disable_mfa", "account",
-                        Some("Disable MFA/TOTP for this user?"), "Disable MFA/TOTP", csrf_token))
+                    (action_form(base, &user.id, "disable_mfa", "account", "Disable MFA/TOTP", csrf_token))
                 }
                 (action_form(base, &user.id, "terminate_sessions", "account",
-                    Some("Terminate all sessions for this user?"),
                     "Terminate All Sessions", csrf_token))
             }
         }))
@@ -444,15 +504,7 @@ fn meta_cell(label: &str, value: Markup) -> Markup {
     html! { div { p class="text-sm font-medium text-neutral-500" { (label) } p class="text-sm text-neutral-900" { (value) } } }
 }
 
-fn post_form(
-    base: &str,
-    uid: &str,
-    action: &str,
-    tab: &str,
-    _confirm_msg: &str,
-    body: Markup,
-    csrf: &str,
-) -> Markup {
+fn post_form(base: &str, uid: &str, action: &str, tab: &str, body: Markup, csrf: &str) -> Markup {
     let action_url = format!("{base}/users/{uid}?action={action}&tab={tab}");
     html! {
         form method="post"
@@ -468,15 +520,7 @@ fn post_form(
     }
 }
 
-fn action_form(
-    base: &str,
-    uid: &str,
-    action: &str,
-    tab: &str,
-    _confirm_msg: Option<&str>,
-    label: &str,
-    csrf: &str,
-) -> Markup {
+fn action_form(base: &str, uid: &str, action: &str, tab: &str, label: &str, csrf: &str) -> Markup {
     let action_url = format!("{base}/users/{uid}?action={action}&tab={tab}");
     html! {
         form method="post"
@@ -491,20 +535,19 @@ fn action_form(
     }
 }
 
-fn status_toggle(
-    base: &str,
-    uid: &str,
-    action: &str,
-    active: bool,
-    kind: &str,
-    csrf: &str,
-) -> Markup {
+enum UserStatus {
+    Bot,
+    System,
+}
+
+fn status_toggle(base: &str, user: &AdminUser, status: UserStatus, csrf: &str) -> Markup {
+    let (active, action, kind, title) = match status {
+        UserStatus::Bot => (user.bot, "set_bot_status", "bot", "Bot"),
+        UserStatus::System => (user.system, "set_system_status", "system", "System"),
+    };
+    let uid = &user.id;
     let status_val = if active { "false" } else { "true" };
-    let label = format!(
-        "{} {} Status",
-        if active { "Remove" } else { "Set" },
-        capitalize(kind)
-    );
+    let label = format!("{} {} Status", if active { "Remove" } else { "Set" }, title);
     let action_url = format!("{base}/users/{uid}?action={action}&status={status_val}&tab=account");
     html! {
         form method="post"
@@ -517,13 +560,5 @@ fn status_toggle(
             input type="hidden" name=(kind) value=(status_val);
             button type="submit" class=(BTN_CLS) { (label) }
         }
-    }
-}
-
-fn capitalize(s: &str) -> String {
-    let mut c = s.chars();
-    match c.next() {
-        None => String::new(),
-        Some(f) => f.to_uppercase().chain(c).collect(),
     }
 }

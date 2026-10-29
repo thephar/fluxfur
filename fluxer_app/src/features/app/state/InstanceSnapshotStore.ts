@@ -119,6 +119,8 @@ export function runtimeSnapshotFromDiscovery(document: InstanceDiscoveryDocument
 		appPublic: discovery.appPublic,
 		agePolicy: discovery.agePolicy,
 		domainMigration: discovery.domainMigration,
+		notice: discovery.notice ?? null,
+		guildBadges: discovery.guildBadges,
 	});
 }
 
@@ -135,7 +137,7 @@ function endpointHostname(endpoint: string): string | null {
 }
 
 function bootstrapReleaseChannel(): OfficialReleaseChannel {
-	return Config.PUBLIC_RELEASE_CHANNEL === 'stable' ? 'stable' : 'canary';
+	return Config.RELEASE_CHANNEL === 'stable' ? 'stable' : 'canary';
 }
 
 const SAME_ORIGIN_API_META_SELECTOR = 'meta[name="fluxer-api-origin"][content="self"]';
@@ -156,9 +158,15 @@ function sameOriginApiEndpoint(origin: string): string {
 	return `${origin}${SAME_ORIGIN_API_PATH}`;
 }
 
-function adoptsDocumentOrigin(apiEndpoint: string): boolean {
+function adoptsDocumentOrigin(apiEndpoint: string): boolean | 'when-api-routed' {
 	const origin = browserDocumentOrigin();
-	return origin !== null && documentServesItsOwnApi() && apiEndpoint === sameOriginApiEndpoint(origin);
+	if (origin === null) {
+		return false;
+	}
+	if (documentServesItsOwnApi() && apiEndpoint === sameOriginApiEndpoint(origin)) {
+		return true;
+	}
+	return apiEndpoint === normalizeInstanceEndpoint(origin, InstanceEndpointKind.API) ? 'when-api-routed' : false;
 }
 
 export function resolveDiscoveryApiEndpoint(input: string): string {

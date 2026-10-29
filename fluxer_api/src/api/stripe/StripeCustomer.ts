@@ -57,7 +57,7 @@ export async function ensureStripeCustomer({
 			return freshUser;
 		}
 		const customer = await stripe.customers.create({
-			email: user.email ?? undefined,
+			email: user.emailVerified ? (user.email ?? undefined) : undefined,
 			metadata: {
 				userId: user.id.toString(),
 			},
@@ -81,7 +81,7 @@ export async function ensureStripeCustomer({
 export async function syncStripeCustomerEmail(stripe: Stripe, user: User): Promise<void> {
 	const customerId = user.stripeCustomerId;
 	const email = user.email;
-	if (!customerId || !email) {
+	if (!customerId || !email || !user.emailVerified) {
 		return;
 	}
 	const mirrored = await getBillingRepository().customers.findById(customerId);
@@ -98,7 +98,10 @@ export async function enqueueStripeCustomerEmailSync(
 	oldUser: User,
 	newUser: User,
 ): Promise<void> {
-	if (!newUser.stripeCustomerId || !newUser.email || oldUser.email === newUser.email) {
+	if (!newUser.stripeCustomerId || !newUser.email || !newUser.emailVerified) {
+		return;
+	}
+	if (oldUser.email === newUser.email && oldUser.emailVerified) {
 		return;
 	}
 	try {

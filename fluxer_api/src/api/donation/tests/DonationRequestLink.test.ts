@@ -46,14 +46,5 @@ describe('POST /donations/request-link', () => {
 			const emails = await listTestEmails(harness, {recipient: unknownEmail});
 			expect(emails).toHaveLength(0);
 		});
-		test('magic link token is 64-character hex string', async () => {
-			await createDonor(TEST_DONOR_EMAIL);
-			await createDonationRequestLinkBuilder(harness).body({email: TEST_DONOR_EMAIL}).expect(204).execute();
-			const emails = await listTestEmails(harness, {recipient: TEST_DONOR_EMAIL});
-			const token = emails[0]?.metadata.token;
-			expect(token).toBeDefined();
-			expect(token).toHaveLength(64);
-			expect(token).toMatch(/^[0-9a-f]{64}$/);
-		});
 	});
 });

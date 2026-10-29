@@ -103,7 +103,7 @@ function reconcileWrappedAvatarSlots(
 		return {
 			key,
 			entry,
-			phase: previousSlot?.phase === 'exiting' ? 'entering' : previousSlot ? 'present' : 'entering',
+			phase: previousSlot && previousSlot.phase !== 'exiting' ? 'present' : 'entering',
 		} satisfies WrappedAvatarSlot;
 	});
 	const exitingSlots = previousSlots

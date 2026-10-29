@@ -168,12 +168,6 @@ export function clearScreenShareDecodeFailures(): void {
 	screenShareDecodeFailures.clear();
 }
 
-export function resetVideoDecoderExclusions(): void {
-	cachedExclusions = null;
-	pendingProbe = null;
-	screenShareDecodeFailures.clear();
-}
-
 if (typeof window !== 'undefined') {
 	void loadVideoDecoderExclusions();
 }

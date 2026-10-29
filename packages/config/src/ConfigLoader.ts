@@ -226,12 +226,6 @@ function defaultConfig(): MasterConfig {
 			},
 			blocklist_feeds: {},
 			breached_password_check: {},
-			push: {
-				apns: {
-					enabled: false,
-					apps: [],
-				},
-			},
 			app_store: {
 				enabled: false,
 				apps: [],
@@ -242,6 +236,7 @@ function defaultConfig(): MasterConfig {
 				packages: [],
 				token_uri: 'https://oauth2.googleapis.com/token',
 				products: {},
+				self_service_refunds: false,
 			},
 			store_billing: {
 				sandbox_user_ids: [],
@@ -258,6 +253,10 @@ function defaultConfig(): MasterConfig {
 			},
 			account_identity: null,
 			tag_style: null,
+		},
+		payment_disputes: {},
+		operator_pass: {
+			grace_minutes: 30,
 		},
 		dev: {
 			relax_registration_rate_limits: false,
@@ -277,7 +276,6 @@ function defaultConfig(): MasterConfig {
 		},
 		attachment_decay_enabled: true,
 		deletion_grace_period_hours: 336,
-		inactivity_deletion_threshold_days: 365,
 		report_retention: {
 			days: 365,
 			dry_run: false,
@@ -303,9 +301,17 @@ function assertOneOf<T extends string>(value: string, allowed: ReadonlyArray<T>,
 	}
 }
 
+function missingSetting(envName: string): Error {
+	const version = process.env.BUILD_VERSION?.trim();
+	const image = version ? `image ${version}` : 'this image';
+	return new Error(
+		`${envName} is required. If .env or the Helm values set it, the stack files or the Helm chart in use are older than ${image} and don't pass it on. Run rexctl upgrade, or upgrade the Helm chart to the same release as the image.`,
+	);
+}
+
 function requireString(value: string | undefined, envName: string): void {
 	if (!value || value.trim().length === 0) {
-		throw new Error(`${envName} is required`);
+		throw missingSetting(envName);
 	}
 }
 
@@ -316,7 +322,7 @@ function applyProfilePseudonymSecret(config: MasterConfig): void {
 		return;
 	}
 	if (config.env === 'production') {
-		throw new Error('FLUXER_PROFILE_PSEUDONYM_SECRET is required');
+		throw missingSetting('FLUXER_PROFILE_PSEUDONYM_SECRET');
 	}
 	config.auth.profile_pseudonym_secret = DEVELOPMENT_PROFILE_PSEUDONYM_SECRET;
 }
@@ -395,7 +401,7 @@ function normalizeEmailFallbackConfig(config: MasterConfig): void {
 function validateUploadRelaySecret(value: string): void {
 	const trimmed = value.trim();
 	if (trimmed.length === 0) {
-		throw new Error('FLUXER_MEDIA_PROXY_UPLOAD_RELAY_SECRET_BASE64 is required');
+		throw missingSetting('FLUXER_MEDIA_PROXY_UPLOAD_RELAY_SECRET_BASE64');
 	}
 	if (!/^[A-Za-z0-9+/]+={0,2}$/u.test(trimmed)) {
 		throw new Error('FLUXER_MEDIA_PROXY_UPLOAD_RELAY_SECRET_BASE64 must be base64');
@@ -445,16 +451,23 @@ function assertIdentifier(value: string, envName: string): void {
 	}
 }
 
+const VAPID_REMEDY =
+	'Run rexctl doctor --fix to make a new pair. Browsers that have notifications on subscribe again on their next visit.';
+
+function vapidMismatch(): Error {
+	return new Error(`FLUXER_VAPID_PRIVATE_KEY does not match FLUXER_VAPID_PUBLIC_KEY. ${VAPID_REMEDY}`);
+}
+
 function validateVapidConfig(config: MasterConfig): void {
 	requireString(config.auth.vapid.public_key, 'FLUXER_VAPID_PUBLIC_KEY');
 	requireString(config.auth.vapid.private_key, 'FLUXER_VAPID_PRIVATE_KEY');
 	const pub = Buffer.from(config.auth.vapid.public_key, 'base64url');
 	const priv = Buffer.from(config.auth.vapid.private_key, 'base64url');
 	if (pub.length !== 65 || pub[0] !== 0x04) {
-		throw new Error('FLUXER_VAPID_PUBLIC_KEY must be the base64url 65-byte uncompressed P-256 point');
+		throw new Error(`FLUXER_VAPID_PUBLIC_KEY must be the base64url 65-byte uncompressed P-256 point. ${VAPID_REMEDY}`);
 	}
 	if (priv.length !== 32) {
-		throw new Error('FLUXER_VAPID_PRIVATE_KEY must be the base64url 32-byte P-256 scalar');
+		throw new Error(`FLUXER_VAPID_PRIVATE_KEY must be the base64url 32-byte P-256 scalar. ${VAPID_REMEDY}`);
 	}
 	let derived: Buffer;
 	try {
@@ -462,10 +475,10 @@ function validateVapidConfig(config: MasterConfig): void {
 		curve.setPrivateKey(priv);
 		derived = curve.getPublicKey();
 	} catch {
-		throw new Error('FLUXER_VAPID_PRIVATE_KEY does not match FLUXER_VAPID_PUBLIC_KEY');
+		throw vapidMismatch();
 	}
 	if (!derived.equals(pub)) {
-		throw new Error('FLUXER_VAPID_PRIVATE_KEY does not match FLUXER_VAPID_PUBLIC_KEY');
+		throw vapidMismatch();
 	}
 }
 
@@ -676,7 +689,10 @@ function normalizeConfig(config: MasterConfig): MasterConfig {
 	assertOneOf(config.database.backend, ['postgres', 'cassandra'], 'FLUXER_DATABASE_BACKEND');
 	assertOneOf(config.internal.kv_mode, ['standalone', 'cluster'], 'FLUXER_KV_MODE');
 	assertOneOf(config.integrations.email.provider, ['smtp', 'none'], 'FLUXER_EMAIL_PROVIDER');
-	assertOneOf(config.integrations.search.engine, ['elasticsearch', 'meilisearch'], 'FLUXER_SEARCH_ENGINE');
+	if (config.integrations.email.delivery !== undefined) {
+		assertOneOf(config.integrations.email.delivery, ['off', 'smtp'], 'FLUXER_EMAIL_DELIVERY');
+	}
+	assertOneOf(config.integrations.search.engine, ['elasticsearch', 'meilisearch', 'none'], 'FLUXER_SEARCH_ENGINE');
 	assertOneOf(config.integrations.cache_purge.adapter, CACHE_PURGE_ADAPTER_NAMES, 'FLUXER_CACHE_PURGE_ADAPTER');
 	if (config.instance.tag_style !== null) {
 		assertOneOf(config.instance.tag_style, TAG_STYLE_NAMES, 'FLUXER_TAG_STYLE');
@@ -809,6 +825,8 @@ function applyPublicPort(config: MasterConfig, endpoints: DerivedEndpoints): Mas
 				logo_url: normalizeOptional(branding.logo_url),
 				wordmark_url: normalizeOptional(branding.wordmark_url),
 				favicon_url: normalizeOptional(branding.favicon_url),
+				favicon_dark_url: normalizeOptional(branding.favicon_dark_url),
+				sign_in_backdrop_url: normalizeOptional(branding.sign_in_backdrop_url),
 				status_page_url: normalizeOptional(branding.status_page_url),
 				status_page_incident_history_url: normalizeOptional(branding.status_page_incident_history_url),
 			},

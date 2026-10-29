@@ -49,7 +49,7 @@ export class PasswordChangeService {
 		const now = new Date();
 		const code = generateChangeVerificationCode();
 		const codeExpiresAt = new Date(now.getTime() + this.CODE_TTL_MS);
-		await email.sendPasswordChangeVerification(user.email, user.username, code, user.locale);
+		await email.send('password_change_verification', user.email, {code}, user.locale);
 		await this.repo.createTicket({
 			ticket,
 			user_id: user.id,
@@ -84,7 +84,7 @@ export class PasswordChangeService {
 		const now = new Date();
 		const code = generateChangeVerificationCode();
 		const codeExpiresAt = new Date(now.getTime() + this.CODE_TTL_MS);
-		await email.sendPasswordChangeVerification(user.email, user.username, code, user.locale);
+		await email.send('password_change_verification', user.email, {code}, user.locale);
 		row.code = code;
 		row.code_sent_at = now;
 		row.code_expires_at = codeExpiresAt;

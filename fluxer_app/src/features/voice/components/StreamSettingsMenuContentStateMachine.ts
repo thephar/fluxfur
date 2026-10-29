@@ -223,14 +223,14 @@ export type StreamSettingsQualityWrite =
 	| {kind: 'premium'}
 	| {kind: 'write'; patch: ScreenShareQualityPatch};
 
-export interface StreamSettingsQualitySignals {
+interface StreamSettingsQualitySignals {
 	quality: ScreenShareQualityInput;
 	pick: ScreenShareQualityPick;
 	premiumOption: boolean;
 	showPremiumFeatures: boolean;
 }
 
-export function selectStreamSettingsQualityWrite(signals: StreamSettingsQualitySignals): StreamSettingsQualityWrite {
+function selectStreamSettingsQualityWrite(signals: StreamSettingsQualitySignals): StreamSettingsQualityWrite {
 	if (signals.premiumOption && !signals.quality.entitled) {
 		return signals.showPremiumFeatures ? {kind: 'premium'} : {kind: 'none'};
 	}

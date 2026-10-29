@@ -209,6 +209,10 @@ export async function startSsoLogin({
 	return {authorizationUrl: result.authorization_url, redirectUri: result.redirect_uri, state};
 }
 
+export type SsoLoginResult =
+	| {type: 'success'; payload: LoginSuccessPayload}
+	| {type: 'mfa'; challenge: MfaChallenge; redirectTo: string};
+
 export async function completeSsoLogin({
 	code,
 	state,
@@ -217,15 +221,21 @@ export async function completeSsoLogin({
 	code: string;
 	state: string;
 	runtimeSnapshot: RuntimeConfigSnapshot;
-}): Promise<LoginSuccessPayload> {
+}): Promise<SsoLoginResult> {
 	const result = await AuthenticationCommands.completeSso({
 		code,
 		state,
 		target: instanceTargetFromSnapshot(runtimeSnapshot),
 	});
+	if ('mfa' in result) {
+		return {type: 'mfa', challenge: mfaChallengeFromResponse(result), redirectTo: result.redirect_to};
+	}
 	return {
-		...toLoginSuccessPayload(result),
-		redirect_to: result.redirect_to,
+		type: 'success',
+		payload: {
+			...toLoginSuccessPayload(result),
+			redirect_to: result.redirect_to,
+		},
 	};
 }
 

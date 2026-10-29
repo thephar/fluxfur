@@ -15,6 +15,7 @@ import {viewerFromCtx} from '@app/api/experiment/ChannelThreadsGate';
 import {LoginRequired} from '@app/api/middleware/AuthMiddleware';
 import {BlockAppOriginMiddleware} from '@app/api/middleware/BlockAppOriginMiddleware';
 import {RateLimitMiddleware} from '@app/api/middleware/RateLimitMiddleware';
+import {RequestBodyLimit} from '@app/api/middleware/RequestBodyLimitMiddleware';
 import {OpenAPI} from '@app/api/middleware/ResponseTypeMiddleware';
 import {RateLimitConfigs} from '@app/api/RateLimitConfig';
 import type {HonoApp, HonoEnv} from '@app/api/types/HonoEnv';
@@ -59,6 +60,7 @@ import {
 import type {Context} from 'hono';
 import type {z} from 'zod';
 
+const GITHUB_WEBHOOK_MAX_BODY_BYTES = 25 * 1024 * 1024;
 const FORUM_POST_FIELDS = {thread_name: true, applied_tags: true} as const;
 const WebhookMessagePayload = WebhookMessageRequest.omit(FORUM_POST_FIELDS);
 const WebhookMultipartMessagePayload = WebhookMultipartMessageRequest.omit(FORUM_POST_FIELDS);
@@ -485,7 +487,7 @@ export function WebhookController(app: HonoApp) {
 		Validator('query', WebhookMessageQueryRequest),
 		async (ctx) => {
 			const {webhook_id: webhookId, token, message_id: messageId} = ctx.req.valid('param');
-			await ctx.get('webhookRequestService').deleteWebhookMessage({
+			await ctx.get('webhookService').deleteWebhookMessage({
 				webhookId: createWebhookID(webhookId),
 				token: createWebhookToken(token),
 				threadId: ctx.req.query('thread_id'),
@@ -497,6 +499,7 @@ export function WebhookController(app: HonoApp) {
 	);
 	app.post(
 		'/webhooks/:webhook_id/:token/github',
+		RequestBodyLimit(GITHUB_WEBHOOK_MAX_BODY_BYTES),
 		RateLimitMiddleware(RateLimitConfigs.WEBHOOK_GITHUB),
 		BlockAppOriginMiddleware,
 		OpenAPI({
@@ -513,7 +516,7 @@ export function WebhookController(app: HonoApp) {
 		Validator('json', GitHubWebhook),
 		async (ctx) => {
 			const {webhook_id: webhookId, token} = ctx.req.valid('param');
-			await ctx.get('webhookRequestService').executeGitHubWebhook({
+			await ctx.get('webhookService').executeGitHubWebhook({
 				webhookId: createWebhookID(webhookId),
 				token: createWebhookToken(token),
 				threadId: ctx.req.query('thread_id'),
@@ -571,7 +574,7 @@ export function WebhookController(app: HonoApp) {
 		Validator('json', InstatusWebhook),
 		async (ctx) => {
 			const {webhook_id: webhookId, token} = ctx.req.valid('param');
-			await ctx.get('webhookRequestService').executeInstatusWebhook({
+			await ctx.get('webhookService').executeInstatusWebhook({
 				webhookId: createWebhookID(webhookId),
 				token: createWebhookToken(token),
 				data: ctx.req.valid('json'),
@@ -598,7 +601,7 @@ export function WebhookController(app: HonoApp) {
 		Validator('json', LibredeskWebhook),
 		async (ctx) => {
 			const {webhook_id: webhookId, token} = ctx.req.valid('param');
-			await ctx.get('webhookRequestService').executeLibredeskWebhook({
+			await ctx.get('webhookService').executeLibredeskWebhook({
 				webhookId: createWebhookID(webhookId),
 				token: createWebhookToken(token),
 				threadId: ctx.req.query('thread_id'),

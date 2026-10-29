@@ -94,6 +94,7 @@ export class ThreadServiceContext {
 	}
 
 	async parentActor(auth: AuthenticatedChannel, userId: UserID): Promise<ThreadActor> {
+		if (auth.visitor) return {permissions: auth.visitor.permissions, isOwner: false, timedOut: false};
 		const permissions = await this.gatewayService.getUserPermissions({
 			guildId: auth.channel.guildId!,
 			userId,

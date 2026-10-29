@@ -174,7 +174,7 @@ describe('UserRelationshipStateTransitions', () => {
 			await unclaimAccount(harness, alice.userId);
 			await createBuilder(harness, alice.token)
 				.post(`/users/@me/relationships/${bob.userId}`)
-				.expect(HTTP_STATUS.BAD_REQUEST, 'UNCLAIMED_ACCOUNT_CANNOT_SEND_FRIEND_REQUESTS')
+				.expect(HTTP_STATUS.FORBIDDEN, 'UNCLAIMED_ACCOUNT_CANNOT_SEND_FRIEND_REQUESTS')
 				.execute();
 		});
 		test('unclaimed account cannot accept friend request', async () => {
@@ -185,7 +185,7 @@ describe('UserRelationshipStateTransitions', () => {
 			await createBuilder(harness, bob.token)
 				.put(`/users/@me/relationships/${alice.userId}`)
 				.body({})
-				.expect(HTTP_STATUS.BAD_REQUEST, 'UNCLAIMED_ACCOUNT_CANNOT_ACCEPT_FRIEND_REQUESTS')
+				.expect(HTTP_STATUS.FORBIDDEN, 'UNCLAIMED_ACCOUNT_CANNOT_ACCEPT_FRIEND_REQUESTS')
 				.execute();
 		});
 		test('cannot accept non-existent incoming request', async () => {

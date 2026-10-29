@@ -9,13 +9,14 @@ import QuickSwitcher from '@app/features/search/state/QuickSwitcher';
 import {remFromPx} from '@app/features/theme/layout/RemFromPx';
 import {Input} from '@app/features/ui/components/form/FormInput';
 import FocusRing from '@app/features/ui/focus_ring/FocusRing';
+import {ArrowLeftIcon} from '@app/features/ui/icons/DirectionalIcons';
 import ContextMenu from '@app/features/ui/state/ContextMenu';
 import KeyboardMode from '@app/features/ui/state/KeyboardMode';
 import MobileLayout from '@app/features/ui/state/MobileLayout';
 import Modal from '@app/features/ui/state/Modal';
 import {msg} from '@lingui/core/macro';
 import {useLingui} from '@lingui/react/macro';
-import {ArrowLeftIcon, MagnifyingGlassIcon, XIcon} from '@phosphor-icons/react';
+import {MagnifyingGlassIcon, XIcon} from '@phosphor-icons/react';
 import React, {useCallback, useEffect, useRef} from 'react';
 
 const SEARCH_DESCRIPTOR = msg({

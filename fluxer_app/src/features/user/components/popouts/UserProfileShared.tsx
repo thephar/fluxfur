@@ -232,16 +232,18 @@ export const UserProfileTimezoneInfo: React.FC<{profile: Profile}> = observer(({
 		timeZone: 'UTC',
 	}).format(getDateAtOffset(now, timezoneOffset));
 	const offsetDifference = timezoneOffset - getViewerOffsetMinutes();
-	const differenceText =
-		offsetDifference === 0
-			? i18n._(SAME_TIME_AS_YOU_DESCRIPTOR)
-			: offsetDifference > 0
-				? i18n._(TIME_AHEAD_OF_YOU_DESCRIPTOR, {
-						duration: formatOffsetDifferenceDuration(i18n, offsetDifference),
-					})
-				: i18n._(TIME_BEHIND_YOU_DESCRIPTOR, {
-						duration: formatOffsetDifferenceDuration(i18n, offsetDifference),
-					});
+	let differenceText: string;
+	if (offsetDifference === 0) {
+		differenceText = i18n._(SAME_TIME_AS_YOU_DESCRIPTOR);
+	} else if (offsetDifference > 0) {
+		differenceText = i18n._(TIME_AHEAD_OF_YOU_DESCRIPTOR, {
+			duration: formatOffsetDifferenceDuration(i18n, offsetDifference),
+		});
+	} else {
+		differenceText = i18n._(TIME_BEHIND_YOU_DESCRIPTOR, {
+			duration: formatOffsetDifferenceDuration(i18n, offsetDifference),
+		});
+	}
 	return (
 		<div className={styles.timeZoneContainer} data-flx="user.user-profile-shared.user-profile-timezone-info.container">
 			<span className={styles.timeZoneTitle} data-flx="user.user-profile-shared.user-profile-timezone-info.title">

@@ -8,7 +8,7 @@ import * as PermissionUtils from '@app/features/permissions/utils/PermissionUtil
 import type {User} from '@app/features/user/models/User';
 import {Permissions} from '@fluxer/constants/src/ChannelConstants';
 
-export interface GuildModerationCapabilityOptions {
+interface GuildModerationCapabilityOptions {
 	isCurrentUser: boolean;
 	canManageTarget: boolean;
 	canKickMembers: boolean;
@@ -25,9 +25,7 @@ export interface GuildModerationCapabilities {
 
 export type MemberModerationActionKey = 'timeout' | 'remove_timeout' | 'kick' | 'ban';
 
-export function resolveGuildModerationCapabilities(
-	options: GuildModerationCapabilityOptions,
-): GuildModerationCapabilities {
+function resolveGuildModerationCapabilities(options: GuildModerationCapabilityOptions): GuildModerationCapabilities {
 	const canModerateTarget = !options.isCurrentUser && options.canManageTarget;
 	return {
 		canKick: canModerateTarget && options.canKickMembers,

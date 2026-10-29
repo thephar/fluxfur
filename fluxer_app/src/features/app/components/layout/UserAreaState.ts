@@ -2,7 +2,7 @@
 
 export type UserAreaMuteReason = 'guild' | 'voice_push_to_talk' | 'self' | 'permission' | null;
 
-export interface UserAreaMicrophoneSignals {
+interface UserAreaMicrophoneSignals {
 	effectiveAudioMuted: boolean;
 	effectiveAudioDeafened: boolean;
 	isGuildMuted: boolean;

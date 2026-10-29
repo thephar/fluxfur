@@ -10,27 +10,27 @@ import {getPremiumProductFullName, shouldShowPremiumFeatures} from '@app/feature
 import {APP_PROTOCOL_SCHEME, isAppProtocolUrl} from '@app/features/ui/utils/AppProtocol';
 import type {I18n} from '@lingui/core';
 import {msg} from '@lingui/core/macro';
-import {ChatsCircleIcon, CompassIcon, CrownIcon, type Icon, StarIcon} from '@phosphor-icons/react';
+import {AtomIcon, ChatsCircleIcon, CompassIcon, type Icon, StarIcon} from '@phosphor-icons/react';
 
 export type AppPageId = 'discovery' | 'plutonium' | 'favorites' | 'direct_messages';
 
 interface AppPageDefinition {
 	id: AppPageId;
-	path: string;
+	paths: ReadonlyArray<string>;
 	icon: Icon;
 	appHostOnly: boolean;
 }
 
 const DISCOVERY_PAGE_DESCRIPTOR = msg({
-	message: 'Discovery',
-	comment: 'Name of the Discovery page, shown in an inline chat link that opens it.',
+	message: 'Explore',
+	comment: 'Name of the Explore page, shown in an inline chat link that opens it.',
 });
 
 const APP_PAGES: ReadonlyArray<AppPageDefinition> = [
-	{id: 'discovery', path: Routes.DISCOVER, icon: CompassIcon, appHostOnly: false},
-	{id: 'plutonium', path: Routes.PLUTONIUM, icon: CrownIcon, appHostOnly: true},
-	{id: 'favorites', path: Routes.FAVORITES, icon: StarIcon, appHostOnly: false},
-	{id: 'direct_messages', path: Routes.ME, icon: ChatsCircleIcon, appHostOnly: false},
+	{id: 'discovery', paths: [Routes.DISCOVER, Routes.LEGACY_DISCOVER], icon: CompassIcon, appHostOnly: false},
+	{id: 'plutonium', paths: [Routes.PLUTONIUM], icon: AtomIcon, appHostOnly: true},
+	{id: 'favorites', paths: [Routes.FAVORITES], icon: StarIcon, appHostOnly: false},
+	{id: 'direct_messages', paths: [Routes.ME], icon: ChatsCircleIcon, appHostOnly: false},
 ];
 
 const OFFICIAL_WEB_APP_HOSTS = ['web.fluxer.app', 'web.canary.fluxer.app'];
@@ -50,7 +50,7 @@ function isWebAppHost(host: string): boolean {
 	try {
 		if (normalized === new URL(RuntimeConfig.webAppBaseUrl).host.toLowerCase()) return true;
 	} catch {}
-	return OFFICIAL_WEB_APP_HOSTS.includes(normalized);
+	return !RuntimeConfig.isSelfHosted() && OFFICIAL_WEB_APP_HOSTS.includes(normalized);
 }
 
 function isPageAvailable(page: AppPageDefinition): boolean {
@@ -62,7 +62,7 @@ function isPageAvailable(page: AppPageDefinition): boolean {
 
 function findPageByPath(pathname: string): AppPageDefinition | null {
 	const path = normalizePath(pathname);
-	return APP_PAGES.find((page) => page.path === path && isPageAvailable(page)) ?? null;
+	return APP_PAGES.find((page) => page.paths.includes(path) && isPageAvailable(page)) ?? null;
 }
 
 export function parseAppPagePath(path: string): AppPageId | null {

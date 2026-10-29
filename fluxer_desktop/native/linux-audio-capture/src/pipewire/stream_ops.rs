@@ -4,7 +4,6 @@
 
 use std::mem;
 use std::ops::Range;
-use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use pipewire as pw;
@@ -38,7 +37,6 @@ pub(crate) struct DirectStreamRuntime {
     pub(crate) owned_link_snapshot: Arc<Mutex<Vec<LinkKey>>>,
     pub(crate) sink_proxy: std::rc::Rc<std::cell::RefCell<Option<pw::node::Node>>>,
     pub(crate) samples: Arc<Mutex<DirectAudioBuffer>>,
-    pub(crate) running: Arc<AtomicBool>,
     pub(crate) sink_node_name: String,
     pub(crate) stream_node_name: String,
     pub(crate) clock: Arc<dyn MonotonicClock>,
@@ -244,17 +242,4 @@ pub(crate) fn build_direct_stream(
         &mut params,
     )?;
     Ok((stream, listener))
-}
-
-#[cfg(test)]
-pub(crate) fn build_test_user_data(clock: Arc<dyn MonotonicClock>) -> DirectUserData {
-    let mut format = spa::param::audio::AudioInfoRaw::new();
-    format.set_rate(DIRECT_CAPTURE_SAMPLE_RATE);
-    format.set_channels(DIRECT_CAPTURE_CHANNELS);
-    DirectUserData {
-        samples: Arc::new(Mutex::new(DirectAudioBuffer::default_format())),
-        format,
-        scratch: Mutex::new(Box::new([0.0_f32; MAX_FRAME_SAMPLES])),
-        clock,
-    }
 }

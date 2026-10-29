@@ -47,6 +47,7 @@ import {MessageContextMenu} from '@app/features/ui/action_menu/MessageContextMen
 import * as ContextMenuCommands from '@app/features/ui/commands/ContextMenuCommands';
 import {Avatar} from '@app/features/ui/components/Avatar';
 import FocusRing from '@app/features/ui/focus_ring/FocusRing';
+import {ArrowBendUpRightIcon, CaretRightIcon} from '@app/features/ui/icons/DirectionalIcons';
 import MobileLayout from '@app/features/ui/state/MobileLayout';
 import UserSettings from '@app/features/user/state/UserSettings';
 import * as AvatarUtils from '@app/features/user/utils/AvatarUtils';
@@ -58,7 +59,7 @@ import type {
 	MessageStickerItem,
 } from '@fluxer/schema/src/domains/message/MessageResponseSchemas';
 import {Trans, useLingui} from '@lingui/react/macro';
-import {ArrowBendUpRightIcon, CaretRightIcon, NotePencilIcon} from '@phosphor-icons/react';
+import {NotePencilIcon} from '@phosphor-icons/react';
 import {clsx} from 'clsx';
 import {observer} from 'mobx-react-lite';
 import type React from 'react';

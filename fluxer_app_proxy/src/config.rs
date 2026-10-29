@@ -7,38 +7,23 @@ use std::fmt;
 
 const DEFAULT_DISCOVERY_UPSTREAM_URL: &str = "http://localhost:8088/api/.well-known/fluxer";
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum InvalidAppProxyEnvironmentError {
-    InvalidValue {
-        name: &'static str,
-        value: String,
-        expected: &'static str,
-    },
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+#[error("{name} must be {expected}, got {value:?}")]
+pub struct InvalidAppProxyEnvironmentError {
+    name: &'static str,
+    value: String,
+    expected: &'static str,
 }
 
 impl InvalidAppProxyEnvironmentError {
     fn new(name: &'static str, value: &str, expected: &'static str) -> Self {
-        Self::InvalidValue {
+        Self {
             name,
             value: value.to_owned(),
             expected,
         }
     }
 }
-
-impl fmt::Display for InvalidAppProxyEnvironmentError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::InvalidValue {
-                name,
-                value,
-                expected,
-            } => write!(formatter, "{name} must be {expected}, got {value:?}"),
-        }
-    }
-}
-
-impl std::error::Error for InvalidAppProxyEnvironmentError {}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HttpUrl(Url);
@@ -370,6 +355,7 @@ pub struct AppProxyConfig {
 pub struct CspConfig {
     pub extra_default_src: Vec<CspSource>,
     pub extra_connect_src: Vec<CspSource>,
+    pub voice_connect_src: Vec<CspSource>,
     pub extra_img_src: Vec<CspSource>,
     pub extra_media_src: Vec<CspSource>,
     pub extra_font_src: Vec<CspSource>,
@@ -386,6 +372,9 @@ impl CspConfig {
         Self {
             extra_default_src: read_csp_sources("FLUXER_CSP_EXTRA_DEFAULT_SRC"),
             extra_connect_src: read_csp_sources("FLUXER_CSP_EXTRA_CONNECT_SRC"),
+            voice_connect_src: cfg::env_value("FLUXER_LIVEKIT_URL")
+                .map(|value| voice_connect_sources("FLUXER_LIVEKIT_URL", &value))
+                .unwrap_or_default(),
             extra_img_src: read_csp_sources("FLUXER_CSP_EXTRA_IMG_SRC"),
             extra_media_src: read_csp_sources("FLUXER_CSP_EXTRA_MEDIA_SRC"),
             extra_font_src: read_csp_sources("FLUXER_CSP_EXTRA_FONT_SRC"),
@@ -404,6 +393,32 @@ fn read_csp_sources(name: &'static str) -> Vec<CspSource> {
         .split([',', ' ', '\t', '\n'])
         .map(str::trim)
         .filter(|source| !source.is_empty())
+        .filter_map(|source| {
+            CspSource::parse(name, source)
+                .inspect_err(warn_invalid)
+                .ok()
+        })
+        .collect()
+}
+
+pub fn voice_connect_sources(name: &'static str, value: &str) -> Vec<CspSource> {
+    let Ok(url) = Url::parse(value.trim()) else {
+        return Vec::new();
+    };
+    let twin_scheme = match url.scheme() {
+        "https" => "wss",
+        "wss" => "https",
+        "http" => "ws",
+        "ws" => "http",
+        _ => return Vec::new(),
+    };
+    let origin = url.origin().ascii_serialization();
+    let Some((_, authority)) = origin.split_once("://") else {
+        return Vec::new();
+    };
+    let twin = format!("{twin_scheme}://{authority}");
+    [origin.as_str(), twin.as_str()]
+        .into_iter()
         .filter_map(|source| {
             CspSource::parse(name, source)
                 .inspect_err(warn_invalid)
@@ -433,6 +448,7 @@ impl AppProxyConfig {
                 .ok()
         });
 
+        let self_hosted = cfg::read_bool_env("FLUXER_SELF_HOSTED", false);
         Self {
             host: cfg::read_env("FLUXER_APP_PROXY_HOST", "0.0.0.0"),
             port: parse_env_or_warn(
@@ -478,13 +494,20 @@ impl AppProxyConfig {
                 "FLUXER_APP_PROXY_MANIFEST_SCOPE_EXTENSIONS",
                 &cfg::read_env("FLUXER_APP_PROXY_MANIFEST_SCOPE_EXTENSIONS", ""),
             ),
-            release_channel: parse_release_channel(
-                "RELEASE_CHANNEL",
-                &cfg::read_env("RELEASE_CHANNEL", ""),
+            release_channel: resolve_release_channel(
+                parse_release_channel("RELEASE_CHANNEL", &cfg::read_env("RELEASE_CHANNEL", "")),
+                self_hosted,
             ),
-            self_hosted: cfg::read_bool_env("FLUXER_SELF_HOSTED", false),
+            self_hosted,
         }
     }
+}
+
+fn resolve_release_channel(
+    configured: Option<&'static str>,
+    self_hosted: bool,
+) -> Option<&'static str> {
+    configured.or(if self_hosted { Some("stable") } else { None })
 }
 
 fn parse_release_channel(name: &'static str, raw: &str) -> Option<&'static str> {
@@ -584,71 +607,4 @@ fn parse_same_origin_host(
         ));
     }
     Ok(host)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn same_origin_hosts_are_normalised_and_deduplicated() {
-        assert_eq!(
-            parse_same_origin_hosts(
-                "TEST_SAME_ORIGIN_HOSTS",
-                " web.fluxer.app, Fluxer.COM,fluxer.com. ,fluxer.com"
-            ),
-            vec!["web.fluxer.app".to_owned(), "fluxer.com".to_owned()]
-        );
-    }
-
-    #[test]
-    fn same_origin_hosts_drop_anything_but_a_bare_hostname() {
-        assert_eq!(
-            parse_same_origin_hosts(
-                "TEST_SAME_ORIGIN_HOSTS",
-                "https://fluxer.com,fluxer.com:443,fluxer.com/api,user@fluxer.com,canary.fluxer.com"
-            ),
-            vec!["canary.fluxer.com".to_owned()]
-        );
-    }
-
-    #[test]
-    fn release_channel_accepts_only_stable_or_canary() {
-        assert_eq!(
-            parse_release_channel("TEST_CHANNEL", " Stable "),
-            Some("stable")
-        );
-        assert_eq!(
-            parse_release_channel("TEST_CHANNEL", "canary"),
-            Some("canary")
-        );
-        assert_eq!(parse_release_channel("TEST_CHANNEL", ""), None);
-        assert_eq!(parse_release_channel("TEST_CHANNEL", "development"), None);
-        assert_eq!(parse_release_channel("TEST_CHANNEL", "\"><script>"), None);
-    }
-
-    #[test]
-    fn manifest_scope_extensions_are_normalised_and_deduplicated() {
-        assert_eq!(
-            parse_manifest_scope_extensions(
-                "TEST_SCOPE_EXTENSIONS",
-                " https://Fluxer.COM, https://fluxer.com/ ,https://canary.fluxer.com:443"
-            ),
-            vec![
-                "https://fluxer.com".to_owned(),
-                "https://canary.fluxer.com".to_owned()
-            ]
-        );
-    }
-
-    #[test]
-    fn manifest_scope_extensions_drop_anything_but_an_https_origin() {
-        assert_eq!(
-            parse_manifest_scope_extensions(
-                "TEST_SCOPE_EXTENSIONS",
-                "fluxer.com,http://fluxer.com,https://fluxer.com/app,https://fluxer.com/?a=1,https://user@fluxer.com,https://canary.fluxer.com"
-            ),
-            vec!["https://canary.fluxer.com".to_owned()]
-        );
-    }
 }

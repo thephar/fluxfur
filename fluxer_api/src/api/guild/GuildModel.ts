@@ -47,6 +47,7 @@ export function mapGuildToPartialResponse(guild: Guild): GuildPartialResponse {
 		embed_splash_height: embedSplashHash ? guild.embedSplashHeight : null,
 		splash_card_alignment: guild.splashCardAlignment,
 		features: mapGuildFeatures(guild.features),
+		badge_ids: Array.from(guild.badgeIds, String),
 	};
 }
 
@@ -56,24 +57,8 @@ export function mapGuildToGuildResponse(
 		permissions?: bigint | null;
 	},
 ): GuildResponse {
-	const iconHash = stripGuildIconForFeatures(guild.iconHash, guild.features);
-	const bannerHash = stripGuildBannerForFeatures(guild.bannerHash, guild.features);
-	const splashHash = stripGuildSplashForFeatures(guild.splashHash, guild.features);
-	const embedSplashHash = stripGuildSplashForFeatures(guild.embedSplashHash, guild.features);
 	return {
-		id: guild.id.toString(),
-		name: guild.name,
-		icon: iconHash,
-		banner: bannerHash,
-		banner_width: bannerHash ? guild.bannerWidth : null,
-		banner_height: bannerHash ? guild.bannerHeight : null,
-		splash: splashHash,
-		splash_width: splashHash ? guild.splashWidth : null,
-		splash_height: splashHash ? guild.splashHeight : null,
-		embed_splash: embedSplashHash,
-		embed_splash_width: embedSplashHash ? guild.embedSplashWidth : null,
-		embed_splash_height: embedSplashHash ? guild.embedSplashHeight : null,
-		splash_card_alignment: guild.splashCardAlignment,
+		...mapGuildToPartialResponse(guild),
 		vanity_url_code: guild.vanityUrlCode,
 		owner_id: guild.ownerId.toString(),
 		system_channel_id: guild.systemChannelId ? guild.systemChannelId.toString() : null,
@@ -81,7 +66,6 @@ export function mapGuildToGuildResponse(
 		rules_channel_id: guild.rulesChannelId ? guild.rulesChannelId.toString() : null,
 		afk_channel_id: guild.afkChannelId ? guild.afkChannelId.toString() : null,
 		afk_timeout: guild.afkTimeout,
-		features: mapGuildFeatures(guild.features),
 		verification_level: guild.verificationLevel,
 		mfa_level: guild.mfaLevel,
 		nsfw_level: guild.nsfwLevel,

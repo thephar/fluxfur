@@ -28,7 +28,7 @@ function isSupported(): boolean {
 	return process.platform === 'win32';
 }
 
-export function readIconPngFrames(data: Buffer): BadgeFrames {
+function readIconPngFrames(data: Buffer): BadgeFrames {
 	const frames = new Map<number, Buffer>();
 	if (data.length < ICON_HEADER_BYTES || data.readUInt16LE(2) !== 1) return frames;
 	const count = data.readUInt16LE(4);
@@ -46,7 +46,7 @@ export function readIconPngFrames(data: Buffer): BadgeFrames {
 	return frames;
 }
 
-export function pickBadgeFrameSize(sizes: Iterable<number>, scaleFactor: number): number | null {
+function pickBadgeFrameSize(sizes: Iterable<number>, scaleFactor: number): number | null {
 	const target = Math.round(OVERLAY_BASE_SIZE * scaleFactor);
 	const sorted = [...sizes].sort((left, right) => left - right);
 	return sorted.find((size) => size >= target) ?? sorted.at(-1) ?? null;

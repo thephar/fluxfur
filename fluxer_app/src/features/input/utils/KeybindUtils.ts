@@ -150,7 +150,7 @@ export function formatKeyComboParts(i18n: I18n, combo: KeyCombo): Array<string> 
 		parts.push(isMacPlatform() ? '⌘' : i18n._(WIN_DESCRIPTOR));
 	}
 	if (combo.shift) {
-		parts.push(i18n._(SHIFT_KEY_DESCRIPTOR));
+		parts.push(isMacPlatform() ? '⇧' : i18n._(SHIFT_KEY_DESCRIPTOR));
 	}
 	if (combo.alt) parts.push(isMacPlatform() ? '⌥' : i18n._(ALT_DESCRIPTOR));
 	if (combo.mouseButton !== undefined && combo.mouseButton !== null) {
@@ -198,7 +198,7 @@ function formatNumpadKey(i18n: I18n, rawKey: string): string | null {
 
 export function formatPrimaryKeySymbol(i18n: I18n, rawKey: string): string {
 	if (rawKey === ' ' || rawKey === 'Spacebar' || rawKey === 'Space') return i18n._(SPACE_DESCRIPTOR);
-	if (isShiftKeyName(rawKey)) return i18n._(SHIFT_KEY_DESCRIPTOR);
+	if (isShiftKeyName(rawKey)) return isMacPlatform() ? '⇧' : i18n._(SHIFT_KEY_DESCRIPTOR);
 	if (isControlKeyName(rawKey)) return isMacPlatform() ? CONTROL_KEY_SYMBOL : i18n._(CTRL_DESCRIPTOR);
 	if (isAltKeyName(rawKey)) return isMacPlatform() ? '⌥' : i18n._(ALT_DESCRIPTOR);
 	if (isMetaKeyName(rawKey)) return isMacPlatform() ? '⌘' : i18n._(WIN_DESCRIPTOR);
@@ -213,6 +213,8 @@ export function formatPrimaryKeySymbol(i18n: I18n, rawKey: string): string {
 	if (rawKey === 'Backquote' || rawKey === '`') return '`';
 	if (rawKey === 'Quote') return "'";
 	if (rawKey === '[' || rawKey === ']') return rawKey;
+	if (rawKey === 'BracketLeft') return '[';
+	if (rawKey === 'BracketRight') return ']';
 	if (/^Key[A-Z]$/.test(rawKey)) return rawKey.slice(3);
 	if (/^Digit[0-9]$/.test(rawKey)) return rawKey.slice(5);
 	const numpadKey = formatNumpadKey(i18n, rawKey);

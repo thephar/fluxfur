@@ -304,7 +304,7 @@ export class Message {
 
 	withUpdates(updates: Partial<WireMessage>): Message {
 		if ('reactions' in updates) {
-			MessageReactions.replaceMessageReactions(this.id, updates.reactions ?? []);
+			MessageReactions.hydrateMessageReactions(this.id, updates.reactions ?? []);
 		}
 		return new Message(
 			{

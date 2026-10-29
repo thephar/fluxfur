@@ -154,6 +154,12 @@ interface WebhookExecuteLibredeskParams extends WebhookTokenParams, WebhookThrea
 	requestCache: RequestCache;
 }
 
+const WEBHOOK_AUDIT_ACTIONS = {
+	create: {name: 'guild_webhook_create', type: AuditLogActionType.WEBHOOK_CREATE},
+	update: {name: 'guild_webhook_update', type: AuditLogActionType.WEBHOOK_UPDATE},
+	delete: {name: 'guild_webhook_delete', type: AuditLogActionType.WEBHOOK_DELETE},
+} as const;
+
 const WEBHOOK_AVATAR_MISSING_CACHE_VALUE = '__fluxer_webhook_avatar_missing__';
 const HOSTED_WEBHOOK_AVATAR_URLS = {
 	github: 'https://fluxer.app/static/img/app-webhook-github.2d0319169a3aee33.webp',
@@ -978,22 +984,12 @@ export class WebhookService {
 		previousSnapshot?: Record<string, unknown> | null;
 		auditLogReason?: string | null;
 	}): Promise<void> {
-		const actionName =
-			params.action === 'create'
-				? 'guild_webhook_create'
-				: params.action === 'update'
-					? 'guild_webhook_update'
-					: 'guild_webhook_delete';
+		const actionName = WEBHOOK_AUDIT_ACTIONS[params.action].name;
 		const previousSnapshot =
 			params.action === 'create' ? null : (params.previousSnapshot ?? this.serializeWebhookForAudit(params.webhook));
 		const nextSnapshot = params.action === 'delete' ? null : this.serializeWebhookForAudit(params.webhook);
 		const changes = this.guildAuditLogService.computeChanges(previousSnapshot, nextSnapshot);
-		const actionType =
-			params.action === 'create'
-				? AuditLogActionType.WEBHOOK_CREATE
-				: params.action === 'update'
-					? AuditLogActionType.WEBHOOK_UPDATE
-					: AuditLogActionType.WEBHOOK_DELETE;
+		const actionType = WEBHOOK_AUDIT_ACTIONS[params.action].type;
 		try {
 			await this.guildAuditLogService
 				.createBuilder(params.guildId, params.userId)

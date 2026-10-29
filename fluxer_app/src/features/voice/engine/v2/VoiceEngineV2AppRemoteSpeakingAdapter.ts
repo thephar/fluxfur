@@ -50,10 +50,6 @@ interface AnalyserHandle {
 	nextTickAtMs: number;
 }
 
-interface VoiceEngineV2AppRemoteSpeakingAdapterOptions {
-	autoSchedule?: boolean;
-}
-
 class VoiceEngineV2AppRemoteSpeakingAdapter {
 	private audioContext: AudioContext | null = null;
 	private audioContextIsShared = false;
@@ -61,11 +57,6 @@ class VoiceEngineV2AppRemoteSpeakingAdapter {
 	private hydratedRoom: Room | null = null;
 	private machineSnapshot: VoiceRemoteSpeakingSnapshot = createVoiceRemoteSpeakingSnapshot();
 	private autoScheduleTimerId: number | null = null;
-	private readonly autoSchedule: boolean;
-
-	constructor(options: VoiceEngineV2AppRemoteSpeakingAdapterOptions = {}) {
-		this.autoSchedule = options.autoSchedule ?? true;
-	}
 
 	private transition(event: VoiceRemoteSpeakingEvent): ReadonlyArray<VoiceRemoteSpeakingCommand> {
 		this.machineSnapshot = transitionVoiceRemoteSpeakingSnapshot(this.machineSnapshot, event);
@@ -319,7 +310,6 @@ class VoiceEngineV2AppRemoteSpeakingAdapter {
 	}
 
 	private ensureAutoSchedule(): void {
-		if (!this.autoSchedule) return;
 		if (this.autoScheduleTimerId !== null) return;
 		if (typeof window === 'undefined') return;
 		this.autoScheduleTimerId = window.setInterval(() => {

@@ -53,13 +53,11 @@ export const VoiceE2EEIndicator = observer(function VoiceE2EEIndicator({
 	const status = gatewayStatus;
 	if (status === 'none') return null;
 	const isEncrypted = status === 'encrypted';
-	const descriptor = isEncrypted
-		? variant === 'call'
-			? VOICE_CALL_E2EE_ENCRYPTED_DESCRIPTOR
-			: VOICE_CHANNEL_E2EE_ENCRYPTED_DESCRIPTOR
-		: variant === 'call'
-			? VOICE_CALL_E2EE_BROKEN_DESCRIPTOR
-			: VOICE_CHANNEL_E2EE_BROKEN_DESCRIPTOR;
+	const encryptedDescriptor =
+		variant === 'call' ? VOICE_CALL_E2EE_ENCRYPTED_DESCRIPTOR : VOICE_CHANNEL_E2EE_ENCRYPTED_DESCRIPTOR;
+	const brokenDescriptor =
+		variant === 'call' ? VOICE_CALL_E2EE_BROKEN_DESCRIPTOR : VOICE_CHANNEL_E2EE_BROKEN_DESCRIPTOR;
+	const descriptor = isEncrypted ? encryptedDescriptor : brokenDescriptor;
 	return (
 		<div
 			className={isEncrypted ? styles.indicatorEncrypted : styles.indicatorBroken}

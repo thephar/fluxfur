@@ -84,7 +84,7 @@ fn base_device(
     }
 }
 
-#[allow(dead_code)]
+#[cfg(not(target_os = "linux"))]
 fn empty_info(source: &str) -> PlatformGpuInfo {
     PlatformGpuInfo {
         devices: Vec::new(),

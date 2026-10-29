@@ -9,6 +9,7 @@ import type {GuildRepository} from '@app/api/guild/repositories/GuildRepository'
 import {assertNotBannedFromGuild} from '@app/api/guild/services/GuildBanChecks';
 import {requireGuildPermission} from '@app/api/guild/services/GuildMfaEnforcement';
 import {GuildMemberSearchIndexService} from '@app/api/guild/services/member/GuildMemberSearchIndexService';
+import {onGuildBanAdded} from '@app/api/guild/visits/GuildVisitLifecycle';
 import type {BanBy} from '@app/api/infrastructure/activity/Contract.generated';
 import {emitGuildMemberBanned, emitGuildMemberUnbanned} from '@app/api/infrastructure/activity/ModerationEvents';
 import type {IGatewayService} from '@app/api/infrastructure/IGatewayService';
@@ -200,6 +201,7 @@ export class GuildModerationService {
 				user: {id: targetId.toString()},
 			},
 		});
+		await onGuildBanAdded({guildId, targetUserId: targetId, targetIp, gateway: this.gatewayService});
 		if (targetMember) {
 			await this.guildRepository.deleteMember(guildId, targetId);
 			const guild = await this.guildRepository.findUnique(guildId);

@@ -9,28 +9,24 @@ import {clsx} from 'clsx';
 import type React from 'react';
 import {useEffect, useRef, useState} from 'react';
 
-export type PaginationItem = number | 'ellipsis-left' | 'ellipsis-right';
+type PaginationItem = number | 'ellipsis-left' | 'ellipsis-right';
 
-export const GO_TO_PAGE_DESCRIPTOR = msg({
+const GO_TO_PAGE_DESCRIPTOR = msg({
 	message: 'Go to page {page}',
 	comment: 'Accessible label of each pagination page button. page is the 1-indexed page number.',
 });
 
-export const GO_TO_PAGE_2_DESCRIPTOR = msg({
+const GO_TO_PAGE_2_DESCRIPTOR = msg({
 	message: 'Go to page',
 	comment: 'Accessible label of the inline page-number input shown when the user opens the pagination ellipsis.',
 });
 
-export const JUMP_TO_PAGE_DESCRIPTOR = msg({
+const JUMP_TO_PAGE_DESCRIPTOR = msg({
 	message: 'Jump to page',
 	comment: 'Accessible label of the ellipsis button in the pagination bar that reveals the page-number input.',
 });
 
-export const buildPaginationRange = (
-	currentPage: number,
-	totalPages: number,
-	maxVisible: number,
-): Array<PaginationItem> => {
+const buildPaginationRange = (currentPage: number, totalPages: number, maxVisible: number): Array<PaginationItem> => {
 	if (totalPages <= 0) return [];
 	const effectiveMax = Math.max(3, maxVisible);
 	if (totalPages <= effectiveMax) {

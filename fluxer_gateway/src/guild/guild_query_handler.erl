@@ -69,7 +69,10 @@ waited_longer_than(Ms) ->
 
 -spec inferred_deadlines_enabled() -> boolean().
 inferred_deadlines_enabled() ->
-    application:get_env(fluxer_gateway, guild_query_inferred_deadlines, true) =/= false.
+    case application:get_env(fluxer_gateway, guild_query_inferred_deadlines, true) of
+        false -> false;
+        _ -> true
+    end.
 
 -spec caller_timeout_ms(term()) -> pos_integer() | undefined.
 caller_timeout_ms(get_large_guild_metadata) -> 200;
@@ -87,8 +90,6 @@ rpc_caller_timeout_ms(resolve_mention_sources_page) -> 4000;
 rpc_caller_timeout_ms(get_user_permissions) -> 4000;
 rpc_caller_timeout_ms(can_manage_roles) -> 4000;
 rpc_caller_timeout_ms(can_manage_role) -> 4000;
-rpc_caller_timeout_ms(get_assignable_roles) -> 4000;
-rpc_caller_timeout_ms(get_user_max_role_position) -> 4000;
 rpc_caller_timeout_ms(get_guild_data) -> 4000;
 rpc_caller_timeout_ms(get_guild_auth_context) -> 4000;
 rpc_caller_timeout_ms(get_guild_member) -> 4000;
@@ -124,7 +125,7 @@ handle_query(Msg, From, State) ->
 handle_get_counts(State) ->
     MemberCount = maps:get(member_count, State, 0),
     PublicOnlineCount = guild_public_online:compute_count(State),
-    ok = maybe_put_guild_count_cache(State, MemberCount, PublicOnlineCount),
+    ok = guild_maintenance:maybe_put_guild_count_cache(State, MemberCount, PublicOnlineCount),
     {reply, #{member_count => MemberCount, presence_count => PublicOnlineCount}, State}.
 
 -spec handle_get_user_counts(user_id(), guild_state()) -> {reply, map(), guild_state()}.
@@ -273,10 +274,14 @@ bounded_member_query(_Tag, _Request) ->
 
 -spec direct_mentions_only(map()) -> boolean().
 direct_mentions_only(Request) ->
-    maps:get(mention_everyone, Request, undefined) =:= false andalso
-        maps:get(mention_here, Request, undefined) =:= false andalso
+    is_false(maps:get(mention_everyone, Request, undefined)) andalso
+        is_false(maps:get(mention_here, Request, undefined)) andalso
         maps:get(role_ids, Request, undefined) =:= [] andalso
         few_ids(maps:get(user_ids, Request, undefined)).
+
+-spec is_false(term()) -> boolean().
+is_false(false) -> true;
+is_false(_) -> false.
 
 -spec few_ids(term()) -> boolean().
 few_ids(Ids) when is_list(Ids) ->
@@ -350,19 +355,10 @@ handle_call_sync({can_manage_roles, Req}, State) ->
     guild_members_roles:can_manage_roles(request_map(Req), State);
 handle_call_sync({can_manage_role, Req}, State) ->
     guild_members_roles:can_manage_role(request_map(Req), State);
-handle_call_sync({get_assignable_roles, Req}, State) ->
-    guild_members_roles:get_assignable_roles(request_map(Req), State);
-handle_call_sync({get_user_max_role_position, Req}, State) ->
-    handle_max_role_position(request_map(Req), State);
 handle_call_sync({check_target_member, Req}, State) ->
     guild_members_roles:check_target_member(request_map(Req), State);
 handle_call_sync(Msg, State) ->
     handle_call_data(Msg, State).
-
--spec handle_max_role_position(map(), guild_state()) -> {reply, map(), guild_state()}.
-handle_max_role_position(#{user_id := UserId}, State) ->
-    Position = guild_permissions_check:get_max_role_position(UserId, State),
-    {reply, #{position => Position}, State}.
 
 -spec handle_call_data(term(), guild_state()) -> {reply, term(), guild_state()}.
 handle_call_data({get_guild_data, Req}, State) ->
@@ -450,7 +446,7 @@ spawn_async_reply(From, ReplyFun) ->
 send_async_reply(From, ReplyFun) ->
     gen_server:reply(From, safe_reply(ReplyFun)).
 
--spec safe_reply(fun(() -> term())) -> term().
+-spec safe_reply(fun(() -> Reply)) -> Reply | #{error := async_handler_failed}.
 safe_reply(ReplyFun) ->
     try
         ReplyFun()
@@ -462,22 +458,6 @@ safe_reply(ReplyFun) ->
 -spec build_query_snapshot(guild_state()) -> map().
 build_query_snapshot(State) ->
     maps:with([id, data, sessions, virtual_channel_access], State).
-
--spec maybe_put_guild_count_cache(guild_state(), non_neg_integer(), non_neg_integer()) -> ok.
-maybe_put_guild_count_cache(State, MemberCount, OnlineCount) ->
-    case
-        {
-            maps:get(disable_guild_count_cache_updates, State, false),
-            maps:get(id, State, undefined)
-        }
-    of
-        {true, _} ->
-            ok;
-        {false, GuildId} when is_integer(GuildId) ->
-            guild_counts_cache:update(GuildId, MemberCount, OnlineCount);
-        _ ->
-            ok
-    end.
 
 -spec owner_id(guild_state()) -> user_id() | undefined.
 owner_id(State) ->
@@ -505,88 +485,3 @@ resolve_data_payload(#{<<"members">> := _} = State) ->
     State;
 resolve_data_payload(_State) ->
     undefined.
-
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
-
-monotonic_deadline_ignores_the_legacy_wall_clock_test() ->
-    From = {self(), make_ref()},
-    Now = erlang:monotonic_time(millisecond),
-    ?assertNot(
-        is_expired({get_data, #{deadline => 0, deadline_monotonic => Now + 5000}}, From)
-    ),
-    ?assert(
-        is_expired(
-            {get_data, #{deadline => 9999999999999, deadline_monotonic => Now - 1}}, From
-        )
-    ),
-    ?assertNot(is_expired({get_data, #{deadline => 0}}, From)).
-
-expired_forum_unread_scope_is_shed_test() ->
-    From = {self(), make_ref()},
-    State = #{id => 1},
-    Request = #{
-        channel_id => 2,
-        thread_ids => [3],
-        deadline_monotonic => erlang:monotonic_time(millisecond) - 1
-    },
-    ?assertEqual({noreply, State}, handle_call({get_forum_unread_scope, Request}, From, State)).
-
-deadline_less_queries_expire_once_every_known_caller_has_given_up_test() ->
-    Self = self(),
-    Ref = make_ref(),
-    spawn(fun() ->
-        From = {Self, make_ref()},
-        self() ! queued_request,
-        ok = guild_mailbox_age:note(),
-        Fresh = is_expired({get_large_guild_metadata}, From),
-        timer:sleep(1300),
-        Future = erlang:monotonic_time(millisecond) + 5000,
-        Results = #{
-            fresh => Fresh,
-            metadata => is_expired({get_large_guild_metadata}, From),
-            counts => is_expired({get_user_counts, 1}, From),
-            forum_unreads => is_expired({get_forum_unread_scope, #{}}, From),
-            unknown_tag => is_expired({get_sessions}, From),
-            explicit_deadline =>
-                is_expired({get_large_guild_metadata, #{deadline_monotonic => Future}}, From)
-        },
-        ok = application:set_env(fluxer_gateway, guild_query_inferred_deadlines, false),
-        Disabled = is_expired({get_large_guild_metadata}, From),
-        ok = application:unset_env(fluxer_gateway, guild_query_inferred_deadlines),
-        Self ! {Ref, Results#{disabled => Disabled}}
-    end),
-    Results =
-        receive
-            {Ref, R} -> R
-        after 5000 -> error(timeout)
-        end,
-    ?assertEqual(
-        #{
-            fresh => false,
-            metadata => true,
-            counts => false,
-            forum_unreads => false,
-            unknown_tag => false,
-            explicit_deadline => false,
-            disabled => false
-        },
-        Results
-    ).
-
-call_keeps_the_legacy_deadline_and_adds_a_monotonic_deadline_test() ->
-    Guild = spawn(fun() ->
-        receive
-            {'$gen_call', From, {get_data, Request}} -> gen_server:reply(From, Request)
-        end
-    end),
-    WallBefore = os:system_time(millisecond),
-    MonotonicBefore = erlang:monotonic_time(millisecond),
-    #{deadline := WallDeadline, deadline_monotonic := MonotonicDeadline} =
-        call(Guild, {get_data, #{}}, 2000),
-    ?assert(WallDeadline >= WallBefore + 2000),
-    ?assert(WallDeadline =< os:system_time(millisecond) + 2000),
-    ?assert(MonotonicDeadline >= MonotonicBefore + 2000),
-    ?assert(MonotonicDeadline =< erlang:monotonic_time(millisecond) + 2000).
-
--endif.

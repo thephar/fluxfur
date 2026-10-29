@@ -13,6 +13,7 @@ import type {
 	QueuedAssetType,
 } from '@app/api/infrastructure/IAssetDeletionQueue';
 import type {IStorageService} from '@app/api/infrastructure/IStorageService';
+import type {InstanceConfigRepository} from '@app/api/instance/InstanceConfigRepository';
 import {Logger} from '@app/api/Logger';
 import type {UserRepository} from '@app/api/user/repositories/UserRepository';
 import {getWorkerDependencies} from '@app/api/worker/WorkerContext';
@@ -31,6 +32,10 @@ interface ProcessItemResult {
 interface AssetReferenceRepositories {
 	userRepository: Pick<UserRepository, 'findUnique'>;
 	guildRepository: Pick<GuildRepository, 'findUnique' | 'getMember'>;
+	instanceConfigRepository: Pick<
+		InstanceConfigRepository,
+		'readStoredBrandingAssetKeys' | 'readStoredCustomBadgeAssetKeys'
+	>;
 }
 
 interface AssetDeletionDependencies extends AssetReferenceRepositories {
@@ -39,7 +44,8 @@ interface AssetDeletionDependencies extends AssetReferenceRepositories {
 }
 
 const processAssetDeletionQueue: WorkerTaskHandler = async (_payload, _helpers) => {
-	const {assetDeletionQueue, purgeQueue, storageService, userRepository, guildRepository} = getWorkerDependencies();
+	const {assetDeletionQueue, purgeQueue, storageService, userRepository, guildRepository, instanceConfigRepository} =
+		getWorkerDependencies();
 	const queueSize = await assetDeletionQueue.getQueueSize();
 	if (!Number.isSafeInteger(queueSize) || queueSize < 0) {
 		throw new Error('Asset deletion queue size must be a non-negative safe integer');
@@ -49,7 +55,13 @@ const processAssetDeletionQueue: WorkerTaskHandler = async (_payload, _helpers) 
 		return;
 	}
 	Logger.info({queueSize}, 'Starting asset deletion queue processing');
-	const dependencies: AssetDeletionDependencies = {storageService, purgeQueue, userRepository, guildRepository};
+	const dependencies: AssetDeletionDependencies = {
+		storageService,
+		purgeQueue,
+		userRepository,
+		guildRepository,
+		instanceConfigRepository,
+	};
 	let remainingReadBudget = Math.min(MAX_ITEMS_PER_RUN, queueSize);
 	let totalProcessed = 0;
 	let totalDeleted = 0;
@@ -169,6 +181,12 @@ async function isQueuedAssetStillCurrent(
 	item: QueuedAssetDeletion,
 	deps: AssetReferenceRepositories,
 ): Promise<boolean> {
+	if (/^branding(?:-backdrops)?\//.test(item.s3Key)) {
+		return (await deps.instanceConfigRepository.readStoredBrandingAssetKeys()).has(item.s3Key);
+	}
+	if (item.s3Key.startsWith('custom-badges/')) {
+		return (await deps.instanceConfigRepository.readStoredCustomBadgeAssetKeys()).has(item.s3Key);
+	}
 	const references = inferAssetReferencesFromS3Key(item.s3Key);
 	const {staleReference} = item;
 	if (
@@ -238,8 +256,6 @@ function inferAssetReferencesFromS3Key(s3Key: string): Array<QueuedAssetReferenc
 			return [createAssetReference(parts, 'guild', 'embed_splash')];
 		case 'banners':
 			return [createAssetReference(parts, 'user', 'banner'), createAssetReference(parts, 'guild', 'banner')];
-		case 'branding':
-			throw new Error('Branding asset deletion requires an instance reference lookup');
 		case 'guilds':
 			if (parts.length !== 6 || parts[2] !== 'users' || (parts[4] !== 'avatars' && parts[4] !== 'banners')) {
 				throw new Error('Asset deletion storage key has an invalid guild member path');

@@ -10,6 +10,8 @@ export const OFFICIAL_INSTANCE_NAME = 'Fluxer';
 
 export const OFFICIAL_INSTANCE_DISPLAY_HOST = 'fluxer.app';
 
+export const OFFICIAL_INSTANCE_DISPLAY_NAME = 'Fluxer.app';
+
 export const OFFICIAL_STABLE_MARKETING_ORIGIN = `https://${OFFICIAL_INSTANCE_DISPLAY_HOST}`;
 
 export const OFFICIAL_CLIENT_API_ENDPOINTS = Object.freeze({

@@ -3,8 +3,8 @@
 -module(fluxer_gateway_config).
 -typing([eqwalizer]).
 
--export([load/0, build_config/1, optional_string/1, env_value/1]).
--export_type([config/0]).
+-export([load/0, optional_string/1, env_value/1, visitor_limit_default/1]).
+-export_type([config/0, visitor_limit_key/0]).
 
 -type config() :: map().
 -type raw_value() ::
@@ -17,6 +17,12 @@
     | undefined.
 -type log_level() :: debug | info | notice | warning | error | critical | alert | emergency.
 -type gateway_role() :: websocket | sessions | presence | guilds | calls | push | all.
+-type visitor_limit_key() ::
+    guild_visitor_sessions_max
+    | guild_visitor_sessions_floor
+    | guild_visitor_sessions_per_member
+    | guild_visitor_sessions_per_user
+    | guild_visitor_sessions_per_ip.
 
 -define(MAX_CLUSTER_STATIC_PEERS, 256).
 
@@ -67,7 +73,29 @@ env_services_config() ->
 
 -spec env_gateway_config() -> map().
 env_gateway_config() ->
-    env_gateway_base_config().
+    maps:merge(env_gateway_base_config(), #{
+        <<"zstd_window_log">> => env_int("FLUXER_GATEWAY_ZSTD_WINDOW_LOG", 17),
+        <<"guild_visitor_sessions_max">> => env_int(
+            "FLUXER_GATEWAY_GUILD_VISITOR_SESSIONS_MAX",
+            visitor_limit_default(guild_visitor_sessions_max)
+        ),
+        <<"guild_visitor_sessions_floor">> => env_int(
+            "FLUXER_GATEWAY_GUILD_VISITOR_SESSIONS_FLOOR",
+            visitor_limit_default(guild_visitor_sessions_floor)
+        ),
+        <<"guild_visitor_sessions_per_member">> => env_int(
+            "FLUXER_GATEWAY_GUILD_VISITOR_SESSIONS_PER_MEMBER",
+            visitor_limit_default(guild_visitor_sessions_per_member)
+        ),
+        <<"guild_visitor_sessions_per_user">> => env_int(
+            "FLUXER_GATEWAY_GUILD_VISITOR_SESSIONS_PER_USER",
+            visitor_limit_default(guild_visitor_sessions_per_user)
+        ),
+        <<"guild_visitor_sessions_per_ip">> => env_int(
+            "FLUXER_GATEWAY_GUILD_VISITOR_SESSIONS_PER_IP",
+            visitor_limit_default(guild_visitor_sessions_per_ip)
+        )
+    }).
 
 -spec env_gateway_base_config() -> map().
 env_gateway_base_config() ->
@@ -156,6 +184,7 @@ build_config(RawConfig) ->
         build_http_config(Service),
         build_cluster_config(Service, Public),
         build_pinned_node_config(Service),
+        build_visitor_config(Service),
         build_misc_config(Service)
     ]).
 
@@ -278,11 +307,49 @@ parse_guild_id(Token) ->
         error:badarg -> erlang:error({invalid_pinned_guild_id, Token})
     end.
 
+-spec build_visitor_config(map()) -> config().
+build_visitor_config(Service) ->
+    #{
+        guild_visitor_sessions_max => get_int(
+            Service,
+            <<"guild_visitor_sessions_max">>,
+            visitor_limit_default(guild_visitor_sessions_max)
+        ),
+        guild_visitor_sessions_floor => get_int(
+            Service,
+            <<"guild_visitor_sessions_floor">>,
+            visitor_limit_default(guild_visitor_sessions_floor)
+        ),
+        guild_visitor_sessions_per_member => get_int(
+            Service,
+            <<"guild_visitor_sessions_per_member">>,
+            visitor_limit_default(guild_visitor_sessions_per_member)
+        ),
+        guild_visitor_sessions_per_user => get_int(
+            Service,
+            <<"guild_visitor_sessions_per_user">>,
+            visitor_limit_default(guild_visitor_sessions_per_user)
+        ),
+        guild_visitor_sessions_per_ip => get_int(
+            Service,
+            <<"guild_visitor_sessions_per_ip">>,
+            visitor_limit_default(guild_visitor_sessions_per_ip)
+        )
+    }.
+
+-spec visitor_limit_default(visitor_limit_key()) -> non_neg_integer().
+visitor_limit_default(guild_visitor_sessions_max) -> 10000;
+visitor_limit_default(guild_visitor_sessions_floor) -> 500;
+visitor_limit_default(guild_visitor_sessions_per_member) -> 2;
+visitor_limit_default(guild_visitor_sessions_per_user) -> 5;
+visitor_limit_default(guild_visitor_sessions_per_ip) -> 20.
+
 -spec build_misc_config(map()) -> config().
 build_misc_config(Service) ->
     #{
         voice_state_counts_sync_interval_ms =>
             get_int(Service, <<"voice_state_counts_sync_interval_ms">>, 30000),
+        zstd_window_log => get_int(Service, <<"zstd_window_log">>, 17),
         logger_level => get_log_level(Service, <<"logger_level">>, info)
     }.
 

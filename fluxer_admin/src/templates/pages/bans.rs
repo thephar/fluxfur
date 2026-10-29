@@ -7,6 +7,7 @@ use crate::{
     templates::{
         components::{alert::alert_info, form::csrf_input, page_container::page_header},
         layout::admin_layout,
+        pages::blocklist_helpers::blocklist_text_field,
     },
 };
 use maud::{Markup, html};
@@ -16,7 +17,6 @@ pub struct BanConfig {
     pub route: &'static str,
     pub input_label: &'static str,
     pub input_name: &'static str,
-    pub input_type: &'static str,
     pub placeholder: &'static str,
     pub entity_name: &'static str,
     pub active_page: &'static str,
@@ -49,7 +49,6 @@ pub const BAN_CONFIGS: &[BanConfig] = &[
         route: "/ip-bans",
         input_label: "IP Address or CIDR",
         input_name: "ip",
-        input_type: "text",
         placeholder: "192.168.1.1 or 192.168.0.0/16",
         entity_name: "IP/CIDR",
         active_page: "ip-bans",
@@ -65,7 +64,6 @@ pub const BAN_CONFIGS: &[BanConfig] = &[
         route: "/email-bans",
         input_label: "Email Address or Domain",
         input_name: "email",
-        input_type: "text",
         placeholder: "user@example.com or @example.com",
         entity_name: "Email",
         active_page: "email-bans",
@@ -79,7 +77,6 @@ pub const BAN_CONFIGS: &[BanConfig] = &[
         route: "/phrase-bans",
         input_label: "Phrase",
         input_name: "phrase",
-        input_type: "text",
         placeholder: "any substring to ban",
         entity_name: "Phrase",
         active_page: "phrase-bans",
@@ -93,7 +90,6 @@ pub const BAN_CONFIGS: &[BanConfig] = &[
         route: "/url-bans",
         input_label: "URL",
         input_name: "url",
-        input_type: "text",
         placeholder: "https://example.com/malicious-page",
         entity_name: "URL",
         active_page: "url-bans",
@@ -107,7 +103,6 @@ pub const BAN_CONFIGS: &[BanConfig] = &[
         route: "/file-sha-bans",
         input_label: "SHA-256 Hash",
         input_name: "sha256_hex",
-        input_type: "text",
         placeholder: "64-character hex SHA-256 hash",
         entity_name: "SHA-256",
         active_page: "file-sha-bans",
@@ -121,38 +116,9 @@ pub const BAN_CONFIGS: &[BanConfig] = &[
         route: "/avatar-hash-bans",
         input_label: "Avatar Hash",
         input_name: "hash_short",
-        input_type: "text",
         placeholder: "8-char MD5 prefix (e.g. a1b2c3d4)",
         entity_name: "Avatar Hash",
         active_page: "avatar-hash-bans",
-        show_bulk_tools: false,
-        show_duration: false,
-        add_title: None,
-        add_help: None,
-    },
-    BanConfig {
-        title: "URL Domain Blocklist",
-        route: "/url-domain-bans",
-        input_label: "URL Domain",
-        input_name: "domain",
-        input_type: "text",
-        placeholder: "example.com",
-        entity_name: "Domain",
-        active_page: "url-domain-bans",
-        show_bulk_tools: false,
-        show_duration: false,
-        add_title: None,
-        add_help: None,
-    },
-    BanConfig {
-        title: "Profile Substring Blocklist",
-        route: "/profile-substring-bans",
-        input_label: "Substring",
-        input_name: "substring",
-        input_type: "text",
-        placeholder: "offensive substring",
-        entity_name: "Substring",
-        active_page: "profile-substring-bans",
         show_bulk_tools: false,
         show_duration: false,
         add_title: None,
@@ -222,11 +188,11 @@ fn ban_card(base: &str, cfg: &BanConfig, csrf_token: &str) -> Markup {
                 hx-swap="innerHTML" {
                 (csrf_input(csrf_token))
                 div class="space-y-4" {
-                    (form_field(cfg.input_name, cfg.input_label, cfg.input_type, cfg.placeholder, true))
+                    (blocklist_text_field(cfg.input_name, cfg.input_label, cfg.placeholder, true))
                     @if cfg.show_duration {
                         (duration_field())
                     }
-                    (form_field("audit_log_reason", "Private reason (audit log, optional)", "text", "Why is this ban being applied?", false))
+                    (blocklist_text_field("audit_log_reason", "Private reason (audit log, optional)", "Why is this ban being applied?", false))
                     (submit_btn("Ban", cfg.entity_name, false))
                 }
             }
@@ -245,7 +211,7 @@ fn check_ban_card(base: &str, cfg: &BanConfig, csrf_token: &str) -> Markup {
                 hx-swap="innerHTML" {
                 (csrf_input(csrf_token))
                 div class="space-y-4" {
-                    (form_field(cfg.input_name, cfg.input_label, cfg.input_type, cfg.placeholder, true))
+                    (blocklist_text_field(cfg.input_name, cfg.input_label, cfg.placeholder, true))
                     (submit_btn("Check Status", "", false))
                 }
             }
@@ -264,8 +230,8 @@ fn unban_card(base: &str, cfg: &BanConfig, csrf_token: &str) -> Markup {
                 hx-swap="innerHTML" {
                 (csrf_input(csrf_token))
                 div class="space-y-4" {
-                    (form_field(cfg.input_name, cfg.input_label, cfg.input_type, cfg.placeholder, true))
-                    (form_field("audit_log_reason", "Private reason (audit log, optional)", "text", "Why is this ban being removed?", false))
+                    (blocklist_text_field(cfg.input_name, cfg.input_label, cfg.placeholder, true))
+                    (blocklist_text_field("audit_log_reason", "Private reason (audit log, optional)", "Why is this ban being removed?", false))
                     (submit_btn("Unban", cfg.entity_name, true))
                 }
             }
@@ -288,7 +254,7 @@ fn bulk_ban_card(base: &str, cfg: &BanConfig, csrf_token: &str) -> Markup {
                 (csrf_input(csrf_token))
                 div class="space-y-4" {
                     (textarea_field("hashes", &format!("{} values (one per line)", cfg.entity_name), true))
-                    (form_field("audit_log_reason", "Private reason (audit log, optional)", "text", "Why are these bans being applied?", false))
+                    (blocklist_text_field("audit_log_reason", "Private reason (audit log, optional)", "Why are these bans being applied?", false))
                     (submit_btn("Ban All", "", false))
                 }
             }
@@ -335,7 +301,7 @@ fn file_upload_ban_card(base: &str, cfg: &BanConfig, csrf_token: &str) -> Markup
                 (csrf_input(csrf_token))
                 input type="hidden" name="sha256_list" id="file-upload-sha256-list" value="";
                 div class="space-y-4" {
-                    (form_field("audit_log_reason", "Private reason (audit log, optional)", "text", "Why are these bans being applied?", false))
+                    (blocklist_text_field("audit_log_reason", "Private reason (audit log, optional)", "Why are these bans being applied?", false))
                     (submit_btn("Ban All Computed Hashes", "", false))
                 }
             }
@@ -432,27 +398,6 @@ fn file_upload_ban_card(base: &str, cfg: &BanConfig, csrf_token: &str) -> Markup
 	}
 })();
 "#))
-        }
-    }
-}
-
-fn form_field(
-    name: &str,
-    label: &str,
-    input_type: &str,
-    placeholder: &str,
-    required: bool,
-) -> Markup {
-    html! {
-        div class="space-y-1" {
-            label for=(name) class="block text-sm font-medium text-neutral-700" {
-                (label)
-            }
-            input type=(input_type) id=(name) name=(name) placeholder=(placeholder)
-                required[required]
-                class="block w-full rounded-md border border-neutral-300 px-3 py-2 text-sm \
-                       shadow-sm focus:border-brand-primary focus:outline-none focus:ring-1 \
-                       focus:ring-brand-primary";
         }
     }
 }

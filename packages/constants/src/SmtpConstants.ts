@@ -18,7 +18,11 @@ export function resolveSmtpTlsMode(mode: SmtpTlsMode | null | undefined, port: n
 	return port === SMTP_IMPLICIT_TLS_PORT ? SmtpTlsModes.IMPLICIT : SmtpTlsModes.STARTTLS;
 }
 
-export function smtpTlsModeFromSecure(secure: boolean | null | undefined): SmtpTlsMode | null {
+export function smtpTlsModeFromSecure(
+	secure: boolean | null | undefined,
+	port: number | null | undefined,
+): SmtpTlsMode | null {
 	if (secure == null) return null;
-	return secure ? SmtpTlsModes.IMPLICIT : SmtpTlsModes.OPPORTUNISTIC;
+	if (!secure) return SmtpTlsModes.OPPORTUNISTIC;
+	return port == null || port === SMTP_IMPLICIT_TLS_PORT ? SmtpTlsModes.IMPLICIT : SmtpTlsModes.STARTTLS;
 }

@@ -61,6 +61,7 @@ import type {Webhook} from '@app/api/models/Webhook';
 import {assertAccountNotLimited} from '@app/api/user/AccountLimit';
 import {assertMayStartConversation} from '@app/api/user/NewConversationLimit';
 import type {UserRepository} from '@app/api/user/repositories/UserRepository';
+import {systemDmsHidden} from '@app/api/user/services/SystemDmMessage';
 import {isContentHidden, isDirectDeliverySuppressed} from '@app/api/user/UserHelpers';
 import {assertGuildMemberCanCommunicate} from '@app/api/utils/GuildCommunicationUtils';
 import {checkGuildVerificationWithResponse} from '@app/api/utils/GuildVerificationUtils';
@@ -75,6 +76,7 @@ import {GuildNSFWLevel, GuildOperations} from '@fluxer/constants/src/GuildConsta
 import {threadWriteBlock} from '@fluxer/constants/src/ThreadPermissionUtils';
 import {DELETED_USER_ID, UserFlags} from '@fluxer/constants/src/UserConstants';
 import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
+import {DirectMessagesDisabledError} from '@fluxer/errors/src/domains/channel/DirectMessagesDisabledError';
 import {UnknownChannelError} from '@fluxer/errors/src/domains/channel/UnknownChannelError';
 import {UnknownMessageError} from '@fluxer/errors/src/domains/channel/UnknownMessageError';
 import {CannotExecuteOnDmError} from '@fluxer/errors/src/domains/core/CannotExecuteOnDmError';
@@ -606,11 +608,12 @@ export class MessageSendService {
 		const channelId = referencedMessage
 			? referencedMessage.channelId
 			: createChannelID(data.message_reference.channel_id!);
-		const guildId = isForwardMessage
-			? (referencedChannelGuildId ?? null)
-			: guild?.id
-				? createGuildID(BigInt(guild.id))
-				: null;
+		let guildId: GuildID | null;
+		if (isForwardMessage) {
+			guildId = referencedChannelGuildId ?? null;
+		} else {
+			guildId = guild?.id ? createGuildID(BigInt(guild.id)) : null;
+		}
 		return {
 			message_id: createMessageID(data.message_reference.message_id),
 			channel_id: channelId,
@@ -648,6 +651,13 @@ export class MessageSendService {
 		}
 		assertAccountNotLimited(user);
 		const {channel, guild, member} = authChannel;
+		if (
+			(channel.type === ChannelTypes.DM || channel.type === ChannelTypes.GROUP_DM) &&
+			user.id !== SYSTEM_USER_ID &&
+			(await systemDmsHidden())
+		) {
+			throw new DirectMessagesDisabledError();
+		}
 		const {checkPermission, hasPermission} = forumStarter?.parentAuth ?? authChannel;
 		const uploadChannelId = forumStarter?.parentAuth.channel.id ?? channelId;
 		const {canEmbedLinks, canMentionEveryone, canAttachFiles} = await this.checkMessageSendPermissions({

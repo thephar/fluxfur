@@ -52,20 +52,21 @@ store(GuildId, State, Data) ->
 
 -spec update(map(), map()) -> ok.
 update(OldState, NewState) ->
-    Keys = [data | ?STATE_KEYS],
-    case
-        lists:all(
-            fun(Key) ->
-                erts_debug:same(
-                    maps:get(Key, OldState, undefined), maps:get(Key, NewState, undefined)
-                )
-            end,
-            Keys
-        )
-    of
+    case same_keys([data | ?STATE_KEYS], OldState, NewState) of
         true -> ok;
         false -> put_state(NewState)
     end.
+
+-spec same_keys([atom()], map(), map()) -> boolean().
+same_keys(Keys, OldState, NewState) ->
+    lists:all(
+        fun(Key) ->
+            erts_debug:same(
+                maps:get(Key, OldState, undefined), maps:get(Key, NewState, undefined)
+            )
+        end,
+        Keys
+    ).
 
 -spec delete(term()) -> ok.
 delete(GuildId) ->
@@ -84,16 +85,20 @@ query(GuildId, Request) ->
     try
         case ets:lookup(?TABLE, GuildId) of
             [{GuildId, Owner, Snapshot}] ->
-                case is_process_alive(Owner) of
-                    true -> read(Request, Snapshot);
-                    false -> miss
-                end;
+                read_live(Owner, Request, Snapshot);
             [] ->
                 miss
         end
     catch
         error:badarg -> miss;
         error:{badmatch, false} -> miss
+    end.
+
+-spec read_live(pid(), {atom(), map()}, map()) -> {ok, map()} | miss.
+read_live(Owner, Request, Snapshot) ->
+    case is_process_alive(Owner) of
+        true -> read(Request, Snapshot);
+        false -> miss
     end.
 
 -spec read({atom(), map()}, map()) -> {ok, map()} | miss.

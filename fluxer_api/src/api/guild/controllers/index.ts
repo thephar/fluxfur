@@ -9,6 +9,7 @@ import {GuildMemberController} from '@app/api/guild/controllers/GuildMemberContr
 import {GuildMemberSearchController} from '@app/api/guild/controllers/GuildMemberSearchController';
 import {GuildRoleController} from '@app/api/guild/controllers/GuildRoleController';
 import {GuildStickerController} from '@app/api/guild/controllers/GuildStickerController';
+import {GuildVisitController} from '@app/api/guild/controllers/GuildVisitController';
 import type {HonoApp} from '@app/api/types/HonoEnv';
 
 export function GuildController(app: HonoApp) {
@@ -21,4 +22,5 @@ export function GuildController(app: HonoApp) {
 	GuildStickerController(app);
 	GuildAuditLogController(app);
 	GuildDiscoveryController(app);
+	GuildVisitController(app);
 }

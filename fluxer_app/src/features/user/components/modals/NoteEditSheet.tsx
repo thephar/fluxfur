@@ -4,12 +4,12 @@ import {GO_BACK_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescript
 import {TextareaAutosize} from '@app/features/platform/utils/AutoResizingTextarea';
 import StreamerMode from '@app/features/streamer_mode/state/StreamerMode';
 import {BottomSheet} from '@app/features/ui/bottom_sheet/BottomSheet';
+import {ArrowLeftIcon} from '@app/features/ui/icons/DirectionalIcons';
 import * as UserNoteCommands from '@app/features/user/commands/UserNoteCommands';
 import styles from '@app/features/user/components/modals/NoteEditSheet.module.css';
 import {EDIT_NOTE_DESCRIPTOR} from '@app/features/user/utils/UserMessageDescriptors';
 import {msg} from '@lingui/core/macro';
 import {Trans, useLingui} from '@lingui/react/macro';
-import {ArrowLeftIcon} from '@phosphor-icons/react';
 import {clsx} from 'clsx';
 import {observer} from 'mobx-react-lite';
 import type React from 'react';

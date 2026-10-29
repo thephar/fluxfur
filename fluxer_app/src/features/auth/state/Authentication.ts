@@ -22,7 +22,7 @@ export const LoginState = Object.freeze({
 
 export type LoginState = (typeof LoginState)[keyof typeof LoginState];
 
-export interface MfaMethods {
+interface MfaMethods {
 	totp: boolean;
 	webauthn: boolean;
 	backupCodes: boolean;

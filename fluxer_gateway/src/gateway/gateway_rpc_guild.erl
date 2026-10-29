@@ -57,8 +57,6 @@ route(M, P) ->
     <<"guild.check_permission">> => fun gateway_rpc_guild_permissions:handle/2,
     <<"guild.can_manage_roles">> => fun gateway_rpc_guild_permissions:handle/2,
     <<"guild.can_manage_role">> => fun gateway_rpc_guild_permissions:handle/2,
-    <<"guild.get_assignable_roles">> => fun gateway_rpc_guild_permissions:handle/2,
-    <<"guild.get_user_max_role_position">> => fun gateway_rpc_guild_permissions:handle/2,
     <<"guild.get_viewable_channels">> => fun gateway_rpc_guild_channels:handle/2,
     <<"guild.resolve_channel_mentions">> => fun gateway_rpc_guild_channels:handle/2,
     <<"guild.get_first_viewable_text_channel">> => fun gateway_rpc_guild_channels:handle/2,
@@ -71,7 +69,8 @@ route(M, P) ->
     <<"guild.get_voice_states_for_channel">> => fun gateway_rpc_guild_voice:handle/2,
     <<"guild.move_member">> => fun gateway_rpc_guild_voice:handle/2,
     <<"guild.get_voice_state">> => fun gateway_rpc_guild_voice:handle/2,
-    <<"guild.switch_voice_region">> => fun gateway_rpc_guild_voice:handle/2
+    <<"guild.switch_voice_region">> => fun gateway_rpc_guild_voice:handle/2,
+    <<"guild.evict_visitors">> => fun gateway_rpc_guild_visitors:handle/2
 }).
 
 -spec route_handler(binary()) -> fun((binary(), map()) -> term()).

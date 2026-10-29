@@ -3,17 +3,19 @@
 import type {ApiContext} from '@app/api/ApiContext';
 import {trySendAdminNotification} from '@app/api/admin/services/AdminNotification';
 import type {UserID} from '@app/api/BrandedTypes';
+import {Config} from '@app/api/Config';
 import {listActiveFeatureLimits} from '@app/api/enforcement/FeatureLimitState';
 import {resolveContactEmails} from '@app/api/instance/ContactEmails';
 import {getInstanceProductName} from '@app/api/instance/ProductName';
 import {Logger} from '@app/api/Logger';
 import {getEnforcementDecisionRepository} from '@app/api/middleware/ServiceSingletons';
 import type {User} from '@app/api/models/User';
-import type {IARSubmission} from '@app/api/report/ReportModels';
+import {type IARSubmission, ReportType} from '@app/api/report/ReportModels';
 import {type SystemDmDeps, systemDmBody, trySendSystemDm} from '@app/api/user/services/SystemDmMessage';
 import {UserFlags} from '@fluxer/constants/src/UserConstants';
 import type {ReportItemOutcome} from '@fluxer/schema/src/domains/admin/AdminSchemas';
-import {getEmailTemplate} from '@pkgs/email/src/email_i18n/EmailI18n';
+import {emailLinkUrls, renderEmailTemplateText, reportResolvedSlots} from '@pkgs/email/src/EmailService';
+import type {ReportReference} from '@pkgs/email/src/email_i18n/EmailI18nTypes';
 
 interface ReporterResolutionNotifierDeps {
 	apiContext: ApiContext;
@@ -37,6 +39,41 @@ type ReporterToldOutcome = Exclude<ReportItemOutcome, 'warned'>;
 
 function skippedNotice(reason: ReporterNoticeSkipReason): ReporterNoticeResult {
 	return {dmSent: false, emailSent: false, dsaEmailSent: false, skipped: reason};
+}
+
+export function reportReference(report: IARSubmission): ReportReference {
+	const reference: ReportReference = {
+		target: 'other',
+		reportedAt: report.reportedAt,
+		username: '',
+		communityName: '',
+		channelName: '',
+	};
+	switch (report.reportType) {
+		case ReportType.MESSAGE:
+			if (!report.reportedGuildId) {
+				return {...reference, target: 'message_dm'};
+			}
+			if (report.reportedGuildName && report.reportedChannelName) {
+				return {
+					...reference,
+					target: 'message_community',
+					communityName: report.reportedGuildName,
+					channelName: report.reportedChannelName,
+				};
+			}
+			return {...reference, target: 'message'};
+		case ReportType.USER: {
+			const username = report.reportedProfileSnapshot?.user?.username;
+			return username ? {...reference, target: 'user', username} : reference;
+		}
+		case ReportType.GUILD:
+			return report.reportedGuildName
+				? {...reference, target: 'community', communityName: report.reportedGuildName}
+				: reference;
+		default:
+			return reference;
+	}
 }
 
 export function wasReporterNotified(result: ReporterNoticeResult): boolean {
@@ -92,12 +129,17 @@ export class ReporterResolutionNotifier {
 		if (await this.isReportBannedWhenFiled(reporter, report)) {
 			return skippedNotice('reporter_report_banned');
 		}
-		const dmSent = await this.sendSystemDm(reporter, reportId, comment, outcome);
+		const dmSent = await this.sendSystemDm(reporter, report, comment, outcome);
 		const email = reporter.email;
 		const emailSent = email
 			? await trySendAdminNotification(
 					() =>
-						emailService.sendReportResolvedEmail(email, reporter.username, reportId, comment, outcome, reporter.locale),
+						emailService.send(
+							'report_resolved',
+							email,
+							{reportId, publicComment: comment, outcome, reference: reportReference(report)},
+							reporter.locale,
+						),
 					{action: 'resolve_report', targetId: reportId},
 				)
 			: false;
@@ -127,7 +169,13 @@ export class ReporterResolutionNotifier {
 		const {email: emailService} = this.deps.apiContext.services;
 		const reportId = report.reportId.toString();
 		const dsaEmailSent = await trySendAdminNotification(
-			() => emailService.sendDsaReportResolvedEmail(email, reportId, comment, outcome, report.flowLocale),
+			() =>
+				emailService.send(
+					'dsa_report_resolved',
+					email,
+					{reportId, publicComment: comment, outcome, reference: reportReference(report)},
+					report.flowLocale,
+				),
 			{action: 'resolve_report', targetId: reportId},
 		);
 		return {dmSent: false, emailSent: false, dsaEmailSent, skipped: null};
@@ -135,7 +183,7 @@ export class ReporterResolutionNotifier {
 
 	private async sendSystemDm(
 		reporter: User,
-		reportId: string,
+		report: IARSubmission,
 		comment: string,
 		outcome: ReporterToldOutcome,
 	): Promise<boolean> {
@@ -143,31 +191,25 @@ export class ReporterResolutionNotifier {
 		if (!systemDm) {
 			return false;
 		}
-		const template = getEmailTemplate(
+		const reportId = report.reportId.toString();
+		const text = renderEmailTemplateText(
 			'report_resolved',
 			reporter.locale,
-			{
-				username: reporter.username,
-				reportId,
-				publicComment: comment,
-				hasComment: comment ? 'yes' : 'no',
-				outcome,
-				appeals_email: resolveContactEmails().appealsEmail,
-			},
+			{...reportReference(report), outcome, appeals_email: resolveContactEmails().appealsEmail},
 			getInstanceProductName(),
+			(template) => reportResolvedSlots(template, reportId, comment),
+			{
+				format: 'markdown',
+				urls: emailLinkUrls({appBaseUrl: Config.endpoints.webApp, marketingBaseUrl: Config.endpoints.marketing}),
+			},
 		);
-		if (!template.ok) {
+		if (text === null) {
 			Logger.warn(
-				{reportId, reporterId: reporter.id.toString(), locale: reporter.locale, error: template.error},
+				{reportId, reporterId: reporter.id.toString(), locale: reporter.locale},
 				'Skipping report review system DM because the email template could not be resolved',
 			);
 			return false;
 		}
-		return trySendSystemDm(
-			systemDm,
-			this.deps.apiContext.services.users,
-			reporter.id,
-			systemDmBody(template.value.body),
-		);
+		return trySendSystemDm(systemDm, this.deps.apiContext.services.users, reporter.id, systemDmBody(text));
 	}
 }

@@ -458,7 +458,8 @@ export function useChannelMenuData(
 					onClick: handlers.handleMarkAsRead,
 				});
 			}
-			if (Accessibility.showFavorites && !channel.isThread() && !channel.isThreadOnly()) {
+			const previewing = guild?.visiting === true;
+			if (Accessibility.showFavorites && !previewing && !channel.isThread() && !channel.isThreadOnly()) {
 				metaItems.push({
 					icon: (
 						<FavoriteIcon
@@ -519,7 +520,7 @@ export function useChannelMenuData(
 			});
 			menuGroups.push({items: inviteItems});
 			const notificationItems: Array<MenuItemType> = [];
-			if (!state.isLinkChannel) {
+			if (!state.isLinkChannel && !previewing) {
 				notificationItems.push({
 					icon: state.isMuted ? (
 						<MuteIcon size={20} data-flx="ui.action-menu.items.channel-menu-data.groups.mute-icon" />
@@ -533,17 +534,19 @@ export function useChannelMenuData(
 					onClick: handlers.handleOpenMuteSheet,
 				});
 			}
-			notificationItems.push({
-				icon: (
-					<NotificationSettingsIcon
-						size={20}
-						data-flx="ui.action-menu.items.channel-menu-data.groups.notification-settings-icon--2"
-					/>
-				),
-				label: i18n._(NOTIFICATION_SETTINGS_DESCRIPTOR),
-				onClick: handlers.handleNotificationSettings,
-			});
-			menuGroups.push({items: notificationItems});
+			if (!previewing) {
+				notificationItems.push({
+					icon: (
+						<NotificationSettingsIcon
+							size={20}
+							data-flx="ui.action-menu.items.channel-menu-data.groups.notification-settings-icon--2"
+						/>
+					),
+					label: i18n._(NOTIFICATION_SETTINGS_DESCRIPTOR),
+					onClick: handlers.handleNotificationSettings,
+				});
+			}
+			if (notificationItems.length > 0) menuGroups.push({items: notificationItems});
 			if (channel.isThreadOnly()) {
 				menuGroups.push({
 					items: [

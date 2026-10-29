@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {BillingRepository} from '@app/api/billing/repositories/BillingRepository';
-import {BlueskyOAuthService} from '@app/api/bluesky/BlueskyOAuthService';
 import type {IBlueskyOAuthService} from '@app/api/bluesky/IBlueskyOAuthService';
 import {Config} from '@app/api/Config';
 import type {BlueskyOAuthConfig} from '@app/api/config/APIConfig';
@@ -12,6 +11,7 @@ import type {ILiveKitService} from '@app/api/infrastructure/ILiveKitService';
 import type {IMediaService} from '@app/api/infrastructure/IMediaService';
 import {InMemoryVoiceRoomStore} from '@app/api/infrastructure/InMemoryVoiceRoomStore';
 import type {ISnowflakeService} from '@app/api/infrastructure/ISnowflakeService';
+import type {IUnfurlerService} from '@app/api/infrastructure/IUnfurlerService';
 import type {IVoiceRoomStore} from '@app/api/infrastructure/IVoiceRoomStore';
 import {LiveKitService} from '@app/api/infrastructure/LiveKitService';
 import {MediaService as ProdMediaService} from '@app/api/infrastructure/MediaService';
@@ -171,14 +171,18 @@ function resetBlueskyOAuthServiceCache(): void {
 	_blueskyOAuthGeneration = Symbol();
 }
 
-async function createBlueskyOAuthService(config: BlueskyOAuthConfig): Promise<IBlueskyOAuthService | null> {
+async function createBlueskyOAuthService(
+	config: BlueskyOAuthConfig,
+	unfurler: IUnfurlerService,
+): Promise<IBlueskyOAuthService | null> {
 	if (!config.enabled) return null;
 	if (config.keys.length === 0) {
 		Logger.warn('Bluesky OAuth is enabled but no signing keys are configured; disabling Bluesky OAuth.');
 		return null;
 	}
 	try {
-		return await BlueskyOAuthService.create(config, getKVClient(), Config.endpoints.apiPublic);
+		const {BlueskyOAuthService} = await import('@app/api/bluesky/BlueskyOAuthService');
+		return await BlueskyOAuthService.create(config, getKVClient(), unfurler, Config.endpoints.apiPublic);
 	} catch (error) {
 		Logger.error({error}, 'Bluesky OAuth initialization failed; disabling Bluesky OAuth for this configuration.');
 		return null;
@@ -186,6 +190,7 @@ async function createBlueskyOAuthService(config: BlueskyOAuthConfig): Promise<IB
 }
 
 export async function resolveBlueskyOAuthService(
+	unfurler: IUnfurlerService,
 	instanceConfigRepository?: Pick<InstanceConfigRepository, 'getEffectiveBlueskyConfig'>,
 ): Promise<IBlueskyOAuthService | null> {
 	if (_injectedBlueskyOAuthService) {
@@ -208,7 +213,7 @@ export async function resolveBlueskyOAuthService(
 	const next: BlueskyOAuthServiceSelection = {
 		config: blueskyConfig,
 		signature,
-		service: createBlueskyOAuthService(blueskyConfig),
+		service: createBlueskyOAuthService(blueskyConfig, unfurler),
 	};
 	_blueskyOAuthSelection = next;
 	return next.service;

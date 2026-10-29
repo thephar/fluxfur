@@ -138,7 +138,10 @@ export class ReadStateEntry {
 	}
 
 	supportsUnreadTracking(): boolean {
-		return Channels.getChannel(this.channelId) != null || this.storedGuildId != null;
+		const channel = Channels.getChannel(this.channelId);
+		const guildId = channel?.guildId ?? this.storedGuildId;
+		if (guildId != null && Guilds.getGuild(guildId)?.visiting === true) return false;
+		return channel != null || this.storedGuildId != null;
 	}
 
 	private get statusModel() {

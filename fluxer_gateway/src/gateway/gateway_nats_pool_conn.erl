@@ -19,7 +19,12 @@
     max_handlers/0,
     parse_nats_url/1,
     build_connect_opts/1,
-    reconnect_delay/1
+    reconnect_delay/1,
+    nats_rpc_enabled/0,
+    decrement_handler_count/1,
+    maybe_kill_connect_pid/1,
+    ignore_disconnect/1,
+    ignore_unsub/2
 ]).
 
 -define(DEFAULT_POOL_SIZE, 16).
@@ -48,7 +53,7 @@ pool_conn_from_tuple(Conns) ->
     Idx = erlang:phash2(self(), Size) + 1,
     case element(Idx, Conns) of
         undefined -> find_any_conn(Conns, Size, Idx, 1);
-        Conn -> {ok, Conn}
+        Conn -> {ok, eqwalizer:dynamic_cast(Conn)}
     end.
 
 -spec find_any_conn(tuple(), pos_integer(), pos_integer(), non_neg_integer()) ->
@@ -59,7 +64,7 @@ find_any_conn(Conns, Size, Start, Tried) ->
     Idx = ((Start - 1 + Tried) rem Size) + 1,
     case element(Idx, Conns) of
         undefined -> find_any_conn(Conns, Size, Start, Tried + 1);
-        Conn -> {ok, Conn}
+        Conn -> {ok, eqwalizer:dynamic_cast(Conn)}
     end.
 
 -spec connect_slot(non_neg_integer(), map()) -> map().
@@ -348,13 +353,23 @@ coerce_sid({'$sid', N} = Sid) when is_integer(N) ->
 coerce_sid(_) ->
     error.
 
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
+-spec nats_rpc_enabled() -> boolean().
+nats_rpc_enabled() ->
+    case fluxer_gateway_env:get(nats_rpc_enabled) of
+        false -> false;
+        _ -> true
+    end.
 
-reconnect_delay_circuit_breaker_kicks_in_test() ->
-    ?assertEqual(?CIRCUIT_BREAKER_COOLDOWN_MS, reconnect_delay(?CIRCUIT_BREAKER_THRESHOLD)),
-    ?assertEqual(
-        ?CIRCUIT_BREAKER_COOLDOWN_MS, reconnect_delay(?CIRCUIT_BREAKER_THRESHOLD + 10)
-    ).
+-spec decrement_handler_count(map()) -> map().
+decrement_handler_count(#{handler_count := HC} = State) when HC > 0 ->
+    State#{handler_count => HC - 1};
+decrement_handler_count(State) ->
+    State.
 
--endif.
+-spec maybe_kill_connect_pid(pid() | undefined) -> ok.
+maybe_kill_connect_pid(Pid) when is_pid(Pid) ->
+    unlink(Pid),
+    exit(Pid, kill),
+    ok;
+maybe_kill_connect_pid(undefined) ->
+    ok.

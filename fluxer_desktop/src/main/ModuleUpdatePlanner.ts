@@ -41,13 +41,13 @@ export type ModuleUnreachableLaunchDecision =
 	| {readonly kind: typeof ModuleUnreachableLaunchDecision.LAUNCH}
 	| {readonly kind: typeof ModuleUnreachableLaunchDecision.BLOCK; readonly reason: ModuleUpdaterBlockReason};
 
-export const ServedRendererSource = Object.freeze({
+const ServedRendererSource = Object.freeze({
 	BUNDLED: 'bundled',
 	MODULE: 'module',
 	NONE: 'none',
 } as const);
 
-export type ServedRendererSource = (typeof ServedRendererSource)[keyof typeof ServedRendererSource];
+type ServedRendererSource = (typeof ServedRendererSource)[keyof typeof ServedRendererSource];
 
 export interface ServedModuleSelection {
 	readonly modules: Readonly<Record<string, string>>;
@@ -83,7 +83,7 @@ export class ModuleUpdatePlanner {
 		return this.hasOfflineRenderer || Object.keys(committed).length > 0;
 	}
 
-	public hasBundledRenderer(): boolean {
+	private hasBundledRenderer(): boolean {
 		return this.bundledRendererVersion != null || this.bundleOutranksEveryModule;
 	}
 
@@ -91,7 +91,7 @@ export class ModuleUpdatePlanner {
 		return this.hasBundledRenderer() ? [DESKTOP_RENDERER_MODULE_NAME] : [];
 	}
 
-	public bundleCoversRendererAt(version: ModuleVersion): boolean {
+	private bundleCoversRendererAt(version: ModuleVersion): boolean {
 		if (this.bundleOutranksEveryModule) {
 			return true;
 		}

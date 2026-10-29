@@ -77,9 +77,9 @@ export interface LinuxPortalShortcutsDeps {
 	log: (message: string, details?: Record<string, unknown>) => void;
 }
 
-export const PORTAL_RECOVERY_BACKOFF_MS: ReadonlyArray<number> = [1000, 2000, 5000, 10000, 30000];
-export const PORTAL_NO_PORTAL_RETRY_WINDOW_MS = 30000;
-export const PORTAL_TOGGLE_REARM_MS = 1500;
+const PORTAL_RECOVERY_BACKOFF_MS: ReadonlyArray<number> = [1000, 2000, 5000, 10000, 30000];
+const PORTAL_NO_PORTAL_RETRY_WINDOW_MS = 30000;
+const PORTAL_TOGGLE_REARM_MS = 1500;
 const PORTAL_CLOSED_RECOVERY_WINDOW_MS = 60000;
 const NO_PORTAL_ERROR = 'unsupported:no-portal';
 const CONFIGURE_UNSUPPORTED_ERROR = 'unsupported:version';
@@ -88,7 +88,7 @@ const RESPONSE_CODE_ERROR = /^unsupported:\d+$/;
 type OpenFailure = {kind: 'no-portal' | 'unsupported' | 'identity' | 'timeout' | 'failed'; message: string};
 
 function classifyOpenFailure(error: unknown): OpenFailure {
-	const message = error instanceof Error ? error.message : String(error);
+	const message = errorMessage(error);
 	if (message === NO_PORTAL_ERROR || RESPONSE_CODE_ERROR.test(message)) return {kind: 'no-portal', message};
 	if (message.startsWith('unsupported:')) return {kind: 'unsupported', message};
 	if (message.startsWith('identity:')) return {kind: 'identity', message};

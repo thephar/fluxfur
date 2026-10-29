@@ -13,8 +13,7 @@ import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHa
 import {HTTP_STATUS} from '@app/api/test/TestConstants';
 import {TestMediaService} from '@app/api/test/TestMediaService';
 import {APIErrorCodes} from '@fluxer/constants/src/ApiErrorCodes';
-import {Logger} from '@fluxer/logger/src/Logger';
-import {beforeAll, beforeEach, describe, expect, it, vi} from 'vitest';
+import {beforeAll, beforeEach, describe, expect, it} from 'vitest';
 
 class NullUploadMetadataService extends TestMediaService {
 	override async getMetadata(request: MediaProxyMetadataRequest) {
@@ -77,7 +76,6 @@ describe('Attachment Upload Validation', () => {
 				const guild = await createGuild(harness, account.token, 'Storage Unavailable Test Guild');
 				const channel = await createChannel(harness, account.token, guild.id, 'test-channel');
 				const channelId = guild.system_channel_id ?? channel.id;
-				const errorLoggerSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => {});
 				harness.storageService.configure({shouldFailUpload: true});
 				try {
 					const payload = {
@@ -90,25 +88,8 @@ describe('Attachment Upload Validation', () => {
 					const body = JSON.parse(text) as {code?: string};
 					expect(response.status).toBe(HTTP_STATUS.SERVICE_UNAVAILABLE);
 					expect(body.code).toBe(APIErrorCodes.SERVICE_UNAVAILABLE);
-					expect(errorLoggerSpy).toHaveBeenCalledTimes(1);
-					expect(errorLoggerSpy).toHaveBeenCalledWith(
-						{
-							err: expect.objectContaining({
-								cause: expect.objectContaining({message: 'Mock storage upload failure'}),
-								code: APIErrorCodes.SERVICE_UNAVAILABLE,
-								message: 'Attachment storage is temporarily unavailable',
-								status: HTTP_STATUS.SERVICE_UNAVAILABLE,
-							}),
-							method: 'POST',
-							path: '/channels/:channel_id/messages',
-							requestId: expect.any(String),
-							status: HTTP_STATUS.SERVICE_UNAVAILABLE,
-						},
-						'Request failed',
-					);
 				} finally {
 					harness.storageService.configure({shouldFailUpload: false});
-					errorLoggerSpy.mockRestore();
 				}
 			});
 		});

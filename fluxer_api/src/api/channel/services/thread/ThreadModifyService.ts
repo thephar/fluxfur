@@ -106,7 +106,6 @@ export class ThreadModifyService {
 		authChannel: AuthenticatedChannel;
 		userId: UserID;
 		data: ThreadUpdateData;
-		requestCache: RequestCache;
 		auditLogReason: string | null;
 	}): Promise<Channel> {
 		const data = {
@@ -162,8 +161,10 @@ export class ThreadModifyService {
 			});
 		}
 		const before = await loadThreadView(this.deps.channelRepository, channel, state, parent);
-		const renamed = data.name !== undefined && data.name !== channel.name;
-		const rateChanged = data.rate_limit_per_user !== undefined && data.rate_limit_per_user !== channel.rateLimitPerUser;
+		const requestedName = data.name;
+		const renamed = requestedName !== undefined && requestedName !== channel.name;
+		const requestedRateLimit = data.rate_limit_per_user;
+		const rateChanged = requestedRateLimit !== undefined && requestedRateLimit !== channel.rateLimitPerUser;
 		const statePatch: ThreadStatePatch = {
 			archived: data.archived,
 			locked: data.locked,
@@ -181,17 +182,17 @@ export class ThreadModifyService {
 			if (pinning) await this.deps.channelRepository.threads.releaseForumPin(parent.id, channel.id);
 			throw new UnknownChannelError();
 		}
-		const updatedChannel =
-			renamed || rateChanged
-				? await this.deps.channelRepository.channelData.upsert(
-						{
-							...channel.toRow(),
-							name: renamed ? data.name! : channel.name,
-							rate_limit_per_user: rateChanged ? data.rate_limit_per_user! : channel.rateLimitPerUser,
-						},
-						channel.toRow(),
-					)
-				: channel;
+		let updatedChannel = channel;
+		if (renamed || rateChanged) {
+			updatedChannel = await this.deps.channelRepository.channelData.upsert(
+				{
+					...channel.toRow(),
+					name: renamed ? requestedName : channel.name,
+					rate_limit_per_user: rateChanged ? requestedRateLimit : channel.rateLimitPerUser,
+				},
+				channel.toRow(),
+			);
+		}
 		const next = transition.state;
 		if (rateChanged) await this.clearThreadSlowmode(channel);
 		enqueueThreadSearchSync(channel.id);

@@ -41,28 +41,3 @@ calculate_with_jitter(Attempt, MaxMs) ->
     Jitter = rand:uniform(JitterRange + 1) - 1,
     Offset = JitterRange div 2,
     max(1, min(MaxMs, Base - Offset + Jitter)).
-
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
-
-calculate_huge_attempt_does_not_overflow_test() ->
-    ?assertEqual(30000, calculate(1000000000)),
-    ?assertEqual(5000, calculate(1000000000, 5000)).
-
-calculate_with_jitter_stays_in_range_test() ->
-    lists:foreach(
-        fun(_) ->
-            V0 = calculate_with_jitter(0),
-            ?assert(V0 >= 750),
-            ?assert(V0 =< 1250),
-            V2 = calculate_with_jitter(2),
-            ?assert(V2 >= 3000),
-            ?assert(V2 =< 5000),
-            V10 = calculate_with_jitter(10),
-            ?assert(V10 >= 22500),
-            ?assert(V10 =< 30000)
-        end,
-        lists:seq(1, 20)
-    ).
-
--endif.

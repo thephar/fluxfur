@@ -20,6 +20,7 @@ interface PasskeyBridgeReturnOptions {
 	redirectPath?: string;
 	onLoginSuccess: (payload: LoginSuccessPayload) => Promise<void> | void;
 	onRequireMfa: (challenge: MfaChallenge) => void;
+	onCancelled: () => void;
 	onFailure: () => void;
 }
 
@@ -55,6 +56,7 @@ export function usePasskeyBridgeReturn(options: PasskeyBridgeReturnOptions): boo
 				if (result.status === 'cancelled') {
 					writePasskeyLoginRoute('native');
 					restoreMfa();
+					optionsRef.current.onCancelled();
 					return;
 				}
 				await optionsRef.current.onLoginSuccess(toLoginSuccessPayload(result));

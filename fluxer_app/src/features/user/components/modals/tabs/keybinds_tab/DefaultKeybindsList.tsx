@@ -39,6 +39,11 @@ const VOICE_AND_VIDEO_DESCRIPTOR = msg({
 	message: 'Voice and video',
 	comment: 'Short label in the keybinds tab. Keep it concise.',
 });
+const ACCOUNTS_DESCRIPTOR = msg({
+	message: 'Accounts',
+	comment:
+		'Short label in the keybinds tab for the section of shortcuts that switch between signed-in accounts. Keep it concise.',
+});
 const MISCELLANEOUS_DESCRIPTOR = msg({
 	message: 'Miscellaneous',
 	comment: 'Short label in the keybinds tab. Keep it concise.',
@@ -63,6 +68,7 @@ export const DefaultKeybindsList: React.FC<{searchQuery: string}> = observer(({s
 		drag_and_drop: i18n._(DRAG_AND_DROP_DESCRIPTOR),
 		chat: i18n._(CHAT_DESCRIPTOR),
 		voice_and_video: i18n._(VOICE_AND_VIDEO_DESCRIPTOR),
+		accounts: i18n._(ACCOUNTS_DESCRIPTOR),
 		misc: i18n._(MISCELLANEOUS_DESCRIPTOR),
 	};
 	const sections = useMemo(() => {
@@ -73,6 +79,7 @@ export const DefaultKeybindsList: React.FC<{searchQuery: string}> = observer(({s
 			drag_and_drop: [],
 			chat: [],
 			voice_and_video: [],
+			accounts: [],
 			misc: [],
 		};
 		for (const entry of defaults) {

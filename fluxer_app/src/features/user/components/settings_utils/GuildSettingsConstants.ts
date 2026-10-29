@@ -66,9 +66,10 @@ const VANITY_URL_DESCRIPTOR = msg({
 	comment: 'Community settings tab for the community vanity/custom invite link.',
 });
 const DISCOVERY_DESCRIPTOR = msg({
-	message: 'Discovery',
+	message: 'Explore',
 	context: 'community-settings-tab',
-	comment: 'Community settings tab for public community discovery/listing.',
+	comment:
+		'Community settings tab for listing a community in Explore. Explore is the name of the feature, so use the same word as the Explore page heading.',
 });
 const MEMBERS_DESCRIPTOR = msg({
 	message: 'Members',
@@ -224,7 +225,7 @@ export const GUILD_SETTINGS_LABEL_DESCRIPTOR = msg({
 });
 const COMMUNITY_CATEGORY_DESCRIPTOR = msg({
 	message: 'Community',
-	comment: 'Community settings sidebar category grouping discovery and the vanity URL.',
+	comment: 'Community settings sidebar category grouping Explore and the vanity URL.',
 });
 const PEOPLE_CATEGORY_DESCRIPTOR = msg({
 	message: 'People',

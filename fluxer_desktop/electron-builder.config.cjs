@@ -67,13 +67,16 @@ const platformArguments = new Set(process.argv.map((argument) => argument.split(
 const linuxRequested = ['--linux', '-l'].some((selector) => platformArguments.has(selector));
 const macRequested = ['--mac', '--macos', '-m', '-o'].some((selector) => platformArguments.has(selector));
 const windowsRequested = ['--win', '--windows', '-w'].some((selector) => platformArguments.has(selector));
-const targetPlatform = linuxRequested
-	? 'linux'
-	: macRequested
-		? 'darwin'
-		: windowsRequested
-			? 'win32'
-			: process.platform;
+let targetPlatform;
+if (linuxRequested) {
+	targetPlatform = 'linux';
+} else if (macRequested) {
+	targetPlatform = 'darwin';
+} else if (windowsRequested) {
+	targetPlatform = 'win32';
+} else {
+	targetPlatform = process.platform;
+}
 const isLinuxBuild = targetPlatform === 'linux';
 const customLinuxElectron =
 	isLinuxBuild && process.env.FLUXER_ELECTRON_DIST?.trim() ? require('./scripts/custom-electron.cjs') : null;
@@ -115,7 +118,10 @@ const legacyLinuxOptDirSweepScript = path.resolve(__dirname, 'packaging/linux/rp
 const legacyLinuxOptDirRpmFpmArgs = isCanary ? ['--rpm-posttrans', legacyLinuxOptDirSweepScript] : [];
 const macOSMinimumSystemVersion = '13.0';
 const metadataName = isLinuxBuild ? linuxPackageName : packageName;
-const shellVersion = process.env.VERSION || readBundledRendererVersion();
+if (process.env.VERSION && !process.env.BUILD_VERSION) {
+	throw new Error('The desktop packaging no longer reads VERSION. Set BUILD_VERSION instead.');
+}
+const shellVersion = process.env.BUILD_VERSION || readBundledRendererVersion();
 const supportedTargetArchs = ['x64', 'arm64'];
 const supportedMacTargetArchs = [...supportedTargetArchs, 'universal'];
 const electronArch = process.env.ELECTRON_ARCH;
@@ -821,7 +827,14 @@ async function beforePack(context) {
 				'Linux packaging requires patched Electron. Set FLUXER_ELECTRON_DIST to the directory containing its ZIP and build manifest.',
 			);
 		}
-		const arch = context.arch === 1 ? 'x64' : context.arch === 3 ? 'arm64' : context.arch;
+		let arch;
+		if (context.arch === 1) {
+			arch = 'x64';
+		} else if (context.arch === 3) {
+			arch = 'arm64';
+		} else {
+			arch = context.arch;
+		}
 		verifiedLinuxElectronArtifacts.set(
 			arch,
 			await customLinuxElectron.verifyLinuxElectronArchive(linuxElectronDist, arch),
@@ -1531,13 +1544,14 @@ async function verifyRpmArtifactsSweepTheRenamedInstallDirectory(buildResult) {
 	const violations = [];
 	for (const artifactPath of rpmArtifacts) {
 		const scriptlet = await readRpmPostTransactionScriptlet(artifactPath);
-		const detail = !scriptlet.includes(legacyLinuxCanaryOptDir)
-			? `does not reference ${legacyLinuxCanaryOptDir}`
-			: !scriptlet.includes('rmdir')
-				? 'does not sweep the directory with rmdir'
-				: /\brm\s+-[a-zA-Z]*[rf]/.test(scriptlet)
-					? 'removes files rather than only empty directories'
-					: null;
+		let detail = null;
+		if (!scriptlet.includes(legacyLinuxCanaryOptDir)) {
+			detail = `does not reference ${legacyLinuxCanaryOptDir}`;
+		} else if (!scriptlet.includes('rmdir')) {
+			detail = 'does not sweep the directory with rmdir';
+		} else if (/\brm\s+-[a-zA-Z]*[rf]/.test(scriptlet)) {
+			detail = 'removes files rather than only empty directories';
+		}
 		if (detail !== null) {
 			violations.push({artifactPath, detail});
 		}

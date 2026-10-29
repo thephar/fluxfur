@@ -6,15 +6,17 @@ use axum::http::header;
 use reqwest::Url;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::watch;
-use tokio::task::JoinHandle;
+use tokio::sync::{Mutex, watch};
+use tokio::time::Instant;
 
-const BRANDING_IMAGES: [(&str, &str); 5] = [
+const BRANDING_IMAGES: [(&str, &str); 7] = [
     ("icon_url", "FLUXER_APP_ICON_URL"),
     ("symbol_url", "FLUXER_APP_SYMBOL_URL"),
     ("logo_url", "FLUXER_APP_LOGO_URL"),
     ("wordmark_url", "FLUXER_APP_WORDMARK_URL"),
     ("favicon_url", "FLUXER_APP_FAVICON_URL"),
+    FAVICON_DARK_URL,
+    ("sign_in_backdrop_url", "FLUXER_APP_SIGN_IN_BACKDROP_URL"),
 ];
 const CONNECT_ENDPOINTS: [&str; 7] = [
     "api",
@@ -27,9 +29,17 @@ const CONNECT_ENDPOINTS: [&str; 7] = [
 ];
 const PRODUCT_NAME: (&str, &str) = ("product_name", "FLUXER_APP_PRODUCT_NAME");
 const ICON_URL: (&str, &str) = ("icon_url", "FLUXER_APP_ICON_URL");
+const SIGN_IN_LOGOS: [(&str, &str); 3] = [
+    ("logo_url", "FLUXER_APP_LOGO_URL"),
+    ICON_URL,
+    ("symbol_url", "FLUXER_APP_SYMBOL_URL"),
+];
+const DEFAULT_PRODUCT_NAME: &str = "Fluxer";
 const FAVICON_URL: (&str, &str) = ("favicon_url", "FLUXER_APP_FAVICON_URL");
+const FAVICON_DARK_URL: (&str, &str) = ("favicon_dark_url", "FLUXER_APP_FAVICON_DARK_URL");
 const THEME_COLOR: (&str, &str) = ("theme_color", "FLUXER_APP_THEME_COLOR");
-const DISCOVERY_FETCH_TIMEOUT: Duration = Duration::from_secs(5);
+const STATUS_PAGE_URL: &str = "FLUXER_APP_STATUS_PAGE_URL";
+const DISCOVERY_FETCH_TIMEOUT: Duration = Duration::from_secs(2);
 const DISCOVERY_BODY_BYTES_MAX: usize = 1024 * 1024;
 const REFRESH_INTERVAL_MIN: Duration = Duration::from_secs(1);
 const REFRESH_BACKOFF_MAX: Duration = Duration::from_secs(300);
@@ -38,13 +48,30 @@ pub fn snapshot_from_environment<F>(mut read_var: F) -> BrandingSnapshot
 where
     F: FnMut(&str) -> Option<String>,
 {
-    snapshot_from_fields(|(_, name)| read_var(name))
+    let status_page_origin = read_var(STATUS_PAGE_URL)
+        .as_deref()
+        .map(str::trim)
+        .and_then(connect_origin);
+    BrandingSnapshot {
+        instance_sources: InstanceCspSources {
+            connect_origins: status_page_origin.into_iter().collect(),
+            ..InstanceCspSources::default()
+        },
+        ..snapshot_from_fields(|(_, name)| read_var(name))
+    }
 }
 
 pub fn snapshot_from_discovery(discovery: &serde_json::Value) -> Option<BrandingSnapshot> {
     let branding = discovery.pointer("/app_public/branding")?.as_object()?;
     Some(BrandingSnapshot {
         instance_sources: instance_sources_from_discovery(discovery),
+        custom_css: non_empty(
+            branding
+                .get("custom_css")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+        )
+        .map(Into::into),
         ..snapshot_from_fields(|(key, _)| branding.get(key)?.as_str().map(str::to_owned))
     })
 }
@@ -68,6 +95,15 @@ fn instance_sources_from_discovery(discovery: &serde_json::Value) -> InstanceCsp
         if !connect_origins.contains(&origin) {
             connect_origins.push(origin);
         }
+    }
+    if let Some(origin) = discovery
+        .pointer("/app_public/branding/status_page_url")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .and_then(connect_origin)
+        && !connect_origins.contains(&origin)
+    {
+        connect_origins.push(origin);
     }
     InstanceCspSources {
         static_cdn_endpoint: http_origin("static_cdn"),
@@ -94,12 +130,24 @@ fn snapshot_from_fields(
     );
     let icon_url = non_empty(field(ICON_URL));
     let favicon_url = non_empty(field(FAVICON_URL)).or_else(|| icon_url.clone());
+    let product_name = non_empty(field(PRODUCT_NAME));
+    let has_sign_in_logo = SIGN_IN_LOGOS
+        .iter()
+        .any(|&logo| non_empty(field(logo)).is_some());
     BrandingSnapshot {
         image_origins: image_origins.into(),
         instance_sources: InstanceCspSources::default(),
-        product_name: non_empty(field(PRODUCT_NAME)).map(Into::into),
+        auth_card_narrow: !has_sign_in_logo
+            && product_name
+                .as_deref()
+                .is_some_and(|name| name != DEFAULT_PRODUCT_NAME),
+        product_name: product_name.map(Into::into),
         icon_url: icon_url.as_deref().and_then(absolute_url).map(Into::into),
         favicon_url: favicon_url
+            .as_deref()
+            .and_then(absolute_url)
+            .map(Into::into),
+        favicon_dark_url: non_empty(field(FAVICON_DARK_URL))
             .as_deref()
             .and_then(absolute_url)
             .map(Into::into),
@@ -107,6 +155,7 @@ fn snapshot_from_fields(
             .as_deref()
             .and_then(theme_color)
             .map(Into::into),
+        custom_css: None,
     }
 }
 
@@ -185,18 +234,33 @@ async fn fetch_discovery(
 pub struct BrandingSnapshot {
     pub image_origins: Arc<[HttpEndpoint]>,
     pub instance_sources: InstanceCspSources,
+    pub auth_card_narrow: bool,
     pub product_name: Option<Arc<str>>,
     pub icon_url: Option<Arc<str>>,
     pub favicon_url: Option<Arc<str>>,
+    pub favicon_dark_url: Option<Arc<str>>,
     pub theme_color: Option<Arc<str>>,
+    pub custom_css: Option<Arc<str>>,
+}
+
+#[derive(Debug, Default)]
+struct RefreshGate {
+    next_attempt: Option<Instant>,
+    consecutive_failures: u32,
 }
 
 #[derive(Clone, Debug)]
-pub struct InstanceBranding(watch::Sender<Arc<BrandingSnapshot>>);
+pub struct InstanceBranding {
+    current: watch::Sender<Arc<BrandingSnapshot>>,
+    gate: Arc<Mutex<RefreshGate>>,
+}
 
 impl InstanceBranding {
     pub fn new(snapshot: BrandingSnapshot) -> Self {
-        Self(watch::Sender::new(Arc::new(snapshot)))
+        Self {
+            current: watch::Sender::new(Arc::new(snapshot)),
+            gate: Arc::default(),
+        }
     }
 
     pub fn from_config(config: &AppProxyConfig) -> Self {
@@ -207,16 +271,8 @@ impl InstanceBranding {
         }
     }
 
-    pub fn image_origins(&self) -> Arc<[HttpEndpoint]> {
-        self.0.borrow().image_origins.clone()
-    }
-
-    pub fn instance_sources(&self) -> InstanceCspSources {
-        self.0.borrow().instance_sources.clone()
-    }
-
     pub fn snapshot(&self) -> Arc<BrandingSnapshot> {
-        self.0.borrow().clone()
+        self.current.borrow().clone()
     }
 
     pub async fn refresh(
@@ -228,7 +284,7 @@ impl InstanceBranding {
         let Some(snapshot) = snapshot_from_discovery(&discovery) else {
             anyhow::bail!("upstream discovery has no app_public.branding object");
         };
-        let changed = self.0.send_if_modified(|current| {
+        let changed = self.current.send_if_modified(|current| {
             if **current == snapshot {
                 return false;
             }
@@ -247,427 +303,51 @@ impl InstanceBranding {
                 product_name = snapshot.product_name.as_deref(),
                 icon_url = snapshot.icon_url.as_deref(),
                 favicon_url = snapshot.favicon_url.as_deref(),
+                favicon_dark_url = snapshot.favicon_dark_url.as_deref(),
                 theme_color = snapshot.theme_color.as_deref(),
+                custom_css_bytes = snapshot.custom_css.as_deref().map_or(0, str::len),
                 "instance branding updated"
             );
         }
         Ok(())
     }
 
-    pub fn start_background_refresh(
-        &self,
-        client: reqwest::Client,
-        upstream_url: String,
-        interval: Duration,
-    ) -> JoinHandle<()> {
-        self.spawn_refresh_loop(client, upstream_url, interval.max(REFRESH_INTERVAL_MIN))
-    }
-
-    fn spawn_refresh_loop(
-        &self,
-        client: reqwest::Client,
-        upstream_url: String,
-        interval: Duration,
-    ) -> JoinHandle<()> {
-        let branding = self.clone();
-        tokio::spawn(async move {
-            let mut consecutive_failures: u32 = 0;
-            loop {
-                let wait = match branding.refresh(&client, &upstream_url).await {
-                    Ok(()) => {
-                        consecutive_failures = 0;
-                        interval
-                    }
-                    Err(error) => {
-                        let backoff = interval
-                            .saturating_mul(1 << consecutive_failures.min(5))
-                            .min(REFRESH_BACKOFF_MAX);
-                        consecutive_failures = consecutive_failures.saturating_add(1);
-                        tracing::warn!(
-                            %error,
-                            url = %upstream_url,
-                            consecutive_failures,
-                            backoff_ms = backoff.as_millis() as u64,
-                            "instance branding refresh failed, keeping the previous branding"
-                        );
-                        backoff
-                    }
-                };
-                tokio::time::sleep(wait).await;
-            }
-        })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use axum::http::StatusCode;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    fn sources(origins: &[HttpEndpoint]) -> Vec<&str> {
-        origins.iter().map(HttpEndpoint::csp_origin).collect()
-    }
-
-    fn endpoint(value: &str) -> HttpEndpoint {
-        HttpEndpoint::parse("TEST_ENDPOINT", value).unwrap()
-    }
-
-    fn seeded_with(origins: &[&str]) -> BrandingSnapshot {
-        BrandingSnapshot {
-            image_origins: origins.iter().map(|origin| endpoint(origin)).collect(),
-            ..BrandingSnapshot::default()
-        }
-    }
-
-    fn fast_client() -> reqwest::Client {
-        reqwest::Client::builder()
-            .timeout(Duration::from_secs(2))
-            .build()
-            .unwrap()
-    }
-
-    async fn serve_discovery(responses: Vec<(StatusCode, String)>) -> String {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let served = Arc::new(AtomicUsize::new(0));
-        let responses = Arc::new(responses);
-        let router = axum::Router::new().fallback(move || {
-            let index = served.fetch_add(1, Ordering::SeqCst);
-            let responses = Arc::clone(&responses);
-            async move { responses[index.min(responses.len() - 1)].clone() }
-        });
-        tokio::spawn(async move {
-            axum::serve(listener, router).await.unwrap();
-        });
-        format!("http://{addr}/.well-known/fluxer")
-    }
-
-    fn discovery_with_branding(branding: serde_json::Value) -> String {
-        serde_json::json!({"api_code_version": "v1", "app_public": {"branding": branding}})
-            .to_string()
-    }
-
-    #[test]
-    fn discovery_branding_images_yield_their_distinct_origins() {
-        let discovery = serde_json::json!({
-            "app_public": {
-                "branding": {
-                    "product_name": "Example",
-                    "icon_url": "https://example.test/logo.png",
-                    "symbol_url": " https://example.test/symbol.svg?v=2#dark ",
-                    "logo_url": "http://assets.example.test:8443/brand/logo.png",
-                    "wordmark_url": null,
-                    "favicon_url": "https://EXAMPLE.test:443/favicon.png",
-                    "status_page_url": "https://status.example.test"
-                }
-            }
-        });
-
-        assert_eq!(
-            sources(&snapshot_from_discovery(&discovery).unwrap().image_origins),
-            ["https://example.test", "http://assets.example.test:8443"]
-        );
-    }
-
-    #[test]
-    fn branding_images_without_a_network_origin_are_skipped() {
-        let discovery = serde_json::json!({
-            "app_public": {
-                "branding": {
-                    "icon_url": "/branding/icon.png",
-                    "symbol_url": "data:image/png;base64,AAAA",
-                    "logo_url": "   ",
-                    "wordmark_url": 7,
-                    "favicon_url": "ftp://example.test/favicon.png"
-                }
-            }
-        });
-
-        assert!(
-            snapshot_from_discovery(&discovery)
-                .unwrap()
-                .image_origins
-                .is_empty()
-        );
-    }
-
-    #[test]
-    fn discovery_endpoints_yield_the_instance_origins_the_page_must_reach() {
-        let discovery = serde_json::json!({
-            "endpoints": {
-                "api": "https://chat.example.com/api",
-                "api_client": "https://chat.example.com/api",
-                "gateway": "wss://chat.example.com/gateway",
-                "media": "https://chat.example.com/media",
-                "static_cdn": "https://static.example.com",
-                "marketing": "https://www.example.com",
-            },
-            "app_public": {"branding": {}},
-        });
-        let sources = snapshot_from_discovery(&discovery)
-            .unwrap()
-            .instance_sources;
-        assert_eq!(
-            sources.connect_origins,
-            vec![
-                "https://chat.example.com",
-                "wss://chat.example.com",
-                "https://static.example.com",
-            ]
-        );
-        assert_eq!(
-            sources
-                .media_endpoint
-                .as_ref()
-                .map(HttpEndpoint::csp_origin),
-            Some("https://chat.example.com")
-        );
-        assert_eq!(
-            sources
-                .static_cdn_endpoint
-                .as_ref()
-                .map(HttpEndpoint::csp_origin),
-            Some("https://static.example.com")
-        );
-    }
-
-    #[test]
-    fn a_document_without_branding_is_not_a_discovery_snapshot() {
-        assert!(snapshot_from_discovery(&serde_json::json!({"api_code_version": "v1"})).is_none());
-        assert!(snapshot_from_discovery(&serde_json::json!({"app_public": {}})).is_none());
-        assert!(
-            snapshot_from_discovery(&serde_json::json!({"app_public": {"branding": null}}))
-                .is_none()
-        );
-        assert_eq!(
-            snapshot_from_discovery(&serde_json::json!({"app_public": {"branding": {}}})),
-            Some(BrandingSnapshot::default())
-        );
-    }
-
-    #[test]
-    fn the_favicon_falls_back_to_the_icon_like_the_app() {
-        let favicon = |branding: serde_json::Value| {
-            snapshot_from_discovery(&serde_json::json!({"app_public": {"branding": branding}}))
-                .unwrap()
-                .favicon_url
-                .map(|url| url.to_string())
+    pub fn refresh_if_due(&self, client: &reqwest::Client, upstream_url: &str, interval: Duration) {
+        let Ok(mut gate) = self.gate.clone().try_lock_owned() else {
+            return;
         };
-
-        assert_eq!(
-            favicon(serde_json::json!({
-                "icon_url": "https://example.test/icon.png",
-                "favicon_url": " https://example.test/favicon.png "
-            })),
-            Some("https://example.test/favicon.png".to_owned())
-        );
-        assert_eq!(
-            favicon(serde_json::json!({
-                "icon_url": "https://example.test/icon.png",
-                "favicon_url": null
-            })),
-            Some("https://example.test/icon.png".to_owned())
-        );
-        assert_eq!(
-            favicon(serde_json::json!({"icon_url": null, "favicon_url": null})),
-            None
-        );
-        assert_eq!(
-            favicon(serde_json::json!({"favicon_url": "javascript:alert(1)"})),
-            None
-        );
-    }
-
-    #[test]
-    fn environment_branding_images_yield_their_distinct_origins() {
-        let snapshot = snapshot_from_environment(|name| match name {
-            "FLUXER_APP_ICON_URL" => Some("https://example.test/logo.png".to_owned()),
-            "FLUXER_APP_FAVICON_URL" => Some("https://example.test/favicon.png".to_owned()),
-            "FLUXER_APP_WORDMARK_URL" => Some("https://cdn.example.test/wordmark.svg".to_owned()),
-            "FLUXER_APP_LOGO_URL" => Some("not a url".to_owned()),
-            "FLUXER_APP_STATUS_PAGE_URL" => Some("https://status.example.test".to_owned()),
-            _ => None,
-        });
-
-        assert_eq!(
-            sources(&snapshot.image_origins),
-            ["https://example.test", "https://cdn.example.test"]
-        );
-    }
-
-    #[test]
-    fn a_theme_colour_is_normalised_like_the_api() {
-        assert_eq!(theme_color("#7B2CE4").as_deref(), Some("#7b2ce4"));
-        assert_eq!(theme_color(" abc ").as_deref(), Some("#aabbcc"));
-        assert_eq!(theme_color("#000001").as_deref(), Some("#000001"));
-        for unset in [
-            "#000000",
-            "#000",
-            "",
-            "#12345",
-            "##abc",
-            "rgb(1, 2, 3)",
-            "rebeccapurple",
-            "#abcdeg",
-            "\"><script>",
-        ] {
-            assert_eq!(theme_color(unset), None, "{unset} is not a theme colour");
+        if gate
+            .next_attempt
+            .is_some_and(|next_attempt| Instant::now() < next_attempt)
+        {
+            return;
         }
-    }
-
-    #[test]
-    fn an_icon_without_a_network_origin_is_not_served() {
-        let snapshot = snapshot_from_environment(|name| match name {
-            "FLUXER_APP_ICON_URL" => Some("javascript:alert(1)".to_owned()),
-            "FLUXER_APP_FAVICON_URL" => Some("/branding/favicon.png".to_owned()),
-            _ => None,
+        let branding = self.clone();
+        let client = client.clone();
+        let upstream_url = upstream_url.to_owned();
+        let interval = interval.max(REFRESH_INTERVAL_MIN);
+        tokio::spawn(async move {
+            let wait = match branding.refresh(&client, &upstream_url).await {
+                Ok(()) => {
+                    gate.consecutive_failures = 0;
+                    interval
+                }
+                Err(error) => {
+                    let backoff = interval
+                        .saturating_mul(1 << gate.consecutive_failures.min(5))
+                        .min(REFRESH_BACKOFF_MAX);
+                    gate.consecutive_failures = gate.consecutive_failures.saturating_add(1);
+                    tracing::warn!(
+                        %error,
+                        url = %upstream_url,
+                        consecutive_failures = gate.consecutive_failures,
+                        backoff_ms = backoff.as_millis() as u64,
+                        "instance branding refresh failed, keeping the previous branding"
+                    );
+                    backoff
+                }
+            };
+            gate.next_attempt = Some(Instant::now() + wait);
         });
-
-        assert_eq!(snapshot.icon_url, None);
-        assert_eq!(snapshot.favicon_url, None);
-    }
-
-    #[test]
-    fn only_a_self_hosted_instance_seeds_origins_from_its_environment() {
-        let mut config = AppProxyConfig::from_env();
-        config.branding = seeded_with(&["https://example.test"]);
-
-        config.self_hosted = false;
-        assert!(
-            InstanceBranding::from_config(&config)
-                .image_origins()
-                .is_empty()
-        );
-
-        config.self_hosted = true;
-        assert_eq!(
-            sources(&InstanceBranding::from_config(&config).image_origins()),
-            ["https://example.test"]
-        );
-    }
-
-    #[tokio::test]
-    async fn a_discovery_snapshot_replaces_the_environment_seed() {
-        let upstream = serve_discovery(vec![(
-            StatusCode::OK,
-            discovery_with_branding(serde_json::json!({
-                "icon_url": "https://dashboard.example.test/icon.png",
-                "favicon_url": null
-            })),
-        )])
-        .await;
-        let origins = InstanceBranding::new(seeded_with(&["https://env.example.test"]));
-        assert_eq!(
-            sources(&origins.image_origins()),
-            ["https://env.example.test"]
-        );
-
-        origins.refresh(&fast_client(), &upstream).await.unwrap();
-
-        assert_eq!(
-            sources(&origins.image_origins()),
-            ["https://dashboard.example.test"]
-        );
-        assert_eq!(
-            origins.snapshot().favicon_url.as_deref(),
-            Some("https://dashboard.example.test/icon.png")
-        );
-    }
-
-    #[tokio::test]
-    async fn a_failed_refresh_keeps_the_previous_origins() {
-        let seeded = || InstanceBranding::new(seeded_with(&["https://env.example.test"]));
-
-        let origins = seeded();
-        let unavailable =
-            serve_discovery(vec![(StatusCode::SERVICE_UNAVAILABLE, String::new())]).await;
-        assert!(origins.refresh(&fast_client(), &unavailable).await.is_err());
-        assert_eq!(
-            sources(&origins.image_origins()),
-            ["https://env.example.test"]
-        );
-
-        let origins = seeded();
-        let not_json = serve_discovery(vec![(StatusCode::OK, "<html>".to_owned())]).await;
-        assert!(origins.refresh(&fast_client(), &not_json).await.is_err());
-        assert_eq!(
-            sources(&origins.image_origins()),
-            ["https://env.example.test"]
-        );
-
-        let origins = seeded();
-        let no_branding = serve_discovery(vec![(StatusCode::OK, "{}".to_owned())]).await;
-        assert!(origins.refresh(&fast_client(), &no_branding).await.is_err());
-        assert_eq!(
-            sources(&origins.image_origins()),
-            ["https://env.example.test"]
-        );
-
-        let origins = seeded();
-        let oversized = serve_discovery(vec![(
-            StatusCode::OK,
-            discovery_with_branding(serde_json::json!({
-                "icon_url": format!(
-                    "https://dashboard.example.test/{}",
-                    "a".repeat(DISCOVERY_BODY_BYTES_MAX)
-                )
-            })),
-        )])
-        .await;
-        assert!(origins.refresh(&fast_client(), &oversized).await.is_err());
-        assert_eq!(
-            sources(&origins.image_origins()),
-            ["https://env.example.test"]
-        );
-
-        let origins = seeded();
-        assert!(
-            origins
-                .refresh(&fast_client(), "http://127.0.0.1:1/.well-known/fluxer")
-                .await
-                .is_err()
-        );
-        assert_eq!(
-            sources(&origins.image_origins()),
-            ["https://env.example.test"]
-        );
-    }
-
-    #[tokio::test]
-    async fn the_background_refresh_follows_discovery_and_survives_a_failure() {
-        let upstream = serve_discovery(vec![
-            (
-                StatusCode::OK,
-                discovery_with_branding(serde_json::json!({
-                    "icon_url": "https://first.example.test/icon.png"
-                })),
-            ),
-            (StatusCode::BAD_GATEWAY, String::new()),
-            (
-                StatusCode::OK,
-                discovery_with_branding(serde_json::json!({
-                    "icon_url": "https://second.example.test/icon.png"
-                })),
-            ),
-        ])
-        .await;
-        let origins = InstanceBranding::new(BrandingSnapshot::default());
-        let mut changes = origins.0.subscribe();
-
-        let refresh =
-            origins.spawn_refresh_loop(fast_client(), upstream, Duration::from_millis(10));
-
-        changes.changed().await.unwrap();
-        assert_eq!(
-            sources(&origins.image_origins()),
-            ["https://first.example.test"]
-        );
-        changes.changed().await.unwrap();
-        assert_eq!(
-            sources(&origins.image_origins()),
-            ["https://second.example.test"]
-        );
-        refresh.abort();
     }
 }

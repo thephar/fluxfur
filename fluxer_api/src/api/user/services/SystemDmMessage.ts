@@ -5,8 +5,10 @@ import type {ChannelService} from '@app/api/channel/services/ChannelService';
 import {SYSTEM_USER_ID} from '@app/api/constants/Core';
 import {SYSTEM_THREAD_VIEWER} from '@app/api/experiment/ChannelThreadsGate';
 import type {UserCacheService} from '@app/api/infrastructure/UserCacheService';
+import type {InstanceConfigRepository} from '@app/api/instance/InstanceConfigRepository';
 import {Logger} from '@app/api/Logger';
 import {createRequestCache, type RequestCache} from '@app/api/middleware/RequestCacheMiddleware';
+import {getInstanceConfigRepository} from '@app/api/middleware/ServiceSingletons';
 import type {User} from '@app/api/models/User';
 import type {UserRepository} from '@app/api/user/repositories/UserRepository';
 import type {UserChannelService} from '@app/api/user/services/UserChannelService';
@@ -17,9 +19,21 @@ export interface SystemDmDeps {
 	userCacheService: UserCacheService;
 }
 
+export async function systemDmsHidden(
+	config: Pick<InstanceConfigRepository, 'getInstancePolicyConfig'> = getInstanceConfigRepository(),
+): Promise<boolean> {
+	return (await config.getInstancePolicyConfig()).direct_messages_disabled;
+}
+
+export async function noticeEmailAddress(
+	user: Pick<User, 'email'>,
+	config: Pick<InstanceConfigRepository, 'isEmailEnabled'> = getInstanceConfigRepository(),
+): Promise<string | null> {
+	return user.email && (await config.isEmailEnabled()) ? user.email : null;
+}
+
 export function systemDmBody(emailBody: string): string {
-	const body = emailBody.split('\n\n').slice(1, -1).join('\n\n');
-	return body.charAt(0).toLocaleUpperCase() + body.slice(1);
+	return emailBody.split('\n\n').slice(0, -1).join('\n\n');
 }
 
 export async function sendSystemDmMessage(params: {
@@ -53,6 +67,9 @@ export async function trySendSystemDm(
 	recipientId: UserID,
 	content: string,
 ): Promise<boolean> {
+	if (await systemDmsHidden()) {
+		return false;
+	}
 	const requestCache = createRequestCache();
 	try {
 		await sendSystemDmMessage({

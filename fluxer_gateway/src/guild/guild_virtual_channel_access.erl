@@ -9,18 +9,14 @@
     remove_virtual_access/3,
     has_virtual_access/3,
     has_voice_access/3,
-    is_view_only/3,
     get_virtual_channels_for_user/2,
     dispatch_channel_visibility_change/4,
-    mark_pending_join/3,
     clear_pending_join/3,
     mark_transition_flags/3,
     clear_transition_flags/3,
     is_pending_join/3,
-    mark_preserve/3,
     clear_preserve/3,
     has_preserve/3,
-    mark_move_pending/3,
     clear_move_pending/3,
     is_move_pending/3
 ]).

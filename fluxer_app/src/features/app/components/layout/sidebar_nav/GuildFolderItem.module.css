@@ -129,7 +129,7 @@
 
 .folderBadge {
 	position: absolute;
-	right: -0.25rem;
+	inset-inline-end: -0.25rem;
 	bottom: -0.25rem;
 	z-index: 2;
 	pointer-events: auto;

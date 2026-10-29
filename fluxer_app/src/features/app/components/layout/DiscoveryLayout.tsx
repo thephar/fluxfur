@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {Routes} from '@app/app/Routes';
 import {DiscoveryGuildHeader} from '@app/features/app/components/layout/DiscoveryGuildHeader';
 import styles from '@app/features/app/components/layout/GuildLayout.module.css';
 import {GuildSidebar} from '@app/features/app/components/layout/GuildSidebar';
@@ -8,6 +7,7 @@ import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
 import {DiscoveryPage} from '@app/features/discovery/discovery/DiscoveryPage';
 import {DiscoverySidebar} from '@app/features/discovery/discovery/DiscoverySidebar';
 import Discovery from '@app/features/discovery/state/Discovery';
+import {getDefaultLandingPath} from '@app/features/navigation/utils/DefaultLandingUtils';
 import * as RouterUtils from '@app/features/navigation/utils/RouterUtils';
 import MobileLayout from '@app/features/ui/state/MobileLayout';
 import {observer} from 'mobx-react-lite';
@@ -18,7 +18,7 @@ export const DiscoveryLayout = observer(function DiscoveryLayout() {
 	const available = RuntimeConfig.discoveryAvailable;
 	useEffect(() => {
 		if (!available) {
-			RouterUtils.replaceWith(Routes.ME);
+			RouterUtils.replaceWith(getDefaultLandingPath());
 			return;
 		}
 		void Discovery.loadCategories();

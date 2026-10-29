@@ -4,6 +4,7 @@ import {Routes} from '@app/app/Routes';
 import type {RuntimeConfigSnapshot} from '@app/features/app/state/InstanceSnapshotStore';
 import {AuthLoginLayout} from '@app/features/auth/flow/AuthLoginLayout';
 import {AuthLoginStepCarousel} from '@app/features/auth/flow/AuthLoginStepCarousel';
+import sharedStyles from '@app/features/auth/flow/AuthPageStyles.module.css';
 import {AuthRouterLink} from '@app/features/auth/flow/AuthRouterLink';
 import {AuthRuntimeTargetGate} from '@app/features/auth/flow/AuthRuntimeTargetGate';
 import {isHandoffRequest} from '@app/features/auth/flow/auth_login_core/useDesktopHandoffFlow';
@@ -48,7 +49,7 @@ const InviteLoginPage = observer(function InviteLoginPage({code, invite}: Invite
 			desktopHandoff={isHandoff}
 			excludeCurrentUser={false}
 			extraTopContent={
-				<>
+				<div className={sharedStyles.loginHeader} data-flx="invite.invite-login-page.login-header">
 					<DesktopDeepLinkPrompt
 						code={code}
 						kind="invite"
@@ -56,7 +57,7 @@ const InviteLoginPage = observer(function InviteLoginPage({code, invite}: Invite
 						data-flx="invite.invite-login-page.desktop-deep-link-prompt"
 					/>
 					<InviteHeader invite={invite} data-flx="invite.invite-login-page.invite-header" />
-				</>
+				</div>
 			}
 			forgotPasswordAction={null}
 			showTitle={false}

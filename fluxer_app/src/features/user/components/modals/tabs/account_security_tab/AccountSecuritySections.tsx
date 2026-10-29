@@ -81,39 +81,33 @@ export const AccountSecuritySections: React.FC<AccountSecuritySectionsProps> = o
 		};
 		return (
 			<>
-				{isClaimed && (
-					<SettingsSection
-						id="account"
-						title={i18n._(SIGN_IN_DETAILS_DESCRIPTOR)}
-						data-flx="user.account-security-sections.account"
-					>
-						<AccountTabContent
-							user={user}
-							isClaimed={isClaimed}
-							showMaskedEmail={showMaskedEmail}
-							setShowMaskedEmail={setShowMaskedEmail}
-							data-flx="user.account-security-sections.account-tab-content"
-						/>
-					</SettingsSection>
-				)}
-				{isClaimed && (
-					<SettingsSection
-						id="security"
-						title={i18n._(SECURITY_DESCRIPTOR)}
-						defaultExpanded={targetSection === 'security'}
-						data-flx="user.account-security-sections.security"
-					>
-						<SecurityTabContent
-							user={user}
-							isClaimed={isClaimed}
-							passkeys={passkeys}
-							authorizedAppsSubmitting={authorizedAppsSubmitting}
-							onManageAuthorizedApps={openAuthorizedAppsModal}
-							onManageLinkedDevices={openLinkedDevicesModal}
-							data-flx="user.account-security-sections.security-tab-content"
-						/>
-					</SettingsSection>
-				)}
+				<SettingsSection
+					id="account"
+					title={i18n._(SIGN_IN_DETAILS_DESCRIPTOR)}
+					data-flx="user.account-security-sections.account"
+				>
+					<AccountTabContent
+						user={user}
+						showMaskedEmail={showMaskedEmail}
+						setShowMaskedEmail={setShowMaskedEmail}
+						data-flx="user.account-security-sections.account-tab-content"
+					/>
+				</SettingsSection>
+				<SettingsSection
+					id="security"
+					title={i18n._(SECURITY_DESCRIPTOR)}
+					defaultExpanded={targetSection === 'security'}
+					data-flx="user.account-security-sections.security"
+				>
+					<SecurityTabContent
+						user={user}
+						passkeys={passkeys}
+						authorizedAppsSubmitting={authorizedAppsSubmitting}
+						onManageAuthorizedApps={openAuthorizedAppsModal}
+						onManageLinkedDevices={openLinkedDevicesModal}
+						data-flx="user.account-security-sections.security-tab-content"
+					/>
+				</SettingsSection>
 				<SettingsSection
 					id="danger_zone"
 					title={i18n._(DANGER_ZONE_DESCRIPTOR)}

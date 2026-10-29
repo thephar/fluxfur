@@ -619,13 +619,12 @@ export function presentMemberRoleUpdate(entry: GuildAuditLogEntryResponse): Audi
 	}
 	const role = rolePlaceholder(single.roleId, readString(readOption(entry, 'role_name')));
 	const {target} = subject;
-	const summary =
-		subject.actor.kind !== 'system'
-			? roleChangeSummary(subject, single, role)
-			: single.kind === 'added'
-				? sentence(MEMBER_ROLE_ADDED_BY_SYSTEM_SUMMARY, {target, role})
-				: sentence(MEMBER_ROLE_REMOVED_BY_SYSTEM_SUMMARY, {target, role});
-	return {summary, rows: temporary, blocks: []};
+	if (subject.actor.kind !== 'system') {
+		return {summary: roleChangeSummary(subject, single, role), rows: temporary, blocks: []};
+	}
+	const systemSummary =
+		single.kind === 'added' ? MEMBER_ROLE_ADDED_BY_SYSTEM_SUMMARY : MEMBER_ROLE_REMOVED_BY_SYSTEM_SUMMARY;
+	return {summary: sentence(systemSummary, {target, role}), rows: temporary, blocks: []};
 }
 
 export function presentMemberMove(entry: GuildAuditLogEntryResponse): AuditLogDomainResult {

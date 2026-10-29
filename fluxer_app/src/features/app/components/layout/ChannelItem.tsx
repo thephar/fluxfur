@@ -486,11 +486,14 @@ export const ChannelItem = observer(
 				data-flx="app.channel-item.unread-indicator"
 			/>
 		) : null;
-		const channelKindLabel = channelIsCategory
-			? i18n._(CATEGORY_DESCRIPTOR)
-			: channelIsVoice
-				? i18n._(VOICE_CHANNEL_DESCRIPTOR)
-				: i18n._(CHANNEL_DESCRIPTOR);
+		let channelKindLabel: string;
+		if (channelIsCategory) {
+			channelKindLabel = i18n._(CATEGORY_DESCRIPTOR);
+		} else if (channelIsVoice) {
+			channelKindLabel = i18n._(VOICE_CHANNEL_DESCRIPTOR);
+		} else {
+			channelKindLabel = i18n._(CHANNEL_DESCRIPTOR);
+		}
 		const ariaLabelParts = [channel.name, channelKindLabel];
 		if (shouldShowSelectedState) ariaLabelParts.push(i18n._(SELECTED_DESCRIPTOR));
 		if (channelIsCategory)
@@ -622,23 +625,26 @@ export const ChannelItem = observer(
 			? i18n._(EDIT_CATEGORY_DESCRIPTOR)
 			: i18n._(CHANNEL_SETTINGS_LABEL_DESCRIPTOR);
 		const voiceLocked = channelIsVoice && !Permission.can(Permissions.CONNECT, channel);
+		let channelIconStateClass = styles.channelItemIconUnselected;
+		if (shouldShowSelectedState || (isHighlight && isSelected)) {
+			channelIconStateClass = styles.channelItemIconSelected;
+		} else if (isVoiceSelected && channel.type === ChannelTypes.GUILD_VOICE) {
+			channelIconStateClass = styles.channelItemHighlight;
+		} else if (isHighlight && !isSelected) {
+			channelIconStateClass = styles.channelItemIconHighlight;
+		}
+		let channelIconOptions: {locked?: boolean; e2eeEncrypted?: boolean} | undefined;
+		if (voiceLocked) {
+			channelIconOptions = {locked: true};
+		} else if (channelIsE2EEEncrypted) {
+			channelIconOptions = {e2eeEncrypted: true};
+		}
 		const channelIconNode = channelIsCategory
 			? null
 			: ChannelUtils.getIcon(
 					channel,
-					{
-						className: clsx(
-							styles.channelItemIcon,
-							shouldShowSelectedState || (isHighlight && isSelected)
-								? styles.channelItemIconSelected
-								: isVoiceSelected && channel.type === ChannelTypes.GUILD_VOICE
-									? styles.channelItemHighlight
-									: isHighlight && !isSelected
-										? styles.channelItemIconHighlight
-										: styles.channelItemIconUnselected,
-						),
-					},
-					voiceLocked ? {locked: true} : channelIsE2EEEncrypted ? {e2eeEncrypted: true} : undefined,
+					{className: clsx(styles.channelItemIcon, channelIconStateClass)},
+					channelIconOptions,
 				);
 		const typingIndicatorNode =
 			!channelIsCategory &&

@@ -26,6 +26,7 @@ import {modal} from '@app/features/ui/commands/ModalCommands';
 import * as PopoutCommands from '@app/features/ui/commands/PopoutCommands';
 import FocusRingScope from '@app/features/ui/focus_ring/FocusRingScope';
 import * as UserProfileCommands from '@app/features/user/commands/UserProfileCommands';
+import {openProfileBadgeSettings} from '@app/features/user/commands/UserSettingsModalCommands';
 import {LimitedProfileNotice} from '@app/features/user/components/popouts/LimitedProfileNotice';
 import {UserProfileBadges} from '@app/features/user/components/popouts/UserProfileBadges';
 import {UserProfileDataWarning} from '@app/features/user/components/popouts/UserProfileDataWarning';
@@ -52,6 +53,7 @@ import {useUserProfileSurfaceState} from '@app/features/user/hooks/useUserProfil
 import type {User} from '@app/features/user/models/User';
 import {blockedDmConfirmModal, openDMChannelOrShowError} from '@app/features/user/utils/DMActionUtils';
 import * as NicknameUtils from '@app/features/user/utils/NicknameUtils';
+import {canEditOwnProfileBadges, canOpenProfileEditor} from '@app/features/user/utils/ProfileEditAccess';
 import {resolveProfileGuildMembership} from '@app/features/user/utils/ProfileGuildMembership';
 import {createMockProfile} from '@app/features/user/utils/ProfileUtils';
 import {Permissions} from '@fluxer/constants/src/ChannelConstants';
@@ -254,159 +256,166 @@ export const UserProfilePopout: React.FC<UserProfilePopoutProps> = observer(
 		}
 		const borderColor = accentColor;
 		const bannerColor = accentColor;
+		const cardClassName = styles.profilePopoutCard;
+		const profileBanner = (
+			<ProfileCardBanner
+				bannerUrl={bannerUrl}
+				hoverBannerUrl={hoverBannerUrl}
+				bannerColor={bannerColor}
+				user={user}
+				avatarUrl={avatarUrl}
+				hoverAvatarUrl={hoverAvatarUrl}
+				disablePresence={isWebhook}
+				isClickable={!isWebhook}
+				onAvatarClick={!isWebhook ? handleOpenFullProfile : undefined}
+				onAvatarContextMenu={handleAvatarContextMenu}
+				onBannerContextMenu={handleBannerContextMenu}
+				data-flx="user.user-profile-popout.profile-card-banner"
+			/>
+		);
+		const visibleProfileBadges = profile?.profileBadges ?? [];
+		const handleEditBadges = () => {
+			openProfileBadgeSettings();
+			requestClose();
+		};
+		const profileBadges = !isWebhook && (
+			<UserProfileBadges
+				badges={visibleProfileBadges}
+				onEditBadges={canEditOwnProfileBadges(user.id, profile) ? handleEditBadges : undefined}
+				data-flx="user.user-profile-popout.user-profile-badges"
+			/>
+		);
+		const profileContent = (
+			<ProfileCardContent isWebhook={isWebhook} data-flx="user.user-profile-popout.profile-card-content">
+				{showProfileDataWarning && (
+					<div className={styles.profileDataWarning} data-flx="user.user-profile-popout.profile-data-warning">
+						<UserProfileDataWarning data-flx="user.user-profile-popout.user-profile-data-warning" />
+					</div>
+				)}
+				{!isWebhook && profile?.profileLimited && (
+					<div className={styles.profileDataWarning} data-flx="user.user-profile-popout.profile-limited-notice">
+						<LimitedProfileNotice data-flx="user.user-profile-popout.limited-profile-notice" />
+					</div>
+				)}
+				<ProfileCardUserInfo
+					displayName={displayName}
+					displayNameClassName={styles.profileDisplayName}
+					user={user}
+					pronouns={profileData?.pronouns}
+					showUsername={!isWebhook}
+					isClickable={!isWebhook}
+					isWebhook={isWebhook}
+					onDisplayNameClick={!isWebhook ? handleOpenFullProfile : undefined}
+					onUsernameClick={!isWebhook ? handleOpenFullProfile : undefined}
+					actions={
+						!isWebhook && (
+							<ProfileCardActions
+								userId={user.id}
+								isHovering={isHovering}
+								onNoteClick={handleOpenFullProfileNote}
+								data-flx="user.user-profile-popout.profile-card-actions"
+							/>
+						)
+					}
+					data-flx="user.user-profile-popout.profile-card-user-info"
+				/>
+				{!isWebhook && presenceCustomStatus && (
+					<div className={styles.profileCustomStatus} data-flx="user.user-profile-popout.profile-custom-status">
+						<CustomStatusDisplay
+							customStatus={presenceCustomStatus}
+							className={styles.profileCustomStatusText}
+							allowJumboEmoji
+							maxLines={0}
+							alwaysAnimate={shouldAutoplayProfileAnimations}
+							data-flx="user.user-profile-popout.profile-custom-status-text"
+						/>
+					</div>
+				)}
+				{!isWebhook && (
+					<VoiceActivitySection
+						userId={user.id}
+						onNavigate={handleClosePopout}
+						data-flx="user.user-profile-popout.voice-activity-section"
+					/>
+				)}
+				{profile && (
+					<UserProfilePreviewBio
+						profile={profile}
+						profileData={profileData ?? null}
+						onShowMore={handleOpenFullProfile}
+						data-flx="user.user-profile-popout.user-profile-preview-bio"
+					/>
+				)}
+				{profile && (
+					<UserProfileTimezoneInfo profile={profile} data-flx="user.user-profile-popout.user-profile-timezone-info" />
+				)}
+				{profile && (
+					<UserProfileMembershipInfo
+						profile={profile}
+						user={user}
+						data-flx="user.user-profile-popout.user-profile-membership-info"
+					/>
+				)}
+				{!isWebhook && profile && (
+					<UserProfileRoles
+						profile={profile}
+						user={user}
+						memberRoles={[...memberRoles]}
+						canManageRoles={canManageRoles}
+						data-flx="user.user-profile-popout.user-profile-roles"
+					/>
+				)}
+				{profile && (
+					<UserProfileConnections
+						profile={profile}
+						variant="compact"
+						data-flx="user.user-profile-popout.user-profile-connections"
+					/>
+				)}
+			</ProfileCardContent>
+		);
+		let footerAction: React.ReactNode = null;
+		if (showProfileFooter && isCurrentUser && canOpenProfileEditor(user)) {
+			footerAction = (
+				<Button
+					small={true}
+					fitContainer={true}
+					leftIcon={<PencilIcon className={styles.iconSmall} data-flx="user.user-profile-popout.icon-small--2" />}
+					onClick={handleEditProfile}
+					data-flx="user.user-profile-popout.button.edit-profile"
+				>
+					<Trans>Edit profile</Trans>
+				</Button>
+			);
+		} else if (showProfileFooter && !isCurrentUser) {
+			footerAction = (
+				<Button
+					small={true}
+					fitContainer={true}
+					leftIcon={<ChatTeardropIcon className={styles.iconSmall} data-flx="user.user-profile-popout.icon-small--3" />}
+					onClick={isBlocked ? handleOpenBlockedDm : handleMessage}
+					data-flx="user.user-profile-popout.button.open-blocked-dm"
+				>
+					{isBlocked ? i18n._(OPEN_DM_DESCRIPTOR) : <Trans context="message-action">Message</Trans>}
+				</Button>
+			);
+		}
 		return (
 			<FocusRingScope containerRef={popoutContainerRef} data-flx="user.user-profile-popout.focus-ring-scope">
 				<div ref={popoutContainerRef} data-flx="user.user-profile-popout.div">
 					<ProfileCardLayout
 						borderColor={borderColor}
 						hoverRef={hoverRef}
-						className={styles.profilePopoutCard}
+						className={cardClassName}
 						style={PROFILE_POPOUT_GEOMETRY_STYLE}
 						data-flx="user.user-profile-popout.profile-card-layout"
 					>
-						<ProfileCardBanner
-							bannerUrl={bannerUrl as string | null}
-							hoverBannerUrl={hoverBannerUrl}
-							bannerColor={bannerColor}
-							user={user}
-							avatarUrl={avatarUrl}
-							hoverAvatarUrl={hoverAvatarUrl}
-							disablePresence={isWebhook}
-							isClickable={!isWebhook}
-							onAvatarClick={!isWebhook ? handleOpenFullProfile : undefined}
-							onAvatarContextMenu={handleAvatarContextMenu}
-							onBannerContextMenu={handleBannerContextMenu}
-							data-flx="user.user-profile-popout.profile-card-banner"
-						/>
-						{!isWebhook && (
-							<UserProfileBadges
-								user={user}
-								profile={profile}
-								data-flx="user.user-profile-popout.user-profile-badges"
-							/>
-						)}
-						<ProfileCardContent isWebhook={isWebhook} data-flx="user.user-profile-popout.profile-card-content">
-							{showProfileDataWarning && (
-								<div className={styles.profileDataWarning} data-flx="user.user-profile-popout.profile-data-warning">
-									<UserProfileDataWarning data-flx="user.user-profile-popout.user-profile-data-warning" />
-								</div>
-							)}
-							{!isWebhook && profile?.profileLimited && (
-								<div className={styles.profileDataWarning} data-flx="user.user-profile-popout.profile-limited-notice">
-									<LimitedProfileNotice data-flx="user.user-profile-popout.limited-profile-notice" />
-								</div>
-							)}
-							<ProfileCardUserInfo
-								displayName={displayName}
-								displayNameClassName={styles.profileDisplayName}
-								user={user}
-								pronouns={profileData?.pronouns}
-								showUsername={!isWebhook}
-								isClickable={!isWebhook}
-								isWebhook={isWebhook}
-								onDisplayNameClick={!isWebhook ? handleOpenFullProfile : undefined}
-								onUsernameClick={!isWebhook ? handleOpenFullProfile : undefined}
-								actions={
-									!isWebhook && (
-										<ProfileCardActions
-											userId={user.id}
-											isHovering={isHovering}
-											onNoteClick={handleOpenFullProfileNote}
-											data-flx="user.user-profile-popout.profile-card-actions"
-										/>
-									)
-								}
-								data-flx="user.user-profile-popout.profile-card-user-info"
-							/>
-							{!isWebhook && presenceCustomStatus && (
-								<div className={styles.profileCustomStatus} data-flx="user.user-profile-popout.profile-custom-status">
-									<CustomStatusDisplay
-										customStatus={presenceCustomStatus}
-										className={styles.profileCustomStatusText}
-										allowJumboEmoji
-										maxLines={0}
-										alwaysAnimate={shouldAutoplayProfileAnimations}
-										data-flx="user.user-profile-popout.profile-custom-status-text"
-									/>
-								</div>
-							)}
-							{!isWebhook && (
-								<VoiceActivitySection
-									userId={user.id}
-									onNavigate={handleClosePopout}
-									data-flx="user.user-profile-popout.voice-activity-section"
-								/>
-							)}
-							{profile && (
-								<UserProfilePreviewBio
-									profile={profile}
-									profileData={profileData ?? null}
-									onShowMore={handleOpenFullProfile}
-									data-flx="user.user-profile-popout.user-profile-preview-bio"
-								/>
-							)}
-							{profile && (
-								<UserProfileTimezoneInfo
-									profile={profile}
-									data-flx="user.user-profile-popout.user-profile-timezone-info"
-								/>
-							)}
-							{profile && (
-								<UserProfileMembershipInfo
-									profile={profile}
-									user={user}
-									data-flx="user.user-profile-popout.user-profile-membership-info"
-								/>
-							)}
-							{!isWebhook && profile && (
-								<UserProfileRoles
-									profile={profile}
-									user={user}
-									memberRoles={[...memberRoles]}
-									canManageRoles={canManageRoles}
-									data-flx="user.user-profile-popout.user-profile-roles"
-								/>
-							)}
-							{profile && (
-								<UserProfileConnections
-									profile={profile}
-									variant="compact"
-									data-flx="user.user-profile-popout.user-profile-connections"
-								/>
-							)}
-						</ProfileCardContent>
+						{profileBanner}
+						{profileBadges}
+						{profileContent}
 						{showProfileFooter && (
 							<ProfileCardFooter data-flx="user.user-profile-popout.profile-card-footer">
-								{isCurrentUser ? (
-									user.isClaimed() ? (
-										<Button
-											small={true}
-											fitContainer={true}
-											leftIcon={
-												<PencilIcon className={styles.iconSmall} data-flx="user.user-profile-popout.icon-small--2" />
-											}
-											onClick={handleEditProfile}
-											data-flx="user.user-profile-popout.button.edit-profile"
-										>
-											<Trans>Edit profile</Trans>
-										</Button>
-									) : null
-								) : (
-									<Button
-										small={true}
-										fitContainer={true}
-										leftIcon={
-											<ChatTeardropIcon
-												className={styles.iconSmall}
-												data-flx="user.user-profile-popout.icon-small--3"
-											/>
-										}
-										onClick={isBlocked ? handleOpenBlockedDm : handleMessage}
-										data-flx="user.user-profile-popout.button.open-blocked-dm"
-									>
-										{isBlocked ? i18n._(OPEN_DM_DESCRIPTOR) : <Trans context="message-action">Message</Trans>}
-									</Button>
-								)}
+								{footerAction}
 							</ProfileCardFooter>
 						)}
 					</ProfileCardLayout>

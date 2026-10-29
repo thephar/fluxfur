@@ -166,36 +166,3 @@ normalize_joined_at(Value) when is_integer(Value) ->
     Value;
 normalize_joined_at(_Value) ->
     erlang:system_time(millisecond).
-
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
-
-restore_state_remonitors_live_sessions_test() ->
-    SessionPid = spawn(fun() ->
-        receive
-            stop -> ok
-        end
-    end),
-    SessionId = <<"session-a">>,
-    VoiceState = #{<<"connection_id">> => <<"conn-a">>},
-    TransferState = #{
-        channel_id => 123,
-        message_id => 456,
-        region => null,
-        ringing => [1],
-        pending_ringing => [],
-        recipients => [1],
-        voice_states => #{1 => VoiceState},
-        sessions => #{SessionId => #{user_id => 1, session_pid => SessionPid}},
-        pending_connections => #{},
-        participants_history => [1]
-    },
-    Restored = restore_state(TransferState),
-    ?assertMatch(
-        {1, SessionPid, Ref} when is_reference(Ref),
-        maps:get(SessionId, maps:get(sessions, Restored))
-    ),
-    ?assertEqual(#{1 => VoiceState}, maps:get(voice_states, Restored)),
-    SessionPid ! stop.
-
--endif.

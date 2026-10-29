@@ -189,7 +189,7 @@ export class LiveKitWebhookService {
 		}
 	}
 
-	async handleParticipantJoined(event: WebhookEvent): Promise<void> {
+	private async handleParticipantJoined(event: WebhookEvent): Promise<void> {
 		if (event.event !== 'participant_joined') {
 			return;
 		}
@@ -327,7 +327,7 @@ export class LiveKitWebhookService {
 		return result.participants.some((p) => p.identity === participantIdentity) ? 'present' : 'absent';
 	}
 
-	async handleParticipantLeft(event: WebhookEvent): Promise<void> {
+	private async handleParticipantLeft(event: WebhookEvent): Promise<void> {
 		if (event.event !== 'participant_left' && event.event !== 'participant_connection_aborted') {
 			return;
 		}
@@ -441,7 +441,7 @@ export class LiveKitWebhookService {
 		}
 	}
 
-	async handleTrackPublished(event: WebhookEvent): Promise<void> {
+	private async handleTrackPublished(event: WebhookEvent): Promise<void> {
 		if (event.event !== 'track_published') {
 			return;
 		}

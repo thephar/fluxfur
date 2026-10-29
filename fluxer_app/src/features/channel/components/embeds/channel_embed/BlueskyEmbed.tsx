@@ -128,7 +128,14 @@ export const BlueskyEmbed: FC<BlueskyEmbedProps> = observer(
 		const shouldRenderMedia = hasAnyMedia || showGallery;
 		const blueskyMediaMaxWidth = useMemo(() => {
 			if (showGallery || isNested) return undefined;
-			const primaryMedia = hasVideo ? embed.video : hasImage ? embed.image : hasThumbnail ? embed.thumbnail : undefined;
+			let primaryMedia: EmbedMedia | undefined;
+			if (hasVideo) {
+				primaryMedia = embed.video;
+			} else if (hasImage) {
+				primaryMedia = embed.image;
+			} else if (hasThumbnail) {
+				primaryMedia = embed.thumbnail;
+			}
 			if (!primaryMedia || !isValidMedia(primaryMedia)) return undefined;
 			return calculateMediaDimensions(primaryMedia).width;
 		}, [embed.video, embed.image, embed.thumbnail, hasVideo, hasImage, hasThumbnail, isNested, showGallery]);

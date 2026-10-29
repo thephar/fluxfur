@@ -42,7 +42,8 @@ const logger = new Logger('LegacyAppStorageMigration');
 
 const TEXT_ENCODER = new TextEncoder();
 
-export const LEGACY_APP_STORAGE_MIGRATION_VERSION = 1;
+const LEGACY_APP_STORAGE_MIGRATION_VERSION = 1;
+
 export {LEGACY_APP_STORAGE_MIGRATION_MARKER_KEY};
 export const LEGACY_APP_STORAGE_UNCLASSIFIED_KEYS_KEY = 'fluxer:migration:unclassified-legacy-keys';
 
@@ -57,7 +58,7 @@ export const LegacyAppStorageMigrationStatus = Object.freeze({
 export type LegacyAppStorageMigrationStatus =
 	(typeof LegacyAppStorageMigrationStatus)[keyof typeof LegacyAppStorageMigrationStatus];
 
-export const LegacyAppStorageMigrationSkipReason = Object.freeze({
+const LegacyAppStorageMigrationSkipReason = Object.freeze({
 	MEMORY_BACKEND: 'memory-backend',
 	NO_LOCAL_STORAGE: 'no-local-storage',
 	NO_INSTANCE_KEY: 'no-instance-key',
@@ -65,7 +66,7 @@ export const LegacyAppStorageMigrationSkipReason = Object.freeze({
 	SCOPE_NOT_PENDING: 'scope-not-pending',
 } as const);
 
-export type LegacyAppStorageMigrationSkipReason =
+type LegacyAppStorageMigrationSkipReason =
 	(typeof LegacyAppStorageMigrationSkipReason)[keyof typeof LegacyAppStorageMigrationSkipReason];
 
 export interface LegacyContentCarry {
@@ -95,12 +96,12 @@ export interface LegacyAppStorageMigrationPlan {
 	readonly totalBytes: number;
 }
 
-export interface LegacyAppStorageMigrationLimits {
+interface LegacyAppStorageMigrationLimits {
 	readonly maxTotalBytes: number;
 	readonly maxEntries: number;
 }
 
-export interface LegacyAppStorageMigrationAccountSource {
+interface LegacyAppStorageMigrationAccountSource {
 	migrateAccountStorageKeys(context: AccountRekeyContext): Promise<AccountRekeyOutcome>;
 }
 

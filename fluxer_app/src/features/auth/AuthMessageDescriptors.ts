@@ -6,6 +6,10 @@ export const FORGOT_YOUR_PASSWORD_DESCRIPTOR = msg({
 	message: 'Forgot your password?',
 	comment: 'Action label that starts the password reset flow from a sign-in surface.',
 });
+export const NEW_CODE_SENT_DESCRIPTOR = msg({
+	message: 'We sent a new code.',
+	comment: 'Short status line after a fresh email code was sent.',
+});
 export const INSTANCE_UNAVAILABLE_DESCRIPTOR = msg({
 	message: 'Instance unavailable',
 	comment: 'Status label for a saved account whose instance cannot currently be reached.',
@@ -37,4 +41,9 @@ export const SHARED_NETWORK_DESCRIPTOR = msg({
 		'If you share this network, for example at school, at work, on public Wi-Fi, through your mobile carrier or a VPN, this block may have nothing to do with you. The quickest fix is to switch networks, for example to mobile data instead of Wi-Fi, or to turn your VPN on or off.',
 	comment:
 		'Paragraph on the network blocked screen for people who share a network with others. Must read the same as the error message for this block.',
+});
+
+export const USE_A_DIFFERENT_EMAIL_DESCRIPTOR = msg({
+	message: 'Use a different email',
+	comment: 'Quiet text button that goes back to the email field of the sign-in screen.',
 });

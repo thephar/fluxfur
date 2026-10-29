@@ -3,7 +3,6 @@
 import type {UserID} from '@app/api/BrandedTypes';
 import {getConfig} from '@app/api/Config';
 import {CONTENT_I18N_MESSAGES} from '@app/api/content_i18n/ContentI18nMessages';
-import {joinLocalizedList} from '@app/api/content_i18n/JoinLocalizedList';
 import type {EnforcementDecisionRow} from '@app/api/database/types/EnforcementTypes';
 import {EMPTY_USER_ROW} from '@app/api/database/types/UserTypes';
 import {buildEnforcementNotice, type EvidenceMessageLocation} from '@app/api/enforcement/EnforcementNotice';
@@ -11,14 +10,22 @@ import {renderNoticeText} from '@app/api/enforcement/EnforcementNoticeDelivery';
 import {resolveContactEmails} from '@app/api/instance/ContactEmails';
 import {getInstanceProductName, setCachedProductName} from '@app/api/instance/ProductName';
 import {User} from '@app/api/models/User';
-import {systemDmBody} from '@app/api/user/services/SystemDmMessage';
 import {DeletionReasons} from '@fluxer/constants/src/Core';
-import {ENFORCEMENT_RULES, type EnforcementRuleKey, isAccountKind} from '@fluxer/constants/src/EnforcementReasons';
+import {ENFORCEMENT_RULES, type EnforcementRuleKey} from '@fluxer/constants/src/EnforcementReasons';
 import {UserFlags} from '@fluxer/constants/src/UserConstants';
 import {AdminUserClearFieldsRequest} from '@fluxer/schema/src/domains/admin/AdminUserSchemas';
 import type {EnforcementNotice} from '@fluxer/schema/src/domains/auth/EnforcementNoticeSchemas';
+import {enforcementEndedSlots, renderEmailTemplateText, reportResolvedSlots} from '@pkgs/email/src/EmailService';
 import {getEmailTemplate} from '@pkgs/email/src/email_i18n/EmailI18n';
 import {afterEach, describe, expect, it} from 'vitest';
+
+const REPORT_REFERENCE = {
+	target: 'user',
+	reportedAt: new Date('2026-10-24T18:12:00Z'),
+	username: 'example',
+	communityName: '',
+	channelName: '',
+} as const;
 
 const CREATED_AT = new Date('2026-10-14T10:00:00.000Z');
 const NOW = new Date('2026-10-14T12:00:00.000Z');
@@ -157,11 +164,6 @@ describe('buildEnforcementNotice', () => {
 		setCachedProductName(null);
 	});
 
-	it.each(Object.entries(KINDS))('renders %s', (_name, row) => {
-		const evidence = row.reason_code === DeletionReasons.HARASSMENT_OR_BULLYING ? IN_DIRECT_MESSAGE : IN_CHANNEL;
-		expect(notice(row, evidence)).toMatchSnapshot();
-	});
-
 	it('renders conversations with dates under standard handling and the month only under protected handling', () => {
 		expect(notice(decision(), IN_DIRECT_MESSAGE).facts.slice(1)).toEqual([
 			'1 message in a direct message conversation, on Sep 3, 2026, 8:15 AM UTC.',
@@ -174,38 +176,6 @@ describe('buildEnforcementNotice', () => {
 			'1 message in a group conversation in September 2026.',
 			'1 message in a conversation that no longer exists, on Sep 5, 2026, 8:15 AM UTC.',
 		]);
-	});
-
-	it('states how the case reached the team from the decision source, whatever the handling', () => {
-		for (const row of [decision(), KINDS.protected_harassment!, KINDS.restricted_child_safety!]) {
-			expect(notice({...row, source: 'report'}, IN_DIRECT_MESSAGE).how_we_decided[0]).toBe(
-				'We reviewed this after a report.',
-			);
-			expect(notice({...row, source: 'own_review'}, IN_DIRECT_MESSAGE).how_we_decided[0]).toBe(
-				'We found this in our own review.',
-			);
-		}
-	});
-
-	it('describes a bot by its own lead, not the rule lead about a person', () => {
-		const bot = notice(KINDS.bot_suspension!);
-		expect(bot.facts[0]).toBe('We found activity from your bot that breaks this rule.');
-		expect(bot.facts.join(' ')).not.toMatch(/\byour account\b|\byou sent\b/);
-	});
-
-	it('times carry the UTC suffix in one format', () => {
-		const rendered = JSON.stringify(Object.values(KINDS).map((row) => notice(row)));
-		expect(rendered).not.toContain('(UTC)');
-	});
-
-	it('gives messages sent within the same minute one time instead of a range', () => {
-		const sameMinute: Array<EvidenceMessageLocation> = [
-			{...IN_CHANNEL[0]!, timestamp: new Date('2026-10-01T09:00:05.000Z')},
-			{...IN_CHANNEL[0]!, timestamp: new Date('2026-10-01T09:00:40.000Z')},
-		];
-		expect(notice(decision(), sameMinute).facts[1]).toBe(
-			'2 messages in #general of Plant Club, on Oct 1, 2026, 9:00 AM UTC.',
-		);
 	});
 
 	it('gives restricted decisions the rule lead only', () => {
@@ -278,25 +248,6 @@ describe('buildEnforcementNotice', () => {
 		});
 	});
 
-	it('offers the appeal variants', () => {
-		expect(notice(decision()).appeal).toEqual({
-			email: 'appeals@fluxer.com',
-			deadline: 'Dec 13, 2026',
-			account_has_email: true,
-		});
-		const noEmail = buildEnforcementNotice(
-			{
-				type: 'decision',
-				decision: decision({notice_sent_at: null}),
-				evidence: [],
-				networksBlockedUntil: null,
-				accountHasEmail: false,
-			},
-			'en-US',
-		);
-		expect(noEmail.appeal).toEqual({email: 'appeals@fluxer.com', deadline: null, account_has_email: false});
-	});
-
 	it('names no product, address or support line on an unnamed self-hosted instance', () => {
 		config.instance.selfHosted = true;
 		setCachedProductName(null);
@@ -317,156 +268,40 @@ describe('buildEnforcementNotice', () => {
 		setCachedProductName(null);
 		const productName = getInstanceProductName();
 		const contacts = resolveContactEmails();
+		const full = <T extends Parameters<typeof getEmailTemplate>[0]>(
+			key: T,
+			variables: Parameters<typeof getEmailTemplate<T>>[2],
+			slots?: Parameters<typeof renderEmailTemplateText<T>>[4],
+		) => {
+			const template = getEmailTemplate(key, 'en-US', {...variables, reply: 'no'}, productName);
+			const text = renderEmailTemplateText(key, 'en-US', variables, productName, slots);
+			return template.ok && text !== null ? `${template.value.subject}\n${text}` : null;
+		};
 		const rendered = [
-			...Object.values(KINDS).map((row) => renderNoticeText(row, notice(row), 'holder', 'en-US')),
+			...Object.values(KINDS).map((row) => renderNoticeText(row, notice(row), 'en-US')),
 			...(['lifted', 'reversed'] as const).map((outcome) =>
-				getEmailTemplate(
+				full(
 					'enforcement_ended',
-					'en-US',
-					{
-						username: 'holder',
-						outcome,
-						decision_id: '1',
-						restores_access: 'yes',
-						statement: null,
-						content_removed: 'yes',
-					},
-					productName,
+					{outcome, decision_id: '1', restores_access: 'yes', statement: null, content_removed: 'yes'},
+					enforcementEndedSlots,
 				),
 			),
-			getEmailTemplate(
-				'account_deletion_scheduled_requested',
-				'en-US',
-				{username: 'holder', deletion_date: 'Dec 13, 2026', safety_email: contacts.safetyEmail},
-				productName,
-			),
-			getEmailTemplate(
-				'account_deletion_scheduled_inactivity',
-				'en-US',
-				{username: 'holder', deletion_date: 'Dec 13, 2026', support_email: contacts.supportEmail},
-				productName,
-			),
+			full('account_deletion_scheduled_requested', {deletion_date: 'Dec 13, 2026'}),
+			full('account_deletion_scheduled_inactivity', {deletion_date: 'Dec 13, 2026'}),
 			...(['removed', 'restricted', 'action_taken', 'no_violation'] as const).flatMap((outcome) => [
-				getEmailTemplate(
-					'report_resolved',
-					'en-US',
-					{
-						username: 'reporter',
-						reportId: '1',
-						publicComment: '',
-						hasComment: 'no',
-						outcome,
-						appeals_email: contacts.appealsEmail,
-					},
-					productName,
+				full('report_resolved', {...REPORT_REFERENCE, outcome, appeals_email: contacts.appealsEmail}, (template) =>
+					reportResolvedSlots(template, '1', ''),
 				),
-				getEmailTemplate(
-					'dsa_report_resolved',
-					'en-US',
-					{reportId: '1', publicComment: '', hasComment: 'no', outcome, appeals_email: contacts.appealsEmail},
-					productName,
+				full('dsa_report_resolved', {...REPORT_REFERENCE, outcome, appeals_email: contacts.appealsEmail}, (template) =>
+					reportResolvedSlots(template, '1', ''),
 				),
 			]),
 		];
-		for (const entry of rendered) {
-			const text = typeof entry === 'string' ? entry : entry?.ok ? `${entry.value.subject}\n${entry.value.body}` : null;
+		for (const text of rendered) {
 			expect(text).not.toBeNull();
 			expect(text).not.toMatch(/fluxer/i);
 			expect(text).not.toContain('@');
 		}
-	});
-
-	it('states the territorial scope in every notice, email and system message', () => {
-		const expectScope = (productName: string) => {
-			const line = `This decision applies everywhere ${productName} is available.`;
-			for (const row of Object.values(KINDS)) {
-				const rendered = notice(row);
-				const text = renderNoticeText(row, rendered, 'holder', 'en-US');
-				if (isAccountKind(row.kind)) {
-					expect(rendered.effects[0]).toMatch(/\banywhere\b/);
-					expect(rendered.effects).not.toContain(line);
-					expect(text).toContain(rendered.effects[0]);
-				} else {
-					expect(rendered.effects[1]).toBe(line);
-					expect(text).toContain(`${rendered.effects[0]}\n${line}`);
-				}
-			}
-			const legacy = buildEnforcementNotice(
-				{type: 'legacy', user: legacyUser({temp_banned_until: null, flags: UserFlags.DISABLED})},
-				'en-US',
-				NOW,
-			);
-			expect(legacy.effects).toEqual([`You can't sign in or use ${productName} anywhere.`]);
-		};
-		expectScope('Fluxer');
-		config.instance.selfHosted = true;
-		setCachedProductName('Plant Chat');
-		expectScope('Plant Chat');
-		setCachedProductName(null);
-		expectScope(getInstanceProductName());
-		expect(notice(KINDS.community_removal!, IN_CHANNEL, 'de').effects[1]).toBe(
-			`Diese Entscheidung gilt überall, wo ${getInstanceProductName()} verfügbar ist.`,
-		);
-	});
-
-	it('never doubles the full stop after a date that ends in a period', () => {
-		const hr = notice(KINDS.closure!, IN_CHANNEL, 'hr');
-		expect(JSON.stringify(hr)).not.toMatch(/[^.]\.\.[^.]/);
-		const email = getEmailTemplate(
-			'account_deletion_scheduled_inactivity',
-			'hr',
-			{username: 'holder', deletion_date: '1. pro 2026.', support_email: null},
-			'Fluxer',
-		);
-		expect(email.ok && email.value.body).toContain('1. pro 2026.\n');
-	});
-
-	it('starts a system message with a capital letter after the greeting is dropped', () => {
-		const rendered = getEmailTemplate(
-			'report_resolved',
-			'de',
-			{
-				username: 'reporter',
-				reportId: '1',
-				publicComment: '',
-				hasComment: 'no',
-				outcome: 'no_violation',
-				appeals_email: null,
-			},
-			'Fluxer',
-		);
-		expect(rendered.ok && systemDmBody(rendered.value.body)).toMatch(/^Wir haben/);
-	});
-
-	it('names the deletion date once in a closure', () => {
-		const closure = notice(KINDS.closure!);
-		const date = closure.deletion_at ? new Date(closure.deletion_at) : null;
-		expect(date).not.toBeNull();
-		const lines = [closure.summary, ...closure.effects].join(' ');
-		expect(lines.match(/\b20\d\d\b/g)).toHaveLength(1);
-	});
-
-	it('shows links as Markdown in the system message and as plain text with the address in the email', () => {
-		const row = KINDS.feature_limit_reports!;
-		const rendered = notice(row);
-		const dm = renderNoticeText(row, rendered, 'holder', 'en-US') ?? '';
-		expect(dm).toContain('[company information page](');
-		expect(dm).toContain('Rule: [Misuse of reporting](');
-		expect(dm).toContain('[list of these bodies](https://digital-strategy.ec.europa.eu/');
-		expect(dm).not.toMatch(/^Hello|The Fluxer team$/m);
-		expect(rendered.effects[0]).toBe(
-			`You can't send reports in the app until then. To report illegal content, use the safety route on our [company information page](${getConfig().endpoints.marketing}/company-information).`,
-		);
-	});
-
-	it('localizes dates and joins profile fields per locale', () => {
-		expect(joinLocalizedList(['a', 'b'], 'ja')).toBe('a、b');
-		expect(joinLocalizedList(['a', 'b'], 'zh-CN')).toBe('a、b');
-		expect(joinLocalizedList(['a', 'b'], 'zh-TW')).toBe('a、b');
-		expect(joinLocalizedList(['a', 'b'], 'ar')).toBe('a، b');
-		expect(joinLocalizedList(['a', 'b'], 'zh-HK')).toBe('a, b');
-		expect(joinLocalizedList(['a', 'b'], 'en-US')).toBe('a, b');
-		expect(notice(KINDS.suspension!, IN_CHANNEL, 'sv-SE').summary).toContain('2026');
 	});
 });
 

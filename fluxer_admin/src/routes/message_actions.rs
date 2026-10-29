@@ -4,7 +4,6 @@ use crate::{
     acl,
     api::{
         client::AdminApiClient,
-        enforcement::api_error_message,
         generated::types::{BulkModerationBasis, MessageDeletionBasis},
     },
     middleware::{
@@ -52,11 +51,7 @@ pub(crate) async fn messages_post(
     let form = match MultiValueForm::from_request(request).await {
         Some(form) => form,
         None => {
-            return flash::redirect_with_flash(
-                &format!("{base}/messages"),
-                FlashData::error("Invalid form data"),
-                config.secure_cookies(),
-            );
+            return flash::redirect_error(config, &format!("{base}/messages"), "Invalid form data");
         }
     };
     let client = AdminApiClient::new(state.http_client(), config, &auth.0.session);
@@ -114,7 +109,7 @@ pub(crate) async fn messages_post(
                         Ok(()) => FlashData::success("Message deleted"),
                         Err(error) => {
                             tracing::warn!(%error, "admin API request failed: delete message");
-                            FlashData::error(api_error_message(&error).map_or_else(
+                            FlashData::error(error.detail_message().map_or_else(
                                 || "Failed to delete the message".to_owned(),
                                 |message| format!("Failed to delete the message: {message}"),
                             ))
@@ -140,10 +135,10 @@ pub(crate) async fn system_dms_post(
     let form = match MultiValueForm::from_request(request).await {
         Some(form) => form,
         None => {
-            return flash::redirect_with_flash(
+            return flash::redirect_error(
+                config,
                 &format!("{base}/system-dms"),
-                FlashData::error("Invalid form data"),
-                config.secure_cookies(),
+                "Invalid form data",
             );
         }
     };
@@ -158,7 +153,10 @@ pub(crate) async fn system_dms_post(
             Ok(_) => FlashData::success("System DM sent"),
             Err(error) => {
                 tracing::warn!(%error, "admin API request failed: send system DM");
-                FlashData::error("Failed to send system DM")
+                FlashData::error(error.detail_message().map_or_else(
+                    || "Failed to send system DM".to_owned(),
+                    |message| format!("Failed to send system DM: {message}"),
+                ))
             }
         }
     } else {
@@ -188,14 +186,11 @@ pub(crate) async fn bulk_actions_post(
 ) -> Response {
     let config = state.config();
     let base = &config.base_path;
+    let back = format!("{base}/bulk-actions");
     let form = match MultiValueForm::from_request(request).await {
         Some(form) => form,
         None => {
-            return flash::redirect_with_flash(
-                &format!("{base}/bulk-actions"),
-                FlashData::error("Invalid form data"),
-                config.secure_cookies(),
-            );
+            return flash::redirect_error(config, &back, "Invalid form data");
         }
     };
     let client = AdminApiClient::new(state.http_client(), config, &auth.0.session);
@@ -231,20 +226,10 @@ pub(crate) async fn bulk_actions_post(
             let user_ids = form.list_values_any(&["user_ids[]", "user_ids"]);
             let basis = match bulk_basis(&form) {
                 Ok(basis) => basis,
-                Err(message) => {
-                    return flash::redirect_with_flash(
-                        &format!("{base}/bulk-actions"),
-                        FlashData::error(message),
-                        config.secure_cookies(),
-                    );
-                }
+                Err(message) => return flash::redirect_error(config, &back, message),
             };
             let Ok(Some(days)) = form.parse_value::<u32>("days_until_deletion") else {
-                return flash::redirect_with_flash(
-                    &format!("{base}/bulk-actions"),
-                    FlashData::error("Enter the days until deletion"),
-                    config.secure_cookies(),
-                );
+                return flash::redirect_error(config, &back, "Enter the days until deletion");
             };
             client
                 .bulk_schedule_user_deletion(
@@ -259,24 +244,14 @@ pub(crate) async fn bulk_actions_post(
             let user_ids = form.list_values_any(&["user_ids[]", "user_ids"]);
             let basis = match bulk_basis(&form) {
                 Ok(basis) => basis,
-                Err(message) => {
-                    return flash::redirect_with_flash(
-                        &format!("{base}/bulk-actions"),
-                        FlashData::error(message),
-                        config.secure_cookies(),
-                    );
-                }
+                Err(message) => return flash::redirect_error(config, &back, message),
             };
             client
                 .bulk_delete_user_messages(&user_ids, basis, form.clean("internal_note").as_deref())
                 .await
         }
         _ => {
-            return flash::redirect_with_flash(
-                &format!("{base}/bulk-actions"),
-                FlashData::error("Unknown bulk action"),
-                config.secure_cookies(),
-            );
+            return flash::redirect_error(config, &back, "Unknown bulk action");
         }
     };
     match result {
@@ -285,7 +260,7 @@ pub(crate) async fn bulk_actions_post(
                 Redirect::to(&format!("{base}/jobs/{job_id}")).into_response()
             } else {
                 flash::redirect_with_flash(
-                    &format!("{base}/bulk-actions"),
+                    &back,
                     FlashData::success("Bulk action submitted"),
                     config.secure_cookies(),
                 )
@@ -293,10 +268,10 @@ pub(crate) async fn bulk_actions_post(
         }
         Err(error) => {
             tracing::warn!(%error, action, "admin API request failed: submit bulk action");
-            flash::redirect_with_flash(
-                &format!("{base}/bulk-actions"),
-                FlashData::error(format!("Failed to submit bulk action: {error}")),
-                config.secure_cookies(),
+            flash::redirect_error(
+                config,
+                &back,
+                format!("Failed to submit bulk action: {error}"),
             )
         }
     }
@@ -319,12 +294,7 @@ pub(crate) async fn messages_browse_fragment(
         None => return empty_fragment(),
     };
     let config = state.config();
-    let admin_acls = auth
-        .0
-        .admin_user
-        .as_ref()
-        .map(|user| user.acls.as_slice())
-        .unwrap_or(&[]);
+    let admin_acls = auth.0.acls();
     let can_delete = acl::has_permission(admin_acls, acl::MESSAGE_DELETE);
     let client = AdminApiClient::new(state.http_client(), config, &auth.0.session);
     let result = client
@@ -397,38 +367,18 @@ pub(crate) async fn archives_download(
         Ok(resp) if !resp.download_url.is_empty() => {
             Redirect::temporary(&resp.download_url).into_response()
         }
-        Ok(_) => flash::redirect_with_flash(
+        Ok(_) => flash::redirect_error(
+            config,
             &format!("{base}/archives"),
-            FlashData::error("Archive download URL was empty"),
-            config.secure_cookies(),
+            "Archive download URL was empty",
         ),
         Err(error) => {
             tracing::warn!(%error, "admin API request failed: get archive download URL");
-            flash::redirect_with_flash(
+            flash::redirect_error(
+                config,
                 &format!("{base}/archives"),
-                FlashData::error("Failed to create archive download URL"),
-                config.secure_cookies(),
+                "Failed to create archive download URL",
             )
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn form_list_values_accepts_repeated_comma_and_newline_values() {
-        let form = MultiValueForm::parse(b"user_ids%5B%5D=1&user_ids%5B%5D=2%2C3&user_ids=4%0A5");
-        assert_eq!(
-            form.list_values_any(&["user_ids[]", "user_ids"]),
-            vec![
-                "1".to_owned(),
-                "2".to_owned(),
-                "3".to_owned(),
-                "4".to_owned(),
-                "5".to_owned()
-            ]
-        );
     }
 }

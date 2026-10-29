@@ -1,9 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import type {
+	OperatorPassPriceTable,
+	OperatorPassReleaseListTable,
+	OperatorPassWithdrawalCountryTable,
+} from '@app/api/operator_pass/OperatorPassPrices';
 import type {WorkerTaskName} from '@app/api/worker/WorkerLaneConfig';
 import type {CachePurgeAdapterName, StoreProductSlotName} from '@fluxer/config/src/MasterConfig';
 import type {AccountIdentityMode, TagStyle} from '@fluxer/constants/src/AccountIdentityConstants';
 import type {SmtpTlsMode} from '@fluxer/constants/src/SmtpConstants';
+import type {OperatorPassCurrency} from '@fluxer/schema/src/domains/operator_pass/OperatorPassSchemas';
 
 export type APIWorkerMode = 'all_lanes' | 'single_lane' | 'single_task';
 export type APIWorkerLaneName = 'realtime' | 'unfurl' | 'lifecycle' | 'batch' | 'crosspost';
@@ -31,6 +37,23 @@ interface APICachePurgeTarget {
 	endpoint: string;
 	token: string;
 	timeoutMs: number;
+}
+
+export interface OperatorPassConfig {
+	saleOpensAt: Date | null;
+	priceRisesAt: Date | null;
+	graceMs: number;
+	clockOffsetMs: number;
+	labsGuildId: bigint | null;
+	labsOperatorRoleId: bigint | null;
+	standardPricesMinor: OperatorPassPriceTable | null;
+	releaseLists: OperatorPassReleaseListTable;
+	transferLockMs: number;
+	withdrawalCountries: OperatorPassWithdrawalCountryTable;
+	stoppedCountries: ReadonlySet<string>;
+	disabledCurrencies: ReadonlySet<OperatorPassCurrency>;
+	wallTierMinimums: ReadonlyArray<number>;
+	maxQuantity: number;
 }
 
 export interface APICachePurgeConfig {
@@ -100,7 +123,7 @@ export interface APIConfig {
 		skipBuckets: Array<string>;
 	};
 	search: {
-		engine: 'elasticsearch' | 'meilisearch';
+		engine: 'elasticsearch' | 'meilisearch' | 'none';
 		url: string;
 		apiKey: string;
 		username: string;
@@ -286,6 +309,8 @@ export interface APIConfig {
 			logoUrl?: string;
 			wordmarkUrl?: string;
 			faviconUrl?: string;
+			faviconDarkUrl?: string;
+			signInBackdropUrl?: string;
 			themeColor?: string;
 			statusPageUrl?: string;
 			statusPageIncidentHistoryUrl?: string;
@@ -300,6 +325,10 @@ export interface APIConfig {
 	discovery: {
 		enabled: boolean;
 		minMemberCount: number;
+	};
+	operatorPass: OperatorPassConfig;
+	paymentDisputes: {
+		closureEffectiveAt: Date | null;
 	};
 	dev: {
 		relaxRegistrationRateLimits: boolean;
@@ -340,6 +369,7 @@ export interface APIConfig {
 		products: Record<string, StoreProductSlotName>;
 		pushAudience?: string;
 		pushServiceAccountEmail?: string;
+		selfServiceRefunds: boolean;
 	};
 	storeBilling: {
 		sandboxUserIds: Array<string>;
@@ -351,6 +381,7 @@ export interface APIConfig {
 		taskName?: WorkerTaskName;
 		enableCronScheduler?: boolean;
 		metricsPort?: number;
+		embedded: boolean;
 		laneConcurrencyOverrides: {
 			realtime?: number;
 			unfurl?: number;

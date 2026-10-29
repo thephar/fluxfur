@@ -82,7 +82,7 @@ import type {NativeAudioAvailability, NativeAudioPlaybackDevice} from '@app/type
 import type {I18n} from '@lingui/core';
 import {msg} from '@lingui/core/macro';
 import {Trans, useLingui} from '@lingui/react/macro';
-import {CrownSimpleIcon, MicrophoneIcon, WaveformIcon} from '@phosphor-icons/react';
+import {AtomIcon, MicrophoneIcon, WaveformIcon} from '@phosphor-icons/react';
 import type {Track} from 'livekit-client';
 import {observer} from 'mobx-react-lite';
 import {useCallback, useEffect, useMemo, useState} from 'react';
@@ -182,10 +182,10 @@ const PremiumBadge = () => (
 		className={styles.premiumBadge}
 		data-flx="voice.stream-settings-menu-content.premium-badge.premium-badge"
 	>
-		<CrownSimpleIcon
+		<AtomIcon
 			weight="fill"
 			size={remFromPx(12)}
-			data-flx="voice.stream-settings-menu-content.premium-badge.crown-simple-icon"
+			data-flx="voice.stream-settings-menu-content.premium-badge.atom-icon"
 		/>
 	</span>
 );
@@ -197,6 +197,12 @@ export function useHasHigherVideoQuality(): boolean {
 
 function getScreenShareResolutionLabel(i18n: I18n, resolution: OfferedScreenShareResolution): string {
 	return resolution === 'source' ? i18n._(SOURCE_DESCRIPTOR) : SCREEN_SHARE_RESOLUTION_LABELS[resolution];
+}
+
+function getShareContextAudio(shareContext: StreamSettingsShareContext): boolean {
+	if (shareContext === 'app') return VoiceSettings.getShareAppAudio();
+	if (shareContext === 'device') return VoiceSettings.getShareDeviceAudio();
+	return VoiceSettings.getShareDesktopAudio();
 }
 
 function supportsStreamAudioCapture(shareContext: StreamSettingsShareContext): boolean {
@@ -222,13 +228,7 @@ async function runActiveStreamSettingsPush(
 	ActiveScreenShareSource.setTarget(target);
 	const preferredDisplaySurface = getPreferredDisplaySurface(shareContext);
 	const canControlAudio = supportsStreamAudioCapture(shareContext);
-	const includeAudio =
-		canControlAudio &&
-		(shareContext === 'app'
-			? VoiceSettings.getShareAppAudio()
-			: shareContext === 'device'
-				? VoiceSettings.getShareDeviceAudio()
-				: VoiceSettings.getShareDesktopAudio());
+	const includeAudio = canControlAudio && getShareContextAudio(shareContext);
 	const {captureOptions, publishOptions} = buildConfiguredScreenShareOptions({
 		target,
 		sourceDimensions,
@@ -358,11 +358,7 @@ export const StreamSettingsMenuContent = observer(
 			bitrate: VoiceSettings.getScreenShareBitrateBudget(),
 		});
 		const presetOverriddenByContext = selectStreamSettingsPresetOverriddenByContext(currentMode, shareContext);
-		const captureAudioEnabled = isAppShare
-			? VoiceSettings.getShareAppAudio()
-			: isDeviceShare
-				? VoiceSettings.getShareDeviceAudio()
-				: VoiceSettings.getShareDesktopAudio();
+		const captureAudioEnabled = getShareContextAudio(shareContext);
 		const currentHideStreamPreview = VoiceSettings.getHideStreamPreview();
 		const currentAudioDeviceId = VoiceSettings.getScreenShareAudioDeviceId();
 		const effectiveAudioDeviceId = VoiceSettings.getEffectiveScreenShareAudioDeviceId();

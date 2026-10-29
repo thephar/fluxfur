@@ -2,6 +2,8 @@
 
 import Config from '@app/features/app/config/Config';
 import {DESKTOP_DOWNLOAD_URL} from '@app/features/app/config/I18nDisplayConstants';
+import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
+import {isWebUpdateHost} from '@app/features/app/state/WebUpdateHost';
 import {WORKER_NAVIGATION_CACHE_PREFIX} from '@app/features/platform/service_worker/WorkerCacheCleanup';
 import {getProtectedCacheStorage} from '@app/features/platform/state/ProtectedWebStorage';
 import {Logger} from '@app/features/platform/utils/AppLogger';
@@ -26,7 +28,6 @@ import {
 	type UpdaterMachineSnapshot,
 } from '@app/features/updater/state/UpdaterStateMachine';
 import type {UpdaterEvent as NativeUpdaterEvent} from '@app/types/electron.d';
-import {OFFICIAL_WEB_APP_HOSTS} from '@fluxer/instance_bootstrap/src/OfficialWebAppHosts';
 import {makeAutoObservable, runInAction} from 'mobx';
 
 type UpdaterContext = NonNullable<NativeUpdaterEvent['context']>;
@@ -67,8 +68,7 @@ const MIN_CHECK_INTERVAL_MS = 60 * 1000;
 const WEB_CHECK_TIMEOUT_MS = 15 * 1000;
 const NATIVE_CHECK_TIMEOUT_MS = 30 * 1000;
 const VERSION_ENDPOINT = '/version.json';
-const CURRENT_BUILD_VERSION = Config.PUBLIC_BUILD_VERSION ?? null;
-const ALLOWED_WEB_UPDATE_HOSTS = new Set<string>(OFFICIAL_WEB_APP_HOSTS);
+const CURRENT_BUILD_VERSION = Config.BUILD_VERSION ?? null;
 
 function loadUpdaterModals(): Promise<typeof UpdaterModalCommands> {
 	return import('@app/features/updater/commands/UpdaterModalCommands');
@@ -537,7 +537,7 @@ class Updater {
 		if (isDesktop()) {
 			return {available: false, version: null};
 		}
-		if (!ALLOWED_WEB_UPDATE_HOSTS.has(window.location.host)) {
+		if (!isWebUpdateHost(window.location.host, RuntimeConfig.getSnapshotOrNull()?.webAppEndpoint ?? '')) {
 			return {available: false, version: null};
 		}
 		try {

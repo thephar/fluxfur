@@ -229,6 +229,9 @@ const PremiumEffectiveState = z.object({
 	premium_grace_ends_at: z.string().nullable().describe('Effective grace timestamp exposed to the client'),
 	premium_enabled_override: z.boolean().describe('Whether backend premium override is enabled'),
 	premium_purchase_disabled: z.boolean().describe('Whether premium purchase is disabled for this account'),
+	payment_dispute_open: z
+		.boolean()
+		.describe('Whether a payment dispute this account made is open, which blocks every purchase until it closes'),
 	premium_perks_disabled: z.boolean().describe('Whether the user temporarily disabled premium perks'),
 	self_hosted: z.boolean().describe('Whether the instance treats all users as premium because it is self-hosted'),
 	bot: z.boolean().describe('Whether the account is a bot account with premium-equivalent service access'),
@@ -288,6 +291,10 @@ export const SelfServeRefundIneligibilityReason = z.enum([
 
 export type SelfServeRefundIneligibilityReason = z.infer<typeof SelfServeRefundIneligibilityReason>;
 
+export const SelfServeRefundProvider = withOpenApiType(z.enum(['stripe', 'google_play']), 'SelfServeRefundProvider');
+
+export type SelfServeRefundProvider = z.infer<typeof SelfServeRefundProvider>;
+
 export const SelfServeRefundEligibilityResponse = z.object({
 	eligible: z
 		.boolean()
@@ -306,6 +313,7 @@ export const SelfServeRefundEligibilityResponse = z.object({
 	refund_window_expires_at: z.string().nullable().describe('ISO timestamp after which the 3-day refund window closes'),
 	cooldown_expires_at: z.string().nullable().describe('ISO timestamp the 30-day cooldown ends, if currently active'),
 	cancels_subscription: z.boolean().describe('Whether issuing the refund will also cancel the active subscription'),
+	provider: SelfServeRefundProvider.nullable().describe('Who took the payment for the purchase considered for refund'),
 });
 
 export type SelfServeRefundEligibilityResponse = z.infer<typeof SelfServeRefundEligibilityResponse>;
@@ -369,9 +377,12 @@ export const SelfServeRefundResponse = z.object({
 	refunded_amount_cents: z
 		.number()
 		.int()
-		.describe('Amount actually refunded so far, in the currency minor unit; 0 until the provider confirms success'),
-	invoice_amount_paid_cents: z.number().int(),
-	currency: z.string(),
+		.nullable()
+		.describe(
+			'Amount actually refunded so far, in the currency minor unit; 0 until the provider confirms success, null when the store does not report it',
+		),
+	invoice_amount_paid_cents: z.number().int().nullable(),
+	currency: z.string().nullable(),
 	subscription_id: z
 		.string()
 		.nullable()
@@ -380,6 +391,7 @@ export const SelfServeRefundResponse = z.object({
 		.string()
 		.nullable()
 		.describe('Provider status of the refund (e.g. pending, succeeded, failed); money only moved once succeeded'),
+	provider: SelfServeRefundProvider.describe('Who took the payment that was refunded'),
 });
 
 export type SelfServeRefundResponse = z.infer<typeof SelfServeRefundResponse>;

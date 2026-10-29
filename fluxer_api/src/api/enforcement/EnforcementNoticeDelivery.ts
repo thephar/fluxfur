@@ -3,6 +3,7 @@
 import type {ApiContext} from '@app/api/ApiContext';
 import {trySendAdminNotification} from '@app/api/admin/services/AdminNotification';
 import {createApplicationID, createUserID, type UserID} from '@app/api/BrandedTypes';
+import {Config} from '@app/api/Config';
 import type {EnforcementDecisionRow, EnforcementNoticeChannel} from '@app/api/database/types/EnforcementTypes';
 import type {EnforcementNoticeRecord} from '@app/api/enforcement/EnforcementDecisionRepository';
 import {
@@ -15,10 +16,20 @@ import {Logger} from '@app/api/Logger';
 import {getInstanceConfigRepository} from '@app/api/middleware/ServiceSingletons';
 import type {User} from '@app/api/models/User';
 import type {ApplicationRepository} from '@app/api/oauth/repositories/ApplicationRepository';
-import {type SystemDmDeps, systemDmBody, trySendSystemDm} from '@app/api/user/services/SystemDmMessage';
+import {
+	type SystemDmDeps,
+	systemDmBody,
+	systemDmsHidden,
+	trySendSystemDm,
+} from '@app/api/user/services/SystemDmMessage';
 import {ENFORCEMENT_REASONS, isAccountKind} from '@fluxer/constants/src/EnforcementReasons';
 import type {EnforcementNotice} from '@fluxer/schema/src/domains/auth/EnforcementNoticeSchemas';
-import {getEmailTemplate} from '@pkgs/email/src/email_i18n/EmailI18n';
+import {
+	emailLinkUrls,
+	enforcementEndedSlots,
+	enforcementNoticeSlots,
+	renderEmailTemplateText,
+} from '@pkgs/email/src/EmailService';
 import type {EmailTemplateVariables, EnforcementNoticeKindLabel} from '@pkgs/email/src/email_i18n/EmailI18nTypes';
 
 interface EnforcementNoticeDeliveryDeps {
@@ -33,14 +44,14 @@ function sendsSystemDm(decision: EnforcementDecisionRow): boolean {
 
 type NoticeFormat = 'email' | 'system_dm';
 
-const MARKDOWN_LINK = /\[([^\]]+)\]\((\S+?)\)/g;
+const NO_SENTENCE_SPACE = /^(ja|zh)\b/i;
 
-function lineText(line: string, format: NoticeFormat): string {
-	return format === 'email' ? line.replace(MARKDOWN_LINK, '$1 ($2)') : line;
+function joinSentences(lines: ReadonlyArray<string>, locale: string | null): string {
+	return lines.join(NO_SENTENCE_SPACE.test(locale ?? '') ? '' : ' ');
 }
 
-function joinLines(lines: ReadonlyArray<string>, format: NoticeFormat): string {
-	return lines.map((line) => lineText(line, format)).join('\n');
+function joinParagraphs(lines: ReadonlyArray<string>): string {
+	return lines.join('\n');
 }
 
 function ruleTitle(rule: EnforcementNotice['rule'], format: NoticeFormat): string {
@@ -56,40 +67,57 @@ function kindLabel(decision: EnforcementDecisionRow, notice: EnforcementNotice):
 function noticeVariables(
 	decision: EnforcementDecisionRow,
 	notice: EnforcementNotice,
-	username: string,
 	format: NoticeFormat,
+	locale: string | null,
 ): EmailTemplateVariables['enforcement_notice'] {
 	const {handling} = ENFORCEMENT_REASONS[decision.reason_code];
 	return {
-		username,
 		kind_label: kindLabel(decision, notice),
 		neutral: handling === 'restricted' ? 'yes' : 'no',
-		summary: lineText(notice.summary, format),
-		effects: joinLines(notice.effects, format),
+		summary: notice.summary,
+		effects: joinSentences(notice.effects, locale),
 		rule_title: ruleTitle(notice.rule, format),
 		rule_url: format === 'email' ? (notice.rule?.url ?? null) : null,
-		facts: joinLines(notice.facts, format),
+		facts: joinParagraphs(notice.facts),
 		statement: notice.statement,
-		how_we_decided: joinLines(notice.how_we_decided, format),
+		how_we_decided: joinSentences(notice.how_we_decided, locale),
 		appeals_email: notice.appeal?.email ?? null,
 		appeal_deadline: notice.appeal?.deadline ?? '',
-		redress: notice.redress.length > 0 ? joinLines(notice.redress, format) : null,
+		redress: notice.redress.length > 0 ? joinSentences(notice.redress, locale) : null,
 		decision_id: decision.decision_id.toString(),
 	};
 }
 
-function renderNotice(variables: EmailTemplateVariables['enforcement_notice'], locale: string | null) {
-	return getEmailTemplate('enforcement_notice', locale, variables, getInstanceProductName());
+function renderNotice(
+	variables: EmailTemplateVariables['enforcement_notice'],
+	locale: string | null,
+	format: NoticeFormat,
+): string | null {
+	return renderEmailTemplateText(
+		'enforcement_notice',
+		locale,
+		variables,
+		getInstanceProductName(),
+		(template) => enforcementNoticeSlots(template, variables),
+		{
+			format: format === 'system_dm' ? 'markdown' : 'plain',
+			urls: noticeLinkUrls(),
+			reply: format === 'email' ? 'yes' : 'no',
+		},
+	);
+}
+
+function noticeLinkUrls() {
+	return emailLinkUrls({appBaseUrl: Config.endpoints.webApp, marketingBaseUrl: Config.endpoints.marketing});
 }
 
 export function renderNoticeText(
 	decision: EnforcementDecisionRow,
 	notice: EnforcementNotice,
-	username: string,
 	locale: string | null,
 ): string | null {
-	const rendered = renderNotice(noticeVariables(decision, notice, username, 'system_dm'), locale);
-	return rendered.ok ? systemDmBody(rendered.value.body) : null;
+	const rendered = renderNotice(noticeVariables(decision, notice, 'system_dm', locale), locale, 'system_dm');
+	return rendered === null ? null : systemDmBody(rendered);
 }
 
 export class EnforcementNoticeDelivery {
@@ -113,7 +141,7 @@ export class EnforcementNoticeDelivery {
 	): Promise<EnforcementNoticeRecord | null> {
 		const recipient = await this.findRecipient(decision);
 		const email = (await getInstanceConfigRepository().getEffectiveEmailConfig()).enabled ? recipient?.email : null;
-		const systemDm = sendsSystemDm(decision);
+		const systemDm = sendsSystemDm(decision) && !(await systemDmsHidden());
 		if (!recipient || (!email && !systemDm)) {
 			return {status: 'undelivered', channels: new Set(), locale: recipient?.locale ?? null, text: null, sentAt: null};
 		}
@@ -128,14 +156,11 @@ export class EnforcementNoticeDelivery {
 			},
 			recipient.locale,
 		);
-		const variables = noticeVariables(decision, notice, recipient.username, 'email');
-		const rendered = renderNotice(variables, recipient.locale);
-		const dmText = renderNoticeText(decision, notice, recipient.username, recipient.locale);
-		if (!rendered.ok || dmText === null) {
-			Logger.error(
-				{decisionId: decision.decision_id.toString(), error: rendered.ok ? null : rendered.error},
-				'Failed to render an enforcement notice',
-			);
+		const variables = noticeVariables(decision, notice, 'email', recipient.locale);
+		const rendered = renderNotice(variables, recipient.locale, 'email');
+		const dmText = renderNoticeText(decision, notice, recipient.locale);
+		if (rendered === null || dmText === null) {
+			Logger.error({decisionId: decision.decision_id.toString()}, 'Failed to render an enforcement notice');
 			return null;
 		}
 		const channels = new Set<EnforcementNoticeChannel>();
@@ -143,7 +168,7 @@ export class EnforcementNoticeDelivery {
 		if (
 			email &&
 			(await trySendAdminNotification(
-				() => this.deps.apiContext.services.email.sendEnforcementNoticeEmail(email, variables, recipient.locale),
+				() => this.deps.apiContext.services.email.send('enforcement_notice', email, variables, recipient.locale),
 				{action: 'enforcement_notice', targetId},
 			))
 		) {
@@ -157,7 +182,7 @@ export class EnforcementNoticeDelivery {
 			status: 'sent',
 			channels,
 			locale: recipient.locale,
-			text: channels.has('email') ? rendered.value.body : dmText,
+			text: channels.has('email') ? rendered : dmText,
 			sentAt,
 		};
 	}
@@ -170,7 +195,6 @@ export class EnforcementNoticeDelivery {
 		const recipient = await this.findRecipient(decision);
 		if (!recipient) return;
 		const variables: EmailTemplateVariables['enforcement_ended'] = {
-			username: recipient.username,
 			outcome,
 			decision_id: decision.decision_id.toString(),
 			restores_access: inForce && isAccountKind(decision.kind) ? 'yes' : 'no',
@@ -189,7 +213,6 @@ export class EnforcementNoticeDelivery {
 		await this.sendEnded(
 			recipient,
 			{
-				username: recipient.username,
 				outcome: 'lifted',
 				decision_id: null,
 				restores_access: 'yes',
@@ -209,14 +232,21 @@ export class EnforcementNoticeDelivery {
 		const email = recipient.email;
 		if (email) {
 			await trySendAdminNotification(
-				() => this.deps.apiContext.services.email.sendEnforcementEndedEmail(email, variables, recipient.locale),
+				() => this.deps.apiContext.services.email.send('enforcement_ended', email, variables, recipient.locale),
 				{action: 'enforcement_ended', targetId},
 			);
 		}
 		if (!systemDm) return;
-		const rendered = getEmailTemplate('enforcement_ended', recipient.locale, variables, getInstanceProductName());
-		if (rendered.ok) {
-			await this.sendSystemDm(recipient, systemDmBody(rendered.value.body));
+		const rendered = renderEmailTemplateText(
+			'enforcement_ended',
+			recipient.locale,
+			variables,
+			getInstanceProductName(),
+			enforcementEndedSlots,
+			{format: 'markdown'},
+		);
+		if (rendered !== null) {
+			await this.sendSystemDm(recipient, systemDmBody(rendered));
 		}
 	}
 

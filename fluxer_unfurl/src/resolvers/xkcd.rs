@@ -4,7 +4,7 @@ use super::{ResolveContext, Resolver, ResolverResult};
 use crate::charset;
 use crate::html_parser;
 use crate::http_fetch;
-use crate::media_proxy::{MediaMetadata, MediaProxyClient};
+use crate::media_proxy::MediaProxyClient;
 use crate::types::{EmbedFooter, EmbedMedia, MessageEmbed};
 use scraper::{Html, Selector};
 use std::future::Future;
@@ -100,28 +100,10 @@ async fn resolve_media_url(
         .media_proxy
         .get_metadata(&resolved_url, nsfw_str)
         .await?;
-    Ok(Some(build_embed_media_payload(
-        &resolved_url,
-        &meta,
-        None,
-        None,
+    Ok(Some(EmbedMedia {
         description,
-    )))
-}
-
-fn build_embed_media_payload(
-    url: &str,
-    metadata: &MediaMetadata,
-    width: Option<u32>,
-    height: Option<u32>,
-    description: Option<String>,
-) -> EmbedMedia {
-    EmbedMedia {
-        width: width.or(metadata.width),
-        height: height.or(metadata.height),
-        description,
-        ..metadata.to_embed_media(url)
-    }
+        ..meta.to_embed_media(&resolved_url)
+    }))
 }
 
 fn extract_comic_alt(doc: &Html) -> Option<String> {

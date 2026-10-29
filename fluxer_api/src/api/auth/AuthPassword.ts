@@ -10,25 +10,26 @@ import {RecoveryKitRepository} from '@app/api/auth/services/RecoveryKitRepositor
 import {resolveWebAuthnSecondFactor} from '@app/api/auth/services/WebAuthnSecondFactor';
 import {createPasswordResetToken} from '@app/api/BrandedTypes';
 import {Config} from '@app/api/Config';
+import {getContentMessage} from '@app/api/content_i18n/ContentI18n';
 import type {UserRow} from '@app/api/database/types/UserTypes';
 import {Logger} from '@app/api/Logger';
 import {getKVClient} from '@app/api/middleware/ServiceRegistry';
-import {getInstanceConfigRepository} from '@app/api/middleware/ServiceSingletons';
 import type {User} from '@app/api/models/User';
 import {PASSWORD_RESET_TOKEN_TTL_SECONDS} from '@app/api/user/repositories/auth/TokenRepository';
 import {EXTERNAL_RESPONSE_LIMITS} from '@app/api/utils/ExternalResponseLimits';
 import * as FetchUtils from '@app/api/utils/FetchUtils';
+import {lookupGeoip} from '@app/api/utils/IpUtils';
 import {hashPassword} from '@app/api/utils/PasswordUtils';
 import * as RandomUtils from '@app/api/utils/RandomUtils';
 import {createRateLimitError} from '@app/api/utils/RateLimitUtils';
 import {requireConfiguredClientIp} from '@app/api/utils/RequestClientIp';
-import {AccountIdentityModes} from '@fluxer/constants/src/AccountIdentityConstants';
 import {FLUXER_USER_AGENT} from '@fluxer/constants/src/Core';
 import {UserAuthenticatorTypes, UserFlags} from '@fluxer/constants/src/UserConstants';
 import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
 import {InputValidationError} from '@fluxer/errors/src/domains/core/InputValidationError';
 import {getSameIpDecisionKey} from '@fluxer/ip_utils/src/IpAddress';
 import type {ForgotPasswordRequest, ResetPasswordRequest} from '@fluxer/schema/src/domains/auth/AuthSchemas';
+import {formatGeoipLocation} from '@pkgs/geoip/src/GeoipLookup';
 import {ms} from 'itty-time';
 
 const PWNED_PASSWORDS_TIMEOUT_MS = ms('5 seconds');
@@ -220,14 +221,14 @@ export async function forgotPassword(ctx: ApiContext, {data, request}: ForgotPas
 		user_id: user.id,
 		email: user.email!,
 	});
-	await email.sendPasswordResetEmail(user.email!, user.username, token, user.locale);
+	const location =
+		formatGeoipLocation(await lookupGeoip(clientIp), user.locale) ??
+		getContentMessage('auth.unknown_location', user.locale);
+	await email.send('password_reset', user.email!, {resetToken: token, ipAddress: clientIp, location}, user.locale);
 }
 
-async function resetTokenMatchesUser(user: User, tokenEmail: string | null): Promise<boolean> {
-	if (tokenEmail === null) {
-		const mode = await getInstanceConfigRepository().getAccountIdentityMode();
-		return mode === AccountIdentityModes.USERNAME && !user.email;
-	}
+function resetTokenMatchesUser(user: User, tokenEmail: string | null): boolean {
+	if (tokenEmail === null) return !user.email;
 	return !!user.email && user.email.trim().toLowerCase() === tokenEmail.trim().toLowerCase();
 }
 
@@ -241,7 +242,7 @@ export async function validateResetToken(ctx: ApiContext, token: string): Promis
 	if (!user) {
 		return false;
 	}
-	if (user.flags & UserFlags.DELETED || !(await resetTokenMatchesUser(user, tokenData.email))) {
+	if (user.flags & UserFlags.DELETED || !resetTokenMatchesUser(user, tokenData.email)) {
 		return false;
 	}
 	return true;
@@ -277,7 +278,7 @@ export async function resetPassword(
 		throw InputValidationError.fromCode('token', ValidationErrorCodes.INVALID_OR_EXPIRED_RESET_TOKEN);
 	}
 	AuthUtility.assertNonBotUser(ctx, user);
-	if (user.flags & UserFlags.DELETED || !(await resetTokenMatchesUser(user, tokenData.email))) {
+	if (user.flags & UserFlags.DELETED || !resetTokenMatchesUser(user, tokenData.email)) {
 		throw InputValidationError.fromCode('token', ValidationErrorCodes.INVALID_OR_EXPIRED_RESET_TOKEN);
 	}
 	const currentUser = await AuthUtility.assertSignInAllowed(ctx, user);
@@ -292,15 +293,6 @@ export async function resetPassword(
 		passwordWritten = true;
 	};
 	try {
-		if (tokenData.email !== null) {
-			return await applyPasswordReset(ctx, {
-				user,
-				password: data.password,
-				request,
-				afterPasswordSet: () => users.deleteAllPasswordResetTokens(user.id),
-				onPasswordWritten,
-			});
-		}
 		return await applyPasswordReset(ctx, {
 			user: currentUser,
 			password: data.password,

@@ -87,7 +87,7 @@ export function handleGuildCreationError(error: unknown): never {
 		throw new DOMException('Guild create skipped', 'AbortError');
 	}
 	if (failureCode(error) === APIErrorCodes.UNCLAIMED_ACCOUNT_CANNOT_CREATE_GUILDS) {
-		openClaimAccountModal({force: true});
+		openClaimAccountModal();
 	}
 	throw error;
 }

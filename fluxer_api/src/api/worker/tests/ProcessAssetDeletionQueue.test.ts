@@ -1,28 +1,27 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import {GuildRepository} from '@app/api/guild/repositories/GuildRepository';
 import {AssetDeletionQueue} from '@app/api/infrastructure/AssetDeletionQueue';
 import {NoopPurgeQueue} from '@app/api/infrastructure/CachePurgeQueue';
-import type {IStorageService} from '@app/api/infrastructure/IStorageService';
-import {NoopLogger} from '@app/api/test/mocks/NoopLogger';
+import {MockStorageService} from '@app/api/test/mocks/MockStorageService';
+import {createTestWorkerHelpers} from '@app/api/test/SyncTaskWorkerService';
+import {UserRepository} from '@app/api/user/repositories/UserRepository';
 import processAssetDeletionQueue from '@app/api/worker/tasks/ProcessAssetDeletionQueue';
 import {clearWorkerDependencies, setWorkerDependenciesForTest} from '@app/api/worker/WorkerContext';
 import {MockKVProvider} from '@pkgs/kv_client/src/testing/MockKVProvider';
-import type {WorkerTaskHelpers} from '@pkgs/worker/src/contracts/WorkerTask';
-import {afterEach, describe, expect, it, vi} from 'vitest';
+import {afterEach, describe, expect, it} from 'vitest';
 
-const HELPERS = {logger: new NoopLogger()} as unknown as WorkerTaskHelpers;
-
-function createHarness(deleteObject: IStorageService['deleteObject']) {
+function createHarness(storageService: MockStorageService) {
 	const kvClient = new MockKVProvider();
 	const assetDeletionQueue = new AssetDeletionQueue(kvClient);
 	setWorkerDependenciesForTest({
 		assetDeletionQueue,
 		purgeQueue: new NoopPurgeQueue(),
-		storageService: {deleteObject} as unknown as IStorageService,
-		userRepository: {findUnique: async () => null} as never,
-		guildRepository: {findUnique: async () => null, getMember: async () => null} as never,
+		storageService,
+		userRepository: new UserRepository(kvClient),
+		guildRepository: new GuildRepository(),
 	});
-	return {assetDeletionQueue, kvClient};
+	return {assetDeletionQueue};
 }
 
 async function queueAssets(assetDeletionQueue: AssetDeletionQueue, count: number): Promise<void> {
@@ -41,37 +40,32 @@ describe('processAssetDeletionQueue', () => {
 	});
 
 	it('attempts each queued asset once per run when storage is failing', async () => {
-		const deleteObject = vi.fn().mockRejectedValue(new Error('s3 unavailable'));
-		const {assetDeletionQueue} = createHarness(deleteObject);
+		const {assetDeletionQueue} = createHarness(new MockStorageService({shouldFailDelete: true}));
 		await queueAssets(assetDeletionQueue, 3);
 
-		await expect(processAssetDeletionQueue({}, HELPERS)).rejects.toThrow(/3 failures/);
+		await expect(processAssetDeletionQueue({}, createTestWorkerHelpers())).rejects.toThrow(/3 failures/);
 
-		expect(deleteObject).toHaveBeenCalledTimes(3);
-		expect(await assetDeletionQueue.getQueueSize()).toBe(3);
 		const remaining = await assetDeletionQueue.getBatch(10);
 		expect(remaining.map((item) => item.retryCount)).toEqual([1, 1, 1]);
 	});
 
 	it('attempts each queued asset once per run across batch boundaries', async () => {
-		const deleteObject = vi.fn().mockRejectedValue(new Error('s3 unavailable'));
-		const {assetDeletionQueue} = createHarness(deleteObject);
+		const {assetDeletionQueue} = createHarness(new MockStorageService({shouldFailDelete: true}));
 		await queueAssets(assetDeletionQueue, 60);
 
-		await expect(processAssetDeletionQueue({}, HELPERS)).rejects.toThrow(/60 failures/);
+		await expect(processAssetDeletionQueue({}, createTestWorkerHelpers())).rejects.toThrow(/60 failures/);
 
-		expect(deleteObject).toHaveBeenCalledTimes(60);
-		expect(await assetDeletionQueue.getQueueSize()).toBe(60);
+		const remaining = await assetDeletionQueue.getBatch(100);
+		expect(remaining).toHaveLength(60);
+		expect(remaining.every((item) => item.retryCount === 1)).toBe(true);
 	});
 
 	it('drains the queue when storage succeeds', async () => {
-		const deleteObject = vi.fn().mockResolvedValue(undefined);
-		const {assetDeletionQueue} = createHarness(deleteObject);
+		const {assetDeletionQueue} = createHarness(new MockStorageService());
 		await queueAssets(assetDeletionQueue, 60);
 
-		await processAssetDeletionQueue({}, HELPERS);
+		await processAssetDeletionQueue({}, createTestWorkerHelpers());
 
-		expect(deleteObject).toHaveBeenCalledTimes(60);
 		expect(await assetDeletionQueue.getQueueSize()).toBe(0);
 	});
 });

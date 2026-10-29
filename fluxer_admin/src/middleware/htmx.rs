@@ -50,13 +50,35 @@ pub fn navigate_with_flash(url: &str, flash: &FlashData, secure: bool) -> Respon
 }
 
 pub fn add_toast_header(response: &mut Response, flash: &FlashData) {
-    let payload = serde_json::json!({
-        "level": flash.flash_type,
-        "message": flash.message,
-    });
-    if let Ok(value) = HeaderValue::from_str(&payload.to_string()) {
+    let mut payload = serde_json::json!({"level": flash.flash_type});
+    if flash
+        .field_error
+        .as_ref()
+        .is_none_or(|field_error| field_error.message != flash.message)
+    {
+        payload["message"] = flash.message.clone().into();
+    }
+    if let Some(field_error) = &flash.field_error {
+        payload["field"] = field_error.field.clone().into();
+        payload["field_message"] = field_error.message.clone().into();
+    }
+    if let Ok(value) = HeaderValue::from_str(&ascii_json(&payload)) {
         response.headers_mut().insert(ADMIN_TOAST, value);
     }
+}
+
+fn ascii_json(value: &serde_json::Value) -> String {
+    let mut out = String::new();
+    for c in value.to_string().chars() {
+        if c.is_ascii() {
+            out.push(c);
+        } else {
+            for unit in c.encode_utf16(&mut [0; 2]) {
+                out.push_str(&format!("\\u{unit:04x}"));
+            }
+        }
+    }
+    out
 }
 
 pub async fn flash_redirect_to_toast(request: Request, next: Next) -> Response {

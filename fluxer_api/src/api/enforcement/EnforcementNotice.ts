@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import assert from 'node:assert/strict';
 import {Config} from '@app/api/Config';
 import {type ContentI18nMessageArgs, getContentMessage} from '@app/api/content_i18n/ContentI18n';
 import type {ContentI18nKey} from '@app/api/content_i18n/ContentI18nMessages';
@@ -24,8 +25,10 @@ import {
 	enforcementReasonOf,
 	isAccountKind,
 } from '@fluxer/constants/src/EnforcementReasons';
+import {toIsoOrNull} from '@fluxer/date_utils/src/DateSerialization';
 import type {UserProfileField} from '@fluxer/schema/src/domains/admin/AdminUserSchemas';
 import type {EnforcementNotice} from '@fluxer/schema/src/domains/auth/EnforcementNoticeSchemas';
+import {getOperatorPassTermsUrl} from '@pkgs/email/src/operator_pass_terms/OperatorPassTerms';
 import {ms} from 'itty-time';
 
 type EnforcementContentKey = Extract<ContentI18nKey, `enforcement.${string}`>;
@@ -86,9 +89,14 @@ function text<K extends EnforcementContentKey>(ctx: NoticeContext, key: K, ...ar
 
 function ruleUrl(ctx: NoticeContext, rule: EnforcementRuleKey): string | null {
 	const {policy, anchor} = ENFORCEMENT_RULES[rule];
+	if (policy === 'operator_pass_terms') {
+		return ctx.hosted ? `${getOperatorPassTermsUrl(Config.endpoints.marketing)}#${anchor}` : null;
+	}
 	const legal = getLegalUrls();
 	const base = policy === 'terms' ? legal.termsUrl : legal.guidelinesUrl;
-	if (!base) return null;
+	if (!base) {
+		return null;
+	}
 	return ctx.hosted ? `${base}#${anchor}` : base;
 }
 
@@ -99,7 +107,9 @@ function ruleOf(ctx: NoticeContext, rule: EnforcementRuleKey): RuleReference {
 }
 
 function redressLines(ctx: NoticeContext): Array<string> {
-	if (!ctx.hosted) return [];
+	if (!ctx.hosted) {
+		return [];
+	}
 	return [
 		text(ctx, 'enforcement.redress.out_of_court', {url: OUT_OF_COURT_URL}),
 		text(ctx, 'enforcement.redress.regulator_and_court'),
@@ -107,7 +117,9 @@ function redressLines(ctx: NoticeContext): Array<string> {
 }
 
 function appealOf(ctx: NoticeContext, from: Date | null, accountHasEmail: boolean): EnforcementNotice['appeal'] {
-	if (!ctx.appealsEmail) return null;
+	if (!ctx.appealsEmail) {
+		return null;
+	}
 	return {
 		email: ctx.appealsEmail,
 		deadline: from
@@ -138,13 +150,13 @@ function isPrivateLocation(location: EvidenceLocation): boolean {
 function groupLocations(
 	ctx: NoticeContext,
 	evidence: ReadonlyArray<EvidenceMessageLocation>,
-	byMonth: boolean,
+	options: {byMonth: boolean},
 ): Array<LocationGroup> {
 	const groups = new Map<string, LocationGroup>();
 	const sorted = [...evidence].sort((left, right) => left.timestamp.getTime() - right.timestamp.getTime());
 	for (const message of sorted) {
 		const key =
-			byMonth && isPrivateLocation(message.location)
+			options.byMonth && isPrivateLocation(message.location)
 				? `${message.locationKey}:${formatNoticeMonth(message.timestamp, ctx.locale)}`
 				: message.locationKey;
 		const group = groups.get(key);
@@ -158,14 +170,18 @@ function groupLocations(
 	return [...groups.values()];
 }
 
-function locationLine(ctx: NoticeContext, group: LocationGroup, community: boolean, byMonth: boolean): string {
+function locationLine(
+	ctx: NoticeContext,
+	group: LocationGroup,
+	options: {community: boolean; byMonth: boolean},
+): string {
 	const start = formatNoticeTimeUtc(group.first, ctx.locale);
 	const end = formatNoticeTimeUtc(group.last, ctx.locale);
 	const range = {count: group.count, range: start === end ? 'single' : 'other', start, end};
 	const month = {count: group.count, month: formatNoticeMonth(group.first, ctx.locale)};
 	switch (group.location.type) {
 		case 'channel':
-			return community
+			return options.community
 				? text(ctx, 'enforcement.facts.community_channel', {...range, channel: group.location.channelName})
 				: text(ctx, 'enforcement.facts.channel', {
 						...range,
@@ -173,11 +189,11 @@ function locationLine(ctx: NoticeContext, group: LocationGroup, community: boole
 						community: group.location.communityName,
 					});
 		case 'direct_message':
-			return byMonth
+			return options.byMonth
 				? text(ctx, 'enforcement.facts.direct_message_month', month)
 				: text(ctx, 'enforcement.facts.direct_message', range);
 		case 'group_message':
-			return byMonth
+			return options.byMonth
 				? text(ctx, 'enforcement.facts.group_message_month', month)
 				: text(ctx, 'enforcement.facts.group_message', range);
 		case 'unknown':
@@ -285,8 +301,12 @@ function decisionEffects(
 }
 
 function leadKey(decision: EnforcementDecisionRow, rule: EnforcementRuleKey): EnforcementContentKey {
-	if (decision.kind === 'community_removal') return 'enforcement.lead.community';
-	if (isBotDecision(decision)) return 'enforcement.lead.bot';
+	if (decision.kind === 'community_removal') {
+		return 'enforcement.lead.community';
+	}
+	if (isBotDecision(decision)) {
+		return 'enforcement.lead.bot';
+	}
 	return `enforcement.lead.${rule}`;
 }
 
@@ -299,9 +319,9 @@ function decisionFacts(
 	const community = decision.kind === 'community_removal';
 	const facts = [text(ctx, leadKey(decision, reason.rule))];
 	if (reason.handling !== 'restricted') {
-		const byMonth = reason.handling === 'protected';
-		for (const group of groupLocations(ctx, evidence, byMonth)) {
-			facts.push(locationLine(ctx, group, community, byMonth));
+		const options = {community, byMonth: reason.handling === 'protected'};
+		for (const group of groupLocations(ctx, evidence, options)) {
+			facts.push(locationLine(ctx, group, options));
 		}
 	}
 	if (decision.kind === 'profile_reset') {
@@ -321,10 +341,7 @@ function decisionFacts(
 }
 
 function howWeDecided(ctx: NoticeContext, decision: EnforcementDecisionRow): Array<string> {
-	return [
-		text(ctx, `enforcement.source.${decision.source}`),
-		text(ctx, `enforcement.automation.${decision.automation}`),
-	];
+	return [text(ctx, 'enforcement.how_we_decided', {source: decision.source, automation: decision.automation})];
 }
 
 function buildDecisionNotice(
@@ -341,8 +358,8 @@ function buildDecisionNotice(
 		kind: decision.kind,
 		permanent: decision.kind === 'suspension' && decision.ends_at === null,
 		issued_at: decision.created_at.toISOString(),
-		ends_at: decision.ends_at?.toISOString() ?? null,
-		deletion_at: decision.deletion_at?.toISOString() ?? null,
+		ends_at: toIsoOrNull(decision.ends_at),
+		deletion_at: toIsoOrNull(decision.deletion_at),
 		summary: decisionSummary(ctx, decision, target),
 		effects: decisionEffects(ctx, decision, target, networksBlockedUntil),
 		rule: ruleOf(ctx, reason.rule),
@@ -361,27 +378,35 @@ function buildLegacyNotice(ctx: NoticeContext, user: User, now: Date): Enforceme
 	const reason = closed ? enforcementReasonOf(user.deletionReasonCode) : null;
 	const rule = reason ? ruleOf(ctx, reason.rule) : null;
 	const statement = closed && reason?.handling === 'standard' ? user.deletionPublicReason : null;
-	const summary = closed
-		? text(ctx, 'enforcement.summary.closure', target)
-		: permanent
-			? text(ctx, 'enforcement.summary.suspension_permanent', target)
-			: text(ctx, 'enforcement.summary.suspension', {
-					...target,
-					ends_at: formatNoticeTimeUtc(user.tempBannedUntil!, ctx.locale),
-				});
-	const effect = closed
-		? text(ctx, 'enforcement.effect.closure', {
-				...target,
-				deletion_at: user.pendingDeletionAt ? formatNoticeDate(user.pendingDeletionAt, ctx.locale) : '',
-			})
-		: text(ctx, permanent ? 'enforcement.effect.suspension_permanent' : 'enforcement.effect.suspension', target);
+	let summary: string;
+	if (closed) {
+		summary = text(ctx, 'enforcement.summary.closure', target);
+	} else if (permanent) {
+		summary = text(ctx, 'enforcement.summary.suspension_permanent', target);
+	} else {
+		const endsAt = user.tempBannedUntil;
+		assert(endsAt !== null);
+		summary = text(ctx, 'enforcement.summary.suspension', {
+			...target,
+			ends_at: formatNoticeTimeUtc(endsAt, ctx.locale),
+		});
+	}
+	let effect: string;
+	if (closed) {
+		effect = text(ctx, 'enforcement.effect.closure', {
+			...target,
+			deletion_at: user.pendingDeletionAt ? formatNoticeDate(user.pendingDeletionAt, ctx.locale) : '',
+		});
+	} else {
+		effect = text(ctx, permanent ? 'enforcement.effect.suspension_permanent' : 'enforcement.effect.suspension', target);
+	}
 	return {
 		decision_id: null,
 		kind: closed ? 'closure' : 'suspension',
 		permanent,
 		issued_at: null,
-		ends_at: closed || permanent ? null : (user.tempBannedUntil?.toISOString() ?? null),
-		deletion_at: closed ? (user.pendingDeletionAt?.toISOString() ?? null) : null,
+		ends_at: closed || permanent ? null : toIsoOrNull(user.tempBannedUntil),
+		deletion_at: closed ? toIsoOrNull(user.pendingDeletionAt) : null,
 		summary,
 		effects: [effect],
 		rule,

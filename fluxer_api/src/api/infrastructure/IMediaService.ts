@@ -65,6 +65,17 @@ export interface MediaProxySniffResponse {
 	content_type: string | null;
 }
 
+export interface MediaProxyStorageObject {
+	bucket: string;
+	key: string;
+}
+
+export interface MediaProxyStrippedObject {
+	contentType: string;
+	width?: number;
+	height?: number;
+}
+
 export abstract class IMediaService {
 	abstract getMetadata(
 		request: MediaProxyMetadataRequest,
@@ -74,4 +85,14 @@ export abstract class IMediaService {
 	abstract getExternalMediaProxyURL(url: string): string;
 
 	abstract sniffUpload(uploadFilename: string): Promise<MediaProxySniffResponse | null>;
+
+	abstract stripObjectMetadata(
+		source: MediaProxyStorageObject,
+		contentType: string,
+		outputPath: string,
+	): Promise<MediaProxyStrippedObject | null>;
+
+	abstract stripImageMetadata(image: Uint8Array): Promise<Uint8Array | null>;
+
+	abstract getAudioDurationSeconds(base64: string): Promise<number | null>;
 }

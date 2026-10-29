@@ -9,6 +9,7 @@ import {
 import {requireSudoMode} from '@app/api/auth/services/SudoVerificationService';
 import {
 	RequireEmailAccountIdentity,
+	RequireEmailCodesAvailable,
 	RequireUsernameAccountIdentity,
 } from '@app/api/middleware/AccountIdentityMiddleware';
 import {DefaultUserOnly, LoginRequired} from '@app/api/middleware/AuthMiddleware';
@@ -192,6 +193,7 @@ export function UserAuthController(app: HonoApp) {
 		LoginRequired,
 		DefaultUserOnly,
 		RequireEmailAccountIdentity,
+		RequireEmailCodesAvailable,
 		Validator('json', EmptyBodyRequest),
 		OpenAPI({
 			operationId: 'start_backup_codes_challenge',
@@ -214,6 +216,7 @@ export function UserAuthController(app: HonoApp) {
 		LoginRequired,
 		DefaultUserOnly,
 		RequireEmailAccountIdentity,
+		RequireEmailCodesAvailable,
 		Validator('json', MfaBackupCodesChallengeResendRequest),
 		OpenAPI({
 			operationId: 'resend_backup_codes_challenge',
@@ -238,6 +241,7 @@ export function UserAuthController(app: HonoApp) {
 		LoginRequired,
 		DefaultUserOnly,
 		RequireEmailAccountIdentity,
+		RequireEmailCodesAvailable,
 		Validator('json', MfaBackupCodesChallengeVerifyRequest),
 		OpenAPI({
 			operationId: 'verify_backup_codes_challenge',
@@ -261,6 +265,7 @@ export function UserAuthController(app: HonoApp) {
 		LoginRequired,
 		DefaultUserOnly,
 		RequireEmailAccountIdentity,
+		RequireEmailCodesAvailable,
 		Validator('json', MfaBackupCodesChallengeRegenerateRequest),
 		OpenAPI({
 			operationId: 'regenerate_backup_codes_challenge',

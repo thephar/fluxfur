@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import {createHash} from 'node:crypto';
 import {
 	type ChannelID,
 	createChannelID,
@@ -40,6 +41,7 @@ import {
 } from '@fluxer/constants/src/UserConstants';
 import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
 import {InputValidationError} from '@fluxer/errors/src/domains/core/InputValidationError';
+import {SyncedPreferencesConflictError} from '@fluxer/errors/src/domains/user/SyncedPreferencesConflictError';
 import {UnknownUserError} from '@fluxer/errors/src/domains/user/UnknownUserError';
 import {ValidationError} from '@fluxer/errors/src/ValidationError';
 import {
@@ -268,10 +270,18 @@ export class UserAccountSettingsService {
 			updatedRowData.staff_dm_access_user_ids = null;
 		}
 		if (data.synced_preferences !== undefined) {
+			if (
+				data.synced_preferences_base_hash !== undefined &&
+				data.synced_preferences_base_hash !== hashSyncedPreferencesSnapshot(currentSettings.syncedPreferences)
+			) {
+				throw new SyncedPreferencesConflictError();
+			}
 			updatedRowData.synced_preferences = normalizeSyncedPreferencesSnapshot(data.synced_preferences);
 		}
-		await this.deps.userAccountRepository.upsertSettings(updatedRowData);
-		const updatedSettings = await this.findSettings(userId);
+		const updatedSettings = await this.deps.userAccountRepository.upsertSettings(
+			updatedRowData,
+			currentSettings.toRow(),
+		);
 		await this.deps.updatePropagator.dispatchUserSettingsUpdate({userId, settings: updatedSettings});
 		if (localeChanged) {
 			const user = await this.deps.userAccountRepository.findUnique(userId);
@@ -338,11 +348,10 @@ export class UserAccountSettingsService {
 			const channelOverrides = new Map<ChannelID, ChannelOverride>();
 			for (const [channelIdStr, override] of Object.entries(data.channel_overrides ?? {})) {
 				const channelId = createChannelID(BigInt(channelIdStr));
-				const flags = flagsWritable
-					? override.flags !== undefined
+				const flags =
+					flagsWritable && override.flags !== undefined
 						? override.flags & CHANNEL_OVERRIDE_FLAG_MASK
-						: previousOverrides.get(channelId)?.flags
-					: previousOverrides.get(channelId)?.flags;
+						: previousOverrides.get(channelId)?.flags;
 				channelOverrides.set(channelId, {
 					collapsed: override.collapsed,
 					message_notifications: override.message_notifications,
@@ -413,8 +422,7 @@ export class UserAccountSettingsService {
 		requestCache: RequestCache;
 	}): Promise<User> {
 		const {userId, shareVoiceActivity, requestCache} = params;
-		const user = await this.deps.userAccountRepository.findUnique(userId);
-		if (!user) throw new UnknownUserError();
+		const user = await this.deps.userAccountRepository.findUniqueAssert(userId);
 		const lastChange = user.lastVoiceActivitySharingChangeAt;
 		const now = new Date();
 		if (lastChange != null) {
@@ -436,8 +444,10 @@ export class UserAccountSettingsService {
 			user_id: userId,
 			default_share_voice_activity: shareVoiceActivity,
 		};
-		await this.deps.userAccountRepository.upsertSettings(updatedSettingsRow);
-		const updatedSettings = await this.findSettings(userId);
+		const updatedSettings = await this.deps.userAccountRepository.upsertSettings(
+			updatedSettingsRow,
+			currentSettings.toRow(),
+		);
 		const updatedFriendRows = await this.deps.userAccountRepository.bulkUpdateFriendShareVoiceActivity(
 			userId,
 			shareVoiceActivity,
@@ -503,6 +513,10 @@ export class UserAccountSettingsService {
 		}
 		return finalUser;
 	}
+}
+
+function hashSyncedPreferencesSnapshot(stored: string): string {
+	return createHash('sha256').update(Buffer.from(stored, 'base64')).digest('hex');
 }
 
 function normalizeSyncedPreferencesSnapshot(value: string | null | undefined): string | null {

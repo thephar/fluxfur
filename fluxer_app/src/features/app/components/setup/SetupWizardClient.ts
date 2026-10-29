@@ -14,6 +14,7 @@ import type {
 import type {
 	InstanceAccountIdentityResponse,
 	InstanceAccountIdentityUpdateRequest,
+	InstanceSetupTokenCheckRequest,
 } from '@fluxer/schema/src/domains/instance/InstanceSchemas';
 
 const logger = new Logger('SetupWizardClient');
@@ -51,6 +52,11 @@ export async function setSetupAccountIdentity(
 	};
 	const response = await http.put<InstanceAccountIdentityResponse>(Endpoints.INSTANCE_SETUP_ACCOUNT_IDENTITY, {body});
 	return response.body;
+}
+
+export async function checkSetupToken(setupToken: string): Promise<void> {
+	const body: InstanceSetupTokenCheckRequest = {setup_token: setupToken};
+	await http.post(Endpoints.INSTANCE_SETUP_TOKEN_CHECKS, {body});
 }
 
 export async function testSmtpConfig(body: InstanceEmailSmtpTestRequest): Promise<InstanceEmailSmtpTestResponse> {

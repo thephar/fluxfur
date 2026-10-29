@@ -8,7 +8,6 @@ import type {MessagePersistenceService} from '@app/api/channel/services/message/
 import type {GuildRepository} from '@app/api/guild/repositories/GuildRepository';
 import type {IGatewayService} from '@app/api/infrastructure/IGatewayService';
 import type {ISnowflakeService} from '@app/api/infrastructure/ISnowflakeService';
-import type {RequestCache} from '@app/api/middleware/RequestCacheMiddleware';
 import {MessageTypes} from '@fluxer/constants/src/ChannelConstants';
 
 export class MessageSystemService {
@@ -20,14 +19,7 @@ export class MessageSystemService {
 		private gatewayService: IGatewayService,
 	) {}
 
-	async sendJoinSystemMessage({
-		guildId,
-		userId,
-	}: {
-		guildId: GuildID;
-		userId: UserID;
-		requestCache: RequestCache;
-	}): Promise<void> {
+	async sendJoinSystemMessage({guildId, userId}: {guildId: GuildID; userId: UserID}): Promise<void> {
 		const guild = await this.guildRepository.findUnique(guildId);
 		if (!guild?.systemChannelId) return;
 		const systemChannel = await this.channelRepository.channelData.findUnique(guild.systemChannelId);

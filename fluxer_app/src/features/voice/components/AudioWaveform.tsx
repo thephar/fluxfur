@@ -258,7 +258,7 @@ export const AudioWaveform: React.FC<AudioWaveformProps> = ({
 				data-flx="voice.audio-waveform.selection.region-pointer-down"
 			/>
 			<div
-				className={clsx(styles.handle, styles.handleStart)}
+				className={styles.handle}
 				style={{left: `${startPct}%`}}
 				onPointerDown={handleStartPointerDown}
 				role="slider"
@@ -270,7 +270,7 @@ export const AudioWaveform: React.FC<AudioWaveformProps> = ({
 				data-flx="voice.audio-waveform.handle.start-pointer-down"
 			/>
 			<div
-				className={clsx(styles.handle, styles.handleEnd)}
+				className={styles.handle}
 				style={{left: `${endPct}%`}}
 				onPointerDown={handleEndPointerDown}
 				role="slider"

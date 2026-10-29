@@ -73,10 +73,6 @@ pub fn merged_env(
     Ok(current)
 }
 
-pub fn run(args: &[&str]) -> Result<()> {
-    run_command(args, RunOptions::default()).map(drop)
-}
-
 #[derive(Debug)]
 pub struct RunOptions<'a> {
     pub cwd: &'a Path,

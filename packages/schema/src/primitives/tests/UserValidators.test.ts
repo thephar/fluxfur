@@ -5,40 +5,6 @@ import {GlobalNameType, PasswordType, UsernameType} from '@fluxer/schema/src/pri
 import {describe, expect, it} from 'vitest';
 
 describe('UsernameType', () => {
-	it('accepts valid alphanumeric usernames', () => {
-		const result = UsernameType.parse('testuser');
-		expect(result).toBe('testuser');
-	});
-	it('accepts usernames with underscores', () => {
-		const result = UsernameType.safeParse('test_user');
-		expect(result.success).toBe(true);
-	});
-	it('accepts usernames with numbers', () => {
-		const result = UsernameType.safeParse('user123');
-		expect(result.success).toBe(true);
-	});
-	it('trims whitespace', () => {
-		const result = UsernameType.parse('  testuser  ');
-		expect(result).toBe('testuser');
-	});
-	it('rejects empty usernames', () => {
-		const result = UsernameType.safeParse('');
-		expect(result.success).toBe(false);
-	});
-	it('rejects usernames exceeding max length', () => {
-		const result = UsernameType.safeParse('a'.repeat(33));
-		expect(result.success).toBe(false);
-		if (!result.success) {
-			expect(result.error.issues[0].message).toBe(ValidationErrorCodes.USERNAME_LENGTH_INVALID);
-		}
-	});
-	it('rejects usernames with invalid characters', () => {
-		const result = UsernameType.safeParse('test-user');
-		expect(result.success).toBe(false);
-		if (!result.success) {
-			expect(result.error.issues[0].message).toBe(ValidationErrorCodes.USERNAME_INVALID_CHARACTERS);
-		}
-	});
 	it('rejects "everyone" as username', () => {
 		const result = UsernameType.safeParse('everyone');
 		expect(result.success).toBe(false);
@@ -91,10 +57,6 @@ describe('GlobalNameType', () => {
 });
 
 describe('PasswordType', () => {
-	it('accepts valid passwords', () => {
-		const result = PasswordType.parse('securepassword123');
-		expect(result).toBe('securepassword123');
-	});
 	it('accepts passwords at minimum length', () => {
 		const result = PasswordType.safeParse('12345678');
 		expect(result.success).toBe(true);

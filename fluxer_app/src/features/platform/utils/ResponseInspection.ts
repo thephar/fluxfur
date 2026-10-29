@@ -59,6 +59,14 @@ export function failureMessage(error: unknown): string | undefined {
 	return failureResponse(error)?.message;
 }
 
+export function failureContext(error: unknown): Record<string, unknown> | undefined {
+	return failureResponse(error)?.context;
+}
+
+export function failureRetryAfterSeconds(error: unknown): number | undefined {
+	return failureResponse(error)?.retryAfterSeconds;
+}
+
 export function failureValidationErrors(error: unknown): ReadonlyArray<ValidationFault> | undefined {
 	return failureResponse(error)?.fields;
 }

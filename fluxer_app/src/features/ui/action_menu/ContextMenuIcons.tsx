@@ -7,6 +7,10 @@ import {
 	ArrowBendUpRightIcon,
 	ArrowLeftIcon,
 	ArrowRightIcon,
+	CaretRightIcon,
+	getCollapsedCaretAngle,
+} from '@app/features/ui/icons/DirectionalIcons';
+import {
 	ArrowSquareOutIcon,
 	ArrowsClockwiseIcon,
 	AtIcon,
@@ -19,7 +23,6 @@ import {
 	CameraIcon,
 	CameraSlashIcon,
 	CaretDownIcon,
-	CaretRightIcon,
 	CaretUpIcon,
 	ChatCircleIcon,
 	ChatsIcon,
@@ -770,7 +773,7 @@ export const CollapseCategoryIcon: React.FC<IconProps & {collapsed?: boolean}> =
 		<CaretDownIcon
 			size={remFromPx(size)}
 			weight="bold"
-			style={{transform: collapsed ? 'rotate(-90deg)' : undefined}}
+			style={{transform: collapsed ? `rotate(${getCollapsedCaretAngle()}deg)` : undefined}}
 			data-flx="ui.action-menu.context-menu-icons.collapse-category-icon.caret-down-icon"
 		/>
 	),

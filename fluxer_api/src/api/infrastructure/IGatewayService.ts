@@ -60,17 +60,21 @@ interface GatewayNodeMemoryStats {
 interface GatewayNodeStatsEntry {
 	node_id: string;
 	status: string;
-	sessions: number;
+	sessions: number | null;
 	session_resumes_total: number | null;
 	websocket_dispatches_total: number | null;
 	websocket_dispatch_drops_total: number | null;
-	guilds: number;
-	presences: number;
-	calls: number;
-	memory: GatewayNodeMemoryStats;
-	process_count: number;
-	process_limit: number;
-	uptime_seconds: number;
+	guilds: number | null;
+	presences: number | null;
+	calls: number | null;
+	memory: {
+		total: string | null;
+		processes: string | null;
+		system: string | null;
+	};
+	process_count: number | null;
+	process_limit: number | null;
+	uptime_seconds: number | null;
 }
 
 export interface GatewayNodeStats {

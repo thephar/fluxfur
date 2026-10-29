@@ -2,6 +2,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import {isolateBidiText} from '@electron/common/BidiIsolation';
 import {BUILD_CHANNEL, type BuildChannel} from '@electron/common/BuildChannel';
 import {getDesktopWindowBehaviorSettings} from '@electron/common/DesktopConfig';
 import {DESKTOP_APP_NAME} from '@electron/common/DesktopIdentity';
@@ -11,6 +12,12 @@ import type {
 	TrayActionPayload,
 	TrayRuntimeStatePayload,
 } from '@electron/common/Types';
+import {
+	getAccountEngineLabels,
+	getAccountEngineSummaries,
+	onAccountEngineSummaries,
+} from '@electron/main/AccountEngineHost';
+import {buildAccountMenuEntries, buildAccountMenuItems, createRefreshThrottle} from '@electron/main/AccountMenu';
 import {getDesktopUpdateState, observeDesktopUpdateState} from '@electron/main/DesktopUpdateGate';
 import {checkForUpdatesFromShell, startDesktopUpdateFromShell} from '@electron/main/DesktopUpdatePrompt';
 import {shouldDisableModuleUpdatesForLaunch} from '@electron/main/LaunchOptions';
@@ -60,9 +67,8 @@ let trayBaseIcon: Electron.NativeImage | null = null;
 let appliedTrayIconKey: string | null = null;
 const trayIconCache = new Map<string, Electron.NativeImage>();
 
-const BIDI_FIRST_STRONG_ISOLATE = '\u2068';
-const BIDI_POP_DIRECTIONAL_ISOLATE = '\u2069';
 const MAX_PENDING_TRAY_ACTIONS = 16;
+const ACCOUNT_MENU_REFRESH_INTERVAL_MS = 1000;
 const LINUX_TRAY_MENU_ACTION_DELAY_MS = 25;
 const TRAY_FORCED_EXIT_DELAY_MS = 5000;
 
@@ -75,7 +81,16 @@ const trayState: TrayRuntimeStatePayload = {
 	selfDeaf: false,
 	presenceStatus: null,
 	buildInfo: null,
+	hidePersonalInformation: false,
+	customCssOff: null,
 };
+
+const privacyListeners = new Set<() => void>();
+
+export function onAccountMenuPrivacyChange(listener: () => void): () => void {
+	privacyListeners.add(listener);
+	return () => privacyListeners.delete(listener);
+}
 
 export function updateTrayRuntimeState(update: Partial<TrayRuntimeStatePayload>, webContentsId?: number): void {
 	if (webContentsId !== undefined) {
@@ -84,8 +99,14 @@ export function updateTrayRuntimeState(update: Partial<TrayRuntimeStatePayload>,
 	if (typeof update.buildInfo === 'string' && update.buildInfo !== trayState.buildInfo) {
 		logger.info(`The renderer reported its build: ${update.buildInfo}`);
 	}
+	const privacyChanged =
+		typeof update.hidePersonalInformation === 'boolean' &&
+		update.hidePersonalInformation !== trayState.hidePersonalInformation;
 	Object.assign(trayState, update);
 	refreshDesktopTrayMenu();
+	if (privacyChanged) {
+		for (const listener of Array.from(privacyListeners)) listener();
+	}
 	schedulePendingTrayActionFlush();
 }
 
@@ -171,6 +192,30 @@ function dispatchTrayAction(payload: TrayActionPayload): void {
 	if (!sendTrayAction(mainWindow, payload)) {
 		queueTrayAction(payload);
 	}
+}
+
+function requestAccountSwitch(accountKey: string): void {
+	ensureMainWindowVisible();
+	dispatchTrayAction({action: 'switch-account', accountKey});
+}
+
+export function requestAccountSwitcher(): void {
+	ensureMainWindowVisible();
+	dispatchTrayAction({action: 'open-account-switcher'});
+}
+
+export function buildAccountSwitchMenuItems(): Array<Electron.MenuItemConstructorOptions> {
+	const entries = buildAccountMenuEntries(getAccountEngineLabels(), getAccountEngineSummaries(), t, {
+		hidePersonalInformation: trayState.hidePersonalInformation,
+	});
+	return buildAccountMenuItems(
+		entries,
+		{
+			switchAccount: (accountKey) => runTrayMenuAction(() => requestAccountSwitch(accountKey)),
+			openAccountSwitcher: () => runTrayMenuAction(requestAccountSwitcher),
+		},
+		t,
+	);
 }
 
 export function hasActiveDesktopTray(): boolean {
@@ -359,10 +404,6 @@ function runTrayMenuAction(action: () => void): void {
 	timeout.unref?.();
 }
 
-function isolateUserText(value: string): string {
-	return `${BIDI_FIRST_STRONG_ISOLATE}${value}${BIDI_POP_DIRECTIONAL_ISOLATE}`;
-}
-
 function buildTrayMenu(): Menu {
 	const mainWindow = controller?.getMainWindow() ?? null;
 	const visible = Boolean(
@@ -423,6 +464,10 @@ function buildTrayMenu(): Menu {
 			],
 		},
 	];
+	const accountItems = buildAccountSwitchMenuItems();
+	if (accountItems.length > 0) {
+		menuTemplate.push({label: t('desktop.tray.accounts'), submenu: accountItems});
+	}
 	if (trayState.voiceConnected) {
 		menuTemplate.push({type: 'separator'});
 		menuTemplate.push({
@@ -435,12 +480,18 @@ function buildTrayMenu(): Menu {
 		});
 		menuTemplate.push({
 			label: trayState.voiceChannelLabel
-				? t('desktop.tray.disconnectFrom', {channel: isolateUserText(trayState.voiceChannelLabel)})
+				? t('desktop.tray.disconnectFrom', {channel: isolateBidiText(trayState.voiceChannelLabel)})
 				: t('desktop.tray.disconnectVoice'),
 			click: () => runTrayMenuAction(() => dispatchTrayAction({action: 'disconnect-voice'})),
 		});
 	}
 	menuTemplate.push({type: 'separator'});
+	if (trayState.customCssOff !== null) {
+		menuTemplate.push({
+			label: t(trayState.customCssOff ? 'desktop.tray.turnOnCustomCss' : 'desktop.tray.turnOffCustomCss'),
+			click: () => runTrayMenuAction(() => dispatchTrayAction({action: 'toggle-custom-css'})),
+		});
+	}
 	if (getDesktopUpdateState().available) {
 		menuTemplate.push({
 			label: t('desktop.tray.updateNow', {appName: APP_NAME}),
@@ -581,6 +632,7 @@ export function desktopTrayChangePendingRestart(): boolean {
 }
 
 let trayLocaleSubscribed = false;
+const accountMenuRefresh = createRefreshThrottle(() => refreshDesktopTrayMenu(), ACCOUNT_MENU_REFRESH_INTERVAL_MS);
 
 export function initializeDesktopTray(nextController: DesktopTrayController): void {
 	controller = nextController;
@@ -597,6 +649,7 @@ export function initializeDesktopTray(nextController: DesktopTrayController): vo
 			nativeTheme.on('updated', () => syncTrayIcon(false));
 		}
 		observeDesktopUpdateState(refreshDesktopTrayMenu);
+		onAccountEngineSummaries(accountMenuRefresh.schedule);
 	}
 }
 
@@ -606,6 +659,7 @@ export function destroyDesktopTray(): void {
 	controller = null;
 	trayActionBridgeWebContentsId = null;
 	pendingTrayActions = [];
+	accountMenuRefresh.cancel();
 	if (pendingTrayMenuRefresh) {
 		clearTimeout(pendingTrayMenuRefresh);
 		pendingTrayMenuRefresh = null;

@@ -145,6 +145,10 @@ export function getNativeGatewayDisableReason(argv: ReadonlyArray<string> = proc
 	return null;
 }
 
+export function prefersAccountEngineWebSocketTransport(argv: ReadonlyArray<string> = process.argv): boolean {
+	return getNativeGatewayDisableReason(argv) !== null || process.env.FLUXER_ACCOUNT_ENGINE_TRANSPORT === 'websocket';
+}
+
 function isPortableLaunchFlag(argv: ReadonlyArray<string> = process.argv): boolean {
 	return hasFlag(argv, PORTABLE_MODE_ARGS);
 }

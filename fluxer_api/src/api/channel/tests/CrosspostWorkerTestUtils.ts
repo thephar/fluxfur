@@ -10,7 +10,7 @@ import {
 	publish,
 } from '@app/api/channel/tests/AnnouncementTestUtils';
 import {loadFixture, sendMessageWithAttachments} from '@app/api/channel/tests/AttachmentTestUtils';
-import type {ChannelRow, CrosspostedMessageRow} from '@app/api/database/types/ChannelTypes';
+import type {CrosspostedMessageRow} from '@app/api/database/types/ChannelTypes';
 import {ensureSessionStarted, getMessages} from '@app/api/message/tests/MessageTestUtils';
 import type {ApiTestHarness} from '@app/api/test/ApiTestHarness';
 import type {SyncTaskWorkerService} from '@app/api/test/SyncTaskWorkerService';
@@ -152,15 +152,6 @@ export async function deleteMessageRequest(
 	messageId: string,
 ): Promise<void> {
 	await createBuilder(harness, token).delete(`/channels/${channelId}/messages/${messageId}`).expect(204).execute();
-}
-
-export async function patchChannelRow(channelId: string, patch: Partial<ChannelRow>): Promise<void> {
-	const repository = new ChannelRepository();
-	const channel = await repository.channelData.findUnique(createChannelID(BigInt(channelId)));
-	if (!channel) {
-		throw new Error(`channel ${channelId} not found`);
-	}
-	await repository.channelData.upsert({...channel.toRow(), ...patch});
 }
 
 export function patchChannel(harness: ApiTestHarness, token: string, channelId: string, body: Record<string, unknown>) {

@@ -81,7 +81,7 @@ export interface VoiceServerUpdateData {
 	ice_servers?: Array<Pick<RTCIceServer, 'urls'>>;
 }
 
-export interface VoiceConnectionState {
+interface VoiceConnectionState {
 	room: Room | null;
 	guildId: string | null;
 	channelId: string | null;
@@ -92,14 +92,14 @@ export interface VoiceConnectionState {
 	connectionId: string | null;
 }
 
-export interface RegionHotSwapState {
+interface RegionHotSwapState {
 	pendingRoom: Room | null;
 	previousRoom: Room | null;
 	inProgress: boolean;
 }
 
-export type HotSwapQueuedOperation = () => void | Promise<void>;
-export type VoiceConnectFailureHandler = (
+type HotSwapQueuedOperation = () => void | Promise<void>;
+type VoiceConnectFailureHandler = (
 	guildId: string | null,
 	channelId: string,
 	connectionId: string | null,
@@ -207,7 +207,7 @@ function createRoomConnectOptions(): RoomConnectOptions {
 	return connectOptions;
 }
 
-export class VoiceEngineV2AppConnectionHostAdapter extends Store {
+class VoiceEngineV2AppConnectionHostAdapter extends Store {
 	connectionState: VoiceConnectionState = initialConnectionState;
 	hotSwapState: RegionHotSwapState = initialHotSwapState;
 	private connectionSnapshot: VoiceConnectionSnapshot = createVoiceConnectionSnapshot();

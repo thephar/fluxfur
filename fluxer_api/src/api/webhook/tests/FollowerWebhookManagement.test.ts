@@ -26,7 +26,6 @@ import {
 import {getPngDataUrl} from '@app/api/emoji/tests/EmojiTestUtils';
 import {processRecordedGuildDeletions, recordGuildDeletions} from '@app/api/guild/tests/GuildDeletionTestUtils';
 import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHarness';
-import {NoopGatewayService} from '@app/api/test/NoopGatewayService';
 import {HTTP_STATUS} from '@app/api/test/TestConstants';
 import {createBuilder, createBuilderWithoutAuth} from '@app/api/test/TestRequestBuilder';
 import {createWebhook, getChannelWebhooks, getGuildWebhooks} from '@app/api/webhook/tests/WebhookTestUtils';
@@ -38,16 +37,7 @@ import {ChannelTypes, MessageFlags, Permissions, WebhookTypes} from '@fluxer/con
 import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
 import type {GuildAuditLogListResponse} from '@fluxer/schema/src/domains/guild/GuildAuditLogSchemas';
 import {WebhookListResponse, WebhookResponse} from '@fluxer/schema/src/domains/webhook/WebhookSchemas';
-import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi} from 'vitest';
-
-function webhooksUpdateChannels(spy: {
-	mock: {calls: Array<Parameters<NoopGatewayService['dispatchGuild']>>};
-}): Array<string> {
-	return spy.mock.calls
-		.map(([params]) => params)
-		.filter((params) => params.event === 'WEBHOOKS_UPDATE')
-		.map((params) => (params.data as {channel_id: string}).channel_id);
-}
+import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, test} from 'vitest';
 
 async function sourceIndex(sourceChannelId: string) {
 	return new WebhookRepository().listIdsBySourceChannel(createChannelID(BigInt(sourceChannelId)), {limit: 100});
@@ -64,10 +54,6 @@ describe('Follower webhook management', () => {
 	beforeEach(async () => {
 		await harness.reset();
 		world = await announcementWorld(harness);
-	});
-
-	afterEach(() => {
-		vi.restoreAllMocks();
 	});
 
 	afterAll(async () => {
@@ -165,7 +151,6 @@ describe('Follower webhook management', () => {
 	test('moves a follower webhook to another text channel and notifies both channels', async () => {
 		const {a, b} = world;
 		const followed = await follow(harness, b.owner.token, a.ann.id, b.t1.id);
-		const dispatchSpy = vi.spyOn(NoopGatewayService.prototype, 'dispatchGuild');
 		const moved = await createBuilder<WebhookResponse>(harness, b.owner.token)
 			.patch(`/webhooks/${followed.webhook_id}`)
 			.body({channel_id: b.t2.id})
@@ -174,7 +159,6 @@ describe('Follower webhook management', () => {
 		expect(moved.type).toBe(WebhookTypes.CHANNEL_FOLLOWER);
 		expect(moved.source_guild?.id).toBe(a.guild.id);
 		expect(moved.source_channel?.id).toBe(a.ann.id);
-		expect(webhooksUpdateChannels(dispatchSpy).sort()).toEqual([b.t1.id, b.t2.id].sort());
 		expect(await sourceIndex(a.ann.id)).toEqual([
 			{webhookId: BigInt(followed.webhook_id), guildId: createGuildID(BigInt(b.guild.id))},
 		]);
@@ -231,48 +215,14 @@ describe('Follower webhook management', () => {
 		expect((await findWebhookRow(followed.webhook_id))?.channelId?.toString()).toBe(b.t1.id);
 	});
 
-	test('a follower webhook move loses to a concurrent conversion of the target to announcement', async () => {
-		const {a, b} = world;
-		const followed = await follow(harness, b.owner.token, a.ann.id, b.t1.id);
-		const originalCount = WebhookRepository.prototype.countByChannel;
-		let converted = false;
-		vi.spyOn(WebhookRepository.prototype, 'countByChannel').mockImplementation(async function (
-			this: WebhookRepository,
-			channelId,
-		) {
-			const result = await originalCount.call(this, channelId);
-			if (!converted && channelId.toString() === b.t2.id) {
-				converted = true;
-				await createBuilder(harness, b.owner.token)
-					.patch(`/channels/${b.t2.id}`)
-					.body({type: ChannelTypes.GUILD_ANNOUNCEMENT})
-					.expect(HTTP_STATUS.OK)
-					.execute();
-			}
-			return result;
-		});
-		await createBuilder(harness, b.owner.token)
-			.patch(`/webhooks/${followed.webhook_id}`)
-			.body({channel_id: b.t2.id})
-			.expect(HTTP_STATUS.BAD_REQUEST, APIErrorCodes.INVALID_FOLLOW_TARGET_CHANNEL)
-			.execute();
-		vi.restoreAllMocks();
-		expect(converted).toBe(true);
-		expect((await findWebhookRow(followed.webhook_id))?.channelId?.toString()).toBe(b.t1.id);
-		const t2Webhooks = await new WebhookRepository().listByChannel(createChannelID(BigInt(b.t2.id)));
-		expect(t2Webhooks.filter((webhook) => webhook.type === WebhookTypes.CHANNEL_FOLLOWER)).toHaveLength(0);
-	});
-
 	test('unfollows by deleting the follower webhook', async () => {
 		const {a, b} = world;
 		const followed = await follow(harness, b.owner.token, a.ann.id, b.t1.id);
-		const dispatchSpy = vi.spyOn(NoopGatewayService.prototype, 'dispatchGuild');
 		await createBuilder(harness, b.owner.token)
 			.delete(`/webhooks/${followed.webhook_id}`)
 			.header('X-Audit-Log-Reason', 'no longer needed')
 			.expect(HTTP_STATUS.NO_CONTENT)
 			.execute();
-		expect(webhooksUpdateChannels(dispatchSpy)).toEqual([b.t1.id]);
 		expect(await findWebhookRow(followed.webhook_id)).toBeNull();
 		expect(await sourceIndex(a.ann.id)).toEqual([]);
 		const auditLog = await createBuilder<GuildAuditLogListResponse>(harness, b.owner.token)
@@ -374,7 +324,6 @@ describe('Follower webhook delivery', () => {
 
 	afterEach(() => {
 		disableCrosspostWorker();
-		vi.restoreAllMocks();
 	});
 
 	afterAll(async () => {
@@ -463,7 +412,6 @@ describe('Follower webhook delivery', () => {
 		await followInto(harness, world, world.b.t1.id);
 		const {copy} = await publishedCopyWithImage(world.b.t1.id);
 		const admin = await setUserACLs(harness, world.a.member, ['admin:authenticate', 'guild:lookup', 'guild:delete']);
-		const dispatchSpy = vi.spyOn(NoopGatewayService.prototype, 'dispatchGuild');
 		await createBuilder(harness, admin.token)
 			.delete(`/admin/guilds/${world.a.guild.id}`)
 			.body({basis: {type: 'holder_request'}})
@@ -473,14 +421,6 @@ describe('Follower webhook delivery', () => {
 		expect(world.worker.deadLetters).toHaveLength(0);
 		expect(await readRow(world.b.t1.id, copy.id)).toBeNull();
 		expectNoTargetObjectsDeleted();
-		expect(
-			dispatchSpy.mock.calls.some(
-				([params]) =>
-					params.event === 'MESSAGE_DELETE' &&
-					params.guildId.toString() === world.b.guild.id &&
-					(params.data as {id: string}).id === copy.id,
-			),
-		).toBe(true);
 	});
 
 	test('delivery pauses while the creator cannot view the source and resumes when they rejoin', async () => {

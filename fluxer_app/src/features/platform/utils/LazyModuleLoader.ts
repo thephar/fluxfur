@@ -2,9 +2,9 @@
 
 import {getProtectedSessionStorage} from '@app/features/platform/state/ProtectedWebStorage';
 
-export const DEFAULT_LAZY_MODULE_LOAD_ATTEMPTS = 3;
-export const DEFAULT_LAZY_MODULE_RETRY_DELAY_MS = 250;
-export const MAX_LAZY_MODULE_RETRY_DELAY_MS = 2000;
+const DEFAULT_LAZY_MODULE_LOAD_ATTEMPTS = 3;
+const DEFAULT_LAZY_MODULE_RETRY_DELAY_MS = 250;
+const MAX_LAZY_MODULE_RETRY_DELAY_MS = 2000;
 
 const RECOVERY_RELOAD_STORAGE_KEY = 'fluxer.lazyModuleRecoveryReload';
 

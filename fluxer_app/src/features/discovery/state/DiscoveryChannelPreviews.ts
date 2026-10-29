@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import {ResettableStates} from '@app/features/app/state/ResettableStates';
 import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
 import type {DiscoveryChannelPreview} from '@app/features/discovery/commands/DiscoveryCommands';
 import * as DiscoveryCommands from '@app/features/discovery/commands/DiscoveryCommands';
-import {AccountScopedWork} from '@app/features/platform/state/AccountScopedWork';
 import {failureCode} from '@app/features/platform/utils/ResponseInspection';
 import {APIErrorCodes} from '@fluxer/constants/src/ApiErrorCodes';
 import {makeAutoObservable, observable, runInAction} from 'mobx';
@@ -65,6 +65,6 @@ class DiscoveryChannelPreviews {
 
 const discoveryChannelPreviews = new DiscoveryChannelPreviews();
 
-AccountScopedWork.registerCancellation(() => discoveryChannelPreviews.reset());
+ResettableStates.register(discoveryChannelPreviews, () => discoveryChannelPreviews.reset());
 
 export default discoveryChannelPreviews;

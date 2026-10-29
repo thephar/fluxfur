@@ -80,7 +80,7 @@ export class UserPermissionUtils {
 		}
 	}
 
-	async checkMutualFriends({userId, targetId}: {userId: UserID; targetId: UserID}): Promise<boolean> {
+	private async checkMutualFriends({userId, targetId}: {userId: UserID; targetId: UserID}): Promise<boolean> {
 		const userFriends = await this.userRepository.listRelationships(userId);
 		const targetFriends = await this.userRepository.listRelationships(targetId);
 		const userFriendIds = new Set(
@@ -122,7 +122,7 @@ export class UserPermissionUtils {
 		return this.checkMutualGuilds(userGuildIds, targetGuildIds);
 	}
 
-	checkMutualGuilds(userGuildIds: Array<GuildID>, targetGuildIds: Array<GuildID>): boolean {
+	private checkMutualGuilds(userGuildIds: Array<GuildID>, targetGuildIds: Array<GuildID>): boolean {
 		const userGuildIdSet = new Set(userGuildIds.map((id) => id.toString()));
 		return targetGuildIds.some((id) => userGuildIdSet.has(id.toString()));
 	}

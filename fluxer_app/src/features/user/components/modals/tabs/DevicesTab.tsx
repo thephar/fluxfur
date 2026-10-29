@@ -459,7 +459,8 @@ const DevicesTabContent: React.FC = observer(() => {
 						>
 							{i18n._(SIGN_OUT_SELECTED_DEVICES_DESCRIPTOR, {deviceCount: selectedDeviceIds.length})}
 						</Button>
-					) : otherDeviceIds.length > 1 ? (
+					) : null}
+					{!selectionMode && otherDeviceIds.length > 1 ? (
 						<Button
 							variant="danger"
 							onClick={openAllOtherDevicesRevokeModal}

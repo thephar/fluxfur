@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {createRequire} from 'node:module';
+import {errorMessage} from '@electron/common/ErrorMessage';
 import {createChildLogger} from '@electron/common/Logger';
 import {VOICE_ENGINE_V2_HARDWARE_ENCODER_IPC_CHANNEL} from '@fluxer/voice_engine_v2/bridge';
 import {
@@ -27,7 +28,7 @@ function loadHardwareEncoderModule(): HardwareEncoderModule | null {
 		cachedModule = requireModule('@fluxer/hardware-encoder') as HardwareEncoderModule;
 	} catch (error) {
 		logger.warn('Failed to load @fluxer/hardware-encoder', error);
-		cachedModuleLoadErrorDetail = error instanceof Error ? error.message : String(error);
+		cachedModuleLoadErrorDetail = errorMessage(error);
 		cachedModule = null;
 	}
 	return cachedModule;
@@ -45,7 +46,7 @@ function getHardwareEncoderCapabilities(): VoiceEngineV2HardwareEncoderCapabilit
 		return normalizeVoiceEngineV2HardwareEncoderCapabilities(mod.getHardwareEncoderCapabilities());
 	} catch (error) {
 		logger.warn('Native hardware encoder getHardwareEncoderCapabilities() threw', error);
-		const detail = error instanceof Error ? error.message : String(error);
+		const detail = errorMessage(error);
 		return unavailableVoiceEngineV2HardwareEncoderCapabilities('query-failed', detail);
 	}
 }

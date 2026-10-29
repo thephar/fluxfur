@@ -50,11 +50,13 @@ import {ChangeNicknameModal} from '@app/features/user/components/modals/ChangeNi
 import type {User} from '@app/features/user/models/User';
 import UserProfileMobile from '@app/features/user/state/UserProfileMobile';
 import Users from '@app/features/user/state/Users';
+import {canPerform} from '@app/features/user/utils/AccountGates';
 import {blockedDmConfirmModal} from '@app/features/user/utils/DMActionUtils';
 import * as NicknameUtils from '@app/features/user/utils/NicknameUtils';
 import * as CallUtils from '@app/features/voice/utils/CallUtils';
 import {hasActiveDirectCallWithUser} from '@app/features/voice/utils/PrivateCallMenuUtils';
 import {VOICE_CALL_DESCRIPTOR} from '@app/features/voice/utils/VoiceMessageDescriptors';
+import {TierGatedActions} from '@fluxer/constants/src/AccountTierConstants';
 import {Permissions} from '@fluxer/constants/src/ChannelConstants';
 import {RelationshipTypes} from '@fluxer/constants/src/UserConstants';
 import {msg} from '@lingui/core/macro';
@@ -111,7 +113,7 @@ export const GuildMemberActionsSheet: FC<GuildMemberActionsSheetProps> = observe
 		const currentUserId = Authentication.currentUserId;
 		const isCurrentUser = user.id === currentUserId;
 		const isBot = user.bot;
-		const currentUserUnclaimed = !(Users.currentUser?.isClaimed() ?? true);
+		const canSendFriendRequest = canPerform(Users.currentUser, TierGatedActions.FRIEND_REQUEST).allowed;
 		const relationship = Relationships.getRelationship(user.id);
 		const relationshipType = relationship?.type;
 		const isBlocked = relationshipType === RelationshipTypes.BLOCKED;
@@ -292,7 +294,7 @@ export const GuildMemberActionsSheet: FC<GuildMemberActionsSheetProps> = observe
 		if (guildItems.length > 0) {
 			menuGroups.push({items: guildItems});
 		}
-		if (!isCurrentUser && !isBot && !RuntimeConfig.directMessagesDisabled) {
+		if (!isCurrentUser && !isBot && !RuntimeConfig.friendsDisabled) {
 			const relationshipItems = [];
 			if (relationshipType === RelationshipTypes.FRIEND) {
 				relationshipItems.push({
@@ -312,8 +314,7 @@ export const GuildMemberActionsSheet: FC<GuildMemberActionsSheetProps> = observe
 			} else if (
 				relationshipType !== RelationshipTypes.OUTGOING_REQUEST &&
 				relationshipType !== RelationshipTypes.BLOCKED &&
-				!currentUserUnclaimed &&
-				Users.currentUser?.verified !== false
+				canSendFriendRequest
 			) {
 				relationshipItems.push({
 					icon: <UserPlusIcon className={styles.icon} data-flx="guild.guild-tabs.guild-member-actions-sheet.icon--7" />,

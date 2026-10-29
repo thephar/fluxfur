@@ -13,18 +13,18 @@ const SPLASH_ACTION_LABEL_MAX_LENGTH = 48;
 const SPLASH_MESSAGE_MAX_LENGTH = 160;
 const SPLASH_PROGRESS_MAX = 100;
 
-export const SPLASH_READY_WATCHDOG_MS = 3000;
-export const SPLASH_CLOSE_DELAY_MS = 100;
+const SPLASH_READY_WATCHDOG_MS = 3000;
+const SPLASH_CLOSE_DELAY_MS = 100;
 
-export const DESKTOP_SPLASH_STATE_CHANNEL = 'desktop-splash:state';
-export const DESKTOP_SPLASH_REVEALED_CHANNEL = 'desktop-splash:revealed';
-export const DESKTOP_SPLASH_READY_CHANNEL = 'desktop-splash:ready';
-export const DESKTOP_SPLASH_RETRY_NOW_CHANNEL = 'desktop-splash:retry-now';
-export const DESKTOP_SPLASH_QUIT_CHANNEL = 'desktop-splash:quit';
-export const DESKTOP_SPLASH_OPEN_DOWNLOAD_CHANNEL = 'desktop-splash:open-download';
-export const DESKTOP_SPLASH_NETWORK_ONLINE_CHANNEL = 'desktop-splash:network-online';
-export const DESKTOP_SPLASH_OPEN_LOGS_CHANNEL = 'desktop-splash:open-logs';
-export const DESKTOP_SPLASH_COPY_DIAGNOSTICS_CHANNEL = 'desktop-splash:copy-diagnostics';
+const DESKTOP_SPLASH_STATE_CHANNEL = 'desktop-splash:state';
+const DESKTOP_SPLASH_REVEALED_CHANNEL = 'desktop-splash:revealed';
+const DESKTOP_SPLASH_READY_CHANNEL = 'desktop-splash:ready';
+const DESKTOP_SPLASH_RETRY_NOW_CHANNEL = 'desktop-splash:retry-now';
+const DESKTOP_SPLASH_QUIT_CHANNEL = 'desktop-splash:quit';
+const DESKTOP_SPLASH_OPEN_DOWNLOAD_CHANNEL = 'desktop-splash:open-download';
+const DESKTOP_SPLASH_NETWORK_ONLINE_CHANNEL = 'desktop-splash:network-online';
+const DESKTOP_SPLASH_OPEN_LOGS_CHANNEL = 'desktop-splash:open-logs';
+const DESKTOP_SPLASH_COPY_DIAGNOSTICS_CHANNEL = 'desktop-splash:copy-diagnostics';
 
 export const SplashStatus = Object.freeze({
 	CHECKING_FOR_UPDATES: 'checking-for-updates',
@@ -46,13 +46,13 @@ export const SplashStatus = Object.freeze({
 
 export type SplashStatus = (typeof SplashStatus)[keyof typeof SplashStatus];
 
-export const SplashActionKind = Object.freeze({
+const SplashActionKind = Object.freeze({
 	RETRY: 'retry',
 	DOWNLOAD: 'download',
 	QUIT: 'quit',
 } as const);
 
-export type SplashActionKind = (typeof SplashActionKind)[keyof typeof SplashActionKind];
+type SplashActionKind = (typeof SplashActionKind)[keyof typeof SplashActionKind];
 
 export interface SplashActionDescriptor {
 	readonly kind: SplashActionKind;
@@ -78,7 +78,7 @@ export interface SplashState {
 	readonly message?: string | null;
 }
 
-export interface SerializedSplashState {
+interface SerializedSplashState {
 	readonly status: SplashStatus;
 	readonly current: number | null;
 	readonly total: number | null;
@@ -140,7 +140,7 @@ function toSplashAction(action: SplashActionDescriptor | null | undefined): Spla
 	return {kind: action.kind, label};
 }
 
-export function serializeSplashState(state: SplashState): SerializedSplashState {
+function serializeSplashState(state: SplashState): SerializedSplashState {
 	return {
 		status: SPLASH_STATUSES.has(state.status) ? state.status : SplashStatus.CHECKING_FOR_UPDATES,
 		current: toSplashCount(state.current),
@@ -155,16 +155,8 @@ export function serializeSplashState(state: SplashState): SerializedSplashState 
 	};
 }
 
-export function hasSplashAffordance(state: SerializedSplashState): boolean {
+function hasSplashAffordance(state: SerializedSplashState): boolean {
 	return state.action != null;
-}
-
-export function getSplashWindowHeight(platform: NodeJS.Platform): number {
-	return platform === 'darwin' ? SPLASH_WINDOW_HEIGHT_DARWIN : SPLASH_WINDOW_HEIGHT_DEFAULT;
-}
-
-export function shouldQuitOnSplashClosed(platform: NodeJS.Platform, isLaunchLatched: boolean): boolean {
-	return platform !== 'darwin' && !isLaunchLatched;
 }
 
 function addSplashListener(listeners: Set<SplashListener>, listener: SplashListener): () => void {
@@ -295,7 +287,7 @@ function createSplashWindow(darkThemeOnShow: boolean, heldHidden: boolean): Brow
 	if (!darkThemeOnShow) applySplashTheme();
 	const window = new BrowserWindow({
 		width: SPLASH_WINDOW_WIDTH,
-		height: getSplashWindowHeight(process.platform),
+		height: process.platform === 'darwin' ? SPLASH_WINDOW_HEIGHT_DARWIN : SPLASH_WINDOW_HEIGHT_DEFAULT,
 		frame: false,
 		hasShadow: true,
 		resizable: false,
@@ -326,7 +318,9 @@ function createSplashWindow(darkThemeOnShow: boolean, heldHidden: boolean): Brow
 			splashDocumentReady = false;
 		}
 		restoreThemeSource();
-		if (!shouldQuitOnSplashClosed(process.platform, launchLatched)) return;
+		if (process.platform === 'darwin' || launchLatched) {
+			return;
+		}
 		logger.info('The splash window closed before launch, quitting');
 		app.quit();
 	});

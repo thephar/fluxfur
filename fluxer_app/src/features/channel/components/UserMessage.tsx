@@ -180,12 +180,12 @@ export const UserMessage = observer(() => {
 		message.state === MessageStates.FAILED && (mobileLayout.enabled || shouldHideContent || !hasStyleableTextContent);
 	const shouldApplyFailedTextStyling =
 		message.state === MessageStates.FAILED && !shouldHideContent && hasStyleableTextContent;
-	const messageStateClassName =
-		message.state === MessageStates.FAILED
-			? shouldApplyFailedTextStyling
-				? styles.messageFailed
-				: undefined
-			: MessageStateToClassName[message.state];
+	let messageStateClassName: string | undefined;
+	if (message.state !== MessageStates.FAILED) {
+		messageStateClassName = MessageStateToClassName[message.state];
+	} else if (shouldApplyFailedTextStyling) {
+		messageStateClassName = styles.messageFailed;
+	}
 	const checkCustomEmojiAvailability = useCallback(
 		(content: string): boolean => {
 			CUSTOM_EMOJI_MARKDOWN_PATTERN.lastIndex = 0;
@@ -308,6 +308,7 @@ export const UserMessage = observer(() => {
 		return (
 			<div
 				className={clsx(markupStyles.markup)}
+				dir="auto"
 				data-search-highlight-scope="message"
 				data-flx="channel.user-message.render-message-content.div"
 				{...messageContentCopyBlockProps(contentCopyText)}
@@ -443,6 +444,7 @@ export const UserMessage = observer(() => {
 					<div className={styles.messageText} data-flx="channel.user-message.message-text">
 						<div
 							className={clsx(markupStyles.markup)}
+							dir="auto"
 							data-search-highlight-scope="message"
 							data-flx="channel.user-message.div"
 							{...messageContentCopyBlockProps(contentCopyText)}

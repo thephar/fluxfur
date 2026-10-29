@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import {ActivityPubController} from '@app/api/activity_pub/ActivityPubController';
+import {AdminDownloadController} from '@app/api/admin/AdminDownloadController';
 import {registerAdminControllers} from '@app/api/admin/controllers/index';
 import {AttachmentController} from '@app/api/attachment/AttachmentController';
+import {AccountEntryController} from '@app/api/auth/AccountEntryController';
 import {AuthController} from '@app/api/auth/AuthController';
 import {OriginHandoffController} from '@app/api/auth/OriginHandoffController';
 import {PasskeyBridgeController} from '@app/api/auth/PasskeyBridgeController';
@@ -23,6 +26,8 @@ import {InviteController} from '@app/api/invite/InviteController';
 import {OAuth2ApplicationsController} from '@app/api/oauth/OAuth2ApplicationsController';
 import {OAuth2Controller} from '@app/api/oauth/OAuth2Controller';
 import {OpenAPIController} from '@app/api/openapi/OpenAPIController';
+import {OperatorPassController} from '@app/api/operator_pass/OperatorPassController';
+import {OperatorPassInternalController} from '@app/api/operator_pass/OperatorPassInternalController';
 import {PremiumController} from '@app/api/premium/PremiumController';
 import {ReadStateController} from '@app/api/read_state/ReadStateController';
 import {ReportController} from '@app/api/report/ReportController';
@@ -40,10 +45,13 @@ import {WebhookController} from '@app/api/webhook/WebhookController';
 
 export function registerControllers(routes: HonoApp, config: APIConfig): void {
 	InternalRpcController(routes);
+	OperatorPassInternalController(routes);
 	GatewayController(routes);
 	GeolocationController(routes);
 	registerAdminControllers(routes);
+	AdminDownloadController(routes);
 	AuthController(routes);
+	AccountEntryController(routes);
 	OriginHandoffController(routes);
 	PasskeyBridgeController(routes);
 	AttachmentController(routes);
@@ -51,6 +59,7 @@ export function registerControllers(routes: HonoApp, config: APIConfig): void {
 	ConnectionController(routes);
 	BlueskyOAuthController(routes);
 	InstanceController(routes);
+	ActivityPubController(routes);
 	OpenAPIController(routes);
 	DownloadController(routes);
 	ExperimentController(routes);
@@ -76,6 +85,7 @@ export function registerControllers(routes: HonoApp, config: APIConfig): void {
 	PremiumController(routes);
 	if (!config.instance.selfHosted) {
 		DonationController(routes);
+		OperatorPassController(routes);
 	}
 	StripeController(routes);
 }

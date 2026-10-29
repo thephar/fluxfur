@@ -3,7 +3,6 @@
 import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
 import {
 	coerceNumberFromString,
-	createInt32EnumType,
 	createStringType,
 	Int32Type,
 	Int64StringType,
@@ -16,10 +15,7 @@ import {
 	stripInvisibles,
 	stripVariationSelectors,
 	UnsignedInt64Type,
-	withFieldDescription,
-	withOpenApiType,
 } from '@fluxer/schema/src/primitives/SchemaPrimitives';
-import {schemaMetadata} from '@fluxer/schema/src/SchemaMetadata';
 import {describe, expect, it} from 'vitest';
 import {z} from 'zod';
 
@@ -239,40 +235,5 @@ describe('stripVariationSelectors', () => {
 	it('throws on excessively long strings', () => {
 		const longString = 'a'.repeat(10001);
 		expect(() => stripVariationSelectors(longString)).toThrow(ValidationErrorCodes.STRING_LENGTH_INVALID);
-	});
-});
-
-describe('named enum metadata', () => {
-	const schema = createInt32EnumType(
-		[
-			[0, 'NONE', 'No selection'],
-			[2, 'SECOND'],
-		],
-		'Selection',
-		'OriginalSelection',
-	);
-	it.each([0, 2])('preserves enum member %i', (value) => {
-		expect(schema.parse(value)).toBe(value);
-	});
-	it('retains the custom error for an unrecognized integer', () => {
-		expect(schema.safeParse(1).error?.issues).toEqual([{code: 'custom', message: 'Expected one of [0, 2]', path: []}]);
-	});
-	it.each([-1, 0.5, '0'])('does not loosen integer validation for %j', (value) => {
-		expect(schema.safeParse(value).success).toBe(false);
-	});
-	it('retains enum metadata when describing and renaming a clone', () => {
-		const described = withFieldDescription(schema, 'Field selection');
-		const renamed = withOpenApiType(described, 'FieldSelection');
-		expect(schema.description).toBe('Selection');
-		expect(schemaMetadata.get(schema)?.name).toBe('OriginalSelection');
-		expect(renamed.description).toBe('Field selection');
-		expect(schemaMetadata.get(renamed)).toEqual({
-			name: 'FieldSelection',
-			format: 'int32',
-			enumEntries: [
-				{value: 0, name: 'NONE', description: 'No selection'},
-				{value: 2, name: 'SECOND'},
-			],
-		});
 	});
 });

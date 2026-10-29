@@ -2,8 +2,8 @@
 
 import {InvoiceList} from '@app/features/app/components/dialogs/components/plutonium/InvoiceList';
 import styles from '@app/features/app/components/dialogs/components/plutonium/PurchaseHistorySection.module.css';
+import {PlutoniumPageButton} from '@app/features/premium/components/plutonium_page/PlutoniumPageButton';
 import {Accordion} from '@app/features/ui/accordion/Accordion';
-import {Button} from '@app/features/ui/button/Button';
 import type {PremiumStateResponse} from '@fluxer/schema/src/domains/premium/PremiumSchemas';
 import {Trans} from '@lingui/react/macro';
 import {observer} from 'mobx-react-lite';
@@ -29,10 +29,10 @@ export const PurchaseHistorySection: React.FC<PurchaseHistorySectionProps> = obs
 								<Trans>Purchase history</Trans>
 							</h3>
 						</div>
-						<Button
+						<PlutoniumPageButton
 							variant="secondary"
 							onClick={handleOpenCustomerPortal}
-							submitting={loadingPortal}
+							loading={loadingPortal}
 							small
 							className={styles.button}
 							data-flx="app.plutonium.purchase-history-section.button.open-customer-portal"
@@ -40,7 +40,7 @@ export const PurchaseHistorySection: React.FC<PurchaseHistorySectionProps> = obs
 							<Trans comment="Billing button that opens Stripe customer portal for payment-method management only.">
 								Manage payment methods
 							</Trans>
-						</Button>
+						</PlutoniumPageButton>
 					</div>
 					<div className={styles.accordionStack} data-flx="app.plutonium.purchase-history-section.accordion-stack">
 						<Accordion

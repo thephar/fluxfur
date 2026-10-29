@@ -28,8 +28,7 @@ LABEL app.fluxer.build-version="${BUILD_VERSION}"
 
 WORKDIR /usr/local/bin
 
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && \
-	rm -rf /var/lib/apt/lists/*
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
 COPY --from=builder /usr/src/app/target/release/fluxer-unfurl /usr/local/bin/fluxer-unfurl
 

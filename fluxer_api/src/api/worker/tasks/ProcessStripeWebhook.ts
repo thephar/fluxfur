@@ -3,7 +3,6 @@
 import {Config} from '@app/api/Config';
 import {getProductRegistry} from '@app/api/stripe/ProductRegistry';
 import {StripeService} from '@app/api/stripe/StripeService';
-import {AgeVerificationService} from '@app/api/stripe/services/AgeVerificationService';
 import {StripeWebhookService} from '@app/api/stripe/services/StripeWebhookService';
 import {createWorkerEnforcementServices} from '@app/api/worker/tasks/admin_bulk/AdminBulkServices';
 import {getWorkerDependencies} from '@app/api/worker/WorkerContext';
@@ -36,17 +35,13 @@ const processStripeWebhook: WorkerTaskHandler = async (payload, helpers) => {
 		deps.billingRepository,
 		null,
 		deps.storeEntitlementService,
-	);
-	const ageVerificationService = new AgeVerificationService(
-		stripe,
-		deps.userRepository,
-		deps.gatewayService,
-		deps.cacheService,
+		deps.operatorPassServices,
 	);
 	const webhookService = new StripeWebhookService(
 		stripe,
 		deps.userRepository,
 		deps.userCacheService,
+		stripeService.subscriptions,
 		deps.emailService,
 		deps.gatewayService,
 		productRegistry,
@@ -56,13 +51,13 @@ const processStripeWebhook: WorkerTaskHandler = async (payload, helpers) => {
 		deps.donationRepository,
 		deps.deletionQueueService,
 		deps.premiumStateReconciliationQueueService,
-		ageVerificationService,
 		deps.adminRepository,
 		deps.snowflakeService,
 		deps.billingRepository,
 		stripeService.refunds,
 		createWorkerEnforcementServices(deps).enforcementService,
 		deps.storeEntitlementService,
+		stripeService.operatorPassFulfilment,
 	);
 	await webhookService.handleWebhook({body, signature});
 };

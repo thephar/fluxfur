@@ -6,7 +6,7 @@ import {DONATION_CURRENCIES, type DonationCurrency} from '@fluxer/schema/src/dom
 
 export const TEST_DONOR_EMAIL = 'donor@test.com';
 export const TEST_MAGIC_LINK_TOKEN = 'a'.repeat(64);
-export const DONATION_AMOUNTS = {
+const DONATION_AMOUNTS = {
 	STANDARD: 2500,
 } as const;
 export const DONATION_CURRENCY_VALUES = {
@@ -20,9 +20,8 @@ export const DONATION_CURRENCY_VALUES = {
 	DKK: DONATION_CURRENCIES[7],
 	NOK: DONATION_CURRENCIES[8],
 } as const;
-export const DONATION_INTERVALS = {
+const DONATION_INTERVALS = {
 	MONTH: 'month',
-	YEAR: 'year',
 } as const;
 
 interface DonationCheckoutRequestBody {

@@ -51,7 +51,7 @@ export interface AuthSessionValidatedSwitchOptions {
 	readonly validatedToken: string;
 }
 
-export class AccountSwitchPreparedCredentialChangedError extends Error {
+class AccountSwitchPreparedCredentialChangedError extends Error {
 	constructor(accountKey: string) {
 		super(`Prepared credentials changed before ${accountKey} could be activated`);
 		this.name = 'AccountSwitchPreparedCredentialChangedError';
@@ -368,7 +368,7 @@ export class AuthSessionLifecycle {
 		});
 	}
 
-	async logout(): Promise<void> {
+	async logout({notifyServer = true}: {notifyServer?: boolean} = {}): Promise<void> {
 		return await this.transitionGate.runAccountTransition(async () => {
 			const state = this.state.getState();
 			if (
@@ -382,7 +382,7 @@ export class AuthSessionLifecycle {
 			}
 			const reason = AccountScopedWorkTransitionReason.LOGOUT;
 			return await this.transitionGate.runAccountScoped(reason, async (transition) => {
-				await this.removeCurrentSession(this.state.getCurrentAccountKey(), reason, true, transition);
+				await this.removeCurrentSession(this.state.getCurrentAccountKey(), reason, notifyServer, transition);
 			});
 		});
 	}

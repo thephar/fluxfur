@@ -2,7 +2,9 @@
 
 import i18n from '@app/app/I18n';
 import {showGenericErrorModal} from '@app/features/app/components/alerts/GenericErrorModalCommands';
+import {promptForAccountTier} from '@app/features/auth/utils/AccountTierPrompt';
 import {failureCode, failureMessage} from '@app/features/platform/utils/ResponseInspection';
+import {FRIENDS_DISABLED_DESCRIPTOR} from '@app/features/relationship/utils/RelationshipMessageDescriptors';
 import {APIErrorCodes} from '@fluxer/constants/src/ApiErrorCodes';
 import {msg} from '@lingui/core/macro';
 
@@ -33,7 +35,7 @@ const FINISH_SIGNING_UP_TO_SEND_MESSAGE_DESCRIPTOR = msg({
 		'Body of the friend-request error modal when the current account is an unclaimed (guest) account. "Finish signing up" means complete account claim.',
 });
 const VERIFY_EMAIL_TO_SEND_MESSAGE_DESCRIPTOR = msg({
-	message: 'Verify your email before sending friend requests.',
+	message: 'Confirm your email before sending friend requests.',
 	comment: 'Body of the friend-request error modal when the current account email is unverified.',
 });
 const FRIENDS_LIST_FULL_MESSAGE_DESCRIPTOR = msg({
@@ -112,6 +114,9 @@ const IGNORE_FRIEND_REQUEST_FAILED_MESSAGE_DESCRIPTOR = msg({
 });
 
 export function showSendFriendRequestErrorModal(error: unknown): void {
+	if (promptForAccountTier(error)) {
+		return;
+	}
 	const code = failureCode(error);
 	const apiMessage = failureMessage(error);
 	showGenericErrorModal({
@@ -140,6 +145,9 @@ export function showSendFriendRequestErrorModal(error: unknown): void {
 				case APIErrorCodes.MAX_FRIENDS:
 					message = i18n._(FRIENDS_LIST_FULL_MESSAGE_DESCRIPTOR);
 					break;
+				case APIErrorCodes.FRIENDS_DISABLED:
+					message = i18n._(FRIENDS_DISABLED_DESCRIPTOR);
+					break;
 				default:
 					message = apiMessage || i18n._(SEND_FRIEND_REQUEST_FAILED_MESSAGE_DESCRIPTOR);
 					break;
@@ -151,6 +159,9 @@ export function showSendFriendRequestErrorModal(error: unknown): void {
 }
 
 export function showAcceptFriendRequestErrorModal(error: unknown): void {
+	if (promptForAccountTier(error)) {
+		return;
+	}
 	const code = failureCode(error);
 	showGenericErrorModal({
 		getContent: () => {
@@ -166,6 +177,9 @@ export function showAcceptFriendRequestErrorModal(error: unknown): void {
 					break;
 				case APIErrorCodes.MAX_FRIENDS:
 					message = i18n._(FRIENDS_LIST_FULL_MESSAGE_DESCRIPTOR);
+					break;
+				case APIErrorCodes.FRIENDS_DISABLED:
+					message = i18n._(FRIENDS_DISABLED_DESCRIPTOR);
 					break;
 				default:
 					message = i18n._(ACCEPT_FRIEND_REQUEST_FAILED_MESSAGE_DESCRIPTOR);

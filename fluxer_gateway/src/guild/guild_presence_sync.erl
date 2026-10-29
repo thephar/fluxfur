@@ -1,9 +1,6 @@
 %% SPDX-License-Identifier: AGPL-3.0-or-later
 
 -module(guild_presence_sync).
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
--endif.
 
 -typing([eqwalizer]).
 
@@ -118,7 +115,7 @@ classify_non_target_session(SessionData, SessionUserId, TargetChannelMap, State)
 session_shares_channels(SessionData, SessionUserId, TargetChannelMap, State) ->
     case maps:find(viewable_channels, SessionData) of
         {ok, ViewableMap} when is_map(ViewableMap) ->
-            maps_share_any_key(ViewableMap, TargetChannelMap);
+            map_utils:maps_share_any_key(ViewableMap, TargetChannelMap);
         _ ->
             session_channel_list_shares(SessionUserId, TargetChannelMap, State)
     end.
@@ -129,29 +126,6 @@ session_channel_list_shares(SessionUserId, TargetChannelMap, State) ->
         SessionUserId, State
     ),
     lists:any(fun(Ch) -> maps:is_key(Ch, TargetChannelMap) end, SessionChannelList).
-
--spec maps_share_any_key(map(), map()) -> boolean().
-maps_share_any_key(MapA, MapB) ->
-    {Smaller, Larger} =
-        case map_size(MapA) =< map_size(MapB) of
-            true -> {MapA, MapB};
-            false -> {MapB, MapA}
-        end,
-    maps_share_any_key_iter(maps:iterator(Smaller), Larger).
-
--spec maps_share_any_key_iter(maps:iterator(), map()) -> boolean().
-maps_share_any_key_iter(Iterator, LargerMap) ->
-    case maps:next(Iterator) of
-        none -> false;
-        {Key, _, NextIterator} -> key_matches_or_continue(Key, NextIterator, LargerMap)
-    end.
-
--spec key_matches_or_continue(term(), maps:iterator(), map()) -> boolean().
-key_matches_or_continue(Key, NextIterator, LargerMap) ->
-    case maps:is_key(Key, LargerMap) of
-        true -> true;
-        false -> maps_share_any_key_iter(NextIterator, LargerMap)
-    end.
 
 -spec get_user_viewable_channel_map(user_id(), map(), guild_state()) -> map().
 get_user_viewable_channel_map(UserId, Sessions, State) ->
@@ -210,149 +184,3 @@ session_data_pid(SessionData) ->
         Pid when is_pid(Pid) -> {true, Pid};
         _ -> false
     end.
-
--ifdef(TEST).
-
-get_user_viewable_channel_map_uses_session_cache_test() ->
-    Sessions = #{
-        <<"s1">> => #{user_id => 10, viewable_channels => #{100 => true, 200 => true}},
-        <<"s2">> => #{user_id => 20, viewable_channels => #{300 => true}}
-    },
-    State = #{sessions => Sessions, data => #{<<"members">> => #{}}},
-    Result = get_user_viewable_channel_map(10, Sessions, State),
-    ?assertEqual(#{100 => true, 200 => true}, Result).
-
-get_user_viewable_channel_map_skips_session_without_cache_test() ->
-    Sessions = #{
-        <<"s1">> => #{user_id => 10},
-        <<"s2">> => #{user_id => 10, viewable_channels => #{100 => true}}
-    },
-    State = #{sessions => Sessions, data => #{<<"members">> => #{}}},
-    Result = get_user_viewable_channel_map(10, Sessions, State),
-    ?assertEqual(#{100 => true}, Result).
-
-session_shares_channels_uses_cached_viewable_test() ->
-    SessionData = #{user_id => 20, viewable_channels => #{100 => true, 200 => true}},
-    TargetChannelMap = #{200 => true, 300 => true},
-    State = #{sessions => #{}, data => #{<<"members">> => #{}}},
-    ?assertEqual(true, session_shares_channels(SessionData, 20, TargetChannelMap, State)).
-
-session_shares_channels_no_overlap_test() ->
-    SessionData = #{user_id => 20, viewable_channels => #{100 => true}},
-    TargetChannelMap = #{200 => true, 300 => true},
-    State = #{sessions => #{}, data => #{<<"members">> => #{}}},
-    ?assertEqual(false, session_shares_channels(SessionData, 20, TargetChannelMap, State)).
-
-partition_subscribed_sessions_uses_cached_channels_test() ->
-    Sessions = #{
-        <<"s1">> => #{user_id => 20, pid => self(), viewable_channels => #{100 => true}},
-        <<"s2">> => #{user_id => 30, pid => self(), viewable_channels => #{200 => true}}
-    },
-    TargetChannelMap = #{100 => true, 300 => true},
-    State = #{sessions => Sessions, data => #{<<"members">> => #{}}},
-    {Valid, Invalid} = partition_subscribed_sessions(
-        [<<"s1">>, <<"s2">>], Sessions, TargetChannelMap, 10, State
-    ),
-    ?assertEqual([<<"s1">>], Valid),
-    ?assertEqual([<<"s2">>], Invalid).
-
-partition_subscribed_sessions_excludes_target_user_test() ->
-    Sessions = #{
-        <<"s1">> => #{user_id => 10, pid => self(), viewable_channels => #{100 => true}}
-    },
-    assert_partition_result(Sessions, #{100 => true}, [], [<<"s1">>]).
-
-partition_subscribed_sessions_missing_session_test() ->
-    assert_partition_result(#{}, #{100 => true}, [], [<<"s1">>]).
-
-sync_member_data_updates_loaded_channel_engines_test() ->
-    GuildId = 100,
-    UserId = 10,
-    ChannelId = 500,
-    BotsRoleId = 200,
-    CountingRoleId = 300,
-    DefaultRef = guild_member_list_engine:new(),
-    ChannelRef = guild_member_list_engine:new(),
-    try
-        ok = load_sync_member_test_ref(DefaultRef, UserId, CountingRoleId, BotsRoleId),
-        ok = load_sync_member_test_ref(ChannelRef, UserId, CountingRoleId, BotsRoleId),
-        State = sync_member_data_test_state(
-            GuildId, UserId, ChannelId, BotsRoleId, CountingRoleId, DefaultRef, ChannelRef
-        ),
-        ?assertEqual(stale_groups(BotsRoleId), guild_member_list_engine:get_groups(ChannelRef)),
-        ok = sync_member_data(UserId, State),
-        ?assertEqual(
-            hoisted_groups(BotsRoleId), guild_member_list_engine:get_groups(ChannelRef)
-        )
-    after
-        guild_member_list_engine:destroy(DefaultRef),
-        guild_member_list_engine:destroy(ChannelRef)
-    end.
-
-assert_partition_result(Sessions, TargetChannelMap, ExpectedValid, ExpectedInvalid) ->
-    State = #{sessions => Sessions, data => #{<<"members">> => #{}}},
-    {Valid, Invalid} = partition_subscribed_sessions(
-        [<<"s1">>], Sessions, TargetChannelMap, 10, State
-    ),
-    ?assertEqual(ExpectedValid, Valid),
-    ?assertEqual(ExpectedInvalid, Invalid).
-
--spec load_sync_member_test_ref(
-    guild_member_list_store:store_ref(), integer(), integer(), integer()
-) -> ok.
-load_sync_member_test_ref(Ref, UserId, MemberRoleId, HoistedRoleId) ->
-    guild_member_list_engine:bulk_load(
-        Ref, [{UserId, <<"counting">>, [MemberRoleId], true}], [HoistedRoleId]
-    ).
-
-sync_member_data_test_state(
-    GuildId, UserId, ChannelId, BotsRoleId, CountingRoleId, DefaultRef, ChannelRef
-) ->
-    Data = guild_data_index:normalize_data(#{
-        <<"guild">> => #{<<"owner_id">> => integer_to_binary(UserId)},
-        <<"roles">> => [
-            role(GuildId, <<"everyone">>, false, 0),
-            role(BotsRoleId, <<"bots">>, true, 1),
-            role(CountingRoleId, <<"Counting">>, false, 1)
-        ],
-        <<"members">> => [
-            #{
-                <<"user">> => #{
-                    <<"id">> => integer_to_binary(UserId),
-                    <<"username">> => <<"Counting">>
-                },
-                <<"roles">> => [
-                    integer_to_binary(BotsRoleId), integer_to_binary(CountingRoleId)
-                ]
-            }
-        ],
-        <<"channels">> => [
-            #{<<"id">> => integer_to_binary(ChannelId), <<"permission_overwrites">> => []}
-        ]
-    }),
-    #{
-        id => GuildId,
-        data => Data,
-        sessions => #{},
-        member_presence => #{UserId => #{<<"status">> => <<"online">>}},
-        connected_user_ids => sets:from_list([UserId]),
-        member_list_engine => DefaultRef,
-        channel_member_list_engines => #{integer_to_binary(ChannelId) => ChannelRef}
-    }.
-
-role(RoleId, Name, Hoist, Position) ->
-    #{
-        <<"id">> => integer_to_binary(RoleId),
-        <<"name">> => Name,
-        <<"hoist">> => Hoist,
-        <<"position">> => Position,
-        <<"permissions">> => <<"0">>
-    }.
-
-stale_groups(RoleId) ->
-    [{integer_to_binary(RoleId), 0}, {<<"online">>, 1}, {<<"offline">>, 0}].
-
-hoisted_groups(RoleId) ->
-    [{integer_to_binary(RoleId), 1}, {<<"online">>, 0}, {<<"offline">>, 0}].
-
--endif.

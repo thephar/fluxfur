@@ -14,7 +14,7 @@ export interface SearchHints {
 	channelsByName?: Record<string, string>;
 }
 
-export interface ParsedToken {
+interface ParsedToken {
 	key: string;
 	value: string;
 	start: number;
@@ -32,7 +32,7 @@ export const SearchChipRole = Object.freeze({
 
 export type SearchChipRole = (typeof SearchChipRole)[keyof typeof SearchChipRole];
 
-export interface SearchChip {
+interface SearchChip {
 	role: SearchChipRole;
 	key: string;
 	exclude: boolean;
@@ -384,7 +384,7 @@ const tryResolveChannel = (name: string, guildId?: string | null, hints?: Search
 	return partial?.id ?? null;
 };
 
-export interface ParseContext {
+interface ParseContext {
 	guildId?: string | null;
 }
 
@@ -643,13 +643,11 @@ export function parseQuery(query: string, hints?: SearchHints, ctx?: ParseContex
 				const values = splitCSV(tok.value);
 				for (const tag of values) {
 					const id = tryResolveUser(tag, hints);
-					if (id) {
-						if (isExcludeKey) {
-							params.excludeAuthorId = add(params.excludeAuthorId, id);
-						} else {
-							params.authorId = add(params.authorId, id);
-						}
+					if (!id) {
+						continue;
 					}
+					const destination = isExcludeKey ? 'excludeAuthorId' : 'authorId';
+					params[destination] = add(params[destination], id);
 				}
 				break;
 			}
@@ -659,16 +657,14 @@ export function parseQuery(query: string, hints?: SearchHints, ctx?: ParseContex
 					const lower = v.toLowerCase();
 					if (lower === 'everyone' || lower === 'here') {
 						params.mentionEveryone = true;
-					} else {
-						const id = tryResolveUser(v, hints);
-						if (id) {
-							if (isExcludeKey) {
-								params.excludeMentions = add(params.excludeMentions, id);
-							} else {
-								params.mentions = add(params.mentions, id);
-							}
-						}
+						continue;
 					}
+					const id = tryResolveUser(v, hints);
+					if (!id) {
+						continue;
+					}
+					const destination = isExcludeKey ? 'excludeMentions' : 'mentions';
+					params[destination] = add(params[destination], id);
 				}
 				break;
 			}
@@ -676,13 +672,11 @@ export function parseQuery(query: string, hints?: SearchHints, ctx?: ParseContex
 				const values = splitCSV(tok.value);
 				for (const v of values) {
 					const id = tryResolveChannel(v, ctx?.guildId ?? null, hints);
-					if (id) {
-						if (isExcludeKey) {
-							params.excludeChannelId = add(params.excludeChannelId, id);
-						} else {
-							params.channelId = add(params.channelId, id);
-						}
+					if (!id) {
+						continue;
 					}
+					const destination = isExcludeKey ? 'excludeChannelId' : 'channelId';
+					params[destination] = add(params[destination], id);
 				}
 				break;
 			}
@@ -695,12 +689,11 @@ export function parseQuery(query: string, hints?: SearchHints, ctx?: ParseContex
 					.filter(Boolean);
 				for (const value of values) {
 					const normalized = normalizeHasValue(value);
-					if (!normalized) continue;
-					if (isExcludeKey) {
-						params.excludeHas = add(params.excludeHas, normalized);
-					} else {
-						params.has = add(params.has, normalized);
+					if (!normalized) {
+						continue;
 					}
+					const destination = isExcludeKey ? 'excludeHas' : 'has';
+					params[destination] = add(params[destination], normalized);
 				}
 				break;
 			}
@@ -744,13 +737,11 @@ export function parseQuery(query: string, hints?: SearchHints, ctx?: ParseContex
 			case 'embed-type': {
 				const values = splitCSV(tok.value).map((v) => v.toLowerCase());
 				for (const v of values) {
-					if (isExcludeKey) {
-						if (isEmbedTypeFilter(v)) {
-							params.excludeEmbedType = add(params.excludeEmbedType, v);
-						}
-					} else if (isEmbedTypeFilter(v)) {
-						params.embedType = add(params.embedType, v);
+					if (!isEmbedTypeFilter(v)) {
+						continue;
 					}
+					const destination = isExcludeKey ? 'excludeEmbedType' : 'embedType';
+					params[destination] = add(params[destination], v);
 				}
 				break;
 			}

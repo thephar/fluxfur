@@ -411,7 +411,6 @@ export const Sounds: React.FC<SoundsProps> = observer(
 											maxValue={200}
 											step={1}
 											disabled={rowDisabled}
-											className={styles.overrideSlider}
 											onValueRender={formatPercentage}
 											onValueChange={(value) => onSoundOverrideChange(type, value)}
 											data-flx="user.notifications-tab.sounds.slider--2"

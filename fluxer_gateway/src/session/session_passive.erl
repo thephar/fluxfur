@@ -15,9 +15,7 @@
     is_user_mentioned/2,
     is_guild_synced/2,
     mark_guild_synced/2,
-    clear_guild_synced/2,
-    extract_role_ids/1,
-    mention_role_set/1
+    clear_guild_synced/2
 ]).
 
 -export_type([guild_id/0, user_id/0, event/0, session_data/0, guild_state/0]).

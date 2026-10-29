@@ -251,7 +251,7 @@ export class StripeSubscriptionReconciler {
 		return false;
 	}
 
-	getPriceIdFromInvoice(invoice: Stripe.Invoice): string | null {
+	private getPriceIdFromInvoice(invoice: Stripe.Invoice): string | null {
 		if (!invoice.lines?.data?.length) {
 			return null;
 		}

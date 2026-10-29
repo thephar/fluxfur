@@ -47,12 +47,6 @@ export const getViewportPadding = () => {
 	const minSide = Math.min(window.innerWidth, window.innerHeight);
 	return Math.round(clamp(minSide * 0.05, 16, 64));
 };
-export const getNativeTitlebarHeight = () => {
-	if (typeof document === 'undefined') return 0;
-	const raw = getComputedStyle(document.documentElement).getPropertyValue('--native-titlebar-height').trim();
-	const parsed = Number.parseFloat(raw);
-	return Number.isFinite(parsed) ? parsed : 0;
-};
 export const MEDIA_CONTROLS_DESCRIPTOR = msg({
 	message: 'Media controls',
 	comment: 'Accessible label for the floating media controls toolbar in the media viewer modal.',

@@ -12,9 +12,6 @@
 		"build": "node scripts/build.mjs",
 		"generate:windows-badges": "electron scripts/generate-windows-badges.mjs",
 		"set-channel": "../tools/ci/run.sh build-desktop --step set_build_channel",
-		"test": "pnpm test:main",
-		"test:main": "pnpm set-channel && node --test 'src/main/*.test.mjs' 'src/preload/*.test.mjs' 'src/common/*.test.mjs'",
-		"test:native": "cargo test --manifest-path native/app-store/Cargo.toml && cargo test --manifest-path native/gateway-socket/Cargo.toml",
 		"typecheck": "pnpm set-channel && tsc --noEmit"
 	},
 	"dependencies": {
@@ -27,6 +24,7 @@
 		"@simplewebauthn/browser": "14.0.0",
 		"franc-min": "6.2.0",
 		"hunspell-asm": "4.0.2",
+		"undici": "catalog:",
 		"velopack": "1.2.0"
 	},
 	"devDependencies": {

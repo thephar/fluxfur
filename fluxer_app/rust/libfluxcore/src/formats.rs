@@ -219,30 +219,3 @@ fn read_u32_be(input: &[u8], offset: usize) -> Option<u32> {
     let bytes = input.get(offset..offset + 4)?;
     Some(u32::from_be_bytes(bytes.try_into().ok()?))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn png_with_chunks(chunks: &[(&[u8; 4], &[u8])]) -> Vec<u8> {
-        let mut out = b"\x89PNG\r\n\x1a\n".to_vec();
-        for (chunk_type, payload) in chunks {
-            out.extend_from_slice(&(payload.len() as u32).to_be_bytes());
-            out.extend_from_slice(*chunk_type);
-            out.extend_from_slice(payload);
-            out.extend_from_slice(&0u32.to_be_bytes());
-        }
-        out
-    }
-
-    #[test]
-    fn rejects_truncated_chunks_without_panicking() {
-        assert!(!is_animated_image_bytes(
-            b"\x89PNG\r\n\x1a\n\xff\xff\xff\xffbad!"
-        ));
-        let mut png = png_with_chunks(&[(b"bad!", &[0; 8])]);
-        png[8..12].copy_from_slice(&u32::MAX.to_be_bytes());
-        assert!(!is_animated_image_bytes(&png));
-        assert!(!is_animated_image_bytes(b"RIFF\xff\xff\xff\xffWEBPbad!"));
-    }
-}

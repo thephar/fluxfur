@@ -11,6 +11,10 @@ import type {KVAccountDeletionQueueService} from '@app/api/infrastructure/KVAcco
 import type {KVActivityTracker} from '@app/api/infrastructure/KVActivityTracker';
 import {Logger} from '@app/api/Logger';
 import type {User} from '@app/api/models/User';
+import {followOperatorPassWallStanding} from '@app/api/operator_pass/OperatorPassWallStanding';
+import {scheduleSystemDeletion} from '@app/api/user/AccountCleanup';
+import {hasWayBackIn} from '@app/api/user/AccountTier';
+import {isDateOfBirthMissing} from '@app/api/user/DateOfBirth';
 import type {UserRepository} from '@app/api/user/repositories/UserRepository';
 import {
 	type PartialUserChangePropagationDeps,
@@ -18,10 +22,18 @@ import {
 } from '@app/api/user/services/PartialUserChangePropagation';
 import {reschedulePendingDeletion} from '@app/api/user/services/PendingDeletionCoordinator';
 import type {UserDeletionEligibilityService} from '@app/api/user/services/UserDeletionEligibilityService';
+import {isDeletionComplete} from '@app/api/user/UserHelpers';
+import {DOB_DEFERRED_TRAIT} from '@app/api/user/UserTraits';
 import {mapWithConcurrency} from '@app/api/utils/ConcurrencyUtils';
 import {getWorkerDependencies} from '@app/api/worker/WorkerContext';
+import {
+	AccountCleanupDefaults,
+	CleanupModes,
+	LastSessionCleanupModes,
+} from '@fluxer/constants/src/AccountConfigConstants';
 import {DeletionReasons} from '@fluxer/constants/src/Core';
 import {UserFlags} from '@fluxer/constants/src/UserConstants';
+import type {AccountsConfig} from '@fluxer/schema/src/domains/admin/AccountsConfigSchemas';
 import {snowflakeToDate} from '@fluxer/snowflake/src/Snowflake';
 import type {IEmailService} from '@pkgs/email/src/IEmailService';
 import {TestEmailService} from '@pkgs/email/src/TestEmailService';
@@ -48,7 +60,7 @@ async function scheduleDeletion(
 ): Promise<void> {
 	const gracePeriodMs = Config.deletionGracePeriodHours * ms('1 hour');
 	const pendingDeletionAt = new Date(Date.now() + gracePeriodMs);
-	await userRepository.updateDeletionSchedule(user, {
+	const updated = await userRepository.updateDeletionSchedule(user, {
 		flags: user.flags | UserFlags.SELF_DELETED,
 		pending_deletion_at: pendingDeletionAt,
 		deletion_reason_code: DeletionReasons.INACTIVITY,
@@ -63,10 +75,29 @@ async function scheduleDeletion(
 		deletionQueue: deletionQueueService,
 	});
 	await revokeAllAuthSessions({users: userRepository, gateway: gatewayService}, userId);
+	await followOperatorPassWallStanding(user, updated);
 	Logger.debug({userId, pendingDeletionAt, reason: 'INACTIVITY'}, 'Scheduled inactive user for deletion');
 }
 
+type AccountCleanupConfig = Pick<
+	AccountsConfig,
+	'unclaimed_account_cleanup' | 'dob_missing_cleanup' | 'inactivity_deletion'
+>;
+
+function daysMs(days: number): number {
+	return days * ms('1 day');
+}
+
+function sweepsAbandonedAccounts(cleanup: AccountCleanupConfig): boolean {
+	return (
+		cleanup.dob_missing_cleanup.mode !== CleanupModes.OFF ||
+		cleanup.unclaimed_account_cleanup.mode !== CleanupModes.OFF ||
+		cleanup.unclaimed_account_cleanup.on_last_session_end !== LastSessionCleanupModes.OFF
+	);
+}
+
 interface ProcessUserDeps {
+	cleanup: AccountCleanupConfig;
 	userRepository: UserRepository;
 	deletionQueueService: KVAccountDeletionQueueService;
 	gatewayService: IGatewayService;
@@ -118,6 +149,7 @@ async function processUser(
 		activityTracker,
 		deletionEligibilityService,
 	} = deps;
+	if (isDeletionComplete(listedUser)) return;
 	const user = await clearSuspensionIfExpired(listedUser, deps, result);
 	const userId = user.id;
 	if (user.pendingDeletionAt) {
@@ -137,7 +169,34 @@ async function processUser(
 		prefetchedActivity !== undefined ? prefetchedActivity : await activityTracker.getActivity(userId);
 	const now = new Date();
 	const userInactiveMs = lastActivity ? now.getTime() - lastActivity.getTime() : Infinity;
-	if (userInactiveMs < ms('2 years')) {
+	if (sweepsAbandonedAccounts(deps.cleanup)) {
+		const lastKnownActivity = lastActivity ?? user.lastActiveAt ?? snowflakeToDate(BigInt(userId));
+		const abandonedInactiveMs = now.getTime() - lastKnownActivity.getTime();
+		const reasonCode = await abandonedAccountReason(user, abandonedInactiveMs, userRepository, deps.cleanup);
+		const current = reasonCode === null ? null : await userRepository.findUnique(userId);
+		const currentReason =
+			current === null ||
+			current.pendingDeletionAt ||
+			(await deletionEligibilityService.isProtectedFromSystemDeletion(current))
+				? null
+				: await abandonedAccountReason(current, abandonedInactiveMs, userRepository, deps.cleanup);
+		if (current !== null && currentReason !== null) {
+			await scheduleSystemDeletion(
+				{users: userRepository, gateway: gatewayService, deletionQueue: deletionQueueService},
+				current,
+				{
+					reasonCode: currentReason,
+					delayMs: AccountCleanupDefaults.SCHEDULED_DELETION_GRACE_MS,
+					cancelledBySignIn: true,
+					endSessions: true,
+				},
+			);
+			result.deletionsScheduled++;
+			return;
+		}
+	}
+	const inactivity = deps.cleanup.inactivity_deletion;
+	if (inactivity.mode === CleanupModes.OFF || userInactiveMs < daysMs(inactivity.inactive_days)) {
 		return;
 	}
 	const isEligible = await deletionEligibilityService.isEligibleForInactivityDeletion(user);
@@ -164,12 +223,11 @@ async function processUser(
 		return;
 	}
 	try {
-		const deletionDate = new Date(now.getTime() + ms('30 days'));
-		const sent = await emailService.sendInactivityWarningEmail(
+		const deletionDate = new Date(now.getTime() + daysMs(inactivity.warning_lead_days));
+		const sent = await emailService.send(
+			'inactivity_warning',
 			user.email,
-			user.username,
-			deletionDate,
-			lastActivity ?? snowflakeToDate(BigInt(userId)),
+			{deletionDate, lastActiveDate: lastActivity ?? snowflakeToDate(BigInt(userId))},
 			user.locale,
 		);
 		if (sent) {
@@ -183,7 +241,38 @@ async function processUser(
 	}
 }
 
+async function abandonedAccountReason(
+	user: User,
+	inactiveMs: number,
+	userRepository: UserRepository,
+	cleanup: AccountCleanupConfig,
+): Promise<number | null> {
+	const dobMissing = cleanup.dob_missing_cleanup;
+	if (
+		dobMissing.mode === CleanupModes.AFTER_INACTIVITY &&
+		user.traits.has(DOB_DEFERRED_TRAIT) &&
+		isDateOfBirthMissing(user) &&
+		inactiveMs >= daysMs(dobMissing.inactive_days)
+	) {
+		return DeletionReasons.INACTIVITY;
+	}
+	const unclaimed = cleanup.unclaimed_account_cleanup;
+	const afterInactivity = unclaimed.mode === CleanupModes.AFTER_INACTIVITY;
+	const afterLastSession = unclaimed.on_last_session_end === LastSessionCleanupModes.AFTER_GRACE;
+	if (!afterInactivity && !afterLastSession) return null;
+	if (await hasWayBackIn({users: userRepository}, user)) return null;
+	if (afterInactivity && inactiveMs >= daysMs(unclaimed.inactive_days)) {
+		return DeletionReasons.UNCLAIMED_ACCOUNT_ABANDONED;
+	}
+	if (!afterLastSession) return null;
+	const createdAt = snowflakeToDate(BigInt(user.id)).getTime();
+	if (Date.now() - createdAt < AccountCleanupDefaults.MIN_ACCOUNT_AGE_MS) return null;
+	const sessions = await userRepository.listAuthSessions(user.id);
+	return sessions.length === 0 ? DeletionReasons.UNCLAIMED_ACCOUNT_ABANDONED : null;
+}
+
 interface ProcessInactivityDeletionsDeps {
+	cleanup: AccountCleanupConfig;
 	kvClient: IKVProvider;
 	userRepository: UserRepository;
 	deletionQueueService: KVAccountDeletionQueueService;
@@ -199,6 +288,7 @@ export async function processInactivityDeletionsCore(
 	deps: ProcessInactivityDeletionsDeps,
 ): Promise<InactivityCheckResult> {
 	const {
+		cleanup,
 		userRepository,
 		deletionQueueService,
 		gatewayService,
@@ -221,6 +311,7 @@ export async function processInactivityDeletionsCore(
 		await activityTracker.rebuildActivities();
 	}
 	const userDeps: ProcessUserDeps = {
+		cleanup,
 		userRepository,
 		deletionQueueService,
 		gatewayService,
@@ -283,6 +374,7 @@ const processInactivityDeletions: WorkerTaskHandler = async (_payload, helpers) 
 		guildRepository,
 	} = getWorkerDependencies();
 	await processInactivityDeletionsCore({
+		cleanup: await instanceConfigRepository.getAccountsConfig(),
 		kvClient,
 		userRepository,
 		deletionQueueService,

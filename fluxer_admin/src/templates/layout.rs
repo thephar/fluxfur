@@ -12,10 +12,13 @@ use super::layout_header::render_header;
 use super::layout_scripts::{
     ADMIN_ACTION_FORM_SCRIPT, COPY_TO_CLIPBOARD_SCRIPT, ENFORCEMENT_FIELDS_SCRIPT,
     HTMX_FLASH_SCRIPT, HTMX_SCROLL_PRESERVER_SCRIPT, SH_LINK_REWRITE_SCRIPT, SIDEBAR_SCRIPT,
+    THEME_INIT_SCRIPT, THEME_TOGGLE_SCRIPT,
 };
 use super::layout_sidebar::render_sidebar;
 
 const DEFAULT_PRODUCT_NAME: &str = "Fluxer";
+const LIGHT_SCHEME_MEDIA: &str = "(prefers-color-scheme: light)";
+const DARK_SCHEME_MEDIA: &str = "(prefers-color-scheme: dark)";
 
 pub fn product_name(branding: Option<&PremiumBranding>) -> &str {
     branding
@@ -23,16 +26,34 @@ pub fn product_name(branding: Option<&PremiumBranding>) -> &str {
         .unwrap_or(DEFAULT_PRODUCT_NAME)
 }
 
+pub fn admin_title(branding: Option<&PremiumBranding>) -> String {
+    format!("{} Admin", product_name(branding))
+}
+
 pub fn favicon_links(config: &AdminConfig, branding: Option<&PremiumBranding>) -> Markup {
     let cdn = &config.static_cdn_endpoint;
+    let favicon = branding.and_then(|branding| branding.favicon_url.as_deref());
+    let favicon_dark = branding.and_then(|branding| branding.favicon_dark_url.as_deref());
     html! {
-        @if let Some(favicon_url) = branding.and_then(|branding| branding.favicon_url.as_deref()) {
-            link rel="icon" href=(favicon_url);
-        } @else {
-            link rel="icon" type="image/x-icon" href={(cdn) "/web/favicon.ico"};
-            link rel="apple-touch-icon" href={(cdn) "/web/apple-touch-icon.png"};
-            link rel="icon" type="image/png" sizes="32x32" href={(cdn) "/web/favicon-32x32.png"};
-            link rel="icon" type="image/png" sizes="16x16" href={(cdn) "/web/favicon-16x16.png"};
+        @match (favicon, favicon_dark) {
+            (Some(favicon_url), None) => {
+                link rel="icon" href=(favicon_url);
+            }
+            (None, None) => {
+                link rel="icon" type="image/x-icon" href={(cdn) "/web/favicon.ico"};
+                link rel="apple-touch-icon" href={(cdn) "/web/apple-touch-icon.png"};
+                link rel="icon" type="image/png" sizes="32x32" href={(cdn) "/web/favicon-32x32.png"};
+                link rel="icon" type="image/png" sizes="16x16" href={(cdn) "/web/favicon-16x16.png"};
+            }
+            (favicon_url, Some(favicon_dark_url)) => {
+                @if let Some(favicon_url) = favicon_url {
+                    link rel="icon" href=(favicon_url) media=(LIGHT_SCHEME_MEDIA);
+                } @else {
+                    link rel="icon" type="image/png" sizes="32x32" href={(cdn) "/web/favicon-32x32.png"} media=(LIGHT_SCHEME_MEDIA);
+                    link rel="apple-touch-icon" href={(cdn) "/web/apple-touch-icon.png"};
+                }
+                link rel="icon" href=(favicon_dark_url) media=(DARK_SCHEME_MEDIA);
+            }
         }
     }
 }
@@ -77,11 +98,7 @@ pub fn admin_layout_ext(
     content: Markup,
     options: LayoutOptions<'_>,
 ) -> Markup {
-    let admin_acls = auth
-        .admin_user
-        .as_ref()
-        .map(|u| u.acls.as_slice())
-        .unwrap_or(&[]);
+    let admin_acls = auth.acls();
     let base = &config.base_path;
     let asset_version = &config.build_version;
     let csrf_token = options.csrf_token;
@@ -95,7 +112,8 @@ pub fn admin_layout_ext(
                 @if options.auto_refresh {
                     meta http-equiv="refresh" content="3";
                 }
-                title { (title) " ~ Fluxer Admin" }
+                title { (title) " ~ " (admin_title(auth.branding.as_ref())) }
+                script { (PreEscaped(THEME_INIT_SCRIPT)) }
                 link rel="stylesheet" href={(base) "/static/fonts/" (crate::fonts::STYLESHEET_FILE_NAME)};
                 link rel="stylesheet" href=(cache_busted_asset(base, asset_version, "/static/app.css"));
                 (favicon_links(config, auth.branding.as_ref()))
@@ -104,7 +122,7 @@ pub fn admin_layout_ext(
             body class="min-h-screen overflow-hidden bg-neutral-50" hx-boost="true" {
                 a href="#main-content" class="skip-link" { "Skip to main content" }
                 div class="flex h-[100dvh]" {
-                    (render_sidebar(config, admin_acls, active_page, options.inspected_voice_region_id, auth.pending_registration_count))
+                    (render_sidebar(config, &admin_title(auth.branding.as_ref()), admin_acls, active_page, options.inspected_voice_region_id, auth.pending_registration_count))
                     div data-sidebar-overlay="" class="pointer-events-none fixed inset-0 z-30 bg-black/50 opacity-0 transition-opacity duration-200 ease-in-out lg:hidden" aria-hidden="true" {}
                     div class="flex h-[100dvh] w-full flex-1 flex-col overflow-y-auto" {
                         (render_header(config, auth, csrf_token))
@@ -128,6 +146,7 @@ pub fn admin_layout_ext(
                 script defer { (PreEscaped(HTMX_SCROLL_PRESERVER_SCRIPT)) }
                 script defer { (PreEscaped(HTMX_FLASH_SCRIPT)) }
                 script defer { (PreEscaped(COPY_TO_CLIPBOARD_SCRIPT)) }
+                script defer { (PreEscaped(THEME_TOGGLE_SCRIPT)) }
                 script defer { (PreEscaped(ENFORCEMENT_FIELDS_SCRIPT)) }
                 (drawer_controller_script())
                 @if let Some(extra) = options.extra_scripts {

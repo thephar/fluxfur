@@ -39,13 +39,10 @@ export interface UseMediaPlayerOptions {
 	mediaKind?: MediaPlaybackKind;
 	autoPlay?: boolean;
 	loop?: boolean;
-	initialPlaybackRate?: number;
 	persistPlaybackRate?: boolean;
 	onEnded?: () => void;
 	onError?: (error: Error, code: MediaFailureCode) => void;
 	onPlay?: () => void;
-	onPause?: () => void;
-	onTimeUpdate?: (currentTime: number) => void;
 	onLoadedMetadata?: (duration: number, media: HTMLMediaElement) => void;
 }
 
@@ -106,19 +103,16 @@ export function useMediaPlayer(options: UseMediaPlayerOptions = {}): UseMediaPla
 		mediaKind = 'video',
 		autoPlay = false,
 		loop = false,
-		initialPlaybackRate,
 		persistPlaybackRate = true,
 		onEnded,
 		onError,
 		onPlay,
-		onPause,
-		onTimeUpdate,
 		onLoadedMetadata,
 	} = options;
 	const mediaRef = useRef<HTMLMediaElement | null>(null);
 	useInAppMediaSoundCapture(mediaRef);
-	const callbacksRef = useRef({onEnded, onError, onPlay, onPause, onTimeUpdate, onLoadedMetadata});
-	callbacksRef.current = {onEnded, onError, onPlay, onPause, onTimeUpdate, onLoadedMetadata};
+	const callbacksRef = useRef({onEnded, onError, onPlay, onLoadedMetadata});
+	callbacksRef.current = {onEnded, onError, onPlay, onLoadedMetadata};
 	const initialElementSettingsRef = useRef({loop});
 	const [state, setState] = useState<MediaPlayerState>(() => ({
 		isPlaying: false,
@@ -128,7 +122,7 @@ export function useMediaPlayer(options: UseMediaPlayerOptions = {}): UseMediaPla
 		isSeeking: false,
 		currentTime: 0,
 		duration: 0,
-		playbackRate: initialPlaybackRate ?? (persistPlaybackRate ? getStoredPlaybackRate(mediaKind) : 1),
+		playbackRate: persistPlaybackRate ? getStoredPlaybackRate(mediaKind) : 1,
 		error: null,
 		failureCode: null,
 	}));
@@ -162,7 +156,6 @@ export function useMediaPlayer(options: UseMediaPlayerOptions = {}): UseMediaPla
 				isPlaying: false,
 				isPaused: true,
 			}));
-			callbacksRef.current.onPause?.();
 		};
 		const handleEnded = () => {
 			clearPendingSeekTarget(media);
@@ -179,7 +172,6 @@ export function useMediaPlayer(options: UseMediaPlayerOptions = {}): UseMediaPla
 		const handleTimeUpdate = () => {
 			const currentTime = quantiseMediaTimeToSecond(media.currentTime);
 			setState((prev) => (prev.currentTime === currentTime ? prev : {...prev, currentTime}));
-			callbacksRef.current.onTimeUpdate?.(media.currentTime);
 		};
 		const publishDuration = () => {
 			const duration = Number.isFinite(media.duration) ? media.duration : 0;

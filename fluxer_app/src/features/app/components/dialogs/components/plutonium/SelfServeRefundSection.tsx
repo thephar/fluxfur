@@ -7,7 +7,7 @@ import styles from '@app/features/app/components/dialogs/components/plutonium/Pu
 import {Logger} from '@app/features/platform/utils/AppLogger';
 import {failureCode} from '@app/features/platform/utils/ResponseInspection';
 import * as PremiumCommands from '@app/features/premium/commands/PremiumCommands';
-import {Button} from '@app/features/ui/button/Button';
+import {PlutoniumPageButton} from '@app/features/premium/components/plutonium_page/PlutoniumPageButton';
 import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
 import {modal} from '@app/features/ui/commands/ModalCommands';
 import * as ToastCommands from '@app/features/ui/commands/ToastCommands';
@@ -18,7 +18,7 @@ import type {SelfServeRefundEligibilityResponse} from '@fluxer/schema/src/domain
 import {msg} from '@lingui/core/macro';
 import {Trans, useLingui} from '@lingui/react/macro';
 import {observer} from 'mobx-react-lite';
-import {useCallback, useState} from 'react';
+import {type ReactNode, useCallback, useState} from 'react';
 
 const REFUND_YOUR_MOST_RECENT_PURCHASE_DESCRIPTOR = msg({
 	message: 'Refund your most recent purchase?',
@@ -124,16 +124,24 @@ export const SelfServeRefundSection: React.FC<SelfServeRefundSectionProps> = obs
 	({eligibility, refreshPremiumState}) => {
 		const {i18n} = useLingui();
 		const [submitting, setSubmitting] = useState(false);
+		const isGooglePlay = eligibility?.provider === 'google_play';
 		const handleRefund = useCallback(() => {
 			ModalCommands.push(
 				modal(() => (
 					<ConfirmModal
 						title={i18n._(REFUND_YOUR_MOST_RECENT_PURCHASE_DESCRIPTOR)}
 						description={
-							<Trans>
-								This refunds your most recent invoice and cancels any associated subscription. You won't be able to
-								self-refund again for 30 days.
-							</Trans>
+							isGooglePlay ? (
+								<Trans>
+									This refunds your most recent Google Play purchase and cancels any subscription it paid for. You won't
+									be able to self-refund again for 30 days.
+								</Trans>
+							) : (
+								<Trans>
+									This refunds your most recent purchase and cancels any subscription it paid for. You won't be able to
+									self-refund again for 30 days.
+								</Trans>
+							)
 						}
 						primaryText={i18n._(REFUND_PURCHASE_DESCRIPTOR)}
 						primaryVariant="danger"
@@ -155,7 +163,7 @@ export const SelfServeRefundSection: React.FC<SelfServeRefundSectionProps> = obs
 					/>
 				)),
 			);
-		}, [refreshPremiumState, i18n]);
+		}, [refreshPremiumState, i18n, isGooglePlay]);
 		if (
 			!eligibility ||
 			eligibility.reason === 'no_refundable_purchase' ||
@@ -166,6 +174,21 @@ export const SelfServeRefundSection: React.FC<SelfServeRefundSectionProps> = obs
 		const isEligible = eligibility.eligible;
 		const windowEndsOn = formatRelativeTime(eligibility.refund_window_expires_at);
 		const cooldownEndsOn = formatRelativeTime(eligibility.cooldown_expires_at);
+		let description: ReactNode;
+		if (isEligible && eligibility.cancels_subscription) {
+			description = (
+				<Trans>Eligible for a refund until {windowEndsOn}. This will also cancel your subscription immediately.</Trans>
+			);
+		} else if (isEligible) {
+			description = <Trans>Eligible for a refund until {windowEndsOn}.</Trans>;
+		} else if (eligibility.reason === 'outside_refund_window') {
+			description = <Trans>Your last purchase is outside the refund window. Contact support for billing issues.</Trans>;
+		} else if (eligibility.reason === 'cooldown_active') {
+			description = <Trans>You can refund again after {cooldownEndsOn}. Contact support for billing issues.</Trans>;
+		} else {
+			description = <Trans>This purchase is not eligible for a refund.</Trans>;
+		}
+
 		return (
 			<section className={styles.section} data-flx="app.plutonium.self-serve-refund-section.section">
 				<div className={styles.card} data-flx="app.plutonium.self-serve-refund-section.card">
@@ -175,34 +198,20 @@ export const SelfServeRefundSection: React.FC<SelfServeRefundSectionProps> = obs
 								<Trans>Refund</Trans>
 							</h3>
 							<p className={styles.description} data-flx="app.plutonium.self-serve-refund-section.description">
-								{isEligible ? (
-									eligibility.cancels_subscription ? (
-										<Trans>
-											Eligible for a refund until {windowEndsOn}. This will also cancel your subscription immediately.
-										</Trans>
-									) : (
-										<Trans>Eligible for a refund until {windowEndsOn}.</Trans>
-									)
-								) : eligibility.reason === 'outside_refund_window' ? (
-									<Trans>Your last purchase is outside the refund window. Contact support for billing issues.</Trans>
-								) : eligibility.reason === 'cooldown_active' ? (
-									<Trans>You can refund again after {cooldownEndsOn}. Contact support for billing issues.</Trans>
-								) : (
-									<Trans>This purchase is not eligible for a refund.</Trans>
-								)}
+								{description}
 							</p>
 						</div>
-						<Button
+						<PlutoniumPageButton
 							variant="danger"
 							onClick={handleRefund}
-							submitting={submitting}
+							loading={submitting}
 							disabled={!isEligible}
 							small
 							className={styles.button}
 							data-flx="app.plutonium.self-serve-refund-section.button.refund"
 						>
 							<Trans>Refund purchase</Trans>
-						</Button>
+						</PlutoniumPageButton>
 					</div>
 				</div>
 			</section>

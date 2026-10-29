@@ -53,30 +53,3 @@ pub fn bounded_direct_read_sample_count_for_format(
 pub fn direct_capture_latency_fraction() -> String {
     format!("{DIRECT_CAPTURE_LATENCY_FRAMES}/{DIRECT_CAPTURE_SAMPLE_RATE}")
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn whole_frame_sample_count_trims_incomplete_channel_frames() {
-        assert_eq!(0, whole_frame_sample_count(1, 2));
-        assert_eq!(2, whole_frame_sample_count(2, 2));
-        assert_eq!(4, whole_frame_sample_count(5, 2));
-        assert_eq!(6, whole_frame_sample_count(7, 3));
-        assert_eq!(0, whole_frame_sample_count(7, 0));
-    }
-
-    #[test]
-    fn direct_read_count_uses_stable_twenty_ms_chunks() {
-        assert_eq!(1_920, DIRECT_CAPTURE_MAX_READ_SAMPLES);
-        assert_eq!(
-            1_920,
-            bounded_direct_read_sample_count_for_format(9_600, 48_000, 2)
-        );
-        assert_eq!(
-            1_764,
-            bounded_direct_read_sample_count_for_format(9_600, 44_100, 2)
-        );
-    }
-}

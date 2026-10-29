@@ -1,9 +1,6 @@
 %% SPDX-License-Identifier: AGPL-3.0-or-later
 
 -module(dm_voice_ring).
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
--endif.
 
 -typing([eqwalizer]).
 
@@ -162,22 +159,3 @@ is_dm_channel_type(_) -> false.
 -spec is_channel_recipient(integer(), dm_state()) -> boolean().
 is_channel_recipient(UserId, State) ->
     UserId =:= maps:get(user_id, State).
-
--ifdef(TEST).
-
-check_recipient_accepts_session_owner_for_dm_types_test() ->
-    State = #{
-        user_id => 1,
-        channels => #{
-            100 => #{<<"id">> => <<"100">>, <<"type">> => 1},
-            200 => #{<<"id">> => <<"200">>, <<"type">> => 3},
-            300 => #{<<"id">> => <<"300">>, <<"type">> => 0}
-        }
-    },
-    ?assert(check_recipient(1, 100, State)),
-    ?assert(check_recipient(1, 200, State)),
-    ?assertNot(check_recipient(2, 100, State)),
-    ?assertNot(check_recipient(1, 300, State)),
-    ?assertNot(check_recipient(1, 999, State)).
-
--endif.

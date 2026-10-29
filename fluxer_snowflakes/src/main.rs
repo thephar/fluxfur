@@ -37,5 +37,10 @@ async fn main() -> anyhow::Result<()> {
             let shard = SnowflakesShard::new(config.shard_id)?;
             fluxer_svc::shard::run_shard(&config, shard, transport).await
         }
+        Mode::Combined => {
+            let router = router_impl::SnowflakesRouter::new(config.shard_count);
+            let shard = SnowflakesShard::new(config.shard_id)?;
+            fluxer_svc::combined::run_combined(&config, router, shard, transport).await
+        }
     }
 }

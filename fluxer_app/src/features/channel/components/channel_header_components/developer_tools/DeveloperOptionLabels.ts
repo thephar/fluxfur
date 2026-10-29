@@ -253,11 +253,13 @@ const formatDeveloperOptionValue = <K extends keyof DeveloperOptionsState>(
 		}
 		case 'mockGiftDurationMonths': {
 			const months = value as number | null;
-			return months === 0
-				? i18n._(LIFETIME_DESCRIPTOR)
-				: months === null
-					? i18n._(USE_DEFAULT_DESCRIPTOR)
-					: i18n._(MONTHS_PLURAL_DESCRIPTOR, {months});
+			if (months === 0) {
+				return i18n._(LIFETIME_DESCRIPTOR);
+			}
+			if (months === null) {
+				return i18n._(USE_DEFAULT_DESCRIPTOR);
+			}
+			return i18n._(MONTHS_PLURAL_DESCRIPTOR, {months});
 		}
 		case 'mockAttachmentStates': {
 			const count = Object.keys(value as DeveloperOptionsState['mockAttachmentStates']).length;

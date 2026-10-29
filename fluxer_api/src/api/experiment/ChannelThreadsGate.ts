@@ -89,7 +89,7 @@ export async function isTainted(guildId: GuildID, opts?: {fresh?: boolean}): Pro
 	return tainted;
 }
 
-export function noteGuildThreadMarker(guildId: GuildID): void {
+function noteGuildThreadMarker(guildId: GuildID): void {
 	rememberTaint(guildId.toString(), true);
 }
 

@@ -22,7 +22,7 @@
 	padding: 1rem;
 	cursor: pointer;
 	transition: none;
-	text-align: left;
+	text-align: start;
 	touch-action: manipulation;
 	-webkit-tap-highlight-color: transparent;
 	user-select: none;

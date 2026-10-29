@@ -129,6 +129,7 @@ import {ChangeNicknameModal} from '@app/features/user/components/modals/ChangeNi
 import type {User} from '@app/features/user/models/User';
 import UserSettings from '@app/features/user/state/UserSettings';
 import Users from '@app/features/user/state/Users';
+import {canPerform} from '@app/features/user/utils/AccountGates';
 import {blockedDmConfirmModal, openDMChannelOrShowError} from '@app/features/user/utils/DMActionUtils';
 import * as NicknameUtils from '@app/features/user/utils/NicknameUtils';
 import * as VoiceCallLayoutCommands from '@app/features/voice/commands/VoiceCallLayoutCommands';
@@ -163,6 +164,7 @@ import {
 	VOICE_USER_VOLUME_DESCRIPTOR,
 } from '@app/features/voice/utils/VoiceMessageDescriptors';
 import {buildVoiceParticipantIdentity} from '@app/features/voice/utils/VoiceParticipantIdentity';
+import {TierGatedActions} from '@fluxer/constants/src/AccountTierConstants';
 import {ChannelTypes, Permissions, TEXT_BASED_CHANNEL_TYPES} from '@fluxer/constants/src/ChannelConstants';
 import {RelationshipTypes} from '@fluxer/constants/src/UserConstants';
 import {msg, plural} from '@lingui/core/macro';
@@ -318,6 +320,8 @@ export function useVoiceParticipantMenuData(options: VoiceParticipantMenuDataOpt
 	const memberMute = member?.mute ?? false;
 	const memberDeaf = member?.deaf ?? false;
 	const memberTimedOut = member?.isTimedOut() ?? false;
+	const directMessagesDisabled = RuntimeConfig.directMessagesDisabled;
+	const friendsDisabled = RuntimeConfig.friendsDisabled;
 	const userVoiceStates = useMemo(() => {
 		if (!guildId) return [] as Array<{connectionId: string; voiceState: VoiceState}>;
 		const acc: Array<{connectionId: string; voiceState: VoiceState}> = [];
@@ -468,7 +472,10 @@ export function useVoiceParticipantMenuData(options: VoiceParticipantMenuDataOpt
 			: null;
 		const isCameraLive =
 			source.kind === 'camera' && Boolean(connectionParticipant?.isCameraEnabled || connectionVoiceState?.self_video);
-		const focusSource = source.kind === 'camera' ? (isCameraLive ? 'camera' : undefined) : source.focusSource;
+		let focusSource = source.kind === 'camera' ? undefined : source.focusSource;
+		if (isCameraLive) {
+			focusSource = 'camera';
+		}
 		const shouldShowFocus = focusSource !== undefined && (surface === 'call-tile' || surface === 'participant-list');
 		if (shouldShowFocus && connectionId && isTargetInLocalVoiceRoom) {
 			const identity = buildVoiceParticipantIdentity(user.id, connectionId);
@@ -512,8 +519,10 @@ export function useVoiceParticipantMenuData(options: VoiceParticipantMenuDataOpt
 		}
 		const popoutChannelId = connectionVoiceState?.channel_id ?? null;
 		const isParticipantPopoutSurface = surface === 'call-tile' || surface === 'call-avatar';
-		const participantPopoutSource: VoiceTilePopoutSource | null =
-			isCameraLive && isTargetInLocalVoiceRoom ? 'camera' : isParticipantPopoutSurface ? 'user' : null;
+		let participantPopoutSource: VoiceTilePopoutSource | null = isParticipantPopoutSurface ? 'user' : null;
+		if (isCameraLive && isTargetInLocalVoiceRoom) {
+			participantPopoutSource = 'camera';
+		}
 		if (participantPopoutSource && connectionId && popoutChannelId && isVoicePopoutSupported()) {
 			const openParticipantPopout = (): void => {
 				const didOpen = PopoutWindowManager.openTilePopout({
@@ -572,7 +581,7 @@ export function useVoiceParticipantMenuData(options: VoiceParticipantMenuDataOpt
 				},
 			});
 		}
-		if (!isCurrentUser) {
+		if (!isCurrentUser && !directMessagesDisabled) {
 			primaryActions.push({
 				icon: (
 					<MessageUserIcon
@@ -584,7 +593,7 @@ export function useVoiceParticipantMenuData(options: VoiceParticipantMenuDataOpt
 				onClick: isBlocked ? handleOpenBlockedDm : handleMessage,
 			});
 		}
-		if (!isCurrentUser && relationshipType === RelationshipTypes.FRIEND) {
+		if (!isCurrentUser && !friendsDisabled && relationshipType === RelationshipTypes.FRIEND) {
 			relationshipActions.push({
 				icon: (
 					<ChangeNicknameIcon
@@ -606,7 +615,7 @@ export function useVoiceParticipantMenuData(options: VoiceParticipantMenuDataOpt
 				},
 			});
 		}
-		if (!isCurrentUser && !user.bot && !hasActiveDirectCall) {
+		if (!isCurrentUser && !user.bot && !hasActiveDirectCall && !directMessagesDisabled) {
 			primaryActions.push({
 				icon: (
 					<VoiceCallIcon size={16} data-flx="ui.action-menu.items.voice-participant-menu-data.groups.voice-call-icon" />
@@ -1032,7 +1041,7 @@ export function useVoiceParticipantMenuData(options: VoiceParticipantMenuDataOpt
 		}
 		if (!isCurrentUser) {
 			const nextRelationshipActions: Array<MenuItemType> = [];
-			if (!RuntimeConfig.directMessagesDisabled) {
+			if (!friendsDisabled) {
 				switch (relationshipType) {
 					case RelationshipTypes.FRIEND:
 						nextRelationshipActions.push({
@@ -1090,7 +1099,7 @@ export function useVoiceParticipantMenuData(options: VoiceParticipantMenuDataOpt
 					case RelationshipTypes.BLOCKED:
 						break;
 					default:
-						if (!user.bot && Users.currentUser?.verified !== false) {
+						if (!user.bot && canPerform(Users.currentUser, TierGatedActions.FRIEND_REQUEST).allowed) {
 							nextRelationshipActions.push({
 								icon: (
 									<SendFriendRequestIcon
@@ -1388,6 +1397,8 @@ export function useVoiceParticipantMenuData(options: VoiceParticipantMenuDataOpt
 		memberMute,
 		memberDeaf,
 		memberTimedOut,
+		directMessagesDisabled,
+		friendsDisabled,
 		displayName,
 		currentUserVoiceState,
 		currentUserVoiceStateInGuild,

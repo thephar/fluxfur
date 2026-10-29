@@ -237,6 +237,11 @@ pub fn normalize_timestamp(value: &str) -> String {
         .unwrap_or_else(|_| value.to_owned())
 }
 
+pub fn format_timestamp(unix_seconds: i64) -> Option<String> {
+    chrono::DateTime::from_timestamp(unix_seconds, 0)
+        .map(|dt| dt.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+}
+
 pub fn sanitize_absolute_url(value: &str) -> Option<String> {
     Url::parse(value.trim()).ok().map(|url| url.to_string())
 }

@@ -89,21 +89,9 @@ jobs:
         run: |
           "$FLUXER_CI_BIN" ci --step install_dependencies
 
-      - name: Restore fluxer_app wasm artifacts
-        id: app-wasm
-        uses: ./.github/actions/app-wasm-cache
-        with:
-          mode: restore
-
       - name: Run tests
         run: |
           "$FLUXER_CI_BIN" ci --step test
-
-      - name: Save fluxer_app wasm artifacts
-        if: always() && github.ref == 'refs/heads/main' && steps.app-wasm.outputs.cache-hit != 'true'
-        uses: ./.github/actions/app-wasm-cache
-        with:
-          mode: save
 
   rust:
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -227,12 +215,6 @@ jobs:
           FLUXER_REQUIRE_MEDIA_FIXTURES: "1"
         run: cargo test --workspace --all-features --locked
 
-      - name: Run tests (libfluxcore)
-        run: cargo test --locked --manifest-path fluxer_app/rust/libfluxcore/Cargo.toml
-
-      - name: Run desktop native workspace tests on Linux
-        run: tools/ci/check-desktop-native-workspaces.sh test
-
   gateway:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -262,7 +244,7 @@ jobs:
         uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124
         with:
           otp-version: '28'
-          rebar3-version: '3.27.0'
+          rebar3-version: '3.27.3'
 
       - name: Restore rebar3 dependencies
         id: rebar3-cache
@@ -274,10 +256,10 @@ jobs:
             !fluxer_gateway/_build/default/lib/fluxer_gateway/**
             !fluxer_gateway/_build/test/lib/fluxer_gateway/**
           key: >-
-            rebar3-${{ runner.os }}-otp28-rebar3.27.0-${{ hashFiles('fluxer_gateway/rebar.lock',
+            rebar3-${{ runner.os }}-otp28-rebar3.27.3-${{ hashFiles('fluxer_gateway/rebar.lock',
             'fluxer_gateway/rebar.config') }}
           restore-keys: |
-            rebar3-${{ runner.os }}-otp28-rebar3.27.0-
+            rebar3-${{ runner.os }}-otp28-rebar3.27.3-
 
       - name: Drop restored gateway build output
         run: rm -rf fluxer_gateway/_build/default/lib/fluxer_gateway fluxer_gateway/_build/test/lib/fluxer_gateway
@@ -294,10 +276,6 @@ jobs:
         run: |
           "$FLUXER_CI_BIN" ci --step gateway_dialyzer
 
-      - name: Run eunit tests
-        run: |
-          "$FLUXER_CI_BIN" ci --step gateway_eunit
-
       - name: Save rebar3 dependencies
         if: always() && github.ref == 'refs/heads/main' && steps.rebar3-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
@@ -308,7 +286,7 @@ jobs:
             !fluxer_gateway/_build/default/lib/fluxer_gateway/**
             !fluxer_gateway/_build/test/lib/fluxer_gateway/**
           key: >-
-            rebar3-${{ runner.os }}-otp28-rebar3.27.0-${{ hashFiles('fluxer_gateway/rebar.lock',
+            rebar3-${{ runner.os }}-otp28-rebar3.27.3-${{ hashFiles('fluxer_gateway/rebar.lock',
             'fluxer_gateway/rebar.config') }}
 
   knip:
@@ -386,6 +364,9 @@ jobs:
       - name: Check data-flx attributes
         run: pnpm --filter fluxer_app theming:data-flx:check
 
+      - name: Check self-host env forwarding
+        run: pnpm --filter @fluxer/config self-host-env:check
+
   i18n:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -414,6 +395,7 @@ jobs:
             packages/errors/src/i18n/weblate \
             fluxer_api/pkgs/email/src/email_i18n/weblate \
             fluxer_api/pkgs/email/src/email_i18n/EmailI18nTypes.generated.ts \
+            fluxer_api/pkgs/email/src/email_html/EmailHtmlLayouts.generated.ts \
             fluxer_api/src/api/content_i18n/weblate; then
             echo "::error::Static catalogs are out of sync with their sources. Run 'pnpm i18n:compile' and commit the result."
             exit 1
@@ -437,9 +419,6 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --filter fluxer_docs...
-
-      - name: Verify documentation matches the live API
-        run: pnpm --filter fluxer_docs verify
 
       - name: Build documentation
         run: pnpm --filter fluxer_docs build

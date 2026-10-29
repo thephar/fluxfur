@@ -124,6 +124,7 @@ interface RecipientListProps {
 	searchQuery?: string;
 	onSearchQueryChange?: (value: string) => void;
 	showSearchInput?: boolean;
+	emptyText?: React.ReactNode;
 }
 
 export const RecipientList = observer((props: RecipientListProps) => {
@@ -142,6 +143,11 @@ export const RecipientList = observer((props: RecipientListProps) => {
 			return username.includes(query) || displayName.includes(query) || channelName.includes(query);
 		});
 	}, [searchQuery, props.recipients]);
+	const emptyText = props.emptyText ?? (
+		<Trans comment="Shown in a list of people to choose from when the account has no friends and no direct messages yet.">
+			No friends or direct messages yet.
+		</Trans>
+	);
 	const handleSearchChange = (value: string) => {
 		if (props.onSearchQueryChange) {
 			props.onSearchQueryChange(value);
@@ -177,7 +183,7 @@ export const RecipientList = observer((props: RecipientListProps) => {
 				>
 					{filteredRecipients.length === 0 ? (
 						<div className={styles.noResults} data-flx="app.recipient-list.no-results">
-							{<Trans>No friends match that.</Trans>}
+							{searchQuery.trim() ? <Trans>No friends match that.</Trans> : emptyText}
 						</div>
 					) : (
 						<div className={styles.friendList} data-flx="app.recipient-list.friend-list">

@@ -68,6 +68,7 @@ export interface CompactVoiceCallContainerStyle extends React.CSSProperties {
 	'--compact-call-audio-avatar-padding-bottom'?: string;
 	'--compact-call-edge-gradient-extension'?: string;
 	'--compact-call-participant-count'?: string;
+	'--voice-call-corner-lift'?: string;
 }
 
 export const COMPACT_HEIGHT_DRAG_THRESHOLD_SQ = 9;

@@ -19,7 +19,7 @@ import {resolveEnclosingScrollSurface} from '@app/features/guild/components/moda
 import {UploadDropZone} from '@app/features/guild/components/UploadDropZone';
 import {UploadSlotInfo} from '@app/features/guild/components/UploadSlotInfo';
 import Guilds from '@app/features/guild/state/Guilds';
-import {OKAY_DESCRIPTOR, TRY_AGAIN_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
+import {TRY_AGAIN_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
 import {NearViewportSurfaceContext} from '@app/features/messaging/hooks/useNearViewport';
 import {openFilePicker} from '@app/features/messaging/utils/FilePickerUtils';
 import {formatFileSize} from '@app/features/messaging/utils/FileUtils';
@@ -143,9 +143,6 @@ const GuildStickersTab: React.FC<{guildId: string}> = observer(function GuildSti
 				<ConfirmModal
 					title={i18n._(UNSUPPORTED_STICKER_FILE_DESCRIPTOR)}
 					description={getAssetFormatErrorMessage(i18n, 'sticker', 'unsupported_mime')}
-					primaryText={i18n._(OKAY_DESCRIPTOR)}
-					primaryVariant="primary"
-					onPrimary={() => {}}
 					data-flx="guild.guild-tabs.guild-stickers-tab.unsupported-file-confirm-modal"
 				/>
 			)),

@@ -31,7 +31,7 @@
 
 -spec start_link() -> {ok, pid()} | {error, term()}.
 start_link() ->
-    normalize_start_link(gen_server:start_link({local, ?MODULE}, ?MODULE, [], [])).
+    shard_utils:normalize_start_link(gen_server:start_link({local, ?MODULE}, ?MODULE, [], [])).
 
 -spec start_or_lookup(map()) -> {ok, pid()} | {error, term()}.
 start_or_lookup(Request) when is_map(Request) ->
@@ -220,14 +220,6 @@ handle_start_or_lookup_call(Request, State) ->
 -spec extract_user_id(term()) -> user_id() | undefined.
 extract_user_id({start_or_lookup, #{user_id := UserId}}) when is_integer(UserId) -> UserId;
 extract_user_id(_) -> undefined.
-
--spec normalize_start_link(gen_server:start_ret()) -> {ok, pid()} | {error, term()}.
-normalize_start_link({ok, Pid}) ->
-    {ok, Pid};
-normalize_start_link({error, Reason}) ->
-    {error, Reason};
-normalize_start_link(ignore) ->
-    {error, ignore}.
 
 -spec track_shard_user(non_neg_integer(), user_id()) -> ok.
 track_shard_user(ShardIndex, UserId) ->

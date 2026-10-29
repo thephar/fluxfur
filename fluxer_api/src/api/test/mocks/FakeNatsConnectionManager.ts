@@ -39,12 +39,13 @@ export class FakeNatsConnectionManager implements INatsConnectionManager {
 				this.requests.push({subject, body, timeout: options?.timeout});
 				const reply = this.reply(subject, body, options?.timeout);
 				if (reply instanceof Error) throw reply;
-				return {
-					data:
-						reply instanceof Uint8Array
-							? reply
-							: new TextEncoder().encode(typeof reply === 'string' ? reply : JSON.stringify(reply)),
-				};
+				let encoded: Uint8Array;
+				if (reply instanceof Uint8Array) {
+					encoded = reply;
+				} else {
+					encoded = new TextEncoder().encode(typeof reply === 'string' ? reply : JSON.stringify(reply));
+				}
+				return {data: encoded};
 			},
 		} as unknown as NatsConnection;
 	}

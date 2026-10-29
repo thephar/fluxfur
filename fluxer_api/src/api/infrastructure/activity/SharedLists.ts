@@ -7,6 +7,7 @@ import {type ConsumerMessages, DeliverPolicy, type JetStreamClient} from '@nats-
 export type SharedListName = (typeof SHARED_LISTS)[number];
 
 const RETRY_DELAY_MS = 30_000;
+const SELF_HOSTED_RETRY_DELAY_MS = 300_000;
 const STREAM_NAME = `KV_${LISTS_BUCKET}`;
 const SUBJECT_PREFIX = `$KV.${LISTS_BUCKET}.`;
 const KV_OPERATION_HEADER = 'KV-Operation';
@@ -14,6 +15,7 @@ const KV_OPERATION_HEADER = 'KV-Operation';
 const lists = new Map<string, ReadonlySet<string>>();
 interface WatchState {
 	stopped: boolean;
+	retryDelayMs: number;
 	messages: ConsumerMessages | null;
 	retry: ReturnType<typeof setTimeout> | null;
 }
@@ -99,15 +101,20 @@ function scheduleWatch(js: JetStreamClient, state: WatchState, delayMs: number):
 			})
 			.finally(() => {
 				state.messages = null;
-				if (!state.stopped) scheduleWatch(js, state, RETRY_DELAY_MS);
+				if (!state.stopped) scheduleWatch(js, state, state.retryDelayMs);
 			});
 	}, delayMs);
 	state.retry.unref?.();
 }
 
-export function startSharedListWatch(js: JetStreamClient): void {
+export function startSharedListWatch(js: JetStreamClient, options: {selfHosted: boolean}): void {
 	stopSharedListWatch();
-	const state: WatchState = {stopped: false, messages: null, retry: null};
+	const state: WatchState = {
+		stopped: false,
+		retryDelayMs: options.selfHosted ? SELF_HOSTED_RETRY_DELAY_MS : RETRY_DELAY_MS,
+		messages: null,
+		retry: null,
+	};
 	watcher = state;
 	scheduleWatch(js, state, 0);
 }

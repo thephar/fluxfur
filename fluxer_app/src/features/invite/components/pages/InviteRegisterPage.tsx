@@ -3,19 +3,30 @@
 import {Routes} from '@app/app/Routes';
 import type {RuntimeConfigSnapshot} from '@app/features/app/state/InstanceSnapshotStore';
 import {usesUsernameSignIn} from '@app/features/app/utils/AccountIdentityFeatures';
+import * as AccountEntryCommands from '@app/features/auth/commands/AccountEntryCommands';
+import * as AuthenticationCommands from '@app/features/auth/commands/AuthenticationCommands';
 import {AuthBottomLink} from '@app/features/auth/flow/AuthBottomLink';
 import sharedStyles from '@app/features/auth/flow/AuthPageStyles.module.css';
 import {AuthRegisterFormCore} from '@app/features/auth/flow/AuthRegisterFormCore';
 import {AuthRuntimeTargetGate} from '@app/features/auth/flow/AuthRuntimeTargetGate';
 import {AuthSsoPanel, resolveAuthPanelSso} from '@app/features/auth/flow/AuthSsoPanel';
 import {DesktopDeepLinkPrompt} from '@app/features/auth/flow/DesktopDeepLinkPrompt';
+import {
+	InstantAccountForm,
+	instantAccountErrors,
+	NO_INSTANT_ACCOUNT_ERRORS,
+} from '@app/features/auth/flow/InstantAccountForm';
 import {InviteHeader} from '@app/features/auth/flow/InviteHeader';
+import {PENDING_APPROVAL_DESCRIPTOR} from '@app/features/auth/flow/identifier_first/AuthIdentifierFirstStep';
+import {offersInstantAccount} from '@app/features/auth/flow/identifier_first/IdentifierFirstState';
 import {linkRegisterFields, readRegistrationUrlCode} from '@app/features/auth/flow/RegisterFormFields';
+import {getRegistrationLegalConsentConfig} from '@app/features/auth/flow/RegistrationLegalNotice';
 import {useAuthPresentation} from '@app/features/auth/flow/useAuthPresentation';
+import {isAgeBlocked} from '@app/features/auth/state/AccountEntryStorage';
 import {AuthCardVariant} from '@app/features/auth/state/AuthLayoutContext';
 import {useAuthRuntimeTarget} from '@app/features/auth/state/AuthRuntimeTarget';
 import {safeRedirectTarget} from '@app/features/auth/utils/SafeRedirect';
-import {CREATE_ACCOUNT_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
+import {CREATE_ACCOUNT_DESCRIPTOR, JOIN_COMMUNITY_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
 import {
 	InviteAuthPageState,
 	InvitesPausedPanel,
@@ -25,10 +36,70 @@ import {setPathQueryParams} from '@app/features/messaging/utils/MessagingUrlUtil
 import {useLocation, useParams} from '@app/features/platform/components/router/RouterReact';
 import {useLingui} from '@lingui/react/macro';
 import {observer} from 'mobx-react-lite';
-import {useMemo} from 'react';
+import {useMemo, useState} from 'react';
 
 interface InviteRegisterPageContentProps {
 	readonly runtimeSnapshot: RuntimeConfigSnapshot;
+}
+
+interface InviteInstantAccountFormProps {
+	readonly code: string;
+	readonly registrationUrlCode: string | null;
+	readonly runtimeSnapshot: RuntimeConfigSnapshot;
+	readonly onAuthenticated: () => void;
+}
+
+function InviteInstantAccountForm({
+	code,
+	registrationUrlCode,
+	runtimeSnapshot,
+	onAuthenticated,
+}: InviteInstantAccountFormProps) {
+	const {i18n} = useLingui();
+	const consentConfig = useMemo(() => getRegistrationLegalConsentConfig(runtimeSnapshot), [runtimeSnapshot]);
+	const [submitting, setSubmitting] = useState(false);
+	const [errors, setErrors] = useState(NO_INSTANT_ACCOUNT_ERRORS);
+	const join = async (globalName: string) => {
+		if (submitting) return;
+		setSubmitting(true);
+		setErrors(NO_INSTANT_ACCOUNT_ERRORS);
+		try {
+			const result = await AccountEntryCommands.createInstantAccount({
+				globalName,
+				consent: true,
+				inviteCode: code,
+				registrationUrlCode,
+				snapshot: runtimeSnapshot,
+			});
+			if (result.type !== 'success') {
+				setErrors({...NO_INSTANT_ACCOUNT_ERRORS, other: i18n._(PENDING_APPROVAL_DESCRIPTOR)});
+				return;
+			}
+			await AuthenticationCommands.completeLogin(
+				{...result.payload, runtimeSnapshot},
+				{redirectPath: result.entry === null ? '/' : Routes.guildChannel(result.entry.guild_id)},
+			);
+			onAuthenticated();
+		} catch (caught) {
+			setErrors(instantAccountErrors(caught, i18n));
+		} finally {
+			setSubmitting(false);
+		}
+	};
+	return (
+		<InstantAccountForm
+			initialName=""
+			optionalName
+			afterHeader
+			consentConfig={consentConfig}
+			submitting={submitting}
+			errors={errors}
+			submitLabel={i18n._(JOIN_COMMUNITY_DESCRIPTOR)}
+			onEdit={() => setErrors(NO_INSTANT_ACCOUNT_ERRORS)}
+			onSubmit={(globalName) => void join(globalName)}
+			data-flx="invite.invite-register-page.instant-account-form"
+		/>
+	);
 }
 
 const InviteRegisterPageContent = observer(function InviteRegisterPageContent({
@@ -95,6 +166,9 @@ const InviteRegisterPageContent = observer(function InviteRegisterPageContent({
 		);
 	}
 	const usernameSignIn = usesUsernameSignIn(runtimeSnapshot.features);
+	const registrationUrlCode = readRegistrationUrlCode(params);
+	const instantAccount =
+		guildInvite !== null && offersInstantAccount(runtimeSnapshot.features, null) && !isAgeBlocked();
 	return (
 		<>
 			<DesktopDeepLinkPrompt
@@ -104,16 +178,26 @@ const InviteRegisterPageContent = observer(function InviteRegisterPageContent({
 			/>
 			<InviteHeader invite={invite} data-flx="invite.invite-register-page.invite-header" />
 			<div className={sharedStyles.container} data-flx="invite.invite-register-page.div--4">
-				<AuthRegisterFormCore
-					fields={linkRegisterFields(runtimeSnapshot, readRegistrationUrlCode(params))}
-					submitLabel={i18n._(CREATE_ACCOUNT_DESCRIPTOR)}
-					redirectPath="/"
-					offerRecoveryKit={usernameSignIn}
-					inviteCode={code}
-					runtimeSnapshot={runtimeSnapshot}
-					onAuthenticated={runtimeTarget.reset}
-					data-flx="invite.invite-register-page.auth-minimal-register-form-core"
-				/>
+				{instantAccount ? (
+					<InviteInstantAccountForm
+						code={code}
+						registrationUrlCode={registrationUrlCode ?? null}
+						runtimeSnapshot={runtimeSnapshot}
+						onAuthenticated={runtimeTarget.reset}
+						data-flx="invite.invite-register-page.invite-instant-account-form"
+					/>
+				) : (
+					<AuthRegisterFormCore
+						fields={linkRegisterFields(runtimeSnapshot, registrationUrlCode)}
+						submitLabel={i18n._(CREATE_ACCOUNT_DESCRIPTOR)}
+						redirectPath="/"
+						offerRecoveryKit={usernameSignIn}
+						inviteCode={code}
+						runtimeSnapshot={runtimeSnapshot}
+						onAuthenticated={runtimeTarget.reset}
+						data-flx="invite.invite-register-page.auth-minimal-register-form-core"
+					/>
+				)}
 				<AuthBottomLink variant="login" to={loginPath} data-flx="invite.invite-register-page.auth-bottom-link" />
 			</div>
 		</>

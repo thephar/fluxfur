@@ -35,7 +35,7 @@ export const BackupCodesModal = observer(({backupCodes, user, challenge}: Backup
 			<Modal.Content data-flx="auth.backup-codes-modal.modal-content">
 				<Modal.ContentLayout data-flx="auth.backup-codes-modal.modal-content-layout">
 					<Modal.Description data-flx="auth.backup-codes-modal.description">
-						<Trans>Use these codes to access your account if you lose your authenticator app.</Trans>
+						<Trans>Use these codes to sign in if you lose your authenticator app or passkey.</Trans>
 					</Modal.Description>
 					<Modal.Description data-flx="auth.backup-codes-modal.description--2">
 						<Trans>We recommend saving these codes now so that you don't get locked out of your account.</Trans>

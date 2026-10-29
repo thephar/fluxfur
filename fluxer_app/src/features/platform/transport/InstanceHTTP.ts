@@ -36,7 +36,7 @@ export interface InstanceHTTPRequest {
 	readonly signal?: AbortSignal;
 }
 
-export class InvalidInstanceHTTPTargetError extends Error {
+class InvalidInstanceHTTPTargetError extends Error {
 	constructor(message: string) {
 		super(message);
 		this.name = 'InvalidInstanceHTTPTargetError';
@@ -81,7 +81,7 @@ export function currentInstanceTarget(): InstanceHTTPTarget {
 	return instanceTargetFromSnapshot(RuntimeConfig.getSnapshot());
 }
 
-export function composeInstanceRequestPath(target: InstanceHTTPTarget, path: string): string {
+function composeInstanceRequestPath(target: InstanceHTTPTarget, path: string): string {
 	validateInstanceTarget(target);
 	if (http.matchesConfiguredRouting(target.apiEndpoint, target.apiVersion)) {
 		return path;

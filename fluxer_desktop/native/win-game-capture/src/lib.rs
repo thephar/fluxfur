@@ -5,7 +5,7 @@
 #[cfg(target_os = "windows")]
 mod capture_item_reuse;
 mod gpu_priority;
-#[cfg(any(target_os = "windows", test))]
+#[cfg(target_os = "windows")]
 mod live_items;
 
 use napi::bindgen_prelude::*;

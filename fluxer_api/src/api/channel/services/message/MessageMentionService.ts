@@ -95,13 +95,14 @@ export class MessageMentionService {
 			mentionsEveryone = false;
 			mentionsHere = false;
 		}
+		const referencedAuthorId = referencedMessage?.authorId;
 		const shouldAddReferencedUser =
-			referencedMessage?.authorId &&
-			referencedMessage.authorId !== message.authorId &&
+			referencedAuthorId &&
+			referencedAuthorId !== message.authorId &&
 			!isDMChannel &&
 			allowedMentions?.replied_user !== false;
 		if (shouldAddReferencedUser) {
-			userMentions.add(referencedMessage!.authorId!);
+			userMentions.add(referencedAuthorId);
 		}
 		const sendableFlags = message.flags & SENDABLE_MESSAGE_FLAGS;
 		let flags = message.flags & ~SENDABLE_MESSAGE_FLAGS;
@@ -221,9 +222,10 @@ export class MessageMentionService {
 			allowedMentions.roles === undefined &&
 			allowedMentions.replied_user === undefined;
 		const hasExplicitLists = allowedMentions.users !== undefined || allowedMentions.roles !== undefined;
-		const parse = isExplicitlyEmptyObject
-			? []
-			: (allowedMentions.parse ?? (hasExplicitLists ? [] : ALLOWED_MENTIONS_PARSE));
+		let parse: Readonly<NonNullable<AllowedMentionsRequest['parse']>> = [];
+		if (!isExplicitlyEmptyObject) {
+			parse = allowedMentions.parse ?? (hasExplicitLists ? [] : ALLOWED_MENTIONS_PARSE);
+		}
 		const users = allowedMentions.users ?? [];
 		const roles = allowedMentions.roles ?? [];
 		const hasExplicitParse = allowedMentions.parse !== undefined;

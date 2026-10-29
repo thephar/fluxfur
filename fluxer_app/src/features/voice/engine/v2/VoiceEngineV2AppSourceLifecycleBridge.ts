@@ -28,7 +28,6 @@ const VALID_LIFECYCLE_KINDS: ReadonlySet<NativeScreenCaptureLifecycleMessage['ki
 
 const MAX_SOURCE_ID_LENGTH = 256;
 const MAX_REGISTRY_CAP = 64;
-const CLOSED_CLEAN_DEDUP_WINDOW_MS = 500;
 
 export type VoiceEngineV2AppSourceLifecycleDispatch = (event: VoiceEngineV2Event) => void;
 
@@ -36,25 +35,9 @@ type VoiceEngineV2AppSourceLifecycleSubscribe = (
 	callback: (message: NativeScreenCaptureLifecycleMessage) => void,
 ) => () => void;
 
-interface VoiceEngineV2AppSourceLifecycleClosedCleanInfo {
-	captureId: string;
-	sourceId: string;
-	source: 'delegate' | 'programmatic' | 'unknown';
-	atMs: number;
-}
-
-export type VoiceEngineV2AppSourceLifecycleClosedCleanCallback = (
-	info: VoiceEngineV2AppSourceLifecycleClosedCleanInfo,
-) => void;
-
 export interface VoiceEngineV2AppSourceLifecycleBridgeOptions {
 	dispatch: VoiceEngineV2AppSourceLifecycleDispatch;
 	subscribe: VoiceEngineV2AppSourceLifecycleSubscribe;
-	diagnostics?: DiagnosticsPort;
-	onClosedClean?: VoiceEngineV2AppSourceLifecycleClosedCleanCallback;
-	clock?: SourceLifecycleClock;
-	now?: () => number;
-	cap?: number;
 }
 
 export interface VoiceEngineV2AppSourceLifecycleBindOptions {
@@ -124,9 +107,6 @@ export class VoiceEngineV2AppSourceLifecycleBridge {
 	private readonly diagnostics: DiagnosticsPort;
 	private readonly registry: SourceLifecycleRegistry;
 	private readonly bindingsByCapture: Map<string, RegisteredBinding>;
-	private readonly closedCleanLastAtMs: Map<string, number>;
-	private readonly onClosedClean: VoiceEngineV2AppSourceLifecycleClosedCleanCallback | null;
-	private readonly now: () => number;
 	private readonly unsubscribe: () => void;
 	private disposed = false;
 
@@ -134,19 +114,12 @@ export class VoiceEngineV2AppSourceLifecycleBridge {
 		assert.ok(options, 'bridge options must not be null');
 		assert.equal(typeof options.dispatch, 'function', 'dispatch must be a function');
 		assert.equal(typeof options.subscribe, 'function', 'subscribe must be a function');
-		const cap = options.cap ?? MAX_REGISTRY_CAP;
-		assert.ok(Number.isInteger(cap), 'cap must be an integer');
-		assert.ok(cap >= 1, 'cap must be >= 1');
-		this.now = options.now ?? defaultNow;
-		const clock = options.clock ?? makeBigIntClock(this.now);
 		this.dispatch = options.dispatch;
-		this.diagnostics =
-			options.diagnostics ??
-			createVoiceEngineV2AppDiagnosticsAdapter({logger: new Logger('VoiceEngineV2AppSourceLifecycleBridge')});
-		this.registry = new SourceLifecycleRegistry(clock, cap);
+		this.diagnostics = createVoiceEngineV2AppDiagnosticsAdapter({
+			logger: new Logger('VoiceEngineV2AppSourceLifecycleBridge'),
+		});
+		this.registry = new SourceLifecycleRegistry(makeBigIntClock(defaultNow), MAX_REGISTRY_CAP);
 		this.bindingsByCapture = new Map<string, RegisteredBinding>();
-		this.closedCleanLastAtMs = new Map<string, number>();
-		this.onClosedClean = options.onClosedClean ?? null;
 		this.unsubscribe = options.subscribe((message) => this.handleNativeMessage(message));
 		assert.equal(typeof this.unsubscribe, 'function', 'subscribe must return a disposer');
 	}
@@ -166,7 +139,7 @@ export class VoiceEngineV2AppSourceLifecycleBridge {
 			since: registration.state.since,
 			attempts: 0,
 			fault: null,
-			atMs: this.now(),
+			atMs: defaultNow(),
 		};
 		this.dispatch(event);
 		return true;
@@ -182,7 +155,6 @@ export class VoiceEngineV2AppSourceLifecycleBridge {
 		const binding = this.bindingsByCapture.get(captureId);
 		if (!binding) return false;
 		this.bindingsByCapture.delete(captureId);
-		this.closedCleanLastAtMs.delete(captureId);
 		const removed = this.registry.remove(binding.sourceId);
 		assert.equal(removed, true, 'unbind must remove the registry entry');
 		this.dispatch({type: 'sourceLifecycle.removed', sourceId: binding.sourceId});
@@ -240,7 +212,7 @@ export class VoiceEngineV2AppSourceLifecycleBridge {
 			since: result.state.since,
 			attempts: deriveAttempts(result.state),
 			fault: deriveFault(result.state),
-			atMs: this.now(),
+			atMs: defaultNow(),
 		};
 		this.dispatch(event);
 	}
@@ -257,10 +229,7 @@ export class VoiceEngineV2AppSourceLifecycleBridge {
 			this.reportDiagnostic(binding, message);
 			return;
 		}
-		if (message.kind === 'closed-clean') {
-			this.notifyClosedClean(binding, message);
-			return;
-		}
+		if (message.kind === 'closed-clean') return;
 		const lifecycleEvent = translateLifecycleEvent(message.kind);
 		if (!lifecycleEvent) return;
 		const result = this.registry.dispatch(binding.sourceId, lifecycleEvent);
@@ -272,28 +241,9 @@ export class VoiceEngineV2AppSourceLifecycleBridge {
 			since: result.state.since,
 			attempts: deriveAttempts(result.state),
 			fault: deriveFault(result.state),
-			atMs: this.now(),
+			atMs: defaultNow(),
 		};
 		this.dispatch(event);
-	}
-
-	private notifyClosedClean(binding: RegisteredBinding, message: NativeScreenCaptureLifecycleMessage): void {
-		assert.equal(message.kind, 'closed-clean', 'notifyClosedClean expects closed-clean kind');
-		assert.ok(binding.captureId.length > 0, 'closed-clean binding must have captureId');
-		const nowMs = this.now();
-		const lastMs = this.closedCleanLastAtMs.get(binding.captureId);
-		const withinWindow = lastMs !== undefined && nowMs - lastMs < CLOSED_CLEAN_DEDUP_WINDOW_MS;
-		if (withinWindow) return;
-		this.closedCleanLastAtMs.set(binding.captureId, nowMs);
-		if (!this.onClosedClean) return;
-		const source: 'delegate' | 'programmatic' | 'unknown' =
-			message.source === 'delegate' || message.source === 'programmatic' ? message.source : 'unknown';
-		this.onClosedClean({
-			captureId: binding.captureId,
-			sourceId: binding.sourceId,
-			source,
-			atMs: nowMs,
-		});
 	}
 
 	private reportDiagnostic(binding: RegisteredBinding, message: NativeScreenCaptureLifecycleMessage): void {

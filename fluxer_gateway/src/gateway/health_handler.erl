@@ -3,7 +3,7 @@
 -module(health_handler).
 -typing([eqwalizer]).
 
--export([init/2]).
+-export([init/2, is_loopback_request/1]).
 
 -type mode() :: liveness | readiness | drain | undrain.
 

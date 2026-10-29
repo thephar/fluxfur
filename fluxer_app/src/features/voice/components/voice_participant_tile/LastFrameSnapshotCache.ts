@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import {ResettableStates} from '@app/features/app/state/ResettableStates';
 import {videoElementHasRenderedFrame} from '@app/features/voice/components/VideoElementFrameState';
 import {Store} from '@app/features/voice/engine/Store';
 
@@ -123,6 +124,21 @@ class LastFrameSnapshotCache extends Store {
 		if (!dataUrl) return;
 		this.retainSnapshot(key, dataUrl);
 	}
+
+	clear(): void {
+		const revoked = Array.from(this.snapshots.values());
+		this.update(() => {
+			this.snapshots.clear();
+		});
+		this.captureIds.clear();
+		for (const url of revoked) {
+			revokeSnapshotUrl(url);
+		}
+	}
 }
 
-export default new LastFrameSnapshotCache();
+const lastFrameSnapshotCache = new LastFrameSnapshotCache();
+
+ResettableStates.register(lastFrameSnapshotCache, () => lastFrameSnapshotCache.clear());
+
+export default lastFrameSnapshotCache;

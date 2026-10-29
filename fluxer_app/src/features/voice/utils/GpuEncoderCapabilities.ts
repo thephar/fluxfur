@@ -192,7 +192,7 @@ function buildLabel(info: GpuInfo, device: GpuDeviceInfo | undefined): string | 
 	return renderer || deviceString || device?.vendorName || info.machineModelName;
 }
 
-export function reportFromGpuInfo(info: GpuInfo): HardwareEncodeReport {
+function reportFromGpuInfo(info: GpuInfo): HardwareEncodeReport {
 	const device = pickPrimaryDevice(info.devices);
 	const renderer = [
 		info.glRenderer,
@@ -231,13 +231,13 @@ export function reportFromGpuInfo(info: GpuInfo): HardwareEncodeReport {
 	};
 }
 
-export const H264_PROBE_PROFILE_LEVEL_IDS: ReadonlyArray<string> = ['640028', '640c28', '4d0028', '420028', '42e028'];
+const H264_PROBE_PROFILE_LEVEL_IDS: ReadonlyArray<string> = ['640028', '640c28', '4d0028', '420028', '42e028'];
 
-export const H264_ENCODE_PROBE_CONTENT_TYPES: ReadonlyArray<string> = H264_PROBE_PROFILE_LEVEL_IDS.map(
+const H264_ENCODE_PROBE_CONTENT_TYPES: ReadonlyArray<string> = H264_PROBE_PROFILE_LEVEL_IDS.map(
 	(profileLevelId) => `video/H264;level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=${profileLevelId}`,
 );
 
-export const WEBRTC_ENCODE_PROBE_CONTENT_TYPES: Record<VideoCodec, ReadonlyArray<string>> = {
+const WEBRTC_ENCODE_PROBE_CONTENT_TYPES: Record<VideoCodec, ReadonlyArray<string>> = {
 	av1: ['video/AV1'],
 	h265: ['video/H265'],
 	h264: H264_ENCODE_PROBE_CONTENT_TYPES,
@@ -252,7 +252,7 @@ export interface EncodeProbeVideoConfig {
 	framerate: number;
 }
 
-export const ENCODE_PROBE_VIDEO_CONFIG: EncodeProbeVideoConfig = {
+const ENCODE_PROBE_VIDEO_CONFIG: EncodeProbeVideoConfig = {
 	width: 1920,
 	height: 1080,
 	bitrate: 4_500_000,
@@ -403,7 +403,7 @@ async function probeH264HardwareProfiles(
 	return promise;
 }
 
-export async function probeWebRtcEncodeEfficiency(
+async function probeWebRtcEncodeEfficiency(
 	config?: Partial<EncodeProbeVideoConfig>,
 ): Promise<Record<VideoCodec, HardwareEncodeAnswer> | null> {
 	const mediaCapabilities = getMediaCapabilities();
@@ -424,7 +424,7 @@ export async function probeWebRtcEncodeEfficiency(
 	return result;
 }
 
-export function reconcileHardwareEncodeReport(
+function reconcileHardwareEncodeReport(
 	report: HardwareEncodeReport,
 	efficiency: Record<VideoCodec, HardwareEncodeAnswer> | null,
 ): HardwareEncodeReport {
@@ -441,7 +441,7 @@ export function reconcileHardwareEncodeReport(
 	};
 }
 
-export interface HardwareVideoEncodeProfile {
+interface HardwareVideoEncodeProfile {
 	codec: VideoCodec;
 	profile: string;
 	maxWidth: number;
@@ -459,7 +459,7 @@ interface VideoEncoderSupportLike {
 	supported?: boolean;
 }
 
-export interface VideoEncoderLike {
+interface VideoEncoderLike {
 	isConfigSupported?: (config: unknown) => Promise<VideoEncoderSupportLike | undefined>;
 }
 
@@ -537,7 +537,7 @@ async function probeHardwareVideoEncodeProfile(
 	};
 }
 
-export async function probeHardwareVideoEncodeProfiles(
+async function probeHardwareVideoEncodeProfiles(
 	encoder: VideoEncoderLike | null,
 ): Promise<ReadonlyArray<HardwareVideoEncodeProfile> | null> {
 	if (!encoder) return null;
@@ -582,7 +582,7 @@ export interface SoftwareVideoEncodeExpectationInput {
 	hardwareEncodeProfiles: ReadonlyArray<HardwareVideoEncodeProfile> | null;
 }
 
-export function isSoftwareVideoEncodeExpected(input: SoftwareVideoEncodeExpectationInput): boolean {
+function isSoftwareVideoEncodeExpected(input: SoftwareVideoEncodeExpectationInput): boolean {
 	if (input.platform !== 'linux') return false;
 	if ((input.h264HardwareProfileCount ?? 0) > 0) return false;
 	if (input.hardwareEncodeProfiles !== null) return input.hardwareEncodeProfiles.length === 0;

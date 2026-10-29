@@ -3,6 +3,8 @@
 import type {ChannelID, GuildID, MessageID, UserID} from '@app/api/BrandedTypes';
 import {channelIdToMessageId, createMessageID} from '@app/api/BrandedTypes';
 import {
+	advanceRow,
+	advanceRows,
 	BatchBuilder,
 	fetchMany,
 	fetchManyInChunks,
@@ -114,15 +116,33 @@ export class ReadStateRepository {
 			await upsertOne(ReadStates.patchByPk({user_id: userId, channel_id: channelId}, markerPatch(marker)));
 			return {readState: new ReadState({...currentReadState!, ...markerColumns(marker)}), previous};
 		}
-		const patch: Record<string, DbOp<unknown>> = {
-			message_id: Db.set(messageId),
-			mention_count: Db.set(mentionCount),
+		const values: Partial<ReadStateRow> = {message_id: messageId, mention_count: mentionCount};
+		if (lastPinTimestamp !== undefined) values.last_pin_timestamp = lastPinTimestamp;
+		if (stamp) Object.assign(values, markerColumns(marker));
+		const write = async (): Promise<boolean> => {
+			const patch: Record<string, DbOp<unknown>> = {};
+			for (const [column, value] of Object.entries(values)) patch[column] = Db.set(value);
+			await upsertOne(ReadStates.patchByPk({user_id: userId, channel_id: channelId}, patch));
+			return true;
 		};
-		if (lastPinTimestamp !== undefined) {
-			patch['last_pin_timestamp'] = Db.set(lastPinTimestamp);
+		if (!manual) {
+			const pk = {user_id: userId, channel_id: channelId};
+			const advanced = await advanceRow(
+				{
+					table: ReadStates,
+					pk,
+					guard: {col: 'message_id', value: messageId, orEqual: true},
+					set: values,
+					insert: {...pk, ...values},
+				},
+				write,
+			);
+			if (!advanced) {
+				return this.upsertReadStateRow(userId, channelId, messageId, mentionCount, lastPinTimestamp, manual, marker);
+			}
+		} else {
+			await write();
 		}
-		if (stamp) Object.assign(patch, markerPatch(marker));
-		await upsertOne(ReadStates.patchByPk({user_id: userId, channel_id: channelId}, patch));
 		const readState = new ReadState({
 			user_id: userId,
 			channel_id: channelId,
@@ -155,6 +175,34 @@ export class ReadStateRepository {
 		if (updates.length === 0) {
 			return [];
 		}
+		const applied = await advanceRows(
+			updates.map(({userId, channelId, messageId, marker}) => {
+				const pk = {user_id: userId, channel_id: channelId};
+				const baselineMessageId = mentionBaseline(channelId, marker);
+				return {
+					table: ReadStates,
+					pk,
+					guard: {col: 'message_id', value: messageId},
+					set: marker != null ? markerColumns(marker) : {},
+					increment: {mention_count: 1},
+					insert:
+						baselineMessageId < messageId
+							? {
+									...pk,
+									message_id: baselineMessageId,
+									mention_count: 1,
+									last_pin_timestamp: null,
+									...(marker != null ? markerColumns(marker) : {}),
+								}
+							: null,
+				};
+			}),
+			() => this.incrementMentionCountsByRead(updates),
+		);
+		return updates.filter((_, index) => applied[index]).map(({userId, channelId}) => ({userId, channelId}));
+	}
+
+	private async incrementMentionCountsByRead(updates: Array<ReadStateMentionUpdate>): Promise<Array<boolean>> {
 		const existingStates = await Promise.all(
 			updates.map(({userId, channelId, messageId, marker}) =>
 				fetchOne<ReadStateRow>(FETCH_READ_STATE_BY_USER_AND_CHANNEL_CQL, {
@@ -164,13 +212,11 @@ export class ReadStateRepository {
 			),
 		);
 		const batch = new BatchBuilder();
-		const appliedUpdates: Array<{
-			userId: UserID;
-			channelId: ChannelID;
-		}> = [];
+		const applied: Array<boolean> = [];
 		for (const {userId, channelId, messageId, marker, state} of existingStates) {
 			if (state) {
 				if (state.message_id != null && state.message_id >= messageId) {
+					applied.push(false);
 					continue;
 				}
 				batch.addPrepared(
@@ -182,10 +228,11 @@ export class ReadStateRepository {
 						},
 					),
 				);
-				appliedUpdates.push({userId, channelId});
+				applied.push(true);
 			} else {
 				const baselineMessageId = mentionBaseline(channelId, marker);
 				if (baselineMessageId >= messageId) {
+					applied.push(false);
 					continue;
 				}
 				batch.addPrepared(
@@ -198,13 +245,13 @@ export class ReadStateRepository {
 						...(marker != null ? markerColumns(marker) : {}),
 					}),
 				);
-				appliedUpdates.push({userId, channelId});
+				applied.push(true);
 			}
 		}
-		if (appliedUpdates.length > 0) {
+		if (applied.includes(true)) {
 			await batch.executeChunked(BULK_READ_STATE_BATCH_QUERY_LIMIT, false);
 		}
-		return appliedUpdates;
+		return applied;
 	}
 
 	async bulkAckMessages(

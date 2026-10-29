@@ -138,6 +138,14 @@ export class MockKVProvider implements IKVProvider {
 		return remainingSeconds;
 	}
 
+	async incr(key: string): Promise<number> {
+		this.evictIfExpired(key);
+		const value = Number.parseInt(this.stringStore.get(key) ?? '0', 10) + 1;
+		this.ensureType(key, 'string');
+		this.stringStore.set(key, String(value));
+		return value;
+	}
+
 	async getdel(key: string): Promise<string | null> {
 		this.evictIfExpired(key);
 		const value = this.stringStore.get(key) ?? null;
@@ -268,8 +276,8 @@ export class MockKVProvider implements IKVProvider {
 		}
 		const offset = options?.offset ?? 0;
 		const limit = options?.count ?? Number.POSITIVE_INFINITY;
-		const minBound = parseScoreBound(min, true);
-		const maxBound = parseScoreBound(max, false);
+		const minBound = parseScoreBound(min, 'minimum');
+		const maxBound = parseScoreBound(max, 'maximum');
 		const sortedMembers = Array.from(zset.entries()).sort((a, b) => {
 			if (a[1] === b[1]) {
 				return a[0].localeCompare(b[0]);
@@ -833,7 +841,7 @@ interface StoredLeakyBucketState {
 	updatedAtMs: number;
 }
 
-function parseScoreBound(bound: string | number, isMin: boolean): ScoreBound {
+function parseScoreBound(bound: string | number, side: 'minimum' | 'maximum'): ScoreBound {
 	if (typeof bound === 'number') {
 		return {value: bound, exclusive: false};
 	}
@@ -843,17 +851,14 @@ function parseScoreBound(bound: string | number, isMin: boolean): ScoreBound {
 	if (bound === '+inf') {
 		return {value: Number.POSITIVE_INFINITY, exclusive: false};
 	}
-	if (bound.startsWith('(')) {
-		const value = Number(bound.slice(1));
-		return {
-			value: Number.isFinite(value) ? value : isMin ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY,
-			exclusive: true,
-		};
+	const exclusive = bound.startsWith('(');
+	const value = Number(exclusive ? bound.slice(1) : bound);
+	if (Number.isFinite(value)) {
+		return {value, exclusive};
 	}
-	const value = Number(bound);
 	return {
-		value: Number.isFinite(value) ? value : isMin ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY,
-		exclusive: false,
+		value: side === 'minimum' ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY,
+		exclusive,
 	};
 }
 

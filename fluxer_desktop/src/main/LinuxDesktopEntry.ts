@@ -13,7 +13,7 @@ import {
 	LINUX_ICON_NAME,
 } from '@electron/common/DesktopIdentity';
 import {createChildLogger} from '@electron/common/Logger';
-import {TASK_ARG_PREFIX} from '@electron/main/JumpList';
+import {isDirectMessagesAvailable, onDirectMessagesAvailabilityChange, TASK_ARG_PREFIX} from '@electron/main/JumpList';
 import {getStableLinuxLaunchPath} from '@electron/main/LinuxLaunchPath';
 import {isFlatpakRuntime} from '@electron/main/LinuxSandbox';
 import {getNativeLocale, t} from '@electron/main/MainI18n';
@@ -118,8 +118,9 @@ function buildDesktopActionExecLine(execPath: string, taskId: (typeof DESKTOP_AC
 }
 
 function buildDesktopActionEntries(execPath: string): Array<string> {
-	const entries = [`Actions=${DESKTOP_ACTIONS.map((action) => action.id).join(';')};`];
-	for (const action of DESKTOP_ACTIONS) {
+	const actions = DESKTOP_ACTIONS.filter((action) => action.id !== 'new-dm' || isDirectMessagesAvailable());
+	const entries = [`Actions=${actions.map((action) => action.id).join(';')};`];
+	for (const action of actions) {
 		entries.push(
 			'',
 			`[Desktop Action ${action.id}]`,
@@ -168,7 +169,7 @@ function digestDesktopFileBody(body: string): string {
 	return crypto.createHash('sha256').update(body, 'utf8').digest('hex');
 }
 
-export function buildDesktopFileContents(execPath: string, hidden: boolean): string {
+function buildDesktopFileContents(execPath: string, hidden: boolean): string {
 	const body = buildDesktopFileBody(execPath, hidden);
 	return body.replace(
 		`${GENERATED_MARKER}\n`,
@@ -333,25 +334,35 @@ function syncUserDesktopEntry(): boolean {
 	return true;
 }
 
+function refreshDesktopEntryActions(): void {
+	try {
+		if (syncUserDesktopEntry()) runUpdateDesktopDatabase(getUserApplicationsDir());
+	} catch (error) {
+		logger.warn('Failed to rewrite the Linux .desktop entry actions', {filePath: getDesktopFilePath(), error});
+	}
+}
+
+let actionRefreshSubscribed = false;
+
 function desktopEntryResolves(): boolean {
 	return findSystemDesktopEntry() !== null || readExistingDesktopFile(getDesktopFilePath()) !== null;
 }
 
-export function ensureLinuxDesktopEntry(): boolean {
-	if (process.platform !== 'linux') return false;
+export function ensureLinuxDesktopEntry(): void {
+	if (process.platform !== 'linux') return;
 	if (!app.isPackaged) {
 		logger.debug('Skipping .desktop entry management for an unpackaged run');
-		return false;
+		return;
 	}
 	if (isFlatpakRuntime()) {
 		logger.debug('Skipping .desktop entry creation in Flatpak; package export owns launcher/protocol integration');
 		registerProtocolClient();
-		return false;
+		return;
 	}
 	if (process.env.FLUXER_DISABLE_DESKTOP_FILE === '1') {
 		logger.debug('Skipping .desktop entry management; FLUXER_DISABLE_DESKTOP_FILE=1');
 		if (findSystemDesktopEntry() !== null) registerProtocolClient();
-		return desktopEntryResolves();
+		return;
 	}
 	let changed = removeLegacyGeneratedDesktopEntry();
 	try {
@@ -363,7 +374,9 @@ export function ensureLinuxDesktopEntry(): boolean {
 		});
 	}
 	if (changed) runUpdateDesktopDatabase(getUserApplicationsDir());
-	const resolves = desktopEntryResolves();
-	if (resolves) registerProtocolClient();
-	return resolves;
+	if (!actionRefreshSubscribed) {
+		actionRefreshSubscribed = true;
+		onDirectMessagesAvailabilityChange(refreshDesktopEntryActions);
+	}
+	if (desktopEntryResolves()) registerProtocolClient();
 }

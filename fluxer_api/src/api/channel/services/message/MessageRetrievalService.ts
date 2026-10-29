@@ -4,7 +4,7 @@ import {AttachmentDecayService} from '@app/api/attachment/AttachmentDecayService
 import type {ChannelID, MessageID, UserID} from '@app/api/BrandedTypes';
 import {mapChannelToResponse} from '@app/api/channel/ChannelMappers';
 import type {ChannelRepository} from '@app/api/channel/ChannelRepository';
-import type {AuthenticatedChannel} from '@app/api/channel/services/AuthenticatedChannel';
+import type {AuthenticatedChannel, ChannelAccess} from '@app/api/channel/services/AuthenticatedChannel';
 import {getDmChannelIdsForScope} from '@app/api/channel/services/message/DmScopeUtils';
 import type {MessageChannelAuthService} from '@app/api/channel/services/message/MessageChannelAuthService';
 import {attachmentDecayPayloadsForMessage} from '@app/api/channel/services/message/MessageHelpers';
@@ -12,11 +12,14 @@ import type {MessageProcessingService} from '@app/api/channel/services/message/M
 import {
 	createMessageResponseDataService,
 	type MessageResponseAccessContext,
+	messageResponseAccessForAuth,
 } from '@app/api/channel/services/message/MessageResponseDataService';
 import type {MessageSearchService} from '@app/api/channel/services/message/MessageSearchService';
 import {maskThreadArtifactsFor, ThreadMessageResponses} from '@app/api/channel/services/message/ThreadMessageResponses';
 import type {ThreadViewer} from '@app/api/experiment/ChannelThreadsGate';
 import {maskChannelResponseThreadBits} from '@app/api/guild/services/ThreadPermissionBits';
+import {chargeGuildVisitorBuckets, GUILD_VISITOR_SEARCH_BUCKETS} from '@app/api/guild/visits/GuildVisitorAccess';
+import {assertVisitorSearchFilters} from '@app/api/guild/visits/GuildVisitorSearch';
 import type {UserCacheService} from '@app/api/infrastructure/UserCacheService';
 import type {RequestCache} from '@app/api/middleware/RequestCacheMiddleware';
 import type {Channel} from '@app/api/models/Channel';
@@ -91,6 +94,7 @@ export class MessageRetrievalService {
 		channelId: ChannelID;
 		messageId?: MessageID;
 		authChannel?: AuthenticatedChannel;
+		access?: ChannelAccess;
 	}): Promise<{access: MessageResponseAccessContext; authChannel: AuthenticatedChannel}> {
 		const authChannel =
 			params.authChannel ??
@@ -98,20 +102,12 @@ export class MessageRetrievalService {
 				userId: params.userId,
 				channelId: params.channelId,
 				viewer: params.viewer,
+				access: params.access,
 			}));
 		if (params.messageId && !(await this.canAccessMessage(authChannel, params.messageId))) {
 			throw new UnknownMessageError();
 		}
-		const canReadMessageHistory =
-			!authChannel.guild || (await authChannel.hasPermission(Permissions.READ_MESSAGE_HISTORY));
-		return {
-			authChannel,
-			access: {
-				sourceGuildId: authChannel.channel.guildId,
-				messageHistoryCutoff: canReadMessageHistory ? null : (authChannel.guild?.message_history_cutoff ?? null),
-				canReadMessageHistory,
-			},
-		};
+		return {authChannel, access: await messageResponseAccessForAuth(authChannel)};
 	}
 
 	async getMessage({
@@ -119,13 +115,15 @@ export class MessageRetrievalService {
 		viewer,
 		channelId,
 		messageId,
+		access,
 	}: {
 		userId: UserID;
 		viewer: ThreadViewer;
 		channelId: ChannelID;
 		messageId: MessageID;
+		access?: ChannelAccess;
 	}): Promise<Message> {
-		const authChannel = await this.channelAuthService.getChannelAuthenticated({userId, channelId, viewer});
+		const authChannel = await this.channelAuthService.getChannelAuthenticated({userId, channelId, viewer, access});
 		if (!(await this.canAccessMessage(authChannel, messageId))) {
 			throw new UnknownMessageError();
 		}
@@ -143,13 +141,15 @@ export class MessageRetrievalService {
 		viewer,
 		channelId,
 		messageIds,
+		access,
 	}: {
 		userId: UserID;
 		viewer: ThreadViewer;
 		channelId: ChannelID;
 		messageIds: Array<MessageID>;
+		access?: ChannelAccess;
 	}): Promise<Map<string, Message>> {
-		const authChannel = await this.channelAuthService.getChannelAuthenticated({userId, channelId, viewer});
+		const authChannel = await this.channelAuthService.getChannelAuthenticated({userId, channelId, viewer, access});
 		const canReadMessageHistory =
 			!authChannel.guild || (await authChannel.hasPermission(Permissions.READ_MESSAGE_HISTORY));
 		const cutoff = authChannel.guild?.message_history_cutoff ?? null;
@@ -181,8 +181,23 @@ export class MessageRetrievalService {
 		searchParams: MessageSearchRequest;
 		requestCache: RequestCache;
 	}): Promise<MessageSearchResponse> {
-		const authChannel = await this.channelAuthService.getChannelAuthenticated({userId, channelId, viewer});
+		const authChannel = await this.channelAuthService.getChannelAuthenticated({
+			userId,
+			channelId,
+			viewer,
+			access: 'visitor_read',
+		});
 		const {channel} = authChannel;
+		if (authChannel.visitor && channel.guildId !== null) {
+			assertVisitorSearchFilters(searchParams);
+			searchParams = {...searchParams, scope: 'current', channel_id: undefined, exclude_channel_id: undefined};
+			await chargeGuildVisitorBuckets({
+				buckets: GUILD_VISITOR_SEARCH_BUCKETS,
+				userId,
+				guildId: channel.guildId,
+				tier: authChannel.visitor.tier,
+			});
+		}
 		const hasReadHistory = !authChannel.guild || (await authChannel.hasPermission(Permissions.READ_MESSAGE_HISTORY));
 		if (!hasReadHistory) {
 			const cutoff = authChannel.guild?.message_history_cutoff;
@@ -210,12 +225,14 @@ export class MessageRetrievalService {
 			searchParams,
 		});
 		const scope = resolvedSearchParams.scope ?? 'current';
-		const channelIdStrings =
-			scope === 'current'
-				? [channelId.toString()]
-				: resolvedSearchParams.channel_id
-					? resolvedSearchParams.channel_id.map((id) => id.toString())
-					: [channelId.toString()];
+		let channelIdStrings: Array<string>;
+		if (scope === 'current') {
+			channelIdStrings = [channelId.toString()];
+		} else if (resolvedSearchParams.channel_id) {
+			channelIdStrings = resolvedSearchParams.channel_id.map((id) => id.toString());
+		} else {
+			channelIdStrings = [channelId.toString()];
+		}
 		const normalizedSearchParams =
 			scope === 'current' ? {...resolvedSearchParams, channel_id: undefined} : resolvedSearchParams;
 		const filters = buildMessageSearchFilters(normalizedSearchParams, channelIdStrings);
@@ -234,9 +251,12 @@ export class MessageRetrievalService {
 			messageHistoryCutoff: !hasReadHistory ? (authChannel.guild?.message_history_cutoff ?? null) : null,
 			canReadMessageHistory: hasReadHistory,
 		};
+		const visibleMessages = hasReadHistory
+			? result.messages
+			: result.messages.filter((message) => this.isWithinCutoff(message.id, access.messageHistoryCutoff));
 		const builtMessages = await createMessageResponseDataService().buildMessages({
 			userId,
-			messages: result.messages,
+			messages: visibleMessages,
 			access,
 		});
 		const messageResponses = maskThreadArtifactsFor(viewer, channel.guildId, builtMessages).map(
@@ -250,6 +270,10 @@ export class MessageRetrievalService {
 			hits_per_page: hitsPerPage,
 			page,
 		};
+	}
+
+	private isWithinCutoff(messageId: MessageID, cutoffIso: string | null): boolean {
+		return cutoffIso !== null && this.isMessageAfterCutoff(messageId, cutoffIso);
 	}
 
 	private async mapSearchChannelResponse(

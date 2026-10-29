@@ -1435,7 +1435,7 @@ export const THEME_VARIABLE_NAMES: ReadonlyArray<string> = [
 	"--z-index-tooltip",
 ];
 
-export const THEME_STUDIO_DARK_DEFAULT_VARIABLE_VALUES: Readonly<Record<string, string>> = {
+export const THEME_DARK_DEFAULT_VARIABLE_VALUES: Readonly<Record<string, string>> = {
 	"--accent-danger": "hsl(0, calc(84% * var(--saturation-factor)), 60%)",
 	"--accent-info": "hsl(198, calc(92% * var(--saturation-factor)), 70%)",
 	"--accent-primary": "hsl(242, calc(70% * var(--saturation-factor)), 55%)",
@@ -1787,7 +1787,7 @@ export const THEME_STUDIO_DARK_DEFAULT_VARIABLE_VALUES: Readonly<Record<string, 
 	"--message-unknown-warning-color": "#ff9933",
 	"--messages-bottom-clearance": "1.5rem",
 	"--mobile-bottom-nav-height": "3.75rem",
-	"--native-titlebar-height": "2rem",
+	"--native-titlebar-height": "32px",
 	"--outline-frame-border-width": "0.0625rem",
 	"--outline-frame-radius-native": "clamp(0.5rem, 1.2vw, 0.875rem)",
 	"--panel-control-bg": "color-mix( in srgb, hsl(258, calc(10% * var(--saturation-factor)), 14.15%) 90%, hsl(258, calc(10% * var(--saturation-factor)), 2%) 10% )",
@@ -1910,7 +1910,7 @@ export const THEME_STUDIO_DARK_DEFAULT_VARIABLE_VALUES: Readonly<Record<string, 
 	"--z-index-tooltip": "45000",
 };
 
-export const THEME_STUDIO_LIGHT_DEFAULT_VARIABLE_VALUES: Readonly<Record<string, string>> = {
+export const THEME_LIGHT_DEFAULT_VARIABLE_VALUES: Readonly<Record<string, string>> = {
 	"--accent-danger": "hsl(359, calc(70% * var(--saturation-factor)), 50%)",
 	"--accent-info": "hsl(198, calc(92% * var(--saturation-factor)), 45%)",
 	"--accent-primary": "hsl(242, calc(70% * var(--saturation-factor)), 55%)",
@@ -2262,7 +2262,7 @@ export const THEME_STUDIO_LIGHT_DEFAULT_VARIABLE_VALUES: Readonly<Record<string,
 	"--message-unknown-warning-color": "#ff9933",
 	"--messages-bottom-clearance": "1.5rem",
 	"--mobile-bottom-nav-height": "3.75rem",
-	"--native-titlebar-height": "2rem",
+	"--native-titlebar-height": "32px",
 	"--outline-frame-border-width": "0.0625rem",
 	"--outline-frame-radius-native": "clamp(0.5rem, 1.2vw, 0.875rem)",
 	"--panel-control-bg": "color-mix(in srgb, hsl(220, calc(10% * var(--saturation-factor)), 92.84%) 65%, hsl(0, 0%, 100%) 35%)",

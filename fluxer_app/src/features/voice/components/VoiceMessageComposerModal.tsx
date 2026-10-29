@@ -521,6 +521,56 @@ const VoiceMessageComposerModal: React.FC<VoiceMessageComposerModalProps> = obse
 		void startRecording();
 	}, [startRecording]);
 
+	let footerAction: React.ReactNode = null;
+	if (stage === 'recording') {
+		footerAction = (
+			<Button
+				variant="primary"
+				onClick={() => void stopRecording()}
+				data-flx="voice.voice-message-composer-modal.stop-button"
+			>
+				<span className={styles.buttonInner} data-flx="voice.voice-message-composer-modal.button-inner--3">
+					<StopIcon size={remFromPx(14)} weight="fill" data-flx="voice.voice-message-composer-modal.stop-icon" />
+					{i18n._(STOP_BUTTON_DESCRIPTOR)}
+				</span>
+			</Button>
+		);
+	} else if (stage === 'reviewing') {
+		footerAction = (
+			<Button
+				variant="primary"
+				onClick={() => void send()}
+				disabled={selectionDuration < MIN_DURATION_SECONDS}
+				data-flx="voice.voice-message-composer-modal.send-button"
+			>
+				<span className={styles.buttonInner} data-flx="voice.voice-message-composer-modal.button-inner--4">
+					<PaperPlaneRightIcon
+						size={remFromPx(14)}
+						weight="fill"
+						data-flx="voice.voice-message-composer-modal.paper-plane-right-icon"
+					/>
+					{i18n._(SEND_BUTTON_DESCRIPTOR)}
+				</span>
+			</Button>
+		);
+	} else if (stage === 'permission_error') {
+		footerAction = (
+			<Button
+				variant="primary"
+				onClick={() => void startRecording()}
+				data-flx="voice.voice-message-composer-modal.retry-button"
+			>
+				<span className={styles.buttonInner} data-flx="voice.voice-message-composer-modal.button-inner--5">
+					<MicrophoneIcon
+						size={remFromPx(14)}
+						weight="fill"
+						data-flx="voice.voice-message-composer-modal.microphone-icon"
+					/>
+					{i18n._(RECORD_BUTTON_DESCRIPTOR)}
+				</span>
+			</Button>
+		);
+	}
 	return (
 		<Modal.Root size="small" centered data-flx="voice.voice-message-composer-modal.modal-root">
 			<Modal.Header
@@ -633,49 +683,7 @@ const VoiceMessageComposerModal: React.FC<VoiceMessageComposerModalProps> = obse
 				<Button variant="secondary" onClick={close} data-flx="voice.voice-message-composer-modal.cancel-button">
 					{i18n._(CANCEL_DESCRIPTOR)}
 				</Button>
-				{stage === 'recording' ? (
-					<Button
-						variant="primary"
-						onClick={() => void stopRecording()}
-						data-flx="voice.voice-message-composer-modal.stop-button"
-					>
-						<span className={styles.buttonInner} data-flx="voice.voice-message-composer-modal.button-inner--3">
-							<StopIcon size={remFromPx(14)} weight="fill" data-flx="voice.voice-message-composer-modal.stop-icon" />
-							{i18n._(STOP_BUTTON_DESCRIPTOR)}
-						</span>
-					</Button>
-				) : stage === 'reviewing' ? (
-					<Button
-						variant="primary"
-						onClick={() => void send()}
-						disabled={selectionDuration < MIN_DURATION_SECONDS}
-						data-flx="voice.voice-message-composer-modal.send-button"
-					>
-						<span className={styles.buttonInner} data-flx="voice.voice-message-composer-modal.button-inner--4">
-							<PaperPlaneRightIcon
-								size={remFromPx(14)}
-								weight="fill"
-								data-flx="voice.voice-message-composer-modal.paper-plane-right-icon"
-							/>
-							{i18n._(SEND_BUTTON_DESCRIPTOR)}
-						</span>
-					</Button>
-				) : stage === 'permission_error' ? (
-					<Button
-						variant="primary"
-						onClick={() => void startRecording()}
-						data-flx="voice.voice-message-composer-modal.retry-button"
-					>
-						<span className={styles.buttonInner} data-flx="voice.voice-message-composer-modal.button-inner--5">
-							<MicrophoneIcon
-								size={remFromPx(14)}
-								weight="fill"
-								data-flx="voice.voice-message-composer-modal.microphone-icon"
-							/>
-							{i18n._(RECORD_BUTTON_DESCRIPTOR)}
-						</span>
-					</Button>
-				) : null}
+				{footerAction}
 			</Modal.Footer>
 		</Modal.Root>
 	);

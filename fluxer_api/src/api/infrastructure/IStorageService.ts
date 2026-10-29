@@ -30,14 +30,6 @@ export class StorageObjectListingOverflowError extends Error {
 	}
 }
 
-export interface ProcessedStorageObjectMetadata {
-	contentType: string;
-	contentLength: number;
-	contentHash: string;
-	width?: number;
-	height?: number;
-}
-
 export interface IStorageService {
 	uploadObject(params: {
 		bucket: string;
@@ -82,14 +74,6 @@ export interface IStorageService {
 		destinationKey: string;
 		newContentType?: string;
 	}): Promise<void>;
-	copyObjectWithMetadataStripping(params: {
-		sourceBucket: string;
-		sourceKey: string;
-		destinationBucket: string;
-		destinationKey: string;
-		contentType: string;
-		sourceLocalPath?: string;
-	}): Promise<ProcessedStorageObjectMetadata | null>;
 	getPresignedDownloadURL(params: {
 		bucket: string;
 		key: string;

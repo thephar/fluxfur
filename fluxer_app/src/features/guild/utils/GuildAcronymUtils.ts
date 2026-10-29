@@ -33,7 +33,7 @@ export function getGuildAcronym(name: string): string {
 	return name.replace(POSSESSIVE_SUFFIX, '').replace(WORD_RUN, firstGrapheme).replace(WHITESPACE, '');
 }
 
-export function getGuildAcronymLength(acronym: string): number {
+function getGuildAcronymLength(acronym: string): number {
 	if (graphemeSegmenter == null) return Array.from(acronym).length;
 	let length = 0;
 	for (const _segment of graphemeSegmenter.segment(acronym)) {
@@ -42,7 +42,7 @@ export function getGuildAcronymLength(acronym: string): number {
 	return length;
 }
 
-export function getGuildAcronymFontScale(acronymLength: number): number {
+function getGuildAcronymFontScale(acronymLength: number): number {
 	const index = Math.min(Math.max(acronymLength, 1), GUILD_ACRONYM_FONT_SIZES_PX.length) - 1;
 	return GUILD_ACRONYM_FONT_SIZES_PX[index] / GUILD_ACRONYM_REFERENCE_ICON_SIZE_PX;
 }
@@ -69,7 +69,7 @@ function getGuildAcronymWidthPerEm(acronym: string): number | null {
 	return widthPerEm;
 }
 
-export function fitGuildAcronymFontScale(acronymLength: number, widthPerEm: number | null): number {
+function fitGuildAcronymFontScale(acronymLength: number, widthPerEm: number | null): number {
 	const scale = getGuildAcronymFontScale(acronymLength);
 	if (widthPerEm == null || widthPerEm <= 0) return scale;
 	const maxScale = GUILD_ACRONYM_FIT_WIDTH_RATIO / widthPerEm;

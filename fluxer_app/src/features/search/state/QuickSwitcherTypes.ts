@@ -26,6 +26,7 @@ export interface HeaderResult {
 	type: typeof QuickSwitcherResultTypes.HEADER;
 	id: string;
 	title: string;
+	accountKey?: string;
 }
 
 export interface UserResult {
@@ -96,6 +97,35 @@ export interface LinkResult {
 	path: string;
 }
 
+export interface AccountResult {
+	type: typeof QuickSwitcherResultTypes.ACCOUNT;
+	id: string;
+	title: string;
+	subtitle?: string;
+	accountKey: string;
+	accountName: string;
+	mentionCount: number;
+	hasUnread: boolean;
+	moreCount: number | null;
+}
+
+export interface AccountChannelResult {
+	type: typeof QuickSwitcherResultTypes.ACCOUNT_CHANNEL;
+	id: string;
+	title: string;
+	subtitle?: string;
+	accountKey: string;
+	accountName: string;
+	channelId: string;
+	guildId: string | null;
+	guildName: string | null;
+	channelType: number;
+	mentionCount: number;
+	unread: boolean;
+}
+
+export type QuickSwitcherScope = 'all' | 'other_accounts';
+
 export type QuickSwitcherResult =
 	| HeaderResult
 	| UserResult
@@ -105,7 +135,9 @@ export type QuickSwitcherResult =
 	| GuildResult
 	| VirtualGuildResult
 	| SettingsResult
-	| LinkResult;
+	| LinkResult
+	| AccountResult
+	| AccountChannelResult;
 export type QuickSwitcherExecutableResult = Exclude<QuickSwitcherResult, HeaderResult>;
 
 interface CandidateBase<T extends QuickSwitcherResultType> {

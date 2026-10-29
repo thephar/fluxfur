@@ -58,8 +58,14 @@ export const GifPickerGrid = observer(
 		const useSavedMediaForGifFavorites = FavoriteGif.saveGifFavoritesAsSavedMedia;
 		const attachmentUrlRevision = AttachmentUrlRefresher.revision;
 		const data: Array<GifPickerGridItemData> = useMemo(() => {
+			let surface: 'favorites' | 'featured' | 'results' = 'results';
+			if (store.isShowingFavorites) {
+				surface = 'favorites';
+			} else if (store.isShowingFeatured) {
+				surface = 'featured';
+			}
 			return buildGifPickerGridData({
-				surface: store.isShowingFavorites ? 'favorites' : store.isShowingFeatured ? 'featured' : 'results',
+				surface,
 				loading: store.loading,
 				columns,
 				provider: RuntimeConfig.gifProvider,

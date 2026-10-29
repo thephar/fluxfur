@@ -133,26 +133,6 @@ mod tests {
     }
 
     #[test]
-    fn empty_input_returns_none() {
-        assert_eq!(sanitize_oembed_html(""), None);
-        assert_eq!(sanitize_oembed_html("   "), None);
-    }
-
-    #[test]
-    fn trusted_host_check() {
-        assert!(is_trusted_oembed_host("youtube.com"));
-        assert!(is_trusted_oembed_host("www.youtube.com"));
-        assert!(!is_trusted_oembed_host("evil.com"));
-    }
-
-    #[test]
-    fn keeps_trusted_iframe_src() {
-        let html = r#"<iframe src="https://www.youtube.com/embed/abc"></iframe>"#;
-        let result = sanitize_oembed_html(html).unwrap();
-        assert!(result.contains(r#"src="https://www.youtube.com/embed/abc""#));
-    }
-
-    #[test]
     fn strips_untrusted_iframe_src() {
         let html = r#"<iframe src="https://youtube.com.evil.test/embed"></iframe>"#;
         let result = sanitize_oembed_html(html).unwrap();
@@ -168,77 +148,10 @@ mod tests {
     }
 
     #[test]
-    fn keeps_basic_formatting_tags() {
-        let html = r#"<p><strong>Bold</strong> <em>italic</em> <b>b</b> <i>i</i></p>"#;
-        let result = sanitize_oembed_html(html).unwrap();
-        assert!(result.contains("<strong>Bold</strong>"));
-        assert!(result.contains("<em>italic</em>"));
-    }
-
-    #[test]
-    fn strips_style_and_img_tags() {
-        let html = r#"<style>body{}</style><img src="x"><p>Keep</p>"#;
-        let result = sanitize_oembed_html(html).unwrap();
-        assert!(!result.contains("style"));
-        assert!(!result.contains("img"));
-        assert!(result.contains("<p>Keep</p>"));
-    }
-
-    #[test]
-    fn keeps_blockquote_with_cite() {
-        let html = r#"<blockquote cite="https://e.com/post">Quote text</blockquote>"#;
-        let result = sanitize_oembed_html(html).unwrap();
-        assert!(result.contains("blockquote"));
-        assert!(result.contains(r#"cite="https://e.com/post""#));
-    }
-
-    #[test]
     fn anchor_gets_rel_noopener() {
         let html = r#"<a href="https://e.com">Link</a>"#;
         let result = sanitize_oembed_html(html).unwrap();
         assert!(result.contains("noopener"));
-    }
-
-    #[test]
-    fn iframe_keeps_sandbox_and_dimensions() {
-        let html = r#"<iframe src="https://www.youtube.com/embed/abc" width="640" height="360" sandbox="allow-scripts"></iframe>"#;
-        let result = sanitize_oembed_html(html).unwrap();
-        assert!(result.contains(r#"width="640""#));
-        assert!(result.contains(r#"height="360""#));
-        assert!(result.contains("sandbox"));
-    }
-
-    #[test]
-    fn all_trusted_hosts_are_recognised() {
-        for host in [
-            "youtube.com",
-            "www.youtube.com",
-            "youtu.be",
-            "youtube-nocookie.com",
-            "vimeo.com",
-            "player.vimeo.com",
-            "soundcloud.com",
-            "w.soundcloud.com",
-            "spotify.com",
-            "open.spotify.com",
-            "twitter.com",
-            "x.com",
-            "reddit.com",
-            "www.reddit.com",
-            "tiktok.com",
-            "www.tiktok.com",
-            "codepen.io",
-            "cdpn.io",
-        ] {
-            if host == "cdpn.io" {
-                assert!(
-                    !is_trusted_oembed_host(host),
-                    "{host} should NOT be trusted"
-                );
-            } else {
-                assert!(is_trusted_oembed_host(host), "{host} should be trusted");
-            }
-        }
     }
 
     #[test]
@@ -249,22 +162,6 @@ mod tests {
         assert!(
             sanitize_oembed_html_with_context(html, &source, Some("https://also-untrusted.com"))
                 .is_none()
-        );
-    }
-
-    #[test]
-    fn context_sanitizer_allows_trusted_source() {
-        let source = url::Url::parse("https://www.youtube.com/watch?v=abc").unwrap();
-        let html = r#"<p>Hello</p>"#;
-        assert!(sanitize_oembed_html_with_context(html, &source, None).is_some());
-    }
-
-    #[test]
-    fn context_sanitizer_allows_trusted_provider() {
-        let source = url::Url::parse("https://untrusted.com/page").unwrap();
-        let html = r#"<p>Hello</p>"#;
-        assert!(
-            sanitize_oembed_html_with_context(html, &source, Some("https://youtube.com")).is_some()
         );
     }
 

@@ -6,8 +6,6 @@
 
 -export([handle_move_member_result/4, normalize_voice_rpc_error/1]).
 
--define(GUILD_CALL_TIMEOUT, 4000).
-
 -spec handle_move_member_result(term(), integer(), integer() | null, pid()) -> map().
 handle_move_member_result(
     #{

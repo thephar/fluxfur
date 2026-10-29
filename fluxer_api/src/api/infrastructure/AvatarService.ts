@@ -7,7 +7,6 @@ import {contentModerationService} from '@app/api/infrastructure/ContentModeratio
 import type {IMediaService} from '@app/api/infrastructure/IMediaService';
 import {decodeValidatedImage, resolveAssetSizeLimit} from '@app/api/infrastructure/ImageUploadValidation';
 import type {IStorageService} from '@app/api/infrastructure/IStorageService';
-import {stripNonJpegImageMetadata} from '@app/api/infrastructure/StorageObjectHelpers';
 import {Logger} from '@app/api/Logger';
 import type {LimitConfigService} from '@app/api/limits/LimitConfigService';
 import {bannedAvatarHashCache} from '@app/api/middleware/BannedAvatarHashCache';
@@ -50,7 +49,12 @@ export class AvatarService {
 			if (isJpeg) {
 				return await sharp(buffer).jpeg({quality: 100}).toBuffer();
 			}
-			return await stripNonJpegImageMetadata(buffer);
+			const stripped = await this.mediaService.stripImageMetadata(buffer);
+			if (stripped) {
+				return stripped;
+			}
+			Logger.error({format}, 'Failed to strip image metadata, using original buffer');
+			return buffer;
 		} catch (error) {
 			Logger.error({error, format}, 'Failed to strip image metadata, using original buffer');
 			return buffer;

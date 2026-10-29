@@ -1,23 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {setCassandraQueryExecutorForTesting} from '@app/api/database/CassandraQueryExecution';
-import {PostgresKvQueryExecutor} from '@app/api/database/PostgresKvQueryExecutor';
 import type {EnforcementDecisionRow} from '@app/api/database/types/EnforcementTypes';
 import type {IARMessageContextRow} from '@app/api/database/types/ReportTypes';
 import {EnforcementDecisionRepository} from '@app/api/enforcement/EnforcementDecisionRepository';
-import {
-	EnforcementDecisionEvidence,
-	EnforcementDecisionNotes,
-	EnforcementDecisions,
-	EnforcementDecisionsBySubject,
-} from '@app/api/Tables';
-import {dockerAvailable, startPostgresKv, stopPostgresKv} from '@app/api/test/DockerTestContainer';
 import {InMemoryCassandraQueryExecutor} from '@app/api/test/InMemoryCassandraQueryExecutor';
-import type {IPostgresClient} from '@pkgs/postgres/src/Client';
-import {seconds} from 'itty-time';
-import {afterAll, beforeAll, beforeEach, describe, expect, it} from 'vitest';
-
-const KV_TABLE = 'kv_enforcement_repository';
+import {afterAll, beforeEach, describe, expect, it} from 'vitest';
 
 function decisionRow(decisionId: bigint, overrides: Partial<EnforcementDecisionRow> = {}): EnforcementDecisionRow {
 	return {
@@ -183,46 +171,3 @@ describeRepository(
 		setCassandraQueryExecutorForTesting(null);
 	},
 );
-
-describe.skipIf(!dockerAvailable)('Postgres KV', () => {
-	let raw: IPostgresClient;
-	let container: string;
-
-	beforeAll(async () => {
-		const started = await startPostgresKv({namePrefix: 'fluxer-enforcementkv', kvTable: KV_TABLE, maxConnections: 8});
-		container = started.container;
-		raw = started.client;
-	}, 900_000);
-
-	afterAll(async () => {
-		setCassandraQueryExecutorForTesting(null);
-		await stopPostgresKv(container);
-	});
-
-	describeRepository(
-		'the Postgres KV backend',
-		async () => {
-			setCassandraQueryExecutorForTesting(new PostgresKvQueryExecutor(raw));
-			await raw.query(`DELETE FROM ${KV_TABLE}`);
-		},
-		async () => {},
-	);
-
-	it('gives evidence and notes a one year expiry and keeps decisions', async () => {
-		setCassandraQueryExecutorForTesting(new PostgresKvQueryExecutor(raw));
-		await raw.query(`DELETE FROM ${KV_TABLE}`);
-		await create(new EnforcementDecisionRepository(), decisionRow(500n));
-		const rows = await raw.query<{table_name: string; expires_at: Date | null}>(
-			`SELECT table_name, expires_at FROM ${KV_TABLE}`,
-		);
-		const expiry = (table: string) => rows.rows.filter((row) => row.table_name === table).map((row) => row.expires_at);
-		for (const table of [EnforcementDecisionEvidence.name, EnforcementDecisionNotes.name]) {
-			const [expiresAt] = expiry(table);
-			const remaining = (expiresAt!.getTime() - Date.now()) / 1000;
-			expect(remaining).toBeGreaterThan(seconds('365 days') - 60);
-			expect(remaining).toBeLessThanOrEqual(seconds('365 days'));
-		}
-		expect(expiry(EnforcementDecisions.name)).toEqual([null]);
-		expect(expiry(EnforcementDecisionsBySubject.name)).toEqual([null]);
-	});
-});

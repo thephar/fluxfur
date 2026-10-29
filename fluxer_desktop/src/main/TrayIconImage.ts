@@ -74,7 +74,7 @@ function bodyLuminance(bitmap: Buffer): number | null {
 	return null;
 }
 
-export function paintMonochromeGlyph(bitmap: Buffer, glyphBgr: Bgr): void {
+function paintMonochromeGlyph(bitmap: Buffer, glyphBgr: Bgr): void {
 	const body = bodyLuminance(bitmap);
 	let highlight = 0;
 	for (let offset = 0; offset < bitmap.length; offset += 4) {
@@ -100,7 +100,7 @@ export function paintMonochromeGlyph(bitmap: Buffer, glyphBgr: Bgr): void {
 	}
 }
 
-export function paintTrayIndicatorDot(bitmap: Buffer, width: number, height: number, dotBgr: Bgr): void {
+function paintTrayIndicatorDot(bitmap: Buffer, width: number, height: number, dotBgr: Bgr): void {
 	const size = Math.min(width, height);
 	const radius = size * DOT_RADIUS_RATIO;
 	const cutRadius = radius + size * DOT_GAP_RATIO;

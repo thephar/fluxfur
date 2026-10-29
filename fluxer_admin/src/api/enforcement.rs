@@ -10,7 +10,6 @@ use super::types::{AdminUser, UserMutationResponse};
 
 #[derive(Debug, Deserialize)]
 pub struct RestrictionResponse {
-    pub user: AdminUser,
     pub skipped_ips: Vec<generated_types::SkippedNetworkBlock>,
 }
 
@@ -22,6 +21,7 @@ pub struct DecisionSubmission {
 pub struct ClosureRequest {
     pub basis: generated_types::ModerationBasis,
     pub days_until_deletion: u32,
+    pub immediate: bool,
     pub remove_evidence: bool,
     pub block_networks: Option<generated_types::NetworkBlockRequest>,
     pub replace_pending_deletion_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -97,6 +97,7 @@ impl AdminApiClient {
             )
             .map_err(ApiError::Parse)?
             .into(),
+            immediate: request.immediate.then_some(true),
             remove_evidence: request.remove_evidence.then_some(true),
             replace_pending_deletion_at: request.replace_pending_deletion_at,
         };
@@ -206,59 +207,5 @@ impl AdminApiClient {
             None,
         )
         .await
-    }
-}
-
-pub fn api_error_message(error: &ApiError) -> Option<String> {
-    let ApiError::Http { status, message } = error else {
-        return None;
-    };
-    if !matches!(status, 400 | 403 | 404 | 409) {
-        return None;
-    }
-    let body: serde_json::Value = serde_json::from_str(message).ok()?;
-    let detail = body["errors"]
-        .as_array()
-        .and_then(|errors| errors.first())
-        .and_then(|error| error["message"].as_str());
-    detail
-        .or_else(|| body["message"].as_str())
-        .map(str::to_owned)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::api_error_message;
-    use crate::api::client::ApiError;
-
-    fn http(status: u16, body: &str) -> ApiError {
-        ApiError::Http {
-            status,
-            message: body.to_owned(),
-        }
-    }
-
-    #[test]
-    fn api_error_message_prefers_the_first_field_error() {
-        let body = r#"{"code":"INVALID_FORM_BODY","message":"Invalid form body","errors":[{"path":"decision.statement","code":"ENFORCEMENT_STATEMENT_NOT_ALLOWED","message":"A note to the user is not allowed for this reason"}]}"#;
-        assert_eq!(
-            api_error_message(&http(400, body)).as_deref(),
-            Some("A note to the user is not allowed for this reason")
-        );
-    }
-
-    #[test]
-    fn api_error_message_reads_conflicts_and_ignores_server_errors() {
-        let body = r#"{"code":"ENFORCEMENT_DECISION_REPLACED","message":"A later decision replaced this one"}"#;
-        assert_eq!(
-            api_error_message(&http(409, body)).as_deref(),
-            Some("A later decision replaced this one")
-        );
-        assert_eq!(api_error_message(&http(500, body)), None);
-        assert_eq!(api_error_message(&http(409, "not json")), None);
-        assert_eq!(
-            api_error_message(&ApiError::Network("down".to_owned())),
-            None
-        );
     }
 }

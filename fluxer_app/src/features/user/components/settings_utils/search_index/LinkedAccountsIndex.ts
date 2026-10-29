@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {VERIFY_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
-import {shouldShowClaimedAccountSettings} from '@app/features/user/components/settings_utils/search_index/SearchIndexHelpers';
+import {shouldShowClaimedAccountSettings} from '@app/features/user/components/settings_utils/SettingsVisibility';
 import type {SearchableSettingDescriptor} from '@app/features/user/components/settings_utils/search_index/SearchIndexTypes';
 import {CONNECTIONS_DESCRIPTOR} from '@app/features/user/components/settings_utils/section_registry/SharedDescriptors';
 import {msg} from '@lingui/core/macro';

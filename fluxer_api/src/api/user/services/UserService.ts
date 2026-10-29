@@ -12,6 +12,7 @@ import type {KVAccountDeletionQueueService} from '@app/api/infrastructure/KVAcco
 import type {KVBulkMessageDeletionQueueService} from '@app/api/infrastructure/KVBulkMessageDeletionQueueService';
 import type {UserCacheService} from '@app/api/infrastructure/UserCacheService';
 import type {LimitConfigService} from '@app/api/limits/LimitConfigService';
+import type {OperatorPassServices} from '@app/api/middleware/OperatorPassServiceFactory';
 import {UserAccountService} from '@app/api/user/services/UserAccountService';
 import {UserChannelService} from '@app/api/user/services/UserChannelService';
 import type {UserContactChangeLogService} from '@app/api/user/services/UserContactChangeLogService';
@@ -40,6 +41,7 @@ export class UserService {
 		contactChangeLogService: UserContactChangeLogService,
 		connectionRepository: ConnectionRepository,
 		limitConfigService: LimitConfigService,
+		operatorPassServices: Pick<OperatorPassServices, 'holdingService'> | null,
 	) {
 		this.accountService = new UserAccountService(
 			apiContext,
@@ -53,7 +55,12 @@ export class UserService {
 			connectionRepository,
 			limitConfigService,
 		);
-		this.relationshipService = new UserRelationshipService(apiContext, userPermissionUtils, limitConfigService);
+		this.relationshipService = new UserRelationshipService(
+			apiContext,
+			userPermissionUtils,
+			limitConfigService,
+			operatorPassServices,
+		);
 		this.channelService = new UserChannelService(
 			apiContext,
 			channelService,

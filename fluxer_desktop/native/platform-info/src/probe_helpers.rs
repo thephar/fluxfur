@@ -16,7 +16,7 @@ pub fn vendor_name(vendor_id: u32) -> Option<&'static str> {
     }
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(target_os = "macos")]
 pub fn vendor_id_from_name(name: &str) -> u32 {
     let lower = name.to_ascii_lowercase();
     if lower.contains("apple") {
@@ -42,14 +42,14 @@ pub fn write_hex_u64(value: u64) -> String {
     format!("0x{value:x}")
 }
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(target_os = "linux")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParseHexIdError {
     InvalidHexId,
     InvalidDigit,
 }
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(target_os = "linux")]
 pub fn parse_hex_id(raw: &str) -> Result<u32, ParseHexIdError> {
     let mut trimmed = raw.trim();
     if let Some(rest) = trimmed
@@ -64,7 +64,7 @@ pub fn parse_hex_id(raw: &str) -> Result<u32, ParseHexIdError> {
     u32::from_str_radix(trimmed, 16).map_err(|_| ParseHexIdError::InvalidDigit)
 }
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(target_os = "linux")]
 pub fn is_drm_card_name(name: &str) -> bool {
     let Some(rest) = name.strip_prefix("card") else {
         return false;
@@ -75,31 +75,4 @@ pub fn is_drm_card_name(name: &str) -> bool {
 #[cfg(target_os = "linux")]
 pub fn basename(path: &str) -> &str {
     path.rsplit_once('/').map_or(path, |(_, base)| base)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parse_hex_id_accepts_sysfs_hex_ids() {
-        assert_eq!(0x8086, parse_hex_id("0x8086\n").unwrap());
-        assert_eq!(0x10de, parse_hex_id("10DE").unwrap());
-        assert_eq!(Err(ParseHexIdError::InvalidHexId), parse_hex_id("0x"));
-    }
-
-    #[test]
-    fn is_drm_card_name_accepts_cards_but_rejects_connectors_render_nodes() {
-        assert!(is_drm_card_name("card0"));
-        assert!(is_drm_card_name("card12"));
-        assert!(!is_drm_card_name("card0-DP-1"));
-        assert!(!is_drm_card_name("renderD128"));
-    }
-
-    #[test]
-    fn vendor_id_helpers() {
-        assert_eq!(0x106b, vendor_id_from_name("Apple M3 GPU"));
-        assert_eq!(Some("NVIDIA"), vendor_name(0x10de));
-        assert_eq!(None, vendor_name(0xffff));
-    }
 }

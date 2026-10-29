@@ -1,16 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type {UserID} from '@app/api/BrandedTypes';
+import {LocalDate} from '@app/api/database/LocalDate';
 import type {UserRow} from '@app/api/database/types/UserTypes';
 import {checkIsPremium, getEffectivePremiumUntil} from '@app/api/user/UserHelpers';
+import {isProfileBadgeKey, type ProfileBadgeKey} from '@fluxer/constants/src/BadgeConstants';
 import {
 	extractPremiumFlagsFromLegacyUserFlags,
+	legacyHiddenProfileBadges,
 	type MentionReplyPreference,
 	ProfileFieldPrivacyFlags,
 	type UserAuthenticatorType,
 	type UserPremiumType,
 } from '@fluxer/constants/src/UserConstants';
-import {types} from 'cassandra-driver';
 
 export class User {
 	readonly id: UserID;
@@ -69,7 +71,9 @@ export class User {
 	readonly contentHiddenSince: Date | null;
 	readonly acls: Set<string>;
 	private readonly _traits: Set<string>;
-	readonly firstRefundAt: Date | null;
+	readonly badgeIds: ReadonlySet<bigint>;
+	readonly hiddenProfileBadges: ReadonlySet<ProfileBadgeKey>;
+	readonly lastRefundAt: Date | null;
 	readonly giftInventoryServerSeq: number | null;
 	readonly giftInventoryClientSeq: number | null;
 	readonly premiumOnboardingDismissedAt: Date | null;
@@ -135,7 +139,12 @@ export class User {
 		this.contentHiddenSince = row.content_hidden_since ?? null;
 		this.acls = row.acls ?? new Set();
 		this._traits = row.traits ?? new Set();
-		this.firstRefundAt = row.first_refund_at ?? null;
+		this.badgeIds = row.badge_ids ?? new Set();
+		this.hiddenProfileBadges = new Set([
+			...[...(row.hidden_profile_badges ?? [])].filter(isProfileBadgeKey),
+			...legacyHiddenProfileBadges(rawFlags, this.premiumFlags),
+		]);
+		this.lastRefundAt = row.first_refund_at ?? null;
 		this.giftInventoryServerSeq = row.gift_inventory_server_seq ?? null;
 		this.giftInventoryClientSeq = row.gift_inventory_client_seq ?? null;
 		this.premiumOnboardingDismissedAt = row.premium_onboarding_dismissed_at ?? null;
@@ -154,10 +163,6 @@ export class User {
 
 	get effectivePremiumUntil(): Date | null {
 		return getEffectivePremiumUntil(this);
-	}
-
-	isUnclaimedAccount(): boolean {
-		return this.passwordHash === null && !this.isBot && !this._traits.has('sso');
 	}
 
 	toRow(): UserRow {
@@ -184,7 +189,7 @@ export class User {
 			accent_color: this.accentColor,
 			timezone: this.timezone,
 			timezone_privacy_flags: this.timezonePrivacyFlags,
-			date_of_birth: this.dateOfBirth ? types.LocalDate.fromString(this.dateOfBirth) : null,
+			date_of_birth: this.dateOfBirth ? LocalDate.fromString(this.dateOfBirth) : null,
 			locale: this.locale,
 			flags: this.flags,
 			premium_flags: this.premiumFlags,
@@ -218,7 +223,9 @@ export class User {
 			content_hidden_since: this.contentHiddenSince,
 			acls: this.acls.size > 0 ? this.acls : null,
 			traits: this._traits.size > 0 ? this._traits : null,
-			first_refund_at: this.firstRefundAt,
+			badge_ids: this.badgeIds.size > 0 ? new Set(this.badgeIds) : null,
+			hidden_profile_badges: this.hiddenProfileBadges.size > 0 ? new Set(this.hiddenProfileBadges) : null,
+			first_refund_at: this.lastRefundAt,
 			gift_inventory_server_seq: this.giftInventoryServerSeq,
 			gift_inventory_client_seq: this.giftInventoryClientSeq,
 			premium_onboarding_dismissed_at: this.premiumOnboardingDismissedAt,

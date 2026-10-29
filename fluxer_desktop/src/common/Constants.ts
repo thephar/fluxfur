@@ -8,14 +8,14 @@ import {
 	DESKTOP_LOCAL_APP_URL,
 } from '@fluxer/desktop_ipc/src/LocalAppRouteContract';
 
-export const CHANNEL_APP_PROTOCOLS: Record<BuildChannel, string> = {
+const CHANNEL_APP_PROTOCOLS: Record<BuildChannel, string> = {
 	stable: 'fluxer',
 	canary: 'fluxer',
 	development: 'fluxer-development',
 };
 export const APP_PROTOCOL = CHANNEL_APP_PROTOCOLS[BUILD_CHANNEL];
 export const STABLE_APP_URL = 'https://web.fluxer.app';
-export const CANARY_APP_URL = 'https://web.canary.fluxer.app';
+const CANARY_APP_URL = 'https://web.canary.fluxer.app';
 const DEVELOPMENT_APP_URL = 'http://localhost:8088';
 export const CHANNEL_APP_URLS: Record<BuildChannel, string> = {
 	stable: STABLE_APP_URL,

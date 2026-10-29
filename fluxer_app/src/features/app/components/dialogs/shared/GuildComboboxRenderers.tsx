@@ -36,6 +36,16 @@ const renderRow = <T extends GuildComboboxOption>(
 	const isGlobal = !option.value;
 	const iconUrl = option.iconUrl ?? null;
 	const notice = getNotice?.(option, disabled);
+	let noticeNode: React.ReactNode = null;
+	if (notice && styles.notice) {
+		noticeNode = (
+			<span className={styles.notice} data-flx="app.guild-combobox-renderers.render-row.notice">
+				{notice}
+			</span>
+		);
+	} else if (notice) {
+		noticeNode = notice;
+	}
 	return (
 		<div
 			className={clsx(rowClass, isGlobal && styles.rowGlobal, disabled && styles.rowDisabled)}
@@ -64,15 +74,7 @@ const renderRow = <T extends GuildComboboxOption>(
 			<span className={styles.label} data-flx="app.guild-combobox-renderers.render-row.label">
 				{option.label}
 			</span>
-			{notice ? (
-				styles.notice ? (
-					<span className={styles.notice} data-flx="app.guild-combobox-renderers.render-row.notice">
-						{notice}
-					</span>
-				) : (
-					notice
-				)
-			) : null}
+			{noticeNode}
 		</div>
 	);
 };

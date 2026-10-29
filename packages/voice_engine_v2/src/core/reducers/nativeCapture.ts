@@ -112,10 +112,16 @@ function completeNativeCaptureOperation(
 		return {snapshot, commands: []};
 	}
 	const operationIds = {...snapshot.nativeCapture.operationIds};
-	if (operationId != null) delete operationIds[captureId];
+	if (operationId != null) {
+		delete operationIds[captureId];
+	}
+	let completedSnapshot = snapshot;
+	if (operationId != null) {
+		completedSnapshot = markOperation(snapshot, operationId, error ? 'failed' : 'succeeded', error);
+	}
 	return {
 		snapshot: {
-			...(operationId != null ? markOperation(snapshot, operationId, error ? 'failed' : 'succeeded', error) : snapshot),
+			...completedSnapshot,
 			nativeCapture: {
 				...snapshot.nativeCapture,
 				operationIds,

@@ -103,6 +103,10 @@ export function buildLocalAppCSP({nonce, cleartextInstanceOrigins = []}: LocalAp
 	extendFrom(connect, CONNECT_SOURCES);
 	extendFrom(connect, DESKTOP_CEILING_CONNECT_SOURCES);
 	extendFrom(connect, cleartextSources);
+	extendFrom(
+		connect,
+		cleartextSources.map((source) => `ws:${source.slice('http:'.length)}`),
+	);
 	directives.push(`connect-src ${connect.join(' ')}`);
 
 	const frame = [SELF_SOURCE];

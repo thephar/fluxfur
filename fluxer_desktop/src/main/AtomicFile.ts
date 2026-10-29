@@ -4,7 +4,7 @@ import {randomBytes} from 'node:crypto';
 import fs, {type FileHandle} from 'node:fs/promises';
 import path from 'node:path';
 
-export const WINDOWS_TRANSIENT_FS_ERROR_CODES: ReadonlySet<string> = new Set(['EPERM', 'EACCES', 'EBUSY']);
+const WINDOWS_TRANSIENT_FS_ERROR_CODES: ReadonlySet<string> = new Set(['EPERM', 'EACCES', 'EBUSY']);
 
 export const WINDOWS_TRANSIENT_FS_RETRY_DELAYS_MS: ReadonlyArray<number> = [25, 50, 100, 200, 400, 800];
 
@@ -22,7 +22,7 @@ export class ModuleStoreIOError extends ModuleStoreError {
 	}
 }
 
-export function isWindowsTransientFsError(error: unknown): boolean {
+function isWindowsTransientFsError(error: unknown): boolean {
 	return (
 		process.platform === 'win32' &&
 		typeof error === 'object' &&

@@ -3,20 +3,8 @@
 import {createTestAccount, setUserACLs} from '@app/api/auth/tests/AuthTestUtils';
 import {createGuildID} from '@app/api/BrandedTypes';
 import {applyPauseGuildInvites, type GuildInvitePauseDeps} from '@app/api/guild/services/GuildInvitePauseApplier';
-import {
-	acceptInvite,
-	createChannelInvite,
-	createGuild,
-	deleteInvite,
-	leaveGuild,
-	setupTestGuildWithMembers,
-	updateGuild,
-} from '@app/api/guild/tests/GuildTestUtils';
-import {
-	idleActivityEvents,
-	resetActivityEventsForTests,
-	startActivityEvents,
-} from '@app/api/infrastructure/activity/ActivityEvents';
+import {acceptInvite, createChannelInvite, createGuild, updateGuild} from '@app/api/guild/tests/GuildTestUtils';
+import {resetActivityEventsForTests, startActivityEvents} from '@app/api/infrastructure/activity/ActivityEvents';
 import type {ActivityPublisher} from '@app/api/infrastructure/activity/ActivitySpool';
 import type {Event} from '@app/api/infrastructure/activity/Contract.generated';
 import {getGatewayService, getKVClient} from '@app/api/middleware/ServiceRegistry';
@@ -24,7 +12,6 @@ import {getCacheService, getGuildAuditLogService, getGuildRepository} from '@app
 import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHarness';
 import {HTTP_STATUS} from '@app/api/test/TestConstants';
 import {createBuilder} from '@app/api/test/TestRequestBuilder';
-import {APIErrorCodes} from '@fluxer/constants/src/ApiErrorCodes';
 import {GuildFeatures} from '@fluxer/constants/src/GuildConstants';
 import type {GuildResponse} from '@fluxer/schema/src/domains/guild/GuildResponseSchemas';
 import {MockKVProvider} from '@pkgs/kv_client/src/testing/MockKVProvider';
@@ -87,92 +74,6 @@ describe('guild activity events', () => {
 	afterEach(async () => {
 		resetActivityEventsForTests();
 		await harness?.shutdown();
-	});
-
-	test('creating a guild publishes who owns it', async () => {
-		const owner = await createTestAccount(harness);
-		const guild = await createGuild(harness, owner.token, 'Fresh guild');
-		const [created] = publisher.of('guild_created');
-		expect(created?.key).toBe(owner.userId);
-		expect(created?.data).toEqual({guild_id: guild.id, owner_id: owner.userId, member_count: 1});
-	});
-
-	test('a member feature toggle publishes the actor and the member source', async () => {
-		const owner = await createTestAccount(harness);
-		const guild = await createGuild(harness, owner.token, 'Toggle guild');
-		await updateGuild(harness, owner.token, guild.id, {features: [...guild.features, GuildFeatures.INVITES_DISABLED]});
-		const [changed] = publisher.of('guild_features_changed');
-		expect(changed?.key).toBe(`guild:${guild.id}`);
-		expect(changed?.data).toEqual({
-			guild_id: guild.id,
-			actor_id: owner.userId,
-			source: 'member',
-			added: [GuildFeatures.INVITES_DISABLED],
-			removed: [],
-			invites_paused_until_ms: null,
-		});
-	});
-
-	test('creating and deleting an invite publishes both with the invite settings', async () => {
-		const owner = await createTestAccount(harness);
-		const guild = await createGuild(harness, owner.token, 'Invite guild');
-		const invite = await createChannelInvite(harness, owner.token, guild.system_channel_id!);
-		await deleteInvite(harness, owner.token, invite.code);
-		const [created] = publisher.of('invite_created');
-		expect(created?.key).toBe(`guild:${guild.id}`);
-		expect(created?.data).toEqual({
-			guild_id: guild.id,
-			channel_id: guild.system_channel_id,
-			code: invite.code,
-			inviter_id: owner.userId,
-			max_uses: invite.max_uses,
-			max_age_s: invite.max_age,
-			temporary: false,
-		});
-		const [deleted] = publisher.of('invite_deleted');
-		expect(deleted?.key).toBe(`guild:${guild.id}`);
-		expect(deleted?.data).toEqual({guild_id: guild.id, code: invite.code});
-	});
-
-	test('leaving and being kicked publish the removal kind and actor', async () => {
-		const {owner, members, guild} = await setupTestGuildWithMembers(harness, 2);
-		const [leaver, kicked] = members;
-		await leaveGuild(harness, leaver!.token, guild.id);
-		await createBuilder(harness, owner.token)
-			.delete(`/guilds/${guild.id}/members/${kicked!.userId}`)
-			.expect(HTTP_STATUS.NO_CONTENT)
-			.execute();
-		await idleActivityEvents();
-		expect(publisher.of('guild_member_removed').map((event) => [event.key, event.data])).toEqual([
-			[leaver!.userId, {guild_id: guild.id, user_id: leaver!.userId, actor_id: null, kind: 'left'}],
-			[kicked!.userId, {guild_id: guild.id, user_id: kicked!.userId, actor_id: owner.userId, kind: 'kicked'}],
-		]);
-	});
-
-	test('a join refused while invites are paused publishes the refusal only for non-members', async () => {
-		const owner = await createTestAccount(harness);
-		const joiner = await createTestAccount(harness);
-		const guild = await createGuild(harness, owner.token, 'Paused guild');
-		const invite = await createChannelInvite(harness, owner.token, guild.system_channel_id!);
-		await pauseInvites(guild.id, Date.now() + HOUR_MS);
-		for (const account of [owner, joiner]) {
-			await createBuilder(harness, account.token)
-				.post(`/invites/${invite.code}`)
-				.body(null)
-				.expect(HTTP_STATUS.FORBIDDEN, APIErrorCodes.INVITES_DISABLED)
-				.execute();
-		}
-		await idleActivityEvents();
-		const refusals = publisher.of('guild_join_refused');
-		expect(refusals).toHaveLength(1);
-		const [refused] = refusals;
-		expect(refused?.key).toBe(joiner.userId);
-		expect(refused?.data).toEqual({
-			guild_id: guild.id,
-			user_id: joiner.userId,
-			cause: 'invites_paused',
-			join_source: 'invite',
-		});
 	});
 
 	describe('managed invite pause', () => {

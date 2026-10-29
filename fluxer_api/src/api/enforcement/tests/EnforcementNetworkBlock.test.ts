@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import {randomBytes} from 'node:crypto';
 import {AdminRepository} from '@app/api/admin/AdminRepository';
 import {createTestAccount, type TestAccount} from '@app/api/auth/tests/AuthTestUtils';
+import {createUserID} from '@app/api/BrandedTypes';
 import {resetIpBanExemptionsForTesting} from '@app/api/ban/IpBanExemptions';
 import {getConfig} from '@app/api/Config';
 import {upsertOne} from '@app/api/database/CassandraQueryExecution';
@@ -20,7 +22,7 @@ import {
 } from '@app/api/enforcement/tests/EnforcementTestUtils';
 import {ipBanCache} from '@app/api/middleware/IpBanMiddleware';
 import {getUserRepository} from '@app/api/middleware/ServiceSingletons';
-import {BannedIps} from '@app/api/Tables';
+import {AuthSessionTombstones, BannedIps} from '@app/api/Tables';
 import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHarness';
 import {HTTP_STATUS} from '@app/api/test/TestConstants';
 import {createBuilder, createBuilderWithoutAuth} from '@app/api/test/TestRequestBuilder';
@@ -29,7 +31,7 @@ import {APIErrorCodes} from '@fluxer/constants/src/ApiErrorCodes';
 import {DeletionReasons} from '@fluxer/constants/src/Core';
 import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
 import {ms} from 'itty-time';
-import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi} from 'vitest';
+import {afterAll, beforeAll, beforeEach, describe, expect, test} from 'vitest';
 
 interface ValidationErrorBody {
 	errors: Array<{path: string; code: string}>;
@@ -67,10 +69,6 @@ describe('Enforcement network blocks', () => {
 		await harness.reset();
 		ipBanCache.resetCaches();
 		staff = await createStaff(harness);
-	});
-
-	afterEach(() => {
-		vi.restoreAllMocks();
 	});
 
 	afterAll(async () => {
@@ -178,15 +176,28 @@ describe('Enforcement network blocks', () => {
 			expect((await loadUser(target)).enforcementDecisionId).toBeNull();
 		});
 
-		function sightings(entries: Array<[string, number]>) {
-			vi.spyOn(getUserRepository(), 'listAuthSessionTombstones').mockResolvedValue(
-				entries.map(([ip, lastUsed]) => ({clientIp: ip, approximateLastUsedAt: new Date(lastUsed)})) as never,
-			);
+		async function sightings(target: TestAccount, entries: Array<[string, number]>) {
+			for (const [ip, lastUsed] of entries) {
+				await upsertOne(
+					AuthSessionTombstones.insert({
+						user_id: createUserID(BigInt(target.userId)),
+						session_id_hash: randomBytes(32),
+						created_at: new Date(lastUsed),
+						approx_last_used_at: new Date(lastUsed),
+						client_ip: ip,
+						client_user_agent: null,
+						client_os: null,
+						client_country: null,
+						deleted_at: new Date(),
+						version: 1,
+					}),
+				);
+			}
 		}
 
 		test('only addresses the account used in the last 30 days can be blocked', async () => {
 			const target = await createTestAccount(harness, {ipAddress: TARGET_IP});
-			sightings([['45.33.20.1', Date.now() - 40 * DAY]]);
+			await sightings(target, [['45.33.20.1', Date.now() - 40 * DAY]]);
 			expect(await refusedBlock(target, ['45.33.20.1'])).toBe(ValidationErrorCodes.ENFORCEMENT_NETWORK_UNKNOWN);
 			expect(await refusedBlock(target, ['45.33.30.1'])).toBe(ValidationErrorCodes.ENFORCEMENT_NETWORK_UNKNOWN);
 			await blockingSuspension(target, [TARGET_IP]).expect(HTTP_STATUS.OK).execute();
@@ -199,7 +210,7 @@ describe('Enforcement network blocks', () => {
 			resetIpBanExemptionsForTesting();
 			try {
 				const target = await createTestAccount(harness, {ipAddress: TARGET_IP});
-				sightings([
+				await sightings(target, [
 					['45.33.40.1', Date.now()],
 					['100.64.1.1', Date.now()],
 					['192.168.1.5', Date.now()],

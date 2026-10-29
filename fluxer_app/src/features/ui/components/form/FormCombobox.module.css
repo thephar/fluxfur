@@ -386,14 +386,14 @@
 .itemRendered .itemIndicator:not(.itemIndicatorHidden) {
 	position: absolute;
 	top: 50%;
-	right: 0.625rem;
+	inset-inline-end: 0.625rem;
 	pointer-events: none;
 	transform: translateY(-50%);
 }
 
 .popupCompact .itemRendered .itemIndicator:not(.itemIndicatorHidden),
 .popupCompactOverlay .itemRendered .itemIndicator:not(.itemIndicatorHidden) {
-	right: 0.5rem;
+	inset-inline-end: 0.5rem;
 }
 
 .itemDisabled {

@@ -9,10 +9,10 @@ import {resolvePriceAnnouncementCampaign} from '@app/features/premium/config/Pri
 import PremiumState from '@app/features/premium/state/PremiumState';
 import {VIEW_PLANS_DESCRIPTOR} from '@app/features/premium/utils/PremiumMessageDescriptors';
 import {getPremiumProductName} from '@app/features/premium/utils/PremiumUtils';
-import {formatMinorUnitPrice} from '@app/features/premium/utils/PricingUtils';
 import NagbarState from '@app/features/ui/state/Nagbar';
 import Users from '@app/features/user/state/Users';
 import * as LocaleUtils from '@app/features/user/utils/LocaleUtils';
+import {formatMinorUnitPrice} from '@fluxer/number_utils/src/PriceFormatting';
 import {useLingui} from '@lingui/react/macro';
 import {observer} from 'mobx-react-lite';
 import {useCallback} from 'react';
@@ -35,8 +35,18 @@ export const PriceAnnouncementNagbar = observer(function PriceAnnouncementNagbar
 	}, [campaignId]);
 	if (!premiumState || !resolved || premiumState.actual.has_active_paid_premium) return null;
 	const locale = LocaleUtils.getCurrentLocale();
-	const monthlyPrice = formatMinorUnitPrice(resolved.monthlyAmountMinor, resolved.currency, locale);
-	const yearlyPrice = formatMinorUnitPrice(resolved.yearlyAmountMinor, resolved.currency, locale);
+	const monthlyPrice = formatMinorUnitPrice(
+		resolved.monthlyAmountMinor,
+		resolved.currency,
+		locale,
+		premiumState.pricing.country_code,
+	);
+	const yearlyPrice = formatMinorUnitPrice(
+		resolved.yearlyAmountMinor,
+		resolved.currency,
+		locale,
+		premiumState.pricing.country_code,
+	);
 	if (monthlyPrice == null || yearlyPrice == null) return null;
 	return (
 		<Nagbar

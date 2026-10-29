@@ -286,11 +286,7 @@ export function useLexicalAutocomplete({
 	});
 
 	const autocompleteTriggerGifQuery =
-		autocompleteTriggerType === 'gif'
-			? autocompleteTrigger == null || autocompleteTrigger.match[3] == null
-				? ''
-				: autocompleteTrigger.match[3].trim()
-			: '';
+		autocompleteTriggerType === 'gif' ? (autocompleteTrigger?.match[3]?.trim() ?? '') : '';
 	useAutocompleteGifSearch({
 		triggerType: autocompleteTriggerType,
 		query: autocompleteTriggerGifQuery,
@@ -641,20 +637,21 @@ export function useLexicalAutocomplete({
 				return 'mention';
 		}
 	}, [slotAutocompleteContext == null ? undefined : slotAutocompleteContext.optionType]);
-	const activeSlotMenu =
-		slotAutocompleteContext != null
-			? {
-					type: slotAutocompleteType,
-					options: slotAutocompleteOptions,
-					query: normalizeSlotQuery(slotAutocompleteContext),
-				}
-			: slotOptionalContext != null
-				? {type: 'commandOptionalAdd' as const, options: slotOptionalOptions, query: slotOptionalContext.query}
-				: null;
+	let activeSlotMenu: AutocompleteMenuState | null = null;
+	if (slotAutocompleteContext != null) {
+		activeSlotMenu = {
+			type: slotAutocompleteType,
+			options: slotAutocompleteOptions,
+			query: normalizeSlotQuery(slotAutocompleteContext),
+		};
+	} else if (slotOptionalContext != null) {
+		activeSlotMenu = {type: 'commandOptionalAdd', options: slotOptionalOptions, query: slotOptionalContext.query};
+	}
 	const isSlotMenu = activeSlotMenu != null;
-	const autocompleteOptions = isSlotMenu ? activeSlotMenu.options : baseAutocompleteMenu.options;
-	const autocompleteType = isSlotMenu ? activeSlotMenu.type : baseAutocompleteMenu.type;
-	const resolvedAutocompleteQuery = isSlotMenu ? activeSlotMenu.query : baseAutocompleteMenu.query;
+	const autocompleteMenu = activeSlotMenu ?? baseAutocompleteMenu;
+	const autocompleteOptions = autocompleteMenu.options;
+	const autocompleteType = autocompleteMenu.type;
+	const resolvedAutocompleteQuery = autocompleteMenu.query;
 	const isAutocompleteAttached = autocompleteOptions.length > 0;
 
 	const handleSelect = useCallback(

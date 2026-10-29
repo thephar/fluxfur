@@ -10,6 +10,7 @@ import type {PinnedRoomServer, VoiceRoomStore} from '@app/api/infrastructure/Voi
 import type {InstanceConfigRepository} from '@app/api/instance/InstanceConfigRepository';
 import {Logger} from '@app/api/Logger';
 import type {User} from '@app/api/models/User';
+import {assertTierAllows, canReachOthers, NO_TIER_CONTEXT} from '@app/api/user/AccountTier';
 import type {UserRepository} from '@app/api/user/repositories/UserRepository';
 import type {VoiceAccessContext, VoiceAvailabilityService} from '@app/api/voice/VoiceAvailabilityService';
 import type {VoiceRegionAvailability, VoiceServerRecord} from '@app/api/voice/VoiceModel';
@@ -19,9 +20,8 @@ import {
 	selectVoiceRegionId,
 } from '@app/api/voice/VoiceRegionSelection';
 import {generateConnectionId} from '@app/api/words/Words';
+import {TierGatedActions} from '@fluxer/constants/src/AccountTierConstants';
 import {ChannelTypes} from '@fluxer/constants/src/ChannelConstants';
-import {UnclaimedAccountCannotJoinOneOnOneVoiceCallsError} from '@fluxer/errors/src/domains/channel/UnclaimedAccountCannotJoinOneOnOneVoiceCallsError';
-import {UnclaimedAccountCannotJoinVoiceChannelsError} from '@fluxer/errors/src/domains/channel/UnclaimedAccountCannotJoinVoiceChannelsError';
 import {UnknownChannelError} from '@fluxer/errors/src/domains/channel/UnknownChannelError';
 import {FeatureTemporarilyDisabledError} from '@fluxer/errors/src/domains/core/FeatureTemporarilyDisabledError';
 import {UnknownGuildMemberError} from '@fluxer/errors/src/domains/guild/UnknownGuildMemberError';
@@ -100,18 +100,8 @@ export class VoiceService {
 		if (!channel) {
 			throw new UnknownChannelError();
 		}
-		const isUnclaimed = user.isUnclaimedAccount();
-		if (isUnclaimed) {
-			if (channel.type === ChannelTypes.DM) {
-				throw new UnclaimedAccountCannotJoinOneOnOneVoiceCallsError();
-			}
-			if (channel.type === ChannelTypes.GUILD_VOICE) {
-				const guild = guildId ? await this.guildRepository.findUnique(guildId) : null;
-				const isOwner = guild?.ownerId === userId;
-				if (!isOwner) {
-					throw new UnclaimedAccountCannotJoinVoiceChannelsError();
-				}
-			}
+		if (!canReachOthers(user)) {
+			await this.assertVoiceReach(user, channel.type, guildId);
 		}
 		let mute = false;
 		let deaf = false;
@@ -500,5 +490,18 @@ export class VoiceService {
 			canVideo,
 			deaf,
 		});
+	}
+
+	private async assertVoiceReach(user: User, channelType: number, guildId: GuildID | null | undefined): Promise<void> {
+		if (channelType === ChannelTypes.GUILD_VOICE) {
+			const guild = guildId ? await this.guildRepository.findUnique(guildId) : null;
+			assertTierAllows(user, TierGatedActions.VOICE, {...NO_TIER_CONTEXT, isGuildOwner: guild?.ownerId === user.id});
+			return;
+		}
+		if (channelType === ChannelTypes.DM) {
+			assertTierAllows(user, TierGatedActions.CALL, NO_TIER_CONTEXT);
+		} else if (channelType === ChannelTypes.GROUP_DM) {
+			assertTierAllows(user, TierGatedActions.GROUP_CALL, NO_TIER_CONTEXT);
+		}
 	}
 }

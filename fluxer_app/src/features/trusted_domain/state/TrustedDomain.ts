@@ -9,6 +9,8 @@ const BUILT_IN_TRUST_PATTERNS = [
 	'*.fluxer.app',
 	'fluxer.com',
 	'*.fluxer.com',
+	'fluxer.dev',
+	'*.fluxer.dev',
 	'fluxerstatus.com',
 	'*.fluxerstatus.com',
 	'fluxer.gg',
@@ -34,7 +36,18 @@ function uniqueDomains(domains: ReadonlyArray<string>): Array<string> {
 }
 
 function configuredTrustedDomainPatterns(): Array<string> {
-	return uniqueDomains([RuntimeConfig.mediaEndpoint, RuntimeConfig.staticCdnEndpoint].flatMap(domainPatternFromUrl));
+	return uniqueDomains([
+		...[
+			RuntimeConfig.webAppEndpoint,
+			RuntimeConfig.marketingEndpoint,
+			RuntimeConfig.apiPublicEndpoint,
+			RuntimeConfig.inviteEndpoint,
+			RuntimeConfig.giftEndpoint,
+			RuntimeConfig.mediaEndpoint,
+			RuntimeConfig.staticCdnEndpoint,
+		].flatMap(domainPatternFromUrl),
+		...RuntimeConfig.appPublic.branding.trusted_domains.filter((domain) => domain !== TRUST_EVERYTHING_PATTERN),
+	]);
 }
 
 function domainPatternFromUrl(endpoint: string): Array<string> {

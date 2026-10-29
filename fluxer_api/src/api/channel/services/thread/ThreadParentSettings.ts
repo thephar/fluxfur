@@ -66,7 +66,7 @@ export function pickThreadParentSettings(channelType: number, data: object): Thr
 	return Object.keys(picked).length > 0 ? (picked as ThreadParentSettingsInput) : null;
 }
 
-export function assertSettableParentFlags(channelType: number, flags: number): void {
+function assertSettableParentFlags(channelType: number, flags: number): void {
 	const settable = settableChannelFlags(channelType);
 	if ((flags & ~settable) === 0) return;
 	if ((flags & ChannelFlags.HIDE_MEDIA_DOWNLOAD_OPTIONS) !== 0 && channelType !== ChannelTypes.GUILD_MEDIA) {

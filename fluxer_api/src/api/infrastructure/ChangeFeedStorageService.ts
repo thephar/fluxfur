@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {Config} from '@app/api/Config';
-import type {IStorageService, ProcessedStorageObjectMetadata} from '@app/api/infrastructure/IStorageService';
+import type {IStorageService} from '@app/api/infrastructure/IStorageService';
 import type {StorageChangeFeed, StorageChangeOp} from '@app/api/infrastructure/StorageChangeFeed';
 
 type Params<K extends keyof IStorageService> = Parameters<IStorageService[K]>;
@@ -77,17 +77,6 @@ export class ChangeFeedStorageService implements IStorageService {
 	async copyObject(params: Params<'copyObject'>[0]): Promise<void> {
 		await this.inner.copyObject(params);
 		this.emit(params.destinationBucket, params.destinationKey, 'put', {contentType: params.newContentType});
-	}
-
-	async copyObjectWithMetadataStripping(
-		params: Params<'copyObjectWithMetadataStripping'>[0],
-	): Promise<ProcessedStorageObjectMetadata | null> {
-		const processed = await this.inner.copyObjectWithMetadataStripping(params);
-		this.emit(params.destinationBucket, params.destinationKey, 'put', {
-			size: processed?.contentLength,
-			contentType: processed?.contentType ?? params.contentType,
-		});
-		return processed;
 	}
 
 	getPresignedDownloadURL(...args: Params<'getPresignedDownloadURL'>): Result<'getPresignedDownloadURL'> {

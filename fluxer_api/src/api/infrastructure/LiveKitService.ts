@@ -2,79 +2,25 @@
 
 import type {ChannelID, GuildID, UserID} from '@app/api/BrandedTypes';
 import {Config} from '@app/api/Config';
-import type {ListParticipantsResult} from '@app/api/infrastructure/ILiveKitService';
-import {ILiveKitService} from '@app/api/infrastructure/ILiveKitService';
+import {
+	type CreateTokenParams,
+	type DisconnectParticipantParams,
+	ILiveKitService,
+	type ListParticipantsParams,
+	type ListParticipantsResult,
+	type MuteMicrophoneTrackParams,
+	type UpdateParticipantParams,
+	type UpdateParticipantPermissionsParams,
+} from '@app/api/infrastructure/ILiveKitService';
 import {Logger} from '@app/api/Logger';
 import type {VoiceRegionMetadata, VoiceServerRecord} from '@app/api/voice/VoiceModel';
 import type {VoiceTopology} from '@app/api/voice/VoiceTopology';
 import {AccessToken, RoomServiceClient, type TrackInfo, TrackSource} from 'livekit-server-sdk';
 
-interface CreateTokenParams {
-	userId: UserID;
-	guildId?: GuildID;
-	channelId: ChannelID;
-	connectionId: string;
-	tokenNonce: string;
-	regionId: string;
-	serverId: string;
-	mute?: boolean;
-	deaf?: boolean;
-	canSpeak?: boolean;
-	canStream?: boolean;
-	canVideo?: boolean;
-}
-
-interface UpdateParticipantParams {
-	userId: UserID;
-	guildId?: GuildID;
-	channelId: ChannelID;
-	connectionId: string;
-	regionId: string;
-	serverId: string;
-	mute?: boolean;
-	deaf?: boolean;
-	canSpeak?: boolean;
-	canStream?: boolean;
-	canVideo?: boolean;
-}
-
-interface DisconnectParticipantParams {
-	userId: UserID;
-	guildId?: GuildID;
-	channelId: ChannelID;
-	connectionId: string;
-	regionId: string;
-	serverId: string;
-}
-
-interface MuteMicrophoneTrackParams {
-	userId: UserID;
-	guildId?: GuildID;
-	channelId: ChannelID;
-	connectionId: string;
-	regionId: string;
-	serverId: string;
-	trackSid: string;
-}
-
-interface UpdateParticipantPermissionsParams {
-	userId: UserID;
-	guildId?: GuildID;
-	channelId: ChannelID;
-	connectionId: string;
-	regionId: string;
-	serverId: string;
-	canSpeak: boolean;
-	canStream: boolean;
-	canVideo: boolean;
-	deaf?: boolean;
-}
-
 interface ServerClientConfig {
 	endpoint: string;
 	apiKey: string;
 	apiSecret: string;
-	isActive: boolean;
 	roomServiceClient: RoomServiceClient;
 }
 
@@ -261,28 +207,14 @@ export class LiveKitService extends ILiveKitService {
 			await server.roomServiceClient.updateParticipant(roomName, participantIdentity, undefined, {
 				...participantPermission,
 			});
-			if (!canStream && participant.tracks) {
-				for (const track of participant.tracks) {
-					if (
-						(track.source === TrackSource.SCREEN_SHARE || track.source === TrackSource.SCREEN_SHARE_AUDIO) &&
-						track.sid
-					) {
-						await server.roomServiceClient.mutePublishedTrack(roomName, participantIdentity, track.sid, true);
-					}
-				}
-			}
-			if (!canSpeak && participant.tracks) {
-				for (const track of participant.tracks) {
-					if (track.source === TrackSource.MICROPHONE && track.sid) {
-						await server.roomServiceClient.mutePublishedTrack(roomName, participantIdentity, track.sid, true);
-					}
-				}
-			}
-			if (!canVideo && participant.tracks) {
-				for (const track of participant.tracks) {
-					if (track.source === TrackSource.CAMERA && track.sid) {
-						await server.roomServiceClient.mutePublishedTrack(roomName, participantIdentity, track.sid, true);
-					}
+			const revokedSources = computeLiveKitPublishSources({
+				canSpeak: !canSpeak,
+				canStream: !canStream,
+				canVideo: !canVideo,
+			});
+			for (const track of participant.tracks) {
+				if (track.sid && revokedSources.includes(track.source)) {
+					await server.roomServiceClient.mutePublishedTrack(roomName, participantIdentity, track.sid, true);
 				}
 			}
 			Logger.debug({participantIdentity, roomName, canSpeak, canStream, canVideo}, 'Updated participant permissions');
@@ -347,12 +279,7 @@ export class LiveKitService extends ILiveKitService {
 		}
 	}
 
-	async listParticipants(params: {
-		guildId?: GuildID;
-		channelId: ChannelID;
-		regionId: string;
-		serverId: string;
-	}): Promise<ListParticipantsResult> {
+	async listParticipants(params: ListParticipantsParams): Promise<ListParticipantsResult> {
 		const {guildId, channelId, regionId, serverId} = params;
 		const roomName = this.getRoomName(guildId, channelId);
 		const server = this.tryResolveServerClient(regionId, serverId);
@@ -399,11 +326,7 @@ export class LiveKitService extends ILiveKitService {
 	}
 
 	private tryResolveServerClient(regionId: string, serverId: string): ServerClientConfig | null {
-		const region = this.serverClients.get(regionId);
-		if (!region) {
-			return null;
-		}
-		return region.get(serverId) ?? null;
+		return this.serverClients.get(regionId)?.get(serverId) ?? null;
 	}
 
 	getDefaultRegionId(): string | null {
@@ -453,7 +376,6 @@ export class LiveKitService extends ILiveKitService {
 					endpoint: server.endpoint,
 					apiKey: server.apiKey,
 					apiSecret: server.apiSecret,
-					isActive: server.isActive,
 					roomServiceClient: createRoomServiceClient(roomServiceEndpoint, server.apiKey, server.apiSecret),
 				});
 			}

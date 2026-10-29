@@ -44,6 +44,16 @@ export class GuildMemberRoleService {
 		await this.applyAddMemberRole(targetMember, guildId, targetId, roleId);
 	}
 
+	async systemRemoveMemberRole(params: {targetId: UserID; guildId: GuildID; roleId: RoleID}): Promise<void> {
+		const {targetId, guildId, roleId} = params;
+		const targetMember = await this.guildRepository.getMember(guildId, targetId);
+		if (!targetMember) throw new UnknownGuildMemberError();
+		if (!targetMember.roleIds.has(roleId)) return;
+		const updatedRoleIds = new Set(targetMember.roleIds);
+		updatedRoleIds.delete(roleId);
+		await this.guildRepository.upsertMember({...targetMember.toRow(), role_ids: updatedRoleIds});
+	}
+
 	async addMemberRole(params: {userId: UserID; targetId: UserID; guildId: GuildID; roleId: RoleID}): Promise<void> {
 		const {userId, targetId, guildId, roleId} = params;
 		const {guildData, hasPermission, canManageRoles} = await getGuildAuth(this.gatewayService, this.userRepository, {

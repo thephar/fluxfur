@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {getLaunchInstanceEndpointOverride} from '@electron/common/DesktopConfig';
+import {errorMessage} from '@electron/common/ErrorMessage';
 import {createChildLogger} from '@electron/common/Logger';
 import {getDesktopAppStorage} from '@electron/main/DesktopAppStorage';
 import {
@@ -70,12 +71,14 @@ class DesktopRuntimeEndpointInputError extends TypeError {
 }
 
 class DesktopRuntimeDiscoveryFailedError extends Error {
+	public readonly apiEndpoint: string;
 	public readonly attempts: ReadonlyArray<DiscoveryAttempt>;
 
 	public constructor(apiEndpoint: string, attempts: ReadonlyArray<DiscoveryAttempt>) {
 		const described = attempts.map((attempt) => `${attempt.url} (${attempt.reason})`).join('; ');
 		super(`No usable instance discovery document was served for ${apiEndpoint}: ${described}`);
 		this.name = 'DesktopRuntimeDiscoveryFailedError';
+		this.apiEndpoint = apiEndpoint;
 		this.attempts = attempts;
 	}
 }
@@ -118,18 +121,18 @@ export async function resolveDesktopRuntimePlan({
 			input,
 			declaredApiEndpoint: error.declaredApiEndpoint,
 		});
-		return resolveDesktopRuntimePlanAt(error.declaredApiEndpoint, signal, true);
+		return resolveDesktopRuntimePlanAt(error.declaredApiEndpoint, signal, error.apiEndpoint);
 	}
 }
 
 async function resolveDesktopRuntimePlanAt(
 	input: string,
 	signal: AbortSignal | null,
-	followed = false,
+	followedFrom: string | null = null,
 ): Promise<LocalAppRuntimePlan> {
 	const apiEndpoint = requireDesktopRuntimeAPIEndpoint(input);
 	const anchorOrigin = requireDesktopHTTPOrigin(new URL(apiEndpoint).origin);
-	const resolved = await fetchRuntimePlan(apiEndpoint, anchorOrigin, signal, followed);
+	const resolved = await fetchRuntimePlan(apiEndpoint, anchorOrigin, signal, followedFrom !== null);
 	let anchorRequirement: DesktopAddressRequirement;
 	try {
 		anchorRequirement = await getDesktopOutboundHTTP().registerAnchoredOrigins({
@@ -144,7 +147,9 @@ async function resolveDesktopRuntimePlanAt(
 		throw error;
 	}
 	if (resolved.served !== null) {
-		void rememberLastServedDiscovery(apiEndpoint, {...resolved.served, anchorRequirement});
+		for (const endpoint of new Set([apiEndpoint, followedFrom ?? apiEndpoint])) {
+			void rememberLastServedDiscovery(endpoint, {...resolved.served, anchorRequirement});
+		}
 	}
 	return resolved.plan;
 }
@@ -188,7 +193,7 @@ async function fetchRuntimePlan(
 			document = await fetchDiscoveryDocument(url, anchorOrigin, signal);
 		} catch (error) {
 			instanceUnreachable &&= signal?.aborted !== true && !(error instanceof InstanceAnsweredWithoutDiscoveryError);
-			attempts.push({url, reason: error instanceof Error ? error.message : String(error)});
+			attempts.push({url, reason: errorMessage(error)});
 			continue;
 		}
 		try {
@@ -199,7 +204,7 @@ async function fetchRuntimePlan(
 			if (error instanceof InstanceDiscoveryOriginMismatchError) {
 				declaredApiEndpoint ??= error.declared;
 			}
-			attempts.push({url, reason: error instanceof Error ? error.message : String(error)});
+			attempts.push({url, reason: errorMessage(error)});
 		}
 	}
 	if (!instanceUnreachable) {
@@ -266,7 +271,7 @@ async function readLastServedDiscovery(apiEndpoint: string): Promise<RememberedR
 	}
 }
 
-export function runtimePlanFromServedDiscovery(url: string, document: unknown): LocalAppRuntimePlan {
+function runtimePlanFromServedDiscovery(url: string, document: unknown): LocalAppRuntimePlan {
 	requireDiscoveryDeclaresItsOwnOrigin(url, parseInstanceDiscoveryDocument(document));
 	return localAppRuntimePlanFromDiscovery(document);
 }

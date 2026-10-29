@@ -39,7 +39,7 @@ interface ResolveUsernameChangeResult {
 	discriminator: number;
 }
 
-export class UsernameNotAvailableError extends BadRequestError {
+class UsernameNotAvailableError extends BadRequestError {
 	constructor() {
 		super({code: APIErrorCodes.USERNAME_NOT_AVAILABLE});
 		this.name = 'UsernameNotAvailableError';

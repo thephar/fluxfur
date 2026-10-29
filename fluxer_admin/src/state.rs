@@ -99,6 +99,19 @@ impl AppState {
         .await
     }
 
+    pub fn forget_instance_settings(&self) {
+        *self
+            .inner
+            .premium_branding
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+        *self
+            .inner
+            .account_identity
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+    }
+
     pub async fn account_identity(&self, client: &AdminApiClient) -> AccountIdentityMode {
         self.account_identity_settings(client).await.mode
     }

@@ -21,12 +21,13 @@ export const AUTHORIZE_APPLICATION_DESCRIPTOR = msg({
 
 interface OAuthAuthorizeFlowPanelProps {
 	flow: AuthorizeFlow;
+	onAccountChanged?: () => void;
 	onDone?: () => void;
 	showInlineActions?: boolean;
 }
 
 export const OAuthAuthorizeFlowPanel: React.FC<OAuthAuthorizeFlowPanelProps> = observer(
-	({flow, onDone, showInlineActions = true}) => {
+	({flow, onAccountChanged, onDone, showInlineActions = true}) => {
 		const {i18n} = useLingui();
 		if (flow.submitError) {
 			return (
@@ -43,6 +44,18 @@ export const OAuthAuthorizeFlowPanel: React.FC<OAuthAuthorizeFlowPanelProps> = o
 					<AuthLoadingState data-flx="auth.oauth-authorize-page.o-auth-authorize-flow-panel.o-auth-loading-state" />
 				);
 			case 'session_expired':
+				if (flow.includesAccountStep && onAccountChanged != null) {
+					return (
+						<OAuthAccountStep
+							clientLabel={flow.clientLabel}
+							sessionExpired
+							onCancel={flow.onCancel}
+							onContinue={onAccountChanged}
+							onAccountChanged={onAccountChanged}
+							data-flx="auth.oauth-authorize-page.o-auth-authorize-flow-panel.o-auth-account-step--session-expired"
+						/>
+					);
+				}
 				return (
 					<OAuthErrorState
 						error={flow.sessionExpiredMessage}
@@ -83,8 +96,10 @@ export const OAuthAuthorizeFlowPanel: React.FC<OAuthAuthorizeFlowPanelProps> = o
 						return (
 							<OAuthAccountStep
 								clientLabel={flow.clientLabel}
+								sessionExpired={false}
 								onCancel={flow.onCancel}
 								onContinue={flow.goNext}
+								onAccountChanged={onAccountChanged ?? flow.goNext}
 								data-flx="auth.oauth-authorize-page.o-auth-authorize-flow-panel.render-review-step.o-auth-account-step"
 							/>
 						);
@@ -157,6 +172,7 @@ export const OAuthAuthorizeFlowPanel: React.FC<OAuthAuthorizeFlowPanelProps> = o
 							scopesAdjusted={flow.scopesAdjusted}
 							selectedScopes={flow.selectedScopes}
 							showInlineActions={showInlineActions}
+							showAccount={flow.includesAccountStep}
 							isScopeLocked={flow.isScopeLocked}
 							submitting={flow.submitting}
 							data-flx="auth.oauth-authorize-page.o-auth-authorize-flow-panel.render-review-step.o-auth-scopes-step"

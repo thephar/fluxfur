@@ -125,11 +125,13 @@ import type {User} from '@app/features/user/models/User';
 import UserGuildSettings from '@app/features/user/state/UserGuildSettings';
 import UserSettings from '@app/features/user/state/UserSettings';
 import Users from '@app/features/user/state/Users';
+import {canPerform} from '@app/features/user/utils/AccountGates';
 import * as NicknameUtils from '@app/features/user/utils/NicknameUtils';
 import * as CallUtils from '@app/features/voice/utils/CallUtils';
 import {hasActiveDirectCallWithUser} from '@app/features/voice/utils/PrivateCallMenuUtils';
 import {VOICE_CALL_DESCRIPTOR} from '@app/features/voice/utils/VoiceMessageDescriptors';
 import {getMutedText} from '@app/lib/overlay/OverlayContextMenu';
+import {TierGatedActions} from '@fluxer/constants/src/AccountTierConstants';
 import {ME} from '@fluxer/constants/src/AppConstants';
 import {ChannelTypes} from '@fluxer/constants/src/ChannelConstants';
 import {PublicUserFlags, RelationshipTypes} from '@fluxer/constants/src/UserConstants';
@@ -197,7 +199,8 @@ export function useDMMenuData(
 	);
 	const relationship = recipient ? Relationships.getRelationship(recipient.id) : null;
 	const relationshipType = relationship?.type;
-	const currentUserUnclaimed = !(Users.currentUser?.isClaimed() ?? true);
+	const canSendFriendRequest = canPerform(Users.currentUser, TierGatedActions.FRIEND_REQUEST).allowed;
+	const friendsDisabled = RuntimeConfig.friendsDisabled;
 	const isRecipientSystem = recipient?.system ?? false;
 	const restrictRecipientActions = isRecipientSystem;
 	const hasActiveDirectCall = recipient ? hasActiveDirectCallWithUser(recipient.id) : false;
@@ -514,7 +517,7 @@ export function useDMMenuData(
 					onClick: handleAddNote,
 				});
 			}
-			if (!restrictRecipientActions && relationshipType === RelationshipTypes.FRIEND) {
+			if (!restrictRecipientActions && !friendsDisabled && relationshipType === RelationshipTypes.FRIEND) {
 				recipientItems.push({
 					icon: <EditIcon size={20} data-flx="ui.action-menu.items.dm-menu-data.groups.edit-icon" />,
 					label: i18n._(CHANGE_FRIEND_NICKNAME_DESCRIPTOR),
@@ -588,40 +591,41 @@ export function useDMMenuData(
 					items: submenuItems,
 				});
 			}
-			if (relationshipType === RelationshipTypes.FRIEND) {
-				relationshipItems.push({
-					icon: <RemoveFriendIcon size={20} data-flx="ui.action-menu.items.dm-menu-data.groups.remove-friend-icon" />,
-					label: i18n._(REMOVE_FRIEND_DESCRIPTOR),
-					onClick: handleRemoveFriend,
-					danger: true,
-				});
-			} else if (relationshipType === RelationshipTypes.INCOMING_REQUEST) {
-				relationshipItems.push({
-					icon: (
-						<AcceptFriendRequestIcon
-							size={20}
-							data-flx="ui.action-menu.items.dm-menu-data.groups.accept-friend-request-icon"
-						/>
-					),
-					label: i18n._(ACCEPT_FRIEND_REQUEST_DESCRIPTOR),
-					onClick: handleAcceptFriendRequest,
-				});
-			} else if (
-				relationshipType !== RelationshipTypes.OUTGOING_REQUEST &&
-				relationshipType !== RelationshipTypes.BLOCKED &&
-				!currentUserUnclaimed &&
-				Users.currentUser?.verified !== false
-			) {
-				relationshipItems.push({
-					icon: (
-						<SendFriendRequestIcon
-							size={20}
-							data-flx="ui.action-menu.items.dm-menu-data.groups.send-friend-request-icon"
-						/>
-					),
-					label: i18n._(ADD_FRIEND_DESCRIPTOR),
-					onClick: handleSendFriendRequest,
-				});
+			if (!friendsDisabled) {
+				if (relationshipType === RelationshipTypes.FRIEND) {
+					relationshipItems.push({
+						icon: <RemoveFriendIcon size={20} data-flx="ui.action-menu.items.dm-menu-data.groups.remove-friend-icon" />,
+						label: i18n._(REMOVE_FRIEND_DESCRIPTOR),
+						onClick: handleRemoveFriend,
+						danger: true,
+					});
+				} else if (relationshipType === RelationshipTypes.INCOMING_REQUEST) {
+					relationshipItems.push({
+						icon: (
+							<AcceptFriendRequestIcon
+								size={20}
+								data-flx="ui.action-menu.items.dm-menu-data.groups.accept-friend-request-icon"
+							/>
+						),
+						label: i18n._(ACCEPT_FRIEND_REQUEST_DESCRIPTOR),
+						onClick: handleAcceptFriendRequest,
+					});
+				} else if (
+					relationshipType !== RelationshipTypes.OUTGOING_REQUEST &&
+					relationshipType !== RelationshipTypes.BLOCKED &&
+					canSendFriendRequest
+				) {
+					relationshipItems.push({
+						icon: (
+							<SendFriendRequestIcon
+								size={20}
+								data-flx="ui.action-menu.items.dm-menu-data.groups.send-friend-request-icon"
+							/>
+						),
+						label: i18n._(ADD_FRIEND_DESCRIPTOR),
+						onClick: handleSendFriendRequest,
+					});
+				}
 			}
 			if (relationshipType === RelationshipTypes.BLOCKED) {
 				relationshipItems.push({
@@ -712,7 +716,8 @@ export function useDMMenuData(
 		channel.isPinned,
 		isFriendlyBot,
 		invitableCommunities,
-		currentUserUnclaimed,
+		canSendFriendRequest,
+		friendsDisabled,
 		developerMode,
 		handleMarkAsRead,
 		handleToggleFavorite,

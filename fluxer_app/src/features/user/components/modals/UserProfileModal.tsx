@@ -53,9 +53,12 @@ import type {Profile} from '@app/features/user/models/Profile';
 import {User} from '@app/features/user/models/User';
 import UserNote from '@app/features/user/state/UserNote';
 import Users from '@app/features/user/state/Users';
+import {accountGateReason} from '@app/features/user/utils/AccountGatePresentation';
+import {canPerform} from '@app/features/user/utils/AccountGates';
 import {blockedDmConfirmModal, openDMChannelOrShowError} from '@app/features/user/utils/DMActionUtils';
 import * as NicknameUtils from '@app/features/user/utils/NicknameUtils';
 import type * as ProfileDisplayUtils from '@app/features/user/utils/ProfileDisplayUtils';
+import {canOpenProfileEditor} from '@app/features/user/utils/ProfileEditAccess';
 import {
 	getProfileMembershipDisplayName,
 	resolveProfileGuildMembership,
@@ -73,6 +76,7 @@ import {
 } from '@app/features/user/utils/UserMessageDescriptors';
 import * as CallUtils from '@app/features/voice/utils/CallUtils';
 import {hasActiveDirectCallWithUser} from '@app/features/voice/utils/PrivateCallMenuUtils';
+import {TierGatedActions} from '@fluxer/constants/src/AccountTierConstants';
 import {PublicUserFlags, RelationshipTypes} from '@fluxer/constants/src/UserConstants';
 import {msg} from '@lingui/core/macro';
 import {Trans, useLingui} from '@lingui/react/macro';
@@ -104,11 +108,6 @@ const USER_PROFILE_2_DESCRIPTOR = msg({
 const YOU_CAN_T_BEFRIEND_YOURSELF_DESCRIPTOR = msg({
 	message: "You can't befriend yourself",
 	comment: 'Error message in the user profile modal.',
-});
-
-const CLAIM_YOUR_ACCOUNT_TO_SEND_FRIEND_REQUESTS_DESCRIPTOR = msg({
-	message: 'Claim your account to send friend requests.',
-	comment: 'Description text in the user profile modal.',
 });
 
 const logger = new Logger('UserProfileModal');
@@ -425,7 +424,7 @@ export const UserProfileModal: UserProfileModalComponent = observer(
 							{i18n._(COPY_USER_ID_DESCRIPTOR)}
 						</MenuItem>
 					</MenuGroup>
-					{!isCurrentUser && relationshipType === RelationshipTypes.FRIEND && !RuntimeConfig.directMessagesDisabled && (
+					{!isCurrentUser && relationshipType === RelationshipTypes.FRIEND && !RuntimeConfig.friendsDisabled && (
 						<MenuGroup data-flx="user.user-profile-modal.open-more-options-menu.menu-group--4">
 							<MenuItem
 								icon={
@@ -476,7 +475,8 @@ export const UserProfileModal: UserProfileModalComponent = observer(
 			));
 		};
 		const renderActionButtons = () => {
-			const currentUserUnclaimed = !(Users.currentUser?.isClaimed() ?? true);
+			const showEditProfile = canOpenProfileEditor(Users.currentUser);
+			const friendRequestGate = canPerform(Users.currentUser, TierGatedActions.FRIEND_REQUEST);
 			if (isCurrentUser && disableEditProfile) {
 				return (
 					<div
@@ -535,7 +535,7 @@ export const UserProfileModal: UserProfileModalComponent = observer(
 						className={userProfileModalStyles.actionButtons}
 						data-flx="user.user-profile-modal.render-action-buttons.div--4"
 					>
-						{!currentUserUnclaimed && (
+						{showEditProfile && (
 							<Button
 								small={true}
 								leftIcon={
@@ -574,7 +574,7 @@ export const UserProfileModal: UserProfileModalComponent = observer(
 				if (isUserBot && !isFriendlyBot) {
 					return null;
 				}
-				if (RuntimeConfig.directMessagesDisabled && relationshipType !== RelationshipTypes.BLOCKED) {
+				if (RuntimeConfig.friendsDisabled && relationshipType !== RelationshipTypes.BLOCKED) {
 					return null;
 				}
 				if (relationshipType === RelationshipTypes.FRIEND) {
@@ -682,9 +682,9 @@ export const UserProfileModal: UserProfileModalComponent = observer(
 					);
 				}
 				if (relationshipType === undefined && (!isUserBot || isFriendlyBot)) {
-					const tooltipText = currentUserUnclaimed
-						? i18n._(CLAIM_YOUR_ACCOUNT_TO_SEND_FRIEND_REQUESTS_DESCRIPTOR)
-						: i18n._(SEND_FRIEND_REQUEST_DESCRIPTOR);
+					const tooltipText = friendRequestGate.allowed
+						? i18n._(SEND_FRIEND_REQUEST_DESCRIPTOR)
+						: accountGateReason(i18n, friendRequestGate);
 					return (
 						<Tooltip
 							text={tooltipText}
@@ -704,7 +704,7 @@ export const UserProfileModal: UserProfileModalComponent = observer(
 									}
 									aria-label={i18n._(SEND_FRIEND_REQUEST_DESCRIPTOR)}
 									onClick={handleSendFriendRequest}
-									disabled={currentUserUnclaimed}
+									disabled={!friendRequestGate.allowed}
 									data-flx="user.user-profile-modal.render-primary-action-button.button.send-friend-request"
 								/>
 							</div>

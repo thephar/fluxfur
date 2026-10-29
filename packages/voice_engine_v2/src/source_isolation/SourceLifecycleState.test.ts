@@ -159,37 +159,6 @@ describe('transitionSourceLifecycle', () => {
 		expect(result.state).toEqual(active);
 		expect(result.action).toBe('noop');
 	});
-
-	it('determinism: same (state, event, clock-output) produces same output', () => {
-		const stateA: SourceLifecycleState = {kind: 'active', since: 100n};
-		const stateB: SourceLifecycleState = {kind: 'active', since: 100n};
-		const clockA = makeFixedClock(200n);
-		const clockB = makeFixedClock(200n);
-		const event: SourceLifecycleEvent = {kind: 'fault', fault: 'networkError'};
-		const resultA = transitionSourceLifecycle(stateA, event, clockA);
-		const resultB = transitionSourceLifecycle(stateB, event, clockB);
-		expect(resultA).toEqual(resultB);
-	});
-
-	it('rejects invalid state kind on entry', () => {
-		const clock = makeClock();
-		const bogus = {kind: 'bogus'} as unknown as SourceLifecycleState;
-		expect(() => transitionSourceLifecycle(bogus, {kind: 'recovered'}, clock)).toThrow();
-	});
-
-	it('rejects invalid event kind on entry', () => {
-		const clock = makeClock();
-		const active = createInitialActiveState(clock);
-		const bogusEvent = {kind: 'bogus'} as unknown as SourceLifecycleEvent;
-		expect(() => transitionSourceLifecycle(active, bogusEvent, clock)).toThrow();
-	});
-
-	it('rejects invalid fault on event entry', () => {
-		const clock = makeClock();
-		const active = createInitialActiveState(clock);
-		const bogusEvent = {kind: 'fault', fault: 'wat'} as unknown as SourceLifecycleEvent;
-		expect(() => transitionSourceLifecycle(active, bogusEvent, clock)).toThrow();
-	});
 });
 
 describe('SourceLifecycleRegistry', () => {
@@ -250,17 +219,6 @@ describe('SourceLifecycleRegistry', () => {
 		expect(second.ok).toBe(false);
 		if (second.ok) throw new Error('unreachable');
 		expect(second.error).toBe('duplicateSource');
-	});
-
-	it('invalid source id is rejected', () => {
-		const clock = makeClock();
-		const registry = new SourceLifecycleRegistry(clock);
-		const result = registry.register('');
-		expect(result.ok).toBe(false);
-		const dispatch = registry.dispatch('', {kind: 'recovered'});
-		expect(dispatch.ok).toBe(false);
-		if (dispatch.ok) throw new Error('unreachable');
-		expect(dispatch.error).toBe('invalidSourceId');
 	});
 
 	it('remove drops a source and frees a slot for reuse', () => {

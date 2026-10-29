@@ -2,24 +2,30 @@
 
 import {createUserID, type UserID} from '@app/api/BrandedTypes';
 import {Config} from '@app/api/Config';
-import type {UserRow} from '@app/api/database/types/UserTypes';
 import {Logger} from '@app/api/Logger';
 import {getBillingRepository} from '@app/api/middleware/ServiceRegistry';
 import type {User} from '@app/api/models/User';
+import {
+	type GooglePlayRefundTarget,
+	isGooglePlaySelfServiceRefundEnabled,
+} from '@app/api/store_billing/GooglePlayRefundTarget';
+import type {StoreEntitlementService} from '@app/api/store_billing/StoreEntitlementService';
 import {mirrorBestEffort} from '@app/api/stripe/StripeMirror';
+import {getInvoicePaymentRef} from '@app/api/stripe/StripeSubscriptionPeriod';
 import {extractId} from '@app/api/stripe/StripeUtils';
 import {
 	buildRefundEligibility,
+	googlePlayRefundEligibilityTarget,
+	latestRefundTarget,
+	type RefundEligibilityTarget,
 	refundCooldownExpiresAt,
 	refundWindowExpiresAt,
 	SELF_SERVE_REFUND_WINDOW_DAYS,
-	shouldBlockFurtherPurchases,
 } from '@app/api/stripe/services/RefundAllowance';
-import {REFUND_ALLOWANCE_CLAIM_PREFIX} from '@app/api/stripe/services/StripeDisputeWebhookHandler';
 import type {StripeSubscriptionService} from '@app/api/stripe/services/StripeSubscriptionService';
 import type {UserRepository} from '@app/api/user/repositories/UserRepository';
-import {PremiumFlags} from '@fluxer/constants/src/UserConstants';
 import {FeatureNotAvailableSelfHostedError} from '@fluxer/errors/src/domains/core/FeatureNotAvailableSelfHostedError';
+import {StoreBillingUnavailableError} from '@fluxer/errors/src/domains/payment/StoreBillingUnavailableError';
 import {StripeError} from '@fluxer/errors/src/domains/payment/StripeError';
 import {StripeNoPurchaseHistoryError} from '@fluxer/errors/src/domains/payment/StripeNoPurchaseHistoryError';
 import {StripePaymentNotAvailableError} from '@fluxer/errors/src/domains/payment/StripePaymentNotAvailableError';
@@ -35,6 +41,7 @@ import type Stripe from 'stripe';
 const PIX_EXACT_AMOUNT_REFUND_SHORTFALL_CENTS = 1;
 
 interface RefundTarget {
+	provider: 'stripe';
 	invoice: Stripe.Invoice;
 	invoiceId: string;
 	amountPaidCents: number;
@@ -45,50 +52,16 @@ interface RefundTarget {
 	subscriptionId: string | null;
 }
 
-type StripeInvoiceWithPayments = Stripe.Invoice & {
-	customer?: string | Stripe.Customer | null;
-	payments?: {
-		data?: Array<{
-			payment?: {
-				charge?: string | Stripe.Charge | null;
-				payment_intent?: string | Stripe.PaymentIntent | null;
-			} | null;
-			status?: string | null;
-			status_transitions?: {
-				paid_at?: number | null;
-			} | null;
-		}>;
-	} | null;
+type GooglePlayLatestTarget = RefundEligibilityTarget & {
+	provider: 'google_play';
+	paidAt: Date;
+	googlePlay: GooglePlayRefundTarget;
 };
+
+type LatestRefundTarget = RefundTarget | GooglePlayLatestTarget;
 
 function resolveInvoiceSubscriptionId(invoice: Stripe.Invoice): string | null {
 	return extractId(invoice.parent?.subscription_details?.subscription ?? null);
-}
-
-function getInvoicePaymentRef(invoice: Stripe.Invoice): {
-	chargeId: string | null;
-	paymentIntentId: string | null;
-	paidAt: Date | null;
-} | null {
-	const candidates = (invoice as StripeInvoiceWithPayments).payments?.data ?? [];
-	const preferred =
-		candidates.find((c) => c.status === 'paid' && (c.payment?.payment_intent || c.payment?.charge)) ??
-		candidates.find((c) => c.payment?.payment_intent || c.payment?.charge) ??
-		null;
-	if (!preferred) {
-		return null;
-	}
-	const paymentIntentId = extractId(preferred.payment?.payment_intent);
-	let chargeId = extractId(preferred.payment?.charge);
-	if (!chargeId && preferred.payment?.payment_intent && typeof preferred.payment.payment_intent !== 'string') {
-		chargeId = extractId(preferred.payment.payment_intent.latest_charge);
-	}
-	const paidAtSec = preferred.status_transitions?.paid_at ?? null;
-	return {
-		chargeId,
-		paymentIntentId,
-		paidAt: paidAtSec ? new Date(paidAtSec * 1000) : null,
-	};
 }
 
 export class StripeRefundService {
@@ -96,16 +69,24 @@ export class StripeRefundService {
 		private readonly stripe: Stripe | null,
 		private readonly userRepository: UserRepository,
 		private readonly subscriptionService: StripeSubscriptionService,
+		private readonly storeEntitlementService: StoreEntitlementService | null,
 	) {}
 
-	private ensureStripe(): Stripe {
+	private isAvailable(): boolean {
+		return !Config.instance.selfHosted && (this.stripe !== null || this.isGooglePlayAvailable());
+	}
+
+	private isGooglePlayAvailable(): boolean {
+		return this.storeEntitlementService !== null && isGooglePlaySelfServiceRefundEnabled();
+	}
+
+	private ensureAvailable(): void {
 		if (Config.instance.selfHosted) {
 			throw new FeatureNotAvailableSelfHostedError();
 		}
-		if (!this.stripe) {
+		if (!this.isAvailable()) {
 			throw new StripePaymentNotAvailableError();
 		}
-		return this.stripe;
 	}
 
 	private async getRequiredUser(userId: UserID): Promise<User> {
@@ -116,7 +97,30 @@ export class StripeRefundService {
 		return user;
 	}
 
-	private async resolveLatestRefundTarget(user: User): Promise<RefundTarget | null> {
+	private async resolveLatestRefundTarget(user: User): Promise<LatestRefundTarget | null> {
+		const [stripeTarget, googlePlayTarget] = await Promise.all([
+			this.resolveLatestStripeTarget(user),
+			this.resolveLatestGooglePlayTarget(user),
+		]);
+		return latestRefundTarget<LatestRefundTarget>(stripeTarget, googlePlayTarget);
+	}
+
+	private async resolveLatestGooglePlayTarget(user: User): Promise<GooglePlayLatestTarget | null> {
+		if (!this.storeEntitlementService || !this.isGooglePlayAvailable()) {
+			return null;
+		}
+		const target = await this.storeEntitlementService.findGooglePlayRefundTarget(user.id);
+		return target
+			? {
+					...googlePlayRefundEligibilityTarget(target),
+					provider: 'google_play',
+					paidAt: target.paidAt,
+					googlePlay: target,
+				}
+			: null;
+	}
+
+	private async resolveLatestStripeTarget(user: User): Promise<RefundTarget | null> {
 		if (!this.stripe || !user.stripeCustomerId) {
 			return null;
 		}
@@ -136,6 +140,7 @@ export class StripeRefundService {
 				}
 				const paidAt = ref.paidAt ?? new Date(invoice.created * 1000);
 				return {
+					provider: 'stripe',
 					invoice,
 					invoiceId: invoice.id,
 					amountPaidCents: invoice.amount_paid,
@@ -153,7 +158,7 @@ export class StripeRefundService {
 	}
 
 	async getEligibility(userId: UserID): Promise<SelfServeRefundEligibilityResponse> {
-		if (Config.instance.selfHosted || !this.stripe) return buildRefundEligibility({reason: 'feature_unavailable'});
+		if (!this.isAvailable()) return buildRefundEligibility({reason: 'feature_unavailable'});
 		const user = await this.getRequiredUser(userId);
 		const target = await this.resolveLatestRefundTarget(user);
 		return buildRefundEligibility({target, cooldownExpiresAt: refundCooldownExpiresAt(user)});
@@ -218,50 +223,54 @@ export class StripeRefundService {
 				);
 			}
 		}
-		const claimKey = `${REFUND_ALLOWANCE_CLAIM_PREFIX}:${refund.id}`;
-		const claim = await getBillingRepository().webhookEvents.tryClaim(claimKey);
-		if (claim === 'in_flight') {
-			Logger.debug(
-				{userId: user.id.toString(), refundId: refund.id, claim},
-				'Self-serve refund allowance is being counted by another delivery',
-			);
+		if (!(await this.startRefundCooldown(user, new Date(refund.created * 1000)))) {
 			return;
 		}
-		const isFirstRefund = !user.firstRefundAt;
-		let patch: Partial<UserRow>;
-		let countedRefundIds: Array<string> = [];
-		if (isFirstRefund) {
-			patch = {first_refund_at: new Date()};
-		} else {
-			const outcome = await shouldBlockFurtherPurchases(user, this.userRepository);
-			countedRefundIds = outcome.countedRefundIds;
-			if (!outcome.blocked) {
-				await getBillingRepository().webhookEvents.markProcessed(claimKey);
-				Logger.info(
-					{userId: user.id.toString(), refundId: refund.id, countedRefundIds},
-					'Self-serve refund redelivered after the allowance claim expired; not counting it twice',
-				);
-				return;
-			}
-			patch = {premium_flags: user.premiumFlags | PremiumFlags.PURCHASE_DISABLED};
-		}
-		try {
-			await this.userRepository.patchUpsert(user.id, patch, user.toRow());
-		} catch (error) {
-			await getBillingRepository().webhookEvents.releaseClaim(claimKey);
-			throw error;
-		}
-		await getBillingRepository().webhookEvents.markProcessed(claimKey);
 		Logger.info(
-			{
-				userId: user.id.toString(),
-				refundId: refund.id,
-				subscriptionId: subscriptionId || null,
-				isFirstRefund,
-				countedRefundIds,
-			},
-			'Self-serve refund confirmed succeeded; refund allowance and cancellation finalized',
+			{userId: user.id.toString(), refundId: refund.id, subscriptionId: subscriptionId || null},
+			'Self-serve refund confirmed succeeded; refund cooldown started',
 		);
+	}
+
+	private async startRefundCooldown(user: User, refundedAt: Date): Promise<boolean> {
+		if (user.lastRefundAt && user.lastRefundAt.getTime() >= refundedAt.getTime()) {
+			return false;
+		}
+		await this.userRepository.patchUpsert(user.id, {first_refund_at: refundedAt}, user.toRow());
+		return true;
+	}
+
+	private async refundGooglePlayPurchase(user: User, target: GooglePlayLatestTarget): Promise<SelfServeRefundResponse> {
+		let refunded: boolean;
+		try {
+			refunded = await this.storeEntitlementService!.refundGooglePlayPurchase(user.id, target.googlePlay);
+		} catch (error) {
+			Logger.warn(
+				{error, userId: user.id.toString(), orderId: target.invoiceId},
+				'Self-serve refund failed at Google Play',
+			);
+			throw new StoreBillingUnavailableError();
+		}
+		if (!refunded) {
+			throw new StripeNoPurchaseHistoryError();
+		}
+		await this.startRefundCooldown(await this.getRequiredUser(user.id), new Date());
+		Logger.info(
+			{userId: user.id.toString(), orderId: target.invoiceId, subscriptionId: target.subscriptionId},
+			'Self-serve refund issued through Google Play',
+		);
+		return {
+			invoice_id: target.invoiceId,
+			payment_intent_id: null,
+			charge_id: null,
+			refund_id: null,
+			refunded_amount_cents: null,
+			invoice_amount_paid_cents: null,
+			currency: null,
+			subscription_id: target.subscriptionId,
+			status: 'succeeded',
+			provider: 'google_play',
+		};
 	}
 
 	async handleRefundWebhookEvent(refund: Stripe.Refund): Promise<void> {
@@ -269,7 +278,7 @@ export class StripeRefundService {
 	}
 
 	async refundLatestPurchase(userId: UserID): Promise<SelfServeRefundResponse> {
-		const stripe = this.ensureStripe();
+		this.ensureAvailable();
 		const user = await this.getRequiredUser(userId);
 		const target = await this.resolveLatestRefundTarget(user);
 		if (!target) {
@@ -282,6 +291,10 @@ export class StripeRefundService {
 		if (refundCooldownExpiresAt(user)) {
 			throw new StripeRefundCooldownActiveError();
 		}
+		if (target.provider === 'google_play') {
+			return this.refundGooglePlayPurchase(user, target);
+		}
+		const stripe = this.stripe!;
 		const priorFailures = await this.countPriorTerminalFailures(target.invoiceId);
 		const idempotencyKey = [
 			'self-serve-refund',
@@ -353,6 +366,7 @@ export class StripeRefundService {
 			currency: target.currency,
 			subscription_id: succeeded ? target.subscriptionId : null,
 			status: refund.status ?? 'pending',
+			provider: 'stripe',
 		};
 	}
 }

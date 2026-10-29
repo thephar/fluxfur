@@ -2,10 +2,11 @@
 
 import {randomUUID} from 'node:crypto';
 import type {ApiContext} from '@app/api/ApiContext';
-import {requireEmailVerified} from '@app/api/auth/EmailVerificationUtils';
+import {hasOwnedEmail} from '@app/api/auth/services/SudoEmailCode';
 import {userHasMfa} from '@app/api/auth/services/SudoMethods';
 import type {MfaBackupCode} from '@app/api/models/MfaBackupCode';
 import type {User} from '@app/api/models/User';
+import {assertTierAllows, NO_TIER_CONTEXT} from '@app/api/user/AccountTier';
 import {regenerateMfaBackupCodes} from '@app/api/user/services/UserAuth';
 import {
 	assertChangeCooldown,
@@ -13,7 +14,9 @@ import {
 	generateChangeVerificationCode,
 } from '@app/api/user/services/UserChangeChallengeUtils';
 import {constantTimeEquals} from '@app/api/utils/SecretHash';
+import {TierGatedActions} from '@fluxer/constants/src/AccountTierConstants';
 import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
+import {EmailCodesUnavailableError} from '@fluxer/errors/src/domains/auth/EmailCodesUnavailableError';
 import {MfaNotEnabledError} from '@fluxer/errors/src/domains/auth/MfaNotEnabledError';
 import {InputValidationError} from '@fluxer/errors/src/domains/core/InputValidationError';
 import type {
@@ -53,10 +56,11 @@ export class MfaBackupCodesChallengeService {
 
 	async start(user: User): Promise<StartMfaBackupCodesChallengeResult> {
 		const {email, rateLimit} = this.apiContext.services;
-		requireEmailVerified(user, 'mfa');
+		assertTierAllows(user, TierGatedActions.MFA, NO_TIER_CONTEXT);
 		if (!user.email) {
 			throw InputValidationError.fromCode('email', ValidationErrorCodes.USER_DOES_NOT_HAVE_AN_EMAIL_ADDRESS);
 		}
+		if (!hasOwnedEmail(user)) throw new EmailCodesUnavailableError();
 		if (!userHasMfa(user)) {
 			throw new MfaNotEnabledError();
 		}
@@ -69,7 +73,7 @@ export class MfaBackupCodesChallengeService {
 		const now = Date.now();
 		const code = generateChangeVerificationCode();
 		const codeExpiresAt = now + this.CODE_TTL_MS;
-		await email.sendMfaBackupCodesVerification(user.email, user.username, code, user.locale);
+		await email.send('mfa_backup_codes_view', user.email, {code}, user.locale);
 		await this.storeTicket(ticket, {
 			user_id: user.id.toString(),
 			code,
@@ -99,7 +103,7 @@ export class MfaBackupCodesChallengeService {
 		const now = Date.now();
 		const code = generateChangeVerificationCode();
 		const codeExpiresAt = now + this.CODE_TTL_MS;
-		await email.sendMfaBackupCodesVerification(user.email, user.username, code, user.locale);
+		await email.send('mfa_backup_codes_view', user.email, {code}, user.locale);
 		await this.storeTicket(ticket, {
 			user_id: state.user_id,
 			code,

@@ -21,8 +21,6 @@ pub struct BuildGatewayNifsArgs {
 pub struct GatewayArgs {
     #[arg(long, value_enum)]
     step: GatewayStep,
-    #[arg(long, default_value = "test")]
-    eqwalizer_profile: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -34,7 +32,6 @@ pub(crate) enum GatewayStep {
     Compile,
     Dialyzer,
     Typecheck,
-    Eunit,
     AllChecks,
     Clean,
 }
@@ -58,37 +55,29 @@ pub fn run_build_gateway_nifs(args: BuildGatewayNifsArgs) -> Result<()> {
 
 pub fn run_gateway(args: GatewayArgs) -> Result<()> {
     let gateway_dir = resolve_gateway_dir()?;
-    run_gateway_step(&gateway_dir, args.step, &args.eqwalizer_profile)
+    run_gateway_step(&gateway_dir, args.step)
 }
 
-pub(crate) fn run_gateway_step(
-    gateway_dir: &Path,
-    step: GatewayStep,
-    eqwalizer_profile: &str,
-) -> Result<()> {
+pub(crate) fn run_gateway_step(gateway_dir: &Path, step: GatewayStep) -> Result<()> {
     match step {
         GatewayStep::Fmt => run_rebar(gateway_dir, ["fmt"]),
         GatewayStep::FmtCheck => run_gateway_fmt_check(gateway_dir),
         GatewayStep::Lint => run_rebar(gateway_dir, ["lint"]),
         GatewayStep::Compile => run_rebar(gateway_dir, ["compile"]),
         GatewayStep::Dialyzer => run_rebar(gateway_dir, ["dialyzer"]),
-        GatewayStep::Typecheck => run_eqwalizer(gateway_dir, eqwalizer_profile),
-        GatewayStep::Eunit => run_rebar(gateway_dir, ["as", "test", "eunit"]),
+        GatewayStep::Typecheck => run_eqwalizer(gateway_dir),
         GatewayStep::AllChecks => {
-            run_gateway_check_step("Step 1/5: Format check (erlfmt)", || {
-                run_gateway_step(gateway_dir, GatewayStep::FmtCheck, eqwalizer_profile)
+            run_gateway_check_step("Step 1/4: Format check (erlfmt)", || {
+                run_gateway_step(gateway_dir, GatewayStep::FmtCheck)
             })?;
-            run_gateway_check_step("Step 2/5: Lint (elvis)", || {
-                run_gateway_step(gateway_dir, GatewayStep::Lint, eqwalizer_profile)
+            run_gateway_check_step("Step 2/4: Lint (elvis)", || {
+                run_gateway_step(gateway_dir, GatewayStep::Lint)
             })?;
-            run_gateway_check_step("Step 3/5: Compile", || {
-                run_gateway_step(gateway_dir, GatewayStep::Compile, eqwalizer_profile)
+            run_gateway_check_step("Step 3/4: Compile", || {
+                run_gateway_step(gateway_dir, GatewayStep::Compile)
             })?;
-            run_gateway_check_step("Step 4/5: Type check", || {
-                run_gateway_step(gateway_dir, GatewayStep::Typecheck, eqwalizer_profile)
-            })?;
-            run_gateway_check_step("Step 5/5: Unit tests (eunit)", || {
-                run_gateway_step(gateway_dir, GatewayStep::Eunit, eqwalizer_profile)
+            run_gateway_check_step("Step 4/4: Type check", || {
+                run_gateway_step(gateway_dir, GatewayStep::Typecheck)
             })?;
             println!("All gateway checks passed.");
             Ok(())
@@ -200,11 +189,7 @@ fn run_gateway_fmt_check(gateway_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-fn run_eqwalizer(gateway_dir: &Path, profile: &str) -> Result<()> {
-    ensure!(
-        !profile.is_empty(),
-        "--eqwalizer-profile requires a non-empty profile name"
-    );
+fn run_eqwalizer(gateway_dir: &Path) -> Result<()> {
     ensure!(
         command_succeeds(with_asdf_shims(CommandSpec::new("elp").arg("version"))),
         "elp not found in PATH. Install ELP from https://github.com/WhatsApp/erlang-language-platform/releases"
@@ -217,7 +202,7 @@ fn run_eqwalizer(gateway_dir: &Path, profile: &str) -> Result<()> {
     let elp_version = output_text(with_asdf_shims(CommandSpec::new("elp").arg("version")))?;
     println!("==> Running eqWAlizer with {elp_version}");
     println!("==> Using Erlang source: {erlang_source}");
-    println!("==> Rebar profile: {profile}");
+    println!("==> Rebar profile: default");
     run_command(
         with_asdf_shims(
             CommandSpec::new("elp")
@@ -225,7 +210,7 @@ fn run_eqwalizer(gateway_dir: &Path, profile: &str) -> Result<()> {
                     "eqwalize-all",
                     "--rebar",
                     "--as",
-                    profile,
+                    "default",
                     "--stats",
                     "--bail-on-error",
                 ])

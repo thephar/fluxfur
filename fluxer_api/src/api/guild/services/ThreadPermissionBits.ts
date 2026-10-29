@@ -51,16 +51,7 @@ export async function shouldMaskThreadPermissionBits(
 	values: Iterable<bigint | null | undefined>,
 ): Promise<boolean> {
 	if (!viewer || viewer.kind === 'system') return false;
-	let present = false;
-	for (const value of values) {
-		if (hasThreadPermissionBits(value)) {
-			present = true;
-			break;
-		}
-	}
-	if (!present) return false;
-
-	return !viewerActive(viewer, guildId);
+	return [...values].some(hasThreadPermissionBits) && !viewerActive(viewer, guildId);
 }
 
 export async function maskChannelResponseThreadBits(

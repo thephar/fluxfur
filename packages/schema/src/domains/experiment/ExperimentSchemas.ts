@@ -5,6 +5,7 @@ import {
 	DomainMigrationAssignmentResponse,
 	INERT_DOMAIN_MIGRATION_ASSIGNMENT,
 } from '@fluxer/schema/src/domains/admin/DomainMigrationSchemas';
+import {GuildVisitsAssignmentResponse} from '@fluxer/schema/src/domains/admin/GuildVisitsSchemas';
 import {PlutoniumPageAssignmentResponse} from '@fluxer/schema/src/domains/admin/PlutoniumPageSchemas';
 import {INERT_VOICE_P2P_ASSIGNMENT, VoiceP2pAssignmentResponse} from '@fluxer/schema/src/domains/admin/VoiceP2pSchemas';
 import {z} from 'zod';
@@ -33,8 +34,6 @@ export const ExperimentDeliveryConfigSchema = z.object({
 
 export type ExperimentDeliveryConfig = z.infer<typeof ExperimentDeliveryConfigSchema>;
 
-export const DEFAULT_EXPERIMENT_DELIVERY_CONFIG: ExperimentDeliveryConfig = ExperimentDeliveryConfigSchema.parse({});
-
 export const ExperimentDeliveryConfigUpdateRequest = z.object(experimentDeliveryFields).partial();
 
 export type ExperimentDeliveryConfigUpdateRequest = z.infer<typeof ExperimentDeliveryConfigUpdateRequest>;
@@ -48,6 +47,7 @@ const ExperimentAssignmentsSchema = z.object({
 	channel_threads: ChannelThreadsAssignmentResponse.optional(),
 	plutonium_page: PlutoniumPageAssignmentResponse.optional(),
 	voice_p2p: VoiceP2pAssignmentResponse.optional(),
+	guild_visits: GuildVisitsAssignmentResponse.optional(),
 });
 
 export const ExperimentAssignmentsResponse = z.object({

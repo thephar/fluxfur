@@ -7,6 +7,7 @@ import {
 	privateChannelMetadataPatch,
 } from '@app/api/channel/PrivateChannelSnapshot';
 import {
+	advanceRow,
 	BatchBuilder,
 	executeConditional,
 	fetchMany,
@@ -107,10 +108,22 @@ export class ChannelDataRepository {
 		}
 		const prev = existing.last_message_id ?? null;
 		if (prev !== null && messageId <= prev) return;
-		await upsertOne(
-			Channels.patchByPk({channel_id: channelId, soft_deleted: false}, {last_message_id: Db.set(messageId)}),
+		const advanced = await advanceRow(
+			{
+				table: Channels,
+				pk: {channel_id: channelId, soft_deleted: false},
+				guard: {col: 'last_message_id', value: messageId},
+				set: {last_message_id: messageId},
+				insert: null,
+			},
+			async () => {
+				await upsertOne(
+					Channels.patchByPk({channel_id: channelId, soft_deleted: false}, {last_message_id: Db.set(messageId)}),
+				);
+				return true;
+			},
 		);
-		void this.fanOutPrivateChannelLastMessageId(existing, messageId);
+		if (advanced) void this.fanOutPrivateChannelLastMessageId(existing, messageId);
 	}
 
 	async adjustThreadStats(threadId: ChannelID, messageDelta: number, sentDelta: number): Promise<void> {
@@ -196,10 +209,7 @@ export class ChannelDataRepository {
 				channelId: channelId.toString(),
 				kind,
 				failureCount: failures.length,
-				error:
-					failures[0].status === 'rejected' && failures[0].reason instanceof Error
-						? failures[0].reason.message
-						: String(failures[0].status === 'rejected' ? failures[0].reason : ''),
+				error: failures[0].reason instanceof Error ? failures[0].reason.message : String(failures[0].reason),
 			},
 			'Failed to write through private channel snapshot fan-out',
 		);

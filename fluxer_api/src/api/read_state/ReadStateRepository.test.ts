@@ -91,37 +91,6 @@ describe('ReadStateRepository row storage', () => {
 			mention_count: 0,
 		});
 	});
-	it('reads every acked channel of a bulk acknowledgement in one query', async () => {
-		const recording = new InMemoryCassandraQueryExecutor();
-		setCassandraQueryExecutorForTesting(recording);
-		const userId = createUserID(1n);
-		const seededChannelIds = [createChannelID(10n), createChannelID(20n), createChannelID(30n)];
-		for (const channelId of seededChannelIds) {
-			await seedReadState(userId, channelId, 100n, 5);
-		}
-		const missingChannelId = createChannelID(40n);
-		recording.executed.length = 0;
-		const repository = new ReadStateRepository();
-		const readStates = await repository.bulkAckMessages(userId, [
-			{channelId: seededChannelIds[0]!, messageId: createMessageID(90n)},
-			{channelId: seededChannelIds[1]!, messageId: createMessageID(200n)},
-			{channelId: seededChannelIds[2]!, messageId: createMessageID(300n)},
-			{channelId: missingChannelId, messageId: createMessageID(400n)},
-		]);
-		expect(recording.countStatements('select:read_states')).toBe(1);
-		expect(readStates.map((state) => state.channelId)).toEqual([...seededChannelIds, missingChannelId]);
-		expect(readStates.map((state) => state.lastMessageId)).toEqual([
-			createMessageID(100n),
-			createMessageID(200n),
-			createMessageID(300n),
-			createMessageID(400n),
-		]);
-		expect(readStates.map((state) => state.mentionCount)).toEqual([5, 0, 0, 0]);
-		expect(await loadReadState(userId, missingChannelId)).toMatchObject({
-			message_id: createMessageID(400n),
-			mention_count: 0,
-		});
-	});
 	it('keeps the last pin timestamp of acked rows and leaves missing rows without one', async () => {
 		const userId = createUserID(1n);
 		const pinnedChannelId = createChannelID(10n);

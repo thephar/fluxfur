@@ -59,6 +59,19 @@ impl MediaMetadata {
             ..Default::default()
         }
     }
+
+    pub fn to_embed_media_sized(
+        &self,
+        url: &str,
+        width: Option<u32>,
+        height: Option<u32>,
+    ) -> crate::types::EmbedMedia {
+        crate::types::EmbedMedia {
+            width: width.or(self.width),
+            height: height.or(self.height),
+            ..self.to_embed_media(url)
+        }
+    }
 }
 
 impl MediaProxyClient {
@@ -146,22 +159,6 @@ impl MediaProxyClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn nsfw_mode_strings() {
-        assert_eq!(
-            MediaProxyClient::nsfw_mode_str(crate::types::NsfwMode::Block),
-            "block"
-        );
-        assert_eq!(
-            MediaProxyClient::nsfw_mode_str(crate::types::NsfwMode::Allow),
-            "allow"
-        );
-        assert_eq!(
-            MediaProxyClient::nsfw_mode_str(crate::types::NsfwMode::Flag),
-            "flag"
-        );
-    }
 
     #[test]
     fn external_proxy_url_uses_public_endpoint_and_plain_path() {

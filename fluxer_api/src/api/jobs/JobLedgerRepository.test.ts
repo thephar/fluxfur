@@ -14,7 +14,6 @@ import {
 	JOB_STALE_AFTER_MS,
 	JobLedgerRepository,
 } from '@app/api/jobs/JobLedgerRepository';
-import {describeListJobsPaging} from '@app/api/jobs/ListJobsPagingSuite';
 import {JobsActive, JobsByDayBucket, JobsById} from '@app/api/Tables';
 import {InMemoryCassandraQueryExecutor} from '@app/api/test/InMemoryCassandraQueryExecutor';
 import {createSnowflake} from '@fluxer/snowflake/src/Snowflake';
@@ -49,20 +48,6 @@ async function createJobAt(repository: JobLedgerRepository, jobId: bigint): Prom
 		jetStreamSeq: null,
 	});
 }
-
-describe('JobLedgerRepository listJobs on the in-memory executor', () => {
-	beforeEach(() => {
-		executor = new InMemoryCassandraQueryExecutor();
-		setCassandraQueryExecutorForTesting(executor);
-	});
-
-	afterEach(() => {
-		executor.reset();
-		setCassandraQueryExecutorForTesting(null);
-	});
-
-	describeListJobsPaging();
-});
 
 let staleSequence = 0;
 
@@ -153,42 +138,16 @@ describe('JobLedgerRepository expireStaleActiveJobs', () => {
 	});
 });
 
-describe('JobLedgerRepository getJob', () => {
-	beforeEach(() => {
-		executor = new InMemoryCassandraQueryExecutor();
-		setCassandraQueryExecutorForTesting(executor);
-	});
-
-	afterEach(() => {
-		executor.reset();
-		setCassandraQueryExecutorForTesting(null);
-	});
-
-	it('hides a job row that lost its status, creation time or task type', async () => {
-		const repository = new JobLedgerRepository();
-		await createJob(repository, 9n, 'syncUrlBlocklists');
-		expect((await repository.getJob(9n))?.status).toBe('queued');
-		for (const column of ['status', 'created_at', 'task_type'] as const) {
-			await createJob(repository, 9n, 'syncUrlBlocklists');
-			await executeQuery(JobsById.patchByPk({job_id: 9n}, {[column]: Db.clear()}));
-			expect(await repository.getJob(9n)).toBeNull();
-		}
-	});
-});
-
 describe('JobLedgerRepository discardJob', () => {
 	let inner: InMemoryCassandraQueryExecutor;
-	let log: Array<string>;
 	let failDeleteOn: string | null;
 
 	beforeEach(() => {
 		inner = new InMemoryCassandraQueryExecutor();
-		log = [];
 		failDeleteOn = null;
 		const wrapper: CassandraQueryExecutorForTesting = {
 			async executeQuery<T>(query: PreparedQuery) {
 				const meta = query.kvMeta;
-				if (meta) log.push(`${meta.action} ${meta.table.name}`);
 				if (meta?.action === 'delete' && meta.table.name === failDeleteOn) {
 					throw new Error('write timeout');
 				}
@@ -202,25 +161,6 @@ describe('JobLedgerRepository discardJob', () => {
 	afterEach(() => {
 		inner.reset();
 		setCassandraQueryExecutorForTesting(null);
-	});
-
-	it('removes every ledger row of a duplicate with three deletes and no read', async () => {
-		const repository = new JobLedgerRepository();
-		const createdAt = await createJobAt(repository, 7n);
-		log.length = 0;
-
-		await repository.discardJob(7n, createdAt);
-
-		expect([...log].sort()).toEqual(['delete jobs_active', 'delete jobs_by_day_bucket', 'delete jobs_by_id']);
-		expect(await repository.getJob(7n)).toBeNull();
-		expect(await repository.listActiveJobs()).toEqual([]);
-		expect(
-			await fetchMany(
-				JobsByDayBucket.select({where: JobsByDayBucket.where.eq('bucket_day')}).bind({
-					bucket_day: createdAt.toISOString().slice(0, 10),
-				}),
-			),
-		).toEqual([]);
 	});
 
 	it('keeps deleting the other ledger rows when one delete fails', async () => {

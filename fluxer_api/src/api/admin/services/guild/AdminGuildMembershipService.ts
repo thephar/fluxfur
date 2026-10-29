@@ -7,7 +7,6 @@ import type {RequestCache} from '@app/api/middleware/RequestCacheMiddleware';
 import type {UserRepository} from '@app/api/user/repositories/UserRepository';
 import {AdminACLs} from '@fluxer/constants/src/AdminACLs';
 import {JoinSourceTypes} from '@fluxer/constants/src/GuildConstants';
-import {UnknownUserError} from '@fluxer/errors/src/domains/user/UnknownUserError';
 import type {
 	BanGuildMemberRequest,
 	ForceAddUserToGuildRequest,
@@ -41,10 +40,7 @@ export class AdminGuildMembershipService {
 		const {userRepository, guildService, auditService} = this.deps;
 		const userId = createUserID(data.user_id);
 		const guildId = createGuildID(data.guild_id);
-		const user = await userRepository.findUnique(userId);
-		if (!user) {
-			throw new UnknownUserError();
-		}
+		await userRepository.findUniqueAssert(userId);
 		await guildService.members.addUserToGuild({
 			userId,
 			guildId,

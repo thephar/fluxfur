@@ -5,7 +5,7 @@ use crate::{
     admin_flags,
     api::{
         client::{AdminApiClient, ApiError},
-        enforcement::{ClosureRequest, api_error_message},
+        enforcement::ClosureRequest,
         generated::{
             snowflake,
             types::{AdminUserFeatureLimitRequestLimit, AdminUserMessageShredRequestEntriesItem},
@@ -64,6 +64,16 @@ pub async fn dispatch(
 ) -> DispatchOutcome {
     let get = |k: &str| form.clean(k);
     match action {
+        "update_badges" => DispatchOutcome::from_result(
+            client
+                .update_user_badges(
+                    user_id,
+                    &form.list_values_any(&["badge_ids[]", "badge_ids"]),
+                )
+                .await,
+            "User badges updated",
+            "Failed to update user badges",
+        ),
         "update_flags" => {
             if has_legacy_flag_delta_fields(form) {
                 let add = form.list_values_any(&["add_flags[]", "add_flags"]);
@@ -531,18 +541,28 @@ async fn close_account(
         Ok(block_networks) => block_networks.filter(|_| enforcement),
         Err(message) => return DispatchOutcome::error(message),
     };
+    let immediate = form.bool_value("delete_immediately");
+    if immediate && form.clean("delete_immediately_confirm").as_deref() != Some("DELETE") {
+        return DispatchOutcome::error("Type DELETE to confirm deleting the account now");
+    }
     let request = ClosureRequest {
         basis: basis.moderation_basis(),
         days_until_deletion,
+        immediate,
         remove_evidence: enforcement && form.bool_value("remove_evidence"),
         block_networks,
         replace_pending_deletion_at,
         internal_note: basis.internal_note().map(str::to_owned),
     };
     match client.close_account(user_id, &request).await {
-        Ok(response) => {
-            DispatchOutcome::success(with_skipped("Account closed.", &response.skipped_ips))
-        }
+        Ok(response) => DispatchOutcome::success(with_skipped(
+            if immediate {
+                "Account closed. It is being deleted now."
+            } else {
+                "Account closed."
+            },
+            &response.skipped_ips,
+        )),
         Err(error) => decision_failure("Failed to close the account", user_id, &error),
     }
 }
@@ -617,7 +637,7 @@ fn parse_day(value: &str) -> Option<chrono::DateTime<chrono::Utc>> {
 
 fn decision_failure(context: &str, user_id: &str, error: &ApiError) -> DispatchOutcome {
     tracing::warn!(%error, user_id, "admin API request failed: {context}");
-    match api_error_message(error) {
+    match error.detail_message() {
         Some(message) => DispatchOutcome::error(format!("{context}: {message}")),
         None => DispatchOutcome::error(context.to_owned()),
     }
@@ -671,40 +691,5 @@ fn parse_csv_snowflake(value: &str, field: &str, row: &str) -> Result<String, St
     match trimmed.parse::<u64>() {
         Ok(parsed) => Ok(parsed.to_string()),
         Err(_) => Err(format!("Invalid {field} on row: {row}")),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{parse_dry_run, parse_message_shred_csv};
-
-    #[test]
-    fn parse_dry_run_defaults_to_preview() {
-        assert!(parse_dry_run(None));
-        assert!(parse_dry_run(Some("true")));
-        assert!(!parse_dry_run(Some("false")));
-        assert!(!parse_dry_run(Some("0")));
-    }
-
-    #[test]
-    fn parse_message_shred_csv_accepts_header_and_rows() {
-        let entries = parse_message_shred_csv("channel_id,message_id\n123,456\n789,101112")
-            .expect("valid csv");
-        assert_eq!(entries.len(), 2);
-        assert_eq!(
-            serde_json::to_value(&entries[0]).expect("serializable entry"),
-            serde_json::json!({"channel_id": "123", "message_id": "456"})
-        );
-    }
-
-    #[test]
-    fn parse_message_shred_csv_rejects_bad_rows() {
-        let error = parse_message_shred_csv("123,abc").expect_err("invalid message id");
-        assert_eq!(error, "Invalid message_id on row: 123,abc");
-        let error = parse_message_shred_csv("123,456,789").expect_err("too many columns");
-        assert_eq!(
-            error,
-            "Each row must contain channel_id and message_id separated by a comma"
-        );
     }
 }

@@ -38,7 +38,7 @@ export interface VoiceEngineV2DeviceProjection {
 	selectedCamera: VoiceEngineV2CameraDevice | null;
 }
 
-export interface VoiceEngineV2StatsPresentationNetworkSummary extends VoiceEngineV2StatsNetworkSummary {
+interface VoiceEngineV2StatsPresentationNetworkSummary extends VoiceEngineV2StatsNetworkSummary {
 	droppedVideoFrameCallbacks?: number;
 }
 
@@ -54,7 +54,7 @@ export function selectVoiceEngineV2E2eeProjection(snapshot: VoiceEngineV2Snapsho
 	};
 }
 
-export function selectVoiceEngineV2ConnectionProjection(snapshot: VoiceEngineV2Snapshot): VoiceEngineV2ConnectionModel {
+function selectVoiceEngineV2ConnectionProjection(snapshot: VoiceEngineV2Snapshot): VoiceEngineV2ConnectionModel {
 	const status = snapshot.connection.status;
 	return {
 		status,
@@ -74,7 +74,7 @@ export function selectVoiceEngineV2ConnectionProjection(snapshot: VoiceEngineV2S
 	};
 }
 
-export function selectVoiceEngineV2MediaProjection(snapshot: VoiceEngineV2Snapshot): VoiceEngineV2MediaModel {
+function selectVoiceEngineV2MediaProjection(snapshot: VoiceEngineV2Snapshot): VoiceEngineV2MediaModel {
 	return {
 		microphone: snapshot.microphone.status,
 		camera: snapshot.camera.status,
@@ -115,7 +115,7 @@ export function selectVoiceEngineV2DeviceProjection(snapshot: VoiceEngineV2Snaps
 	};
 }
 
-export function selectVoiceEngineV2StatsSummary(stats: VoiceEngineV2Stats | null): VoiceEngineV2StatsSummary | null {
+function selectVoiceEngineV2StatsSummary(stats: VoiceEngineV2Stats | null): VoiceEngineV2StatsSummary | null {
 	return stats ? summarizeVoiceEngineV2Stats(stats) : null;
 }
 

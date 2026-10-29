@@ -68,7 +68,7 @@ function run(i18n: I18n, action: () => Promise<void>): void {
 	void action().catch((error) => reportThreadActionError(i18n, error));
 }
 
-export function openThreadSettings(thread: Channel): void {
+function openThreadSettings(thread: Channel): void {
 	ModalCommands.push(
 		modal(() => (
 			<ThreadSettingsModal threadId={thread.id} data-flx="threads.use-thread-menu-data.thread-settings-modal" />
@@ -76,7 +76,7 @@ export function openThreadSettings(thread: Channel): void {
 	);
 }
 
-export function confirmDeleteThread(i18n: I18n, thread: Channel): void {
+function confirmDeleteThread(i18n: I18n, thread: Channel): void {
 	ModalCommands.push(
 		modal(() => (
 			<ConfirmModal

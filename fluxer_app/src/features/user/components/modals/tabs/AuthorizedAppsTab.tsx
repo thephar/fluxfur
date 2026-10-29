@@ -406,49 +406,56 @@ export const AuthorizedAppsContent = observer(function AuthorizedAppsContent({
 		if (!isModalPresentation) return loadingState;
 		return <Modal.Content data-flx="user.authorized-apps-tab.modal-content.loading">{loadingState}</Modal.Content>;
 	}
-	const authorizedAppsContent = error ? (
-		<StatusSlate
-			Icon={NetworkSlashIcon}
-			title={i18n._(FAILED_TO_LOAD_AUTHORIZED_APPLICATIONS_DESCRIPTOR)}
-			description={error}
-			actions={[
-				{
-					text: i18n._(TRY_AGAIN_DESCRIPTOR),
-					onClick: loadAuthorizations,
-					variant: 'primary',
-				},
-			]}
-			data-flx="user.authorized-apps-tab.status-slate"
-		/>
-	) : authorizations.length === 0 ? (
-		<StatusSlate
-			Icon={AppWindowIcon}
-			title={<Trans>No authorized applications</Trans>}
-			description={<Trans>You haven't authorized any applications to access your account.</Trans>}
-			data-flx="user.authorized-apps-tab.status-slate.empty"
-		/>
-	) : (
-		<>
-			<p className={styles.selectionHint} data-flx="user.authorized-apps-tab.selection-hint">
-				<Trans>Hold Shift and press X to select apps. Press {selectAllShortcutLabel} to select all.</Trans>
-			</p>
-			<div className={styles.appList} data-flx="user.authorized-apps-tab.app-list">
-				{authorizations.map((authorization, index) => (
-					<AuthorizedAppItem
-						key={authorization.application.id}
-						authorization={authorization}
-						isSelected={selectedApplicationIds.has(authorization.application.id)}
-						index={index}
-						selectionMode={selectionMode}
-						onSelect={toggleApplication}
-						onOpenScopes={openScopesModal}
-						onRevoke={openRevokeModal}
-						data-flx="user.authorized-apps-tab.app-item"
-					/>
-				))}
-			</div>
-		</>
-	);
+	let authorizedAppsContent: React.ReactNode;
+	if (error) {
+		authorizedAppsContent = (
+			<StatusSlate
+				Icon={NetworkSlashIcon}
+				title={i18n._(FAILED_TO_LOAD_AUTHORIZED_APPLICATIONS_DESCRIPTOR)}
+				description={error}
+				actions={[
+					{
+						text: i18n._(TRY_AGAIN_DESCRIPTOR),
+						onClick: loadAuthorizations,
+						variant: 'primary',
+					},
+				]}
+				data-flx="user.authorized-apps-tab.status-slate"
+			/>
+		);
+	} else if (authorizations.length === 0) {
+		authorizedAppsContent = (
+			<StatusSlate
+				Icon={AppWindowIcon}
+				title={<Trans>No authorized applications</Trans>}
+				description={<Trans>You haven't authorized any applications to access your account.</Trans>}
+				data-flx="user.authorized-apps-tab.status-slate.empty"
+			/>
+		);
+	} else {
+		authorizedAppsContent = (
+			<>
+				<p className={styles.selectionHint} data-flx="user.authorized-apps-tab.selection-hint">
+					<Trans>Hold Shift and press X to select apps. Press {selectAllShortcutLabel} to select all.</Trans>
+				</p>
+				<div className={styles.appList} data-flx="user.authorized-apps-tab.app-list">
+					{authorizations.map((authorization, index) => (
+						<AuthorizedAppItem
+							key={authorization.application.id}
+							authorization={authorization}
+							isSelected={selectedApplicationIds.has(authorization.application.id)}
+							index={index}
+							selectionMode={selectionMode}
+							onSelect={toggleApplication}
+							onOpenScopes={openScopesModal}
+							onRevoke={openRevokeModal}
+							data-flx="user.authorized-apps-tab.app-item"
+						/>
+					))}
+				</div>
+			</>
+		);
+	}
 	if (isModalPresentation) {
 		return (
 			<>

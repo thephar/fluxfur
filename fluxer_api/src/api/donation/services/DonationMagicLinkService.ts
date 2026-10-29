@@ -42,7 +42,7 @@ export class DonationMagicLinkService {
 		});
 		await this.donationRepository.createMagicLinkToken(tokenModel);
 		const manageUrl = `${Config.endpoints.apiPublic}/donations/manage?token=${token}`;
-		await this.emailService.sendDonationMagicLink(email, token, manageUrl, expiresAt, locale);
+		await this.emailService.send('donation_magic_link', email, {manageUrl, expiresAt}, locale);
 		Logger.debug({email}, 'Donation magic link sent');
 	}
 

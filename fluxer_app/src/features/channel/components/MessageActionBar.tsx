@@ -253,13 +253,14 @@ interface MessageActionBarCoreProps {
 		canCrosspostMessage: boolean;
 		shouldRenderSuppressEmbeds: boolean;
 		canCreateThread?: boolean;
+		isPreviewing?: boolean;
 	};
 	developerMode: boolean;
 	isActive: boolean;
 	onPopoutToggle?: (isOpen: boolean) => void;
 }
 
-export const MessageActionBarCore: React.FC<MessageActionBarCoreProps> = observer(
+const MessageActionBarCore: React.FC<MessageActionBarCoreProps> = observer(
 	({message, handleDelete, permissions, developerMode, isActive, onPopoutToggle}) => {
 		const {i18n} = useLingui();
 		const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
@@ -529,17 +530,19 @@ export const MessageActionBarCore: React.FC<MessageActionBarCoreProps> = observe
 												data-flx="channel.message-action-bar.message-action-bar-core.message-action-bar-button.copy-message-link"
 											/>
 										)}
-										<MessageActionBarButton
-											icon={
-												<MarkAsUnreadIcon
-													size={20}
-													data-flx="channel.message-action-bar.message-action-bar-core.mark-as-unread-icon"
-												/>
-											}
-											label={i18n._(MARK_AS_UNREAD_DESCRIPTOR)}
-											onClick={handlers.handleMarkAsUnread}
-											data-flx="channel.message-action-bar.message-action-bar-core.message-action-bar-button.mark-as-unread"
-										/>
+										{!permissions.isPreviewing && (
+											<MessageActionBarButton
+												icon={
+													<MarkAsUnreadIcon
+														size={20}
+														data-flx="channel.message-action-bar.message-action-bar-core.mark-as-unread-icon"
+													/>
+												}
+												label={i18n._(MARK_AS_UNREAD_DESCRIPTOR)}
+												onClick={handlers.handleMarkAsUnread}
+												data-flx="channel.message-action-bar.message-action-bar-core.message-action-bar-button.mark-as-unread"
+											/>
+										)}
 										{message.isUserMessage() && canPinMessage && (
 											<MessageActionBarButton
 												icon={

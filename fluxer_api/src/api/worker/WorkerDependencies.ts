@@ -32,6 +32,7 @@ import type {InstanceConfigRepository} from '@app/api/instance/InstanceConfigRep
 import {Logger} from '@app/api/Logger';
 import type {LimitConfigService} from '@app/api/limits/LimitConfigService';
 import {createGuildStackServices} from '@app/api/middleware/GuildStackServiceFactory';
+import {createOperatorPassServices, type OperatorPassServices} from '@app/api/middleware/OperatorPassServiceFactory';
 import {
 	ensureVoiceResourcesInitialized,
 	getGatewayService,
@@ -78,6 +79,7 @@ import {
 } from '@app/api/middleware/ServiceSingletons';
 import type {ApplicationRepository} from '@app/api/oauth/repositories/ApplicationRepository';
 import type {OAuth2TokenRepository} from '@app/api/oauth/repositories/OAuth2TokenRepository';
+import {OperatorPassRepository} from '@app/api/operator_pass/OperatorPassRepository';
 import type {ReadStateService} from '@app/api/read_state/ReadStateService';
 import type {ReportRepository} from '@app/api/report/ReportRepository';
 import type {StoreEntitlementService} from '@app/api/store_billing/StoreEntitlementService';
@@ -139,6 +141,8 @@ export interface WorkerDependencies {
 	channelService: ChannelService;
 	guildAuditLogService: GuildAuditLogService;
 	donationRepository: DonationRepository;
+	operatorPassRepository: OperatorPassRepository;
+	operatorPassServices: OperatorPassServices;
 	guildService: GuildService;
 	billingRepository: BillingRepository;
 	storeEntitlementService: StoreEntitlementService;
@@ -159,6 +163,7 @@ export async function initializeWorkerDependencies(snowflakeService: ISnowflakeS
 	const reportRepository = getReportRepository();
 	const paymentRepository = new PaymentRepository();
 	const donationRepository = new DonationRepository();
+	const operatorPassRepository = new OperatorPassRepository();
 	const userHarvestRepository = new UserHarvestRepository();
 	const connectionRepository = getConnectionRepository();
 	const cacheService = getCacheService();
@@ -166,6 +171,7 @@ export async function initializeWorkerDependencies(snowflakeService: ISnowflakeS
 	const limitConfigService = getLimitConfigService();
 	await instanceConfigRepository.initialize();
 	await instanceConfigRepository.ensureAccountIdentityMode();
+	await instanceConfigRepository.ensureAccountsDefaults();
 	await limitConfigService.initialize();
 	limitConfigService.setAsGlobalInstance();
 	const userCacheService = createUserCacheService();
@@ -187,7 +193,7 @@ export async function initializeWorkerDependencies(snowflakeService: ISnowflakeS
 	const deletionQueueService = getKVAccountDeletionQueue();
 	const bulkMessageDeletionQueueService = getKVBulkMessageDeletionQueue();
 	const premiumStateReconciliationQueueService = getPremiumStateReconciliationQueueService();
-	const deletionEligibilityService = new UserDeletionEligibilityService(kvClient);
+	const deletionEligibilityService = new UserDeletionEligibilityService(kvClient, operatorPassRepository);
 	await ensureVoiceResourcesInitialized();
 	const voiceRoomStore = getVoiceRoomStoreInstance();
 	const liveKitService = getLiveKitServiceInstance();
@@ -231,6 +237,7 @@ export async function initializeWorkerDependencies(snowflakeService: ISnowflakeS
 		snowflakeService,
 		premiumStateReconciliationQueueService,
 	});
+	let operatorPassServices: OperatorPassServices | undefined;
 	Logger.info('Worker dependencies initialized successfully');
 	return {
 		kvClient,
@@ -274,6 +281,18 @@ export async function initializeWorkerDependencies(snowflakeService: ISnowflakeS
 		channelService,
 		guildService,
 		donationRepository,
+		operatorPassRepository,
+		get operatorPassServices() {
+			operatorPassServices ??= createOperatorPassServices({
+				operatorPassRepository,
+				userRepository,
+				guildRepository,
+				guildService,
+				emailService,
+				gatewayService,
+			});
+			return operatorPassServices;
+		},
 		billingRepository,
 		storeEntitlementService,
 		guildAuditLogService,

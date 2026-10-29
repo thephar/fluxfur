@@ -16,7 +16,7 @@ import type {ModulePlanItem} from '@electron/main/ModuleUpdatePlanner';
 
 const MODULE_PACKAGE_HASH_MISMATCH_RETRIES = 1;
 const MODULE_PACKAGE_HEADER_TIMEOUT_MS = 30000;
-export const MODULE_PACKAGE_STALL_TIMEOUT_MS = 30000;
+const MODULE_PACKAGE_STALL_TIMEOUT_MS = 30000;
 const MODULE_PACKAGE_PROGRESS_INTERVAL_MS = 250;
 const TRANSIENT_HTTP_STATUS_FLOOR = 500;
 const TRANSIENT_PACKAGE_HTTP_STATUSES: ReadonlySet<number> = new Set([408, 425, 429]);
@@ -98,7 +98,7 @@ export class ModulePackageFetchError extends Error {
 	}
 }
 
-export class ModulePackageStallError extends ModulePackageFetchError {
+class ModulePackageStallError extends ModulePackageFetchError {
 	public constructor(moduleName: string, stallMs: number) {
 		super(moduleName, null, `package download stalled for ${stallMs}ms`);
 		this.name = 'ModulePackageStallError';
@@ -417,14 +417,15 @@ export class ModulePackageInstaller {
 				yield chunk.value;
 			}
 		} catch (error) {
-			transferFailure =
-				controller.signal.reason instanceof ModulePackageFetchError
-					? controller.signal.reason
-					: error instanceof ModulePackageFetchError
-						? error
-						: new ModulePackageFetchError(item.module, null, `package download failed for ${item.module}`, {
-								cause: error,
-							});
+			if (controller.signal.reason instanceof ModulePackageFetchError) {
+				transferFailure = controller.signal.reason;
+			} else if (error instanceof ModulePackageFetchError) {
+				transferFailure = error;
+			} else {
+				transferFailure = new ModulePackageFetchError(item.module, null, `package download failed for ${item.module}`, {
+					cause: error,
+				});
+			}
 			throw transferFailure;
 		} finally {
 			disarm();

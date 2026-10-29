@@ -130,6 +130,7 @@ function refundCreateHandler(opts?: {
 			amount: Number.parseInt((params.amount as string) ?? '0', 10),
 			currency: 'usd',
 			status: opts?.status ?? 'succeeded',
+			created: Math.floor(Date.now() / 1000),
 			failure_reason: opts?.failureReason ?? null,
 			payment_intent: params.payment_intent ?? null,
 			charge: params.charge ?? null,
@@ -263,6 +264,83 @@ describe('StripeRefundService self-serve refund', () => {
 				.expect(403, APIErrorCodes.STRIPE_REFUND_COOLDOWN_ACTIVE)
 				.execute();
 		});
+		test('accepts a refund just inside the 3-day window', async () => {
+			server.use(...createStripeApiHandlers().handlers);
+			server.use(
+				invoiceListHandler([
+					buildInvoice({id: 'in_edge', paidAtSecondsAgo: 3 * SECONDS_PER_DAY - 60, subscriptionId: null}),
+				]),
+				refundCreateHandler(),
+			);
+			const account = await createTestAccount(harness);
+			await setStripeIds(harness, account, {stripe_customer_id: MOCK_CUSTOMER_ID});
+			const response = await createBuilder<SelfServeRefundResponse>(harness, account.token)
+				.post('/premium/refund-latest')
+				.execute();
+			expect(response.status).toBe('succeeded');
+		});
+		test('rejects a refund just past the 3-day window', async () => {
+			server.use(...createStripeApiHandlers().handlers);
+			server.use(invoiceListHandler([buildInvoice({id: 'in_edge', paidAtSecondsAgo: 3 * SECONDS_PER_DAY + 60})]));
+			const account = await createTestAccount(harness);
+			await setStripeIds(harness, account, {stripe_customer_id: MOCK_CUSTOMER_ID});
+			await createBuilder(harness, account.token)
+				.post('/premium/refund-latest')
+				.expect(403, APIErrorCodes.STRIPE_REFUND_OUTSIDE_WINDOW)
+				.execute();
+		});
+		test('rejects a refund when the last one was just under 30 days ago', async () => {
+			server.use(...createStripeApiHandlers().handlers);
+			server.use(invoiceListHandler([buildInvoice({id: 'in_recent', paidAtSecondsAgo: SECONDS_PER_DAY})]));
+			const account = await createTestAccount(harness);
+			const lastRefundAt = new Date(Date.now() - (30 * SECONDS_PER_DAY - 60) * 1000);
+			await setStripeIds(harness, account, {
+				stripe_customer_id: MOCK_CUSTOMER_ID,
+				first_refund_at: lastRefundAt.toISOString(),
+			});
+			const eligibility = await createBuilder<SelfServeRefundEligibilityResponse>(harness, account.token)
+				.get('/premium/refund-eligibility')
+				.execute();
+			expect(eligibility.eligible).toBe(false);
+			expect(eligibility.reason).toBe('cooldown_active');
+			expect(eligibility.cooldown_expires_at).toBe(
+				new Date(lastRefundAt.getTime() + 30 * SECONDS_PER_DAY * 1000).toISOString(),
+			);
+			await createBuilder(harness, account.token)
+				.post('/premium/refund-latest')
+				.expect(403, APIErrorCodes.STRIPE_REFUND_COOLDOWN_ACTIVE)
+				.execute();
+		});
+		test('allows another refund once 30 days have passed, never blocks purchases, and restarts the cooldown', async () => {
+			server.use(...createStripeApiHandlers().handlers);
+			server.use(
+				invoiceListHandler([buildInvoice({id: 'in_recent', paidAtSecondsAgo: SECONDS_PER_DAY, subscriptionId: null})]),
+				refundCreateHandler({refundId: 're_second_window'}),
+			);
+			const account = await createTestAccount(harness);
+			const userId = createUserID(BigInt(account.userId));
+			const lastRefundAt = new Date(Date.now() - (30 * SECONDS_PER_DAY + 60) * 1000);
+			await setStripeIds(harness, account, {
+				stripe_customer_id: MOCK_CUSTOMER_ID,
+				first_refund_at: lastRefundAt.toISOString(),
+			});
+			const eligibility = await createBuilder<SelfServeRefundEligibilityResponse>(harness, account.token)
+				.get('/premium/refund-eligibility')
+				.execute();
+			expect(eligibility.eligible).toBe(true);
+			expect(eligibility.cooldown_expires_at).toBeNull();
+			const response = await createBuilder<SelfServeRefundResponse>(harness, account.token)
+				.post('/premium/refund-latest')
+				.execute();
+			expect(response.status).toBe('succeeded');
+			const updatedUser = await new UserRepository().findUnique(userId);
+			expect(updatedUser!.premiumFlags & PremiumFlags.PURCHASE_DISABLED).toBe(0);
+			expect(updatedUser!.lastRefundAt!.getTime()).toBeGreaterThan(Date.now() - 60 * 1000);
+			await createBuilder(harness, account.token)
+				.post('/premium/refund-latest')
+				.expect(403, APIErrorCodes.STRIPE_REFUND_COOLDOWN_ACTIVE)
+				.execute();
+		});
 		test('rejects when there is no refundable purchase', async () => {
 			server.use(...createStripeApiHandlers().handlers);
 			const account = await createTestAccount(harness);
@@ -290,7 +368,7 @@ describe('StripeRefundService self-serve refund', () => {
 			expect(response.subscription_id).toBeNull();
 			const {UserRepository} = await import('@app/api/user/repositories/UserRepository');
 			const updatedUser = await new UserRepository().findUnique(createUserID(BigInt(account.userId)));
-			expect(updatedUser!.firstRefundAt).toBeNull();
+			expect(updatedUser!.lastRefundAt).toBeNull();
 		});
 		test('does not finalize cooldown or cancel the subscription when the refund fails at the provider', async () => {
 			server.use(...createStripeApiHandlers().handlers);
@@ -311,9 +389,9 @@ describe('StripeRefundService self-serve refund', () => {
 			expect(response.subscription_id).toBeNull();
 			const {UserRepository} = await import('@app/api/user/repositories/UserRepository');
 			const updatedUser = await new UserRepository().findUnique(createUserID(BigInt(account.userId)));
-			expect(updatedUser!.firstRefundAt).toBeNull();
+			expect(updatedUser!.lastRefundAt).toBeNull();
 		});
-		test('counts one self-serve refund once even when charge.refunded arrives afterwards and is retried', async () => {
+		test('starts the cooldown once even when charge.refunded arrives afterwards and is retried', async () => {
 			server.use(...createStripeApiHandlers().handlers);
 			const invoice = buildInvoice({
 				id: 'in_cross_path',
@@ -331,7 +409,7 @@ describe('StripeRefundService self-serve refund', () => {
 			expect(response.status).toBe('succeeded');
 			const userRepository = new UserRepository();
 			const afterSelfServe = await userRepository.findUnique(userId);
-			expect(afterSelfServe!.firstRefundAt).not.toBeNull();
+			expect(afterSelfServe!.lastRefundAt).not.toBeNull();
 			expect(afterSelfServe!.premiumFlags & PremiumFlags.PURCHASE_DISABLED).toBe(0);
 			const chargeEvent = {
 				type: 'charge.refunded' as const,
@@ -369,10 +447,10 @@ describe('StripeRefundService self-serve refund', () => {
 			await sendStripeWebhook(harness, {...chargeEvent, id: 'evt_cross_path_1'});
 			await sendStripeWebhook(harness, {...chargeEvent, id: 'evt_cross_path_2'});
 			const afterWebhook = await userRepository.findUnique(userId);
-			expect(afterWebhook!.firstRefundAt!.getTime()).toBe(afterSelfServe!.firstRefundAt!.getTime());
+			expect(afterWebhook!.lastRefundAt!.getTime()).toBe(afterSelfServe!.lastRefundAt!.getTime());
 			expect(afterWebhook!.premiumFlags & PremiumFlags.PURCHASE_DISABLED).toBe(0);
 		});
-		test('counts one self-serve refund once even when refund.updated confirms it after the endpoint already did', async () => {
+		test('starts the cooldown once even when refund.updated confirms it after the endpoint already did', async () => {
 			server.use(...createStripeApiHandlers().handlers);
 			const invoice = buildInvoice({
 				id: 'in_double_confirm',
@@ -386,7 +464,7 @@ describe('StripeRefundService self-serve refund', () => {
 			await createBuilder<SelfServeRefundResponse>(harness, account.token).post('/premium/refund-latest').execute();
 			const userRepository = new UserRepository();
 			const afterSelfServe = await userRepository.findUnique(userId);
-			expect(afterSelfServe!.firstRefundAt).not.toBeNull();
+			expect(afterSelfServe!.lastRefundAt).not.toBeNull();
 			await sendStripeWebhook(harness, {
 				id: 'evt_double_confirm_1',
 				type: 'refund.updated',
@@ -397,6 +475,7 @@ describe('StripeRefundService self-serve refund', () => {
 						status: 'succeeded',
 						amount: 2500,
 						currency: 'usd',
+						created: Math.floor(afterSelfServe!.lastRefundAt!.getTime() / 1000),
 						metadata: {
 							refund_kind: 'self_serve',
 							user_id: account.userId,
@@ -406,7 +485,7 @@ describe('StripeRefundService self-serve refund', () => {
 				},
 			});
 			const afterWebhook = await userRepository.findUnique(userId);
-			expect(afterWebhook!.firstRefundAt!.getTime()).toBe(afterSelfServe!.firstRefundAt!.getTime());
+			expect(afterWebhook!.lastRefundAt!.getTime()).toBe(afterSelfServe!.lastRefundAt!.getTime());
 			expect(afterWebhook!.premiumFlags & PremiumFlags.PURCHASE_DISABLED).toBe(0);
 		});
 		test('retries with a fresh idempotency key once a prior attempt has failed at the provider', async () => {

@@ -31,6 +31,10 @@ import {
 	type GuildStickerRow,
 } from '@app/api/database/types/GuildTypes';
 import {isTainted} from '@app/api/experiment/ChannelThreadsGate';
+import {
+	bumpGuildVisitorViewGeneration,
+	touchesGuildVisitorView,
+} from '@app/api/guild/visits/GuildVisitorViewGeneration';
 import type {RequestCache} from '@app/api/middleware/RequestCacheMiddleware';
 import {Guild} from '@app/api/models/Guild';
 import {GuildAuditLog} from '@app/api/models/GuildAuditLog';
@@ -257,6 +261,7 @@ export class GuildRepository {
 		if (!latest) {
 			throw new Error('Guild row vanished after partial upsert');
 		}
+		if (touchesGuildVisitorView(patch, oldData)) await bumpGuildVisitorViewGeneration(guildId);
 		return new Guild({...latest, version: result.finalVersion ?? latest.version});
 	}
 
@@ -295,7 +300,7 @@ export class GuildRepository {
 		return result ? Number(result.count) : 0;
 	}
 
-	async upsertMember(data: GuildMemberRow, oldData?: GuildMemberRow | null): Promise<GuildMember> {
+	async upsertMember(data: GuildMemberRow): Promise<GuildMember> {
 		const guildId = data.guild_id;
 		const userId = data.user_id;
 		const result = await executeVersionedUpdate<GuildMemberRow, 'guild_id' | 'user_id'>(
@@ -309,7 +314,6 @@ export class GuildRepository {
 				patch: buildPatchFromData(data, current, GUILD_MEMBER_COLUMNS, ['guild_id', 'user_id']),
 			}),
 			GuildMembers,
-			{initialData: oldData},
 		);
 		await upsertOne(
 			GuildMembersByUserId.insert({
@@ -414,6 +418,7 @@ export class GuildRepository {
 			GuildRoles,
 			{initialData: oldData},
 		);
+		if (BigInt(data.role_id) === BigInt(data.guild_id)) await bumpGuildVisitorViewGeneration(data.guild_id);
 		return new GuildRole({...data, version: result.finalVersion ?? 1});
 	}
 
@@ -424,6 +429,7 @@ export class GuildRepository {
 				role_id: roleId,
 			}),
 		);
+		if (BigInt(roleId) === BigInt(guildId)) await bumpGuildVisitorViewGeneration(guildId);
 	}
 
 	async getBan(guildId: GuildID, userId: UserID): Promise<GuildBan | null> {
@@ -667,7 +673,7 @@ export class GuildRepository {
 		return emojis.map((emoji) => new GuildEmoji(emoji));
 	}
 
-	async upsertEmoji(data: GuildEmojiRow, oldData?: GuildEmojiRow | null): Promise<GuildEmoji> {
+	async upsertEmoji(data: GuildEmojiRow): Promise<GuildEmoji> {
 		const guildId = data.guild_id;
 		const emojiId = data.emoji_id;
 		const result = await executeVersionedUpdate<GuildEmojiRow, 'guild_id' | 'emoji_id'>(
@@ -681,7 +687,6 @@ export class GuildRepository {
 				patch: buildPatchFromData(data, current, GUILD_EMOJI_COLUMNS, ['guild_id', 'emoji_id']),
 			}),
 			GuildEmojis,
-			{initialData: oldData},
 		);
 		await upsertOne(GuildEmojisByEmojiId.insert(data));
 		return new GuildEmoji({...data, version: result.finalVersion ?? 1});
@@ -721,7 +726,7 @@ export class GuildRepository {
 		return stickers.map((sticker) => new GuildSticker(sticker));
 	}
 
-	async upsertSticker(data: GuildStickerRow, oldData?: GuildStickerRow | null): Promise<GuildSticker> {
+	async upsertSticker(data: GuildStickerRow): Promise<GuildSticker> {
 		const guildId = data.guild_id;
 		const stickerId = data.sticker_id;
 		const result = await executeVersionedUpdate<GuildStickerRow, 'guild_id' | 'sticker_id'>(
@@ -735,7 +740,6 @@ export class GuildRepository {
 				patch: buildPatchFromData(data, current, GUILD_STICKER_COLUMNS, ['guild_id', 'sticker_id']),
 			}),
 			GuildStickers,
-			{initialData: oldData},
 		);
 		await upsertOne(GuildStickersByStickerId.insert(data));
 		return new GuildSticker({...data, version: result.finalVersion ?? 1});

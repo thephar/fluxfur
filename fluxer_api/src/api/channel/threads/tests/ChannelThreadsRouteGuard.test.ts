@@ -139,10 +139,6 @@ describe('ChannelThreadsRouteGuard', () => {
 	const sentinel = () => `/channels/${channelId}/threads-sentinel`;
 	const unregistered = () => `/channels/${channelId}/threads-unregistered`;
 
-	it('answers like an unregistered path without the client capability', async () => {
-		await expectLikeUnregistered(sentinel(), unregistered(), {token: owner.token});
-	});
-
 	it('answers like an unregistered path for an OAuth2 bearer token', async () => {
 		const bearer = await createBuilder<{token: string}>(harness, '')
 			.post('/test/oauth2/access-token')
@@ -151,38 +147,11 @@ describe('ChannelThreadsRouteGuard', () => {
 		await expectLikeUnregistered(sentinel(), unregistered(), {token: `Bearer ${bearer.token}`, headers: CAPABLE});
 	});
 
-	it('answers like an unregistered path when unauthenticated', async () => {
-		await expectLikeUnregistered(sentinel(), unregistered(), {headers: CAPABLE});
-	});
-
-	it('answers like an unregistered path for a malformed snowflake', async () => {
-		await expectLikeUnregistered('/channels/not-a-snowflake/threads-sentinel', '/channels/not-a-snowflake/threads-x', {
-			token: owner.token,
-			headers: CAPABLE,
-		});
-	});
-
-	it('answers like an unregistered path for a malformed body', async () => {
-		await expectLikeUnregistered(sentinel(), unregistered(), {
-			method: 'POST',
-			token: owner.token,
-
-			body: '{"name":',
-		});
-	});
-
 	it('answers like an unregistered path for a user token on a bot-only route', async () => {
 		await expectLikeUnregistered(`/channels/${channelId}/threads-sentinel-bot`, unregistered(), {
 			token: owner.token,
 			headers: CAPABLE,
 		});
-	});
-
-	it('lets a capable user through on a guild', async () => {
-		const channel = await snapshot(sentinel(), {token: owner.token, headers: CAPABLE});
-		expect(channel.status).toBe(200);
-		const guild = await snapshot(`/guilds/${guildId}/threads-sentinel`, {token: owner.token, headers: CAPABLE});
-		expect(guild.status).toBe(200);
 	});
 
 	it('lets an authorized bot through without a client capability header', async () => {

@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {createHash} from 'node:crypto';
 import {
 	createAuthHarness,
 	createTestAccount,
@@ -10,14 +9,20 @@ import {
 	setUserACLs,
 	type TestAccount,
 } from '@app/api/auth/tests/AuthTestUtils';
-import {createUserID} from '@app/api/BrandedTypes';
-import type {UserRow} from '@app/api/database/types/UserTypes';
+import {createUserID, type UserID} from '@app/api/BrandedTypes';
+import {getKvMeta} from '@app/api/database/CassandraMetaRegistry';
 import {
-	InstanceConfigRepository,
-	REGISTRATION_PENDING_APPROVAL_TRAIT,
-} from '@app/api/instance/InstanceConfigRepository';
+	type CassandraQueryExecutorForTesting,
+	fetchOne,
+	setCassandraQueryExecutorForTesting,
+} from '@app/api/database/CassandraQueryExecution';
+import type {CassandraParams, PreparedQuery} from '@app/api/database/CassandraTypes';
+import type {UserRow} from '@app/api/database/types/UserTypes';
+import {REGISTRATION_PENDING_APPROVAL_TRAIT} from '@app/api/instance/InstanceConfigRepository';
 import {getInstanceConfigRepository} from '@app/api/middleware/ServiceSingletons';
+import {InstanceConfiguration, Users} from '@app/api/Tables';
 import type {ApiTestHarness} from '@app/api/test/ApiTestHarness';
+import {InMemoryCassandraQueryExecutor} from '@app/api/test/InMemoryCassandraQueryExecutor';
 import {HTTP_STATUS} from '@app/api/test/TestConstants';
 import {createBuilder, createBuilderWithoutAuth} from '@app/api/test/TestRequestBuilder';
 import {UserRepository} from '@app/api/user/repositories/UserRepository';
@@ -27,10 +32,14 @@ import type {
 	InstanceConfigResponse,
 	PendingRegistrationListResponse,
 } from '@fluxer/schema/src/domains/admin/AdminSchemas';
-import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi} from 'vitest';
+import {afterAll, afterEach, assert, beforeAll, beforeEach, describe, expect, it} from 'vitest';
 
-const REGISTRATION_URLS_KEY = 'registration_urls';
 const REGISTRATION_PENDING_APPROVALS_KEY = 'registration_pending_approvals';
+
+interface WriteFailure {
+	table: 'users' | 'instance_configuration' | 'authorized_ips_v2' | 'user_settings';
+	timing: 'before' | 'after';
+}
 
 interface RegistrationResponse {
 	user_id?: string;
@@ -39,7 +48,7 @@ interface RegistrationResponse {
 	code?: string;
 }
 
-function registrationBody(prefix: string, registrationUrlCode?: string): Record<string, unknown> {
+function registrationBody(prefix: string, registrationUrlCode?: string) {
 	return {
 		email: createUniqueEmail(prefix),
 		username: createUniqueUsername(prefix),
@@ -54,12 +63,54 @@ function registrationBody(prefix: string, registrationUrlCode?: string): Record<
 describe('signups racing on registration URLs and pending approvals', () => {
 	let harness: ApiTestHarness;
 	let admin: TestAccount;
+	let storage: InMemoryCassandraQueryExecutor;
+	let executor: CassandraQueryExecutorForTesting;
+	let writeFailure: WriteFailure | null = null;
+	let expectedFailure: WriteFailure | null = null;
+	let observedFailure: WriteFailure | null = null;
+	let failureEmail: string | null = null;
+	let failureUserId: UserID | null = null;
+	const requests = new Set<Promise<unknown>>();
 
 	beforeAll(async () => {
 		harness = await createAuthHarness();
+		storage = new InMemoryCassandraQueryExecutor();
+		executor = {
+			async executeQuery<T, P extends CassandraParams>(query: PreparedQuery<P>): Promise<Array<T>> {
+				const metadata = query.kvMeta ?? getKvMeta(query.cql);
+				if (
+					metadata?.table.name === 'users' &&
+					metadata.action === 'patch' &&
+					query.params.email === failureEmail &&
+					typeof query.params.user_id === 'bigint'
+				) {
+					failureUserId = createUserID(query.params.user_id);
+				}
+				const failure = writeFailure;
+				const matchesAccount = query.params.user_id === failureUserId;
+				const matchesPending = query.params.key === REGISTRATION_PENDING_APPROVALS_KEY;
+				if (
+					failure &&
+					metadata?.table.name === failure.table &&
+					(metadata.action === 'patch' || metadata.action === 'upsert') &&
+					(matchesAccount || matchesPending)
+				) {
+					writeFailure = null;
+					if (failure.timing === 'after') {
+						await storage.executeQuery<T>(query);
+					}
+					observedFailure = failure;
+					throw new Error('The database write acknowledgment failed');
+				}
+				return storage.executeQuery<T>(query);
+			},
+			executeBatch: (queries, atomic) => storage.executeBatch(queries, atomic),
+			reset: () => storage.reset(),
+		};
 	});
 
 	beforeEach(async () => {
+		setCassandraQueryExecutorForTesting(executor);
 		await harness.reset();
 		admin = await setUserACLs(harness, await createTestAccount(harness), [
 			AdminACLs.AUTHENTICATE,
@@ -69,19 +120,43 @@ describe('signups racing on registration URLs and pending approvals', () => {
 		]);
 	});
 
-	afterEach(() => {
-		vi.restoreAllMocks();
+	afterEach(async () => {
+		writeFailure = null;
+		try {
+			await Promise.allSettled(requests);
+			expect(observedFailure).toEqual(expectedFailure);
+		} finally {
+			setCassandraQueryExecutorForTesting(storage);
+			expectedFailure = null;
+			observedFailure = null;
+			failureEmail = null;
+			failureUserId = null;
+			requests.clear();
+		}
 	});
 
 	afterAll(async () => {
-		await harness?.shutdown();
+		setCassandraQueryExecutorForTesting(storage);
+		await harness.shutdown();
 	});
 
-	const register = (prefix: string, registrationUrlCode?: string) =>
-		createBuilderWithoutAuth<RegistrationResponse>(harness)
+	function failWrite(failure: WriteFailure): void {
+		writeFailure = failure;
+		expectedFailure = failure;
+	}
+
+	function register(prefix: string, registrationUrlCode?: string) {
+		const body = registrationBody(prefix, registrationUrlCode);
+		if (writeFailure) {
+			failureEmail = body.email;
+		}
+		const operation = createBuilderWithoutAuth<RegistrationResponse>(harness)
 			.post('/auth/register')
-			.body(registrationBody(prefix, registrationUrlCode))
+			.body(body)
 			.executeRaw();
+		requests.add(operation);
+		return operation;
+	}
 
 	const readAdminConfig = (): Promise<InstanceConfigResponse> =>
 		createBuilder<InstanceConfigResponse>(harness, admin.token).get('/admin/instance/config').execute();
@@ -93,43 +168,52 @@ describe('signups racing on registration URLs and pending approvals', () => {
 				.execute()
 		).pending_registrations;
 
-	const completeSso = async (prefix: string) => {
-		const start = await createBuilderWithoutAuth<{state: string}>(harness)
-			.post('/auth/sso/start')
-			.body({redirect_to: '/me'})
-			.execute();
-		return createBuilderWithoutAuth(harness)
-			.post('/auth/sso/complete')
-			.body({code: createUniqueEmail(prefix), state: start.state})
-			.executeRaw();
+	const completeSso = (prefix: string) => {
+		const email = createUniqueEmail(prefix);
+		if (writeFailure) {
+			failureEmail = email;
+		}
+		const operation = (async () => {
+			const start = await createBuilderWithoutAuth<{state: string}>(harness)
+				.post('/auth/sso/start')
+				.body({redirect_to: '/me'})
+				.execute();
+			return createBuilderWithoutAuth(harness)
+				.post('/auth/sso/complete')
+				.body({code: email, state: start.state})
+				.executeRaw();
+		})();
+		requests.add(operation);
+		return operation;
 	};
 
-	const failCreateAfterTheUserRowIsWritten = () => {
-		const create = UserRepository.prototype.create;
-		vi.spyOn(UserRepository.prototype, 'create').mockImplementationOnce(async function (
-			this: UserRepository,
-			row: UserRow,
-		) {
-			await create.call(this, row);
-			throw new Error('the user indexes could not be written after the user row');
-		});
-	};
+	async function expectStoredPendingEmpty(): Promise<void> {
+		expect(await readPendingRegistrations()).toEqual([]);
+		const stored = await fetchOne<{value: string}>(
+			InstanceConfiguration.selectCql({where: InstanceConfiguration.where.eq('key')}),
+			{key: REGISTRATION_PENDING_APPROVALS_KEY},
+		);
+		expect(JSON.parse(stored?.value ?? 'null')).toEqual([]);
+	}
 
-	const failAfterThePendingApprovalIsStored = () => {
-		const addPendingRegistration = InstanceConfigRepository.prototype.addPendingRegistration;
-		vi.spyOn(InstanceConfigRepository.prototype, 'addPendingRegistration').mockImplementationOnce(async function (
-			this: InstanceConfigRepository,
-			entry: Parameters<InstanceConfigRepository['addPendingRegistration']>[0],
-		) {
-			await addPendingRegistration.call(this, entry);
-			throw new Error('the pending approval could not be published');
-		});
-	};
+	async function expectFailedWriteRowAbsent(): Promise<void> {
+		assert(failureUserId);
+		expect(await new UserRepository().findUnique(failureUserId)).toBeNull();
+	}
+
+	async function expectFailedWriteRowPresent(): Promise<void> {
+		assert(failureUserId);
+		const row = await fetchOne<UserRow>(Users.selectCql({where: Users.where.eq('user_id')}), {user_id: failureUserId});
+		expect(row?.email).toBe(failureEmail);
+		expect(row?.traits?.has(REGISTRATION_PENDING_APPROVAL_TRAIT)).toBe(true);
+	}
 
 	const expectOnePendingAccount = async () => {
 		const pending = await readPendingRegistrations();
 		expect(pending).toHaveLength(1);
-		const account = await new UserRepository().findUnique(createUserID(BigInt(pending[0]!.user_id)));
+		const [entry] = pending;
+		assert(entry);
+		const account = await new UserRepository().findUnique(createUserID(BigInt(entry.user_id)));
 		expect(account?.traits.has(REGISTRATION_PENDING_APPROVAL_TRAIT)).toBe(true);
 	};
 
@@ -188,24 +272,6 @@ describe('signups racing on registration URLs and pending approvals', () => {
 		expect(stored?.use_count).toBe(40);
 	});
 
-	it('counts every concurrent signup through an uncapped registration URL', async () => {
-		const repository = getInstanceConfigRepository();
-		await repository.setRegistrationConfig({mode: 'closed', admin_registration_urls_enabled: true});
-		const {code, registrationUrl} = await repository.createRegistrationUrl({
-			label: 'Uncapped',
-			createdByUserId: '1',
-			expiresAt: null,
-			maxUses: null,
-			approvalRequired: false,
-		});
-
-		const attempts = await Promise.all(Array.from({length: 5}, (_, index) => register(`uncapped${index}`, code)));
-
-		expect(attempts.map((attempt) => attempt.response.status)).toEqual(Array(5).fill(HTTP_STATUS.OK));
-		const stored = (await readAdminConfig()).registration.urls.find((url) => url.id === registrationUrl.id);
-		expect(stored?.use_count).toBe(5);
-	});
-
 	it('gives the seat and the pending entry back when the signup failed before the account was created', async () => {
 		const repository = getInstanceConfigRepository();
 		await repository.setRegistrationConfig({mode: 'closed', admin_registration_urls_enabled: true});
@@ -216,11 +282,11 @@ describe('signups racing on registration URLs and pending approvals', () => {
 			maxUses: 1,
 			approvalRequired: true,
 		});
-		failAfterThePendingApprovalIsStored();
+		failWrite({table: 'instance_configuration', timing: 'after'});
 
 		const failed = await register('seatreleased', code);
 		expect(failed.response.status).toBe(HTTP_STATUS.INTERNAL_SERVER_ERROR);
-		expect(await readPendingRegistrations()).toEqual([]);
+		await expectStoredPendingEmpty();
 		const withdrawn = await readAdminConfig();
 		expect(withdrawn.registration.urls.find((url) => url.id === registrationUrl.id)?.use_count).toBe(0);
 
@@ -241,75 +307,17 @@ describe('signups racing on registration URLs and pending approvals', () => {
 			maxUses: 1,
 			approvalRequired: false,
 		});
-		vi.spyOn(UserRepository.prototype, 'create').mockRejectedValueOnce(new Error('the user row write failed'));
+		failWrite({table: 'users', timing: 'before'});
 
 		const failed = await register('seatkeptoncreate', code);
 		expect(failed.response.status).toBe(HTTP_STATUS.INTERNAL_SERVER_ERROR);
+		await expectFailedWriteRowAbsent();
 		const second = await register('seatkeptcreate2', code);
 
 		expect(second.response.status).toBe(HTTP_STATUS.BAD_REQUEST);
 		expect(second.json.code).toBe(APIErrorCodes.REGISTRATION_URL_INVALID);
 		const stored = (await readAdminConfig()).registration.urls.find((url) => url.id === registrationUrl.id);
 		expect(stored?.use_count).toBe(1);
-	});
-
-	it('keeps the seat of an account whose row was written before its creation failed', async () => {
-		const repository = getInstanceConfigRepository();
-		await repository.setRegistrationConfig({mode: 'closed', admin_registration_urls_enabled: true});
-		const {code, registrationUrl} = await repository.createRegistrationUrl({
-			label: 'Single use',
-			createdByUserId: '1',
-			expiresAt: null,
-			maxUses: 1,
-			approvalRequired: false,
-		});
-		failCreateAfterTheUserRowIsWritten();
-
-		const failed = await register('seatkept', code);
-		expect(failed.response.status).toBe(HTTP_STATUS.INTERNAL_SERVER_ERROR);
-		const second = await register('seatkeptsecond', code);
-
-		expect(second.response.status).toBe(HTTP_STATUS.BAD_REQUEST);
-		expect(second.json.code).toBe(APIErrorCodes.REGISTRATION_URL_INVALID);
-		const stored = (await readAdminConfig()).registration.urls.find((url) => url.id === registrationUrl.id);
-		expect(stored?.use_count).toBe(1);
-	});
-
-	it('honours the use count and cap already stored on a registration URL', async () => {
-		const repository = getInstanceConfigRepository();
-		await repository.setRegistrationConfig({mode: 'closed', admin_registration_urls_enabled: true});
-		const id = 'b3c4f0b2-8a6e-4c41-9f55-3f0c2a7d1e90';
-		await repository.setConfig(
-			REGISTRATION_URLS_KEY,
-			JSON.stringify([
-				{
-					id,
-					label: 'Issued earlier',
-					code_hash: createHash('sha256').update(id).digest('hex'),
-					created_by_user_id: '1400000000000000001',
-					created_at: '2026-09-01T00:00:00.000Z',
-					expires_at: null,
-					max_uses: 2,
-					use_count: 1,
-					revoked_at: null,
-					approval_required: false,
-					last_used_at: '2026-09-02T00:00:00.000Z',
-					last_used_by_user_id: '1400000000000000002',
-				},
-			]),
-		);
-
-		const before = (await readAdminConfig()).registration.urls.find((url) => url.id === id);
-		expect(before).toMatchObject({use_count: 1, max_uses: 2, last_used_by_user_id: '1400000000000000002'});
-
-		const first = await register('storedinvite', id);
-		expect(first.response.status).toBe(HTTP_STATUS.OK);
-		const second = await register('storedinviteagain', id);
-		expect(second.response.status).toBe(HTTP_STATUS.BAD_REQUEST);
-		expect(second.json.code).toBe(APIErrorCodes.REGISTRATION_URL_INVALID);
-
-		const after = (await readAdminConfig()).registration.urls.find((url) => url.id === id);
-		expect(after).toMatchObject({use_count: 2, max_uses: 2, last_used_by_user_id: first.json.user_id});
 	});
 
 	it('keeps every pending approval when approval-mode signups race', async () => {
@@ -324,88 +332,60 @@ describe('signups racing on registration URLs and pending approvals', () => {
 
 	it('lists an approval-mode account whose signup failed after the account was created', async () => {
 		await getInstanceConfigRepository().setRegistrationConfig({mode: 'approval'});
-		vi.spyOn(UserRepository.prototype, 'createAuthorizedIp').mockRejectedValueOnce(
-			new Error('the authorized IP write failed'),
-		);
+		failWrite({table: 'authorized_ips_v2', timing: 'before'});
 
 		const failed = await register('pendingstranded');
 
 		expect(failed.response.status).toBe(HTTP_STATUS.INTERNAL_SERVER_ERROR);
 		await expectOnePendingAccount();
-	});
-
-	it('lists an approval-mode account whose row was written before its creation failed', async () => {
-		await getInstanceConfigRepository().setRegistrationConfig({mode: 'approval'});
-		failCreateAfterTheUserRowIsWritten();
-
-		const failed = await register('pendingrowwritten');
-
-		expect(failed.response.status).toBe(HTTP_STATUS.INTERNAL_SERVER_ERROR);
-		await expectOnePendingAccount();
-	});
-
-	it('keeps the pending approval of an approval-mode signup whose account create failed', async () => {
-		await getInstanceConfigRepository().setRegistrationConfig({mode: 'approval'});
-		vi.spyOn(UserRepository.prototype, 'create').mockRejectedValueOnce(new Error('the user row write failed'));
-
-		const failed = await register('pendingkept');
-
-		expect(failed.response.status).toBe(HTTP_STATUS.INTERNAL_SERVER_ERROR);
-		expect(await readPendingRegistrations()).toHaveLength(1);
-	});
-
-	it('lists no pending approval for an approval-mode signup that failed before the account was created', async () => {
-		await getInstanceConfigRepository().setRegistrationConfig({mode: 'approval'});
-		failAfterThePendingApprovalIsStored();
-
-		const failed = await register('pendingnever');
-
-		expect(failed.response.status).toBe(HTTP_STATUS.INTERNAL_SERVER_ERROR);
-		expect(await readPendingRegistrations()).toEqual([]);
+		await expectFailedWriteRowPresent();
 	});
 
 	it('lists an SSO account provisioned in approval mode whose provisioning failed after the account was created', async () => {
 		await enableSso(harness, admin.token, {enforced: false});
 		await getInstanceConfigRepository().setRegistrationConfig({mode: 'approval'});
-		vi.spyOn(UserRepository.prototype, 'upsertSettings').mockRejectedValueOnce(new Error('the settings write failed'));
+		failWrite({table: 'user_settings', timing: 'before'});
 
 		const failed = await completeSso('ssopendingstranded');
 
 		expect(failed.response.status).toBe(HTTP_STATUS.INTERNAL_SERVER_ERROR);
 		await expectOnePendingAccount();
+		await expectFailedWriteRowPresent();
 	});
 
 	it('lists an SSO account provisioned in approval mode whose row was written before its creation failed', async () => {
 		await enableSso(harness, admin.token, {enforced: false});
 		await getInstanceConfigRepository().setRegistrationConfig({mode: 'approval'});
-		failCreateAfterTheUserRowIsWritten();
+		failWrite({table: 'users', timing: 'after'});
 
 		const failed = await completeSso('ssopendingrowwritten');
 
 		expect(failed.response.status).toBe(HTTP_STATUS.INTERNAL_SERVER_ERROR);
 		await expectOnePendingAccount();
+		await expectFailedWriteRowPresent();
 	});
 
 	it('keeps the pending approval of an SSO signup in approval mode whose account create failed', async () => {
 		await enableSso(harness, admin.token, {enforced: false});
 		await getInstanceConfigRepository().setRegistrationConfig({mode: 'approval'});
-		vi.spyOn(UserRepository.prototype, 'create').mockRejectedValueOnce(new Error('the user row write failed'));
+		failWrite({table: 'users', timing: 'before'});
 
 		const failed = await completeSso('ssopendingkept');
 
 		expect(failed.response.status).toBe(HTTP_STATUS.INTERNAL_SERVER_ERROR);
+		await expectFailedWriteRowAbsent();
 		expect(await readPendingRegistrations()).toHaveLength(1);
 	});
 
 	it('lists no pending approval for an SSO signup in approval mode that failed before the account was created', async () => {
 		await enableSso(harness, admin.token, {enforced: false});
 		await getInstanceConfigRepository().setRegistrationConfig({mode: 'approval'});
-		failAfterThePendingApprovalIsStored();
+		failWrite({table: 'instance_configuration', timing: 'after'});
 
 		const failed = await completeSso('ssopendingnever');
 
 		expect(failed.response.status).toBe(HTTP_STATUS.INTERNAL_SERVER_ERROR);
-		expect(await readPendingRegistrations()).toEqual([]);
+		await expectStoredPendingEmpty();
 	});
 
 	it('keeps a stored pending approval listed until an admin decides it', async () => {
@@ -442,9 +422,7 @@ describe('signups racing on registration URLs and pending approvals', () => {
 
 		expect(decided.pending_registrations.map((entry) => entry.user_id)).toEqual([fresh.json.user_id]);
 		expect(
-			JSON.parse(
-				(await getInstanceConfigRepository().getConfig(REGISTRATION_PENDING_APPROVALS_KEY)) ?? 'null',
-			) as Array<{user_id: string}>,
+			JSON.parse((await getInstanceConfigRepository().getConfig(REGISTRATION_PENDING_APPROVALS_KEY)) ?? 'null'),
 		).toEqual([expect.objectContaining({user_id: fresh.json.user_id})]);
 	});
 });

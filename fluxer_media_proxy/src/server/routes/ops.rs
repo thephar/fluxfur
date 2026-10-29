@@ -57,7 +57,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn metrics_denial_uses_the_shared_text_shape() {
+    async fn metrics_refuse_a_non_loopback_peer() {
         let response = metrics_handler(
             ConnectInfo(test_peer("8.8.8.8:5000")),
             State(test_app_state()),

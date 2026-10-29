@@ -1,18 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import statusStyles from '@app/features/app/components/dialogs/components/plutonium/PurchaseHistoryStatus.module.css';
 import styles from '@app/features/user/components/modals/tabs/account_security_tab/AccountSecurityCard.module.css';
 import {clsx} from 'clsx';
 import type React from 'react';
 import {useId} from 'react';
 
-type AccountSecurityStatusTone = 'success' | 'muted' | 'neutral' | 'pending';
-
 interface AccountSecurityCardProps {
 	title?: React.ReactNode;
 	'aria-label'?: string;
 	description?: React.ReactNode;
-	status?: {label: React.ReactNode; tone: AccountSecurityStatusTone};
 	action?: React.ReactNode;
 	children?: React.ReactNode;
 	'data-flx'?: string;
@@ -21,7 +17,6 @@ interface AccountSecurityCardProps {
 export const AccountSecurityCard: React.FC<AccountSecurityCardProps> = ({
 	title,
 	description,
-	status,
 	action,
 	children,
 	'aria-label': ariaLabel,
@@ -43,11 +38,6 @@ export const AccountSecurityCard: React.FC<AccountSecurityCardProps> = ({
 								<h4 id={titleId} className={styles.title} data-flx="user.account-security-card.title">
 									{title}
 								</h4>
-							) : null}
-							{status ? (
-								<span className={statusStyles[status.tone]} data-flx="user.account-security-card.status">
-									{status.label}
-								</span>
 							) : null}
 						</div>
 						{description ? (

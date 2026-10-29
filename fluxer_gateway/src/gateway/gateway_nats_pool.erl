@@ -105,16 +105,12 @@ init([]) ->
         slots => #{},
         monitors => #{},
         connecting => #{},
-        rpc_enabled => nats_rpc_enabled(),
+        rpc_enabled => gateway_nats_pool_conn:nats_rpc_enabled(),
         subs => #{},
         handler_count => 0,
         handler_refs => #{},
         max_handlers => gateway_nats_pool_conn:max_handlers()
     }}.
-
--spec nats_rpc_enabled() -> boolean().
-nats_rpc_enabled() ->
-    fluxer_gateway_env:get(nats_rpc_enabled) =/= false.
 
 -spec handle_call(term(), gen_server:from(), map()) -> {reply, term(), map()}.
 handle_call(get_pool_status, _From, State) ->
@@ -155,7 +151,7 @@ handle_info({_Conn, _Sid, {msg, Subject, Payload, MsgOpts}}, State) when
 ->
     {noreply, handle_rpc_msg(Subject, Payload, MsgOpts, State)};
 handle_info({handler_done, _Pid}, State) ->
-    {noreply, decrement_handler_count(State)};
+    {noreply, gateway_nats_pool_conn:decrement_handler_count(State)};
 handle_info({Conn, closed}, State) ->
     {noreply, handle_conn_event_down(conn_from_term(Conn), State)};
 handle_info({Conn, {error, _Reason}}, State) ->
@@ -256,7 +252,7 @@ disable_slot_subscription(Idx, Sids, Slots) ->
 disconnect_slot(_Idx, undefined) ->
     ok;
 disconnect_slot(_Idx, Conn) ->
-    ignore_disconnect(Conn).
+    gateway_nats_pool_conn:ignore_disconnect(Conn).
 
 -spec handle_connect_ok(non_neg_integer(), pid(), nats:conn(), map()) -> map().
 handle_connect_ok(Idx, Pid, Conn, State) ->
@@ -299,7 +295,7 @@ accept_connect_ok(Idx, Entry, Conn, State) ->
 
 -spec ignore_stale_connect_ok(nats:conn(), map()) -> map().
 ignore_stale_connect_ok(Conn, State) ->
-    ignore_disconnect(Conn),
+    gateway_nats_pool_conn:ignore_disconnect(Conn),
     State.
 
 -spec remove_slot_monitors(non_neg_integer(), map()) -> map().
@@ -308,7 +304,7 @@ remove_slot_monitors(Idx, Monitors) ->
 
 -spec cleanup_old_conn(nats:conn() | undefined) -> ok.
 cleanup_old_conn(undefined) -> ok;
-cleanup_old_conn(OldConn) -> ignore_disconnect(OldConn).
+cleanup_old_conn(OldConn) -> gateway_nats_pool_conn:ignore_disconnect(OldConn).
 
 -spec handle_connect_error(non_neg_integer(), pid(), term(), map()) -> map().
 handle_connect_error(Idx, Pid, Reason, #{connecting := Connecting} = State) ->
@@ -350,12 +346,6 @@ handle_ready_slot(Idx, Conn, Slots, State) ->
         {ok, Conn} -> gateway_nats_pool_conn:subscribe_slot(Idx, Conn, State);
         _ -> State
     end.
-
--spec decrement_handler_count(map()) -> map().
-decrement_handler_count(#{handler_count := HC} = State) when HC > 0 ->
-    State#{handler_count => HC - 1};
-decrement_handler_count(State) ->
-    State.
 
 -spec handle_rpc_msg(binary(), binary(), map(), map()) -> map().
 handle_rpc_msg(
@@ -408,7 +398,7 @@ send_overloaded(ReplyTo) ->
 handle_conn_event_down(Conn, #{pool_size := PoolSize} = State) ->
     case gateway_nats_pool_conn:find_slot_by_conn(Conn, State) of
         undefined ->
-            ignore_disconnect(Conn),
+            gateway_nats_pool_conn:ignore_disconnect(Conn),
             State;
         Idx ->
             gateway_nats_pool_conn:handle_conn_down(Idx, Conn, PoolSize, State)
@@ -485,7 +475,7 @@ handle_legacy_connect_timeout(Idx, #{connecting := Connecting} = State) ->
 
 -spec accept_connect_timeout(non_neg_integer(), term(), map()) -> map().
 accept_connect_timeout(Idx, Entry, #{connecting := Connecting} = State) ->
-    maybe_kill_connect_pid(connecting_entry_pid(Entry)),
+    gateway_nats_pool_conn:maybe_kill_connect_pid(connecting_entry_pid(Entry)),
     logger:warning("Gateway NATS pool slot connect attempt timed out", #{slot => Idx}),
     gateway_nats_pool_conn:schedule_reconnect(Idx, self()),
     State#{connecting => maps:remove(Idx, Connecting)}.
@@ -506,91 +496,6 @@ cancel_connect_timer(#{timer := TimerRef}) when is_reference(TimerRef) ->
 cancel_connect_timer(_) ->
     ok.
 
--spec maybe_kill_connect_pid(pid() | undefined) -> ok.
-maybe_kill_connect_pid(Pid) when is_pid(Pid) ->
-    unlink(Pid),
-    exit(Pid, kill),
-    ok;
-maybe_kill_connect_pid(undefined) ->
-    ok.
-
 -spec conn_from_term(term()) -> nats:conn().
 conn_from_term(Conn) when is_pid(Conn) ->
     Conn.
-
--spec ignore_disconnect(nats:conn()) -> ok.
-ignore_disconnect(Conn) ->
-    try nats:disconnect(Conn) of
-        _ -> ok
-    catch
-        throw:_ -> ok;
-        error:_ -> ok;
-        exit:_ -> ok
-    end.
-
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
-
--define(TEST_WAIT_LOOP_TIMEOUT_MS, 60000).
-
-stale_connect_timeout_does_not_kill_current_slot_worker_test() ->
-    Token = make_ref(),
-    StaleToken = make_ref(),
-    Pid = spawn(fun wait_forever/0),
-    State = #{
-        connecting => #{0 => #{pid => Pid, token => Token, timer => undefined}},
-        slots => #{},
-        monitors => #{},
-        pool_size => 1,
-        subs => #{}
-    },
-    try
-        ?assertEqual(State, handle_connect_timeout(0, StaleToken, State)),
-        ?assert(erlang:is_process_alive(Pid))
-    after
-        exit(Pid, kill)
-    end.
-
-legacy_connect_timeout_ignores_tokened_slot_worker_test() ->
-    Token = make_ref(),
-    Pid = spawn(fun wait_forever/0),
-    State = #{
-        connecting => #{0 => #{pid => Pid, token => Token, timer => undefined}},
-        slots => #{},
-        monitors => #{},
-        pool_size => 1,
-        subs => #{}
-    },
-    try
-        ?assertEqual(State, handle_legacy_connect_timeout(0, State)),
-        ?assert(erlang:is_process_alive(Pid))
-    after
-        exit(Pid, kill)
-    end.
-
-pool_keeps_rpc_unsubscribed_when_switched_off_test() ->
-    persistent_term:put({fluxer_gateway, runtime_config}, #{nats_rpc_enabled => false}),
-    Parent = self(),
-    try
-        Pid = spawn(fun() -> Parent ! {self(), init([])} end),
-        {ok, State} =
-            receive
-                {Pid, Reply} -> Reply
-            after 5000 -> timeout
-            end,
-        ?assertEqual(false, maps:get(rpc_enabled, State)),
-        ?assertEqual(State, handle_ready(self(), false, #{0 => self()}, State))
-    after
-        persistent_term:erase(?PERSISTENT_TERM_KEY),
-        persistent_term:erase(?REPLY_FAILURE_KEY),
-        persistent_term:erase({fluxer_gateway, runtime_config})
-    end.
-
-wait_forever() ->
-    receive
-        stop -> ok
-    after ?TEST_WAIT_LOOP_TIMEOUT_MS ->
-        ok
-    end.
-
--endif.

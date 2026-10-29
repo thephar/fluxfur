@@ -6,6 +6,8 @@ import {formatAssetUploadExtensions, formatKnownAnimatedAssetExtensions} from '@
 import {THE_OTHER_PLATFORM} from '@fluxer/constants/src/ExternalPlatformConstants';
 
 export {PRODUCT_NAME};
+export const PRODUCT_LABS_COMMUNITY_NAME = `${PRODUCT_NAME} Labs`;
+export const OPERATOR_PASS_NAME = 'Operator Pass';
 export const DESKTOP_ENTRY_NAME = 'Fluxer';
 export const CANARY_DESKTOP_ENTRY_NAME = 'Fluxer Canary';
 export const PAYMENT_PROVIDER_NAME = 'Stripe';
@@ -46,8 +48,7 @@ const DESKTOP_DOWNLOAD_URLS: Record<string, string> = {
 	development: 'http://localhost:8088/download',
 };
 
-export const DESKTOP_DOWNLOAD_URL =
-	DESKTOP_DOWNLOAD_URLS[Config.PUBLIC_RELEASE_CHANNEL] ?? DESKTOP_DOWNLOAD_URLS.stable;
+export const DESKTOP_DOWNLOAD_URL = DESKTOP_DOWNLOAD_URLS[Config.RELEASE_CHANNEL] ?? DESKTOP_DOWNLOAD_URLS.stable;
 export const FLUXER_DOCS_DOMAIN = 'fluxer.dev';
 export const FLUXER_DOCS_URL = `https://${FLUXER_DOCS_DOMAIN}`;
 export const FLUXER_BLUESKY_HANDLE = '@fluxer.app';

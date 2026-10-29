@@ -62,6 +62,16 @@ const YOUR_SUBSCRIPTION_WILL_SWITCH_TO_MONTHLY_BILLING_DESCRIPTOR = msg({
 	message: 'Your subscription will switch to monthly billing at the next renewal.',
 	comment: 'Toast success shown after a Plutonium subscription is scheduled to switch to monthly billing.',
 });
+const BILLING_CYCLE_CHANGED_DESCRIPTORS = {
+	now: {
+		yearly: YOUR_SUBSCRIPTION_HAS_BEEN_SWITCHED_TO_YEARLY_BILLING_DESCRIPTOR,
+		monthly: YOUR_SUBSCRIPTION_HAS_BEEN_SWITCHED_TO_MONTHLY_BILLING_DESCRIPTOR,
+	},
+	period_end: {
+		yearly: YOUR_SUBSCRIPTION_WILL_SWITCH_TO_YEARLY_BILLING_DESCRIPTOR,
+		monthly: YOUR_SUBSCRIPTION_WILL_SWITCH_TO_MONTHLY_BILLING_DESCRIPTOR,
+	},
+} as const;
 const YOUR_PENDING_BILLING_CHANGE_HAS_BEEN_CANCELED_DESCRIPTOR = msg({
 	message: 'Your pending billing change has been canceled.',
 	comment: 'Toast success shown after a scheduled Plutonium billing cycle change is canceled.',
@@ -198,15 +208,7 @@ export const useSubscriptionActions = (countryCode?: string | null) => {
 			try {
 				await PremiumCommands.changeSubscriptionBillingCycle(billingCycle, effectiveAt);
 				await PremiumCommands.refreshPremiumState(countryCode ?? undefined);
-				ToastCommands.success(
-					effectiveAt === 'period_end'
-						? billingCycle === 'yearly'
-							? i18n._(YOUR_SUBSCRIPTION_WILL_SWITCH_TO_YEARLY_BILLING_DESCRIPTOR)
-							: i18n._(YOUR_SUBSCRIPTION_WILL_SWITCH_TO_MONTHLY_BILLING_DESCRIPTOR)
-						: billingCycle === 'yearly'
-							? i18n._(YOUR_SUBSCRIPTION_HAS_BEEN_SWITCHED_TO_YEARLY_BILLING_DESCRIPTOR)
-							: i18n._(YOUR_SUBSCRIPTION_HAS_BEEN_SWITCHED_TO_MONTHLY_BILLING_DESCRIPTOR),
-				);
+				ToastCommands.success(i18n._(BILLING_CYCLE_CHANGED_DESCRIPTORS[effectiveAt][billingCycle]));
 			} catch (error) {
 				logger.error('Failed to change subscription billing cycle', error);
 				showPremiumActionErrorModal(

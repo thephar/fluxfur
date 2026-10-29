@@ -13,7 +13,6 @@ import {contentModerationService} from '@app/api/infrastructure/ContentModeratio
 import type {IGatewayService} from '@app/api/infrastructure/IGatewayService';
 import type {ISnowflakeService} from '@app/api/infrastructure/ISnowflakeService';
 import {Logger} from '@app/api/Logger';
-import type {RequestCache} from '@app/api/middleware/RequestCacheMiddleware';
 import type {Channel} from '@app/api/models/Channel';
 import type {Webhook} from '@app/api/models/Webhook';
 import * as RandomUtils from '@app/api/utils/RandomUtils';
@@ -44,7 +43,6 @@ interface FollowChannelParams {
 	viewer: ThreadViewer;
 	channelId: ChannelID;
 	webhookChannelId: ChannelID;
-	requestCache: RequestCache;
 	auditLogReason?: string | null;
 }
 
@@ -78,7 +76,7 @@ export class ChannelFollowService {
 	) {}
 
 	async followChannel(params: FollowChannelParams): Promise<FollowedChannel> {
-		const {userId, viewer, channelId, webhookChannelId, requestCache, auditLogReason} = params;
+		const {userId, viewer, channelId, webhookChannelId, auditLogReason} = params;
 		const sourceAuth = await this.channelService.channelData.auth.getChannelAuthenticated({userId, channelId, viewer});
 		const source = sourceAuth.channel;
 		const sourceGuild = sourceAuth.guild;
@@ -172,7 +170,6 @@ export class ChannelFollowService {
 			userId,
 			source: currentSource,
 			targetChannel,
-			requestCache,
 		});
 		return {channelId: source.id, webhookId: webhook.id};
 	}
@@ -246,7 +243,6 @@ export class ChannelFollowService {
 		userId: UserID;
 		source: Channel;
 		targetChannel: GuildChannel;
-		requestCache: RequestCache;
 	}): Promise<void> {
 		try {
 			const messageId = createMessageID(await this.snowflakeService.generateForChannel(targetChannel.id));

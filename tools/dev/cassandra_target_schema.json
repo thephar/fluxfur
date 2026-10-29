@@ -1429,11 +1429,54 @@
 					"type": "boolean"
 				},
 				{
+					"name": "app_platform",
+					"type": "text"
+				},
+				{
+					"name": "app_version",
+					"type": "text"
+				},
+				{
+					"name": "app_release_channel",
+					"type": "text"
+				},
+				{
+					"name": "app_build_number",
+					"type": "int"
+				},
+				{
+					"name": "app_beta_number",
+					"type": "int"
+				},
+				{
 					"name": "version",
 					"type": "int"
 				}
 			],
 			"primary_key": "((session_id_hash))",
+			"options": ""
+		},
+		{
+			"name": "auth_sessions_by_app_channel",
+			"columns": [
+				{
+					"name": "app_platform",
+					"type": "text"
+				},
+				{
+					"name": "app_release_channel",
+					"type": "text"
+				},
+				{
+					"name": "session_id_hash",
+					"type": "blob"
+				},
+				{
+					"name": "user_id",
+					"type": "bigint"
+				}
+			],
+			"primary_key": "((app_platform, app_release_channel), session_id_hash)",
 			"options": ""
 		},
 		{
@@ -5981,6 +6024,76 @@
 			"options": ""
 		},
 		{
+			"name": "guild_visits_by_guild",
+			"columns": [
+				{
+					"name": "guild_id",
+					"type": "bigint"
+				},
+				{
+					"name": "user_id",
+					"type": "bigint"
+				},
+				{
+					"name": "source",
+					"type": "int"
+				},
+				{
+					"name": "invite_code",
+					"type": "text"
+				},
+				{
+					"name": "invite_expires_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "started_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "opened_at",
+					"type": "timestamp"
+				}
+			],
+			"primary_key": "((guild_id), user_id)",
+			"options": "default_time_to_live = 1209600"
+		},
+		{
+			"name": "guild_visits_by_user",
+			"columns": [
+				{
+					"name": "user_id",
+					"type": "bigint"
+				},
+				{
+					"name": "guild_id",
+					"type": "bigint"
+				},
+				{
+					"name": "source",
+					"type": "int"
+				},
+				{
+					"name": "invite_code",
+					"type": "text"
+				},
+				{
+					"name": "invite_expires_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "started_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "opened_at",
+					"type": "timestamp"
+				}
+			],
+			"primary_key": "((user_id), guild_id)",
+			"options": "default_time_to_live = 1209600"
+		},
+		{
 			"name": "guilds",
 			"columns": [
 				{
@@ -6046,6 +6159,10 @@
 				{
 					"name": "features",
 					"type": "set<text>"
+				},
+				{
+					"name": "badge_ids",
+					"type": "set<bigint>"
 				},
 				{
 					"name": "verification_level",
@@ -7048,6 +7165,1090 @@
 			],
 			"primary_key": "((user_id), token_)",
 			"options": "CLUSTERING ORDER BY (token_ DESC) AND default_time_to_live = 2592000 AND gc_grace_seconds = 864000 AND compaction = {'class': 'TimeWindowCompactionStrategy', 'compaction_window_unit': 'DAYS', 'compaction_window_size': '1'}"
+		},
+		{
+			"name": "operator_pass_purchases",
+			"columns": [
+				{
+					"name": "checkout_session_id",
+					"type": "text"
+				},
+				{
+					"name": "purchaser_id",
+					"type": "bigint"
+				},
+				{
+					"name": "quantity",
+					"type": "int"
+				},
+				{
+					"name": "status",
+					"type": "text"
+				},
+				{
+					"name": "phase",
+					"type": "text"
+				},
+				{
+					"name": "amount_minor",
+					"type": "int"
+				},
+				{
+					"name": "currency",
+					"type": "text"
+				},
+				{
+					"name": "quote_honored",
+					"type": "boolean"
+				},
+				{
+					"name": "payment_intent_id",
+					"type": "text"
+				},
+				{
+					"name": "invoice_id",
+					"type": "text"
+				},
+				{
+					"name": "subscription_id",
+					"type": "text"
+				},
+				{
+					"name": "created_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "completed_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "refunded_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "version",
+					"type": "int"
+				},
+				{
+					"name": "waiver_consent_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "waiver_consent_version",
+					"type": "text"
+				},
+				{
+					"name": "waiver_consent_text",
+					"type": "text"
+				},
+				{
+					"name": "waiver_consent_ip",
+					"type": "text"
+				},
+				{
+					"name": "waiver_consent_user_agent",
+					"type": "text"
+				},
+				{
+					"name": "wall_name",
+					"type": "text"
+				},
+				{
+					"name": "wall_opt_out",
+					"type": "boolean"
+				},
+				{
+					"name": "withdrawal_country",
+					"type": "text"
+				},
+				{
+					"name": "withdrawal_days",
+					"type": "int"
+				},
+				{
+					"name": "withdrawal_rule_version",
+					"type": "text"
+				},
+				{
+					"name": "fraud_warning_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "stripe_terms_consent",
+					"type": "text"
+				},
+				{
+					"name": "operator_pass_terms_version",
+					"type": "text"
+				},
+				{
+					"name": "purchased_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "withdrawal_ends_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "perks_granted_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "confirmation_sent_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "withdrawn_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "withdrawal_name",
+					"type": "text"
+				},
+				{
+					"name": "withdrawal_refund_id",
+					"type": "text"
+				},
+				{
+					"name": "withdrawal_channel",
+					"type": "text"
+				},
+				{
+					"name": "invoice_number",
+					"type": "text"
+				},
+				{
+					"name": "dispute_id",
+					"type": "text"
+				},
+				{
+					"name": "dispute_reason",
+					"type": "text"
+				},
+				{
+					"name": "dispute_status",
+					"type": "text"
+				},
+				{
+					"name": "disputed_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "dispute_closed_at",
+					"type": "timestamp"
+				}
+			],
+			"primary_key": "((checkout_session_id))",
+			"options": ""
+		},
+		{
+			"name": "operator_pass_purchases_by_payment_intent",
+			"columns": [
+				{
+					"name": "payment_intent_id",
+					"type": "text"
+				},
+				{
+					"name": "checkout_session_id",
+					"type": "text"
+				}
+			],
+			"primary_key": "((payment_intent_id))",
+			"options": ""
+		},
+		{
+			"name": "operator_pass_purchases_by_purchaser",
+			"columns": [
+				{
+					"name": "purchaser_id",
+					"type": "bigint"
+				},
+				{
+					"name": "checkout_session_id",
+					"type": "text"
+				}
+			],
+			"primary_key": "((purchaser_id), checkout_session_id)",
+			"options": ""
+		},
+		{
+			"name": "operator_pass_waitlist",
+			"columns": [
+				{
+					"name": "email",
+					"type": "text"
+				},
+				{
+					"name": "entry_id",
+					"type": "text"
+				},
+				{
+					"name": "status",
+					"type": "text"
+				},
+				{
+					"name": "locale",
+					"type": "text"
+				},
+				{
+					"name": "country_code",
+					"type": "text"
+				},
+				{
+					"name": "created_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "updated_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "confirmed_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "unsubscribed_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "consent_ip",
+					"type": "text"
+				},
+				{
+					"name": "verify_token_hash",
+					"type": "text"
+				},
+				{
+					"name": "verify_expires_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "sale_email_sent_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "price_feedback",
+					"type": "text"
+				},
+				{
+					"name": "currency",
+					"type": "text"
+				},
+				{
+					"name": "followup_picks",
+					"type": "set<text>"
+				},
+				{
+					"name": "followup_about",
+					"type": "set<text>"
+				},
+				{
+					"name": "followup_other_text",
+					"type": "text"
+				},
+				{
+					"name": "followup_answered_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "version",
+					"type": "int"
+				}
+			],
+			"primary_key": "((email))",
+			"options": ""
+		},
+		{
+			"name": "operator_pass_waitlist_by_entry_id",
+			"columns": [
+				{
+					"name": "entry_id",
+					"type": "text"
+				},
+				{
+					"name": "email",
+					"type": "text"
+				}
+			],
+			"primary_key": "((entry_id))",
+			"options": ""
+		},
+		{
+			"name": "operator_passes",
+			"columns": [
+				{
+					"name": "user_id",
+					"type": "bigint"
+				},
+				{
+					"name": "granted_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "source",
+					"type": "text"
+				},
+				{
+					"name": "pass_count",
+					"type": "int"
+				},
+				{
+					"name": "checkout_session_id",
+					"type": "text"
+				},
+				{
+					"name": "payment_intent_id",
+					"type": "text"
+				},
+				{
+					"name": "amount_minor",
+					"type": "int"
+				},
+				{
+					"name": "currency",
+					"type": "text"
+				},
+				{
+					"name": "waiver_consent_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "waiver_consent_version",
+					"type": "text"
+				},
+				{
+					"name": "waiver_consent_ip",
+					"type": "text"
+				},
+				{
+					"name": "waiver_consent_user_agent",
+					"type": "text"
+				},
+				{
+					"name": "version",
+					"type": "int"
+				},
+				{
+					"name": "paused_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "terms_version",
+					"type": "text"
+				},
+				{
+					"name": "terms_accepted_at",
+					"type": "timestamp"
+				}
+			],
+			"primary_key": "((user_id))",
+			"options": ""
+		},
+		{
+			"name": "operator_pass_removals",
+			"columns": [
+				{
+					"name": "user_id",
+					"type": "bigint"
+				},
+				{
+					"name": "removal_state",
+					"type": "text"
+				},
+				{
+					"name": "rule",
+					"type": "text"
+				},
+				{
+					"name": "facts",
+					"type": "text"
+				},
+				{
+					"name": "automated",
+					"type": "boolean"
+				},
+				{
+					"name": "serious",
+					"type": "boolean"
+				},
+				{
+					"name": "removed_until",
+					"type": "timestamp"
+				},
+				{
+					"name": "notice_sent_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "removed_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "admin_user_id",
+					"type": "bigint"
+				},
+				{
+					"name": "created_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "updated_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "version",
+					"type": "int"
+				}
+			],
+			"primary_key": "((user_id))",
+			"options": ""
+		},
+		{
+			"name": "operator_pass_removal_history",
+			"columns": [
+				{
+					"name": "user_id",
+					"type": "bigint"
+				},
+				{
+					"name": "removed_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "removed_until",
+					"type": "timestamp"
+				},
+				{
+					"name": "rule",
+					"type": "text"
+				},
+				{
+					"name": "facts",
+					"type": "text"
+				},
+				{
+					"name": "automated",
+					"type": "boolean"
+				},
+				{
+					"name": "serious",
+					"type": "boolean"
+				},
+				{
+					"name": "notice_sent_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "admin_user_id",
+					"type": "bigint"
+				},
+				{
+					"name": "ended_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "end_reason",
+					"type": "text"
+				}
+			],
+			"primary_key": "((user_id), removed_at)",
+			"options": ""
+		},
+		{
+			"name": "operator_pass_wall_entries",
+			"columns": [
+				{
+					"name": "user_id",
+					"type": "bigint"
+				},
+				{
+					"name": "name",
+					"type": "text"
+				},
+				{
+					"name": "opted_out",
+					"type": "boolean"
+				},
+				{
+					"name": "keep_as_is",
+					"type": "boolean"
+				},
+				{
+					"name": "release_list_opt_in",
+					"type": "boolean"
+				},
+				{
+					"name": "hidden",
+					"type": "boolean"
+				},
+				{
+					"name": "legal_hold",
+					"type": "boolean"
+				},
+				{
+					"name": "left_wall_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "username_declined",
+					"type": "boolean"
+				},
+				{
+					"name": "live_revision_id",
+					"type": "bigint"
+				},
+				{
+					"name": "live_name",
+					"type": "text"
+				},
+				{
+					"name": "live_avatar",
+					"type": "text"
+				},
+				{
+					"name": "live_business",
+					"type": "boolean"
+				},
+				{
+					"name": "pending_revision_id",
+					"type": "bigint"
+				},
+				{
+					"name": "pending_name",
+					"type": "text"
+				},
+				{
+					"name": "pending_avatar",
+					"type": "text"
+				},
+				{
+					"name": "pending_source",
+					"type": "text"
+				},
+				{
+					"name": "pending_since",
+					"type": "timestamp"
+				},
+				{
+					"name": "declined_revision_id",
+					"type": "bigint"
+				},
+				{
+					"name": "declined_name",
+					"type": "text"
+				},
+				{
+					"name": "declined_avatar",
+					"type": "text"
+				},
+				{
+					"name": "decline_reason",
+					"type": "text"
+				},
+				{
+					"name": "decline_note",
+					"type": "text"
+				},
+				{
+					"name": "decline_statement_id",
+					"type": "text"
+				},
+				{
+					"name": "reviewed_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "reviewed_by",
+					"type": "bigint"
+				},
+				{
+					"name": "listed_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "delivered_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "release_published_year",
+					"type": "int"
+				},
+				{
+					"name": "release_published_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "release_erased_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "updated_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "version",
+					"type": "int"
+				}
+			],
+			"primary_key": "((user_id))",
+			"options": ""
+		},
+		{
+			"name": "operator_pass_wall_revisions",
+			"columns": [
+				{
+					"name": "user_id",
+					"type": "bigint"
+				},
+				{
+					"name": "revision_id",
+					"type": "bigint"
+				},
+				{
+					"name": "name",
+					"type": "text"
+				},
+				{
+					"name": "avatar",
+					"type": "text"
+				},
+				{
+					"name": "business",
+					"type": "boolean"
+				},
+				{
+					"name": "source",
+					"type": "text"
+				},
+				{
+					"name": "created_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "created_by",
+					"type": "bigint"
+				}
+			],
+			"primary_key": "((user_id), revision_id)",
+			"options": ""
+		},
+		{
+			"name": "operator_pass_wall_decisions",
+			"columns": [
+				{
+					"name": "user_id",
+					"type": "bigint"
+				},
+				{
+					"name": "decision_id",
+					"type": "bigint"
+				},
+				{
+					"name": "revision_id",
+					"type": "bigint"
+				},
+				{
+					"name": "kind",
+					"type": "text"
+				},
+				{
+					"name": "decided_by",
+					"type": "bigint"
+				},
+				{
+					"name": "decided_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "reason",
+					"type": "text"
+				},
+				{
+					"name": "note",
+					"type": "text"
+				},
+				{
+					"name": "statement_id",
+					"type": "text"
+				},
+				{
+					"name": "username_declined",
+					"type": "boolean"
+				}
+			],
+			"primary_key": "((user_id), decision_id)",
+			"options": ""
+		},
+		{
+			"name": "operator_pass_wall_audit_logs",
+			"columns": [
+				{
+					"name": "user_id",
+					"type": "bigint"
+				},
+				{
+					"name": "log_id",
+					"type": "bigint"
+				}
+			],
+			"primary_key": "((user_id), log_id)",
+			"options": ""
+		},
+		{
+			"name": "operator_pass_wall_avatar_refs",
+			"columns": [
+				{
+					"name": "avatar",
+					"type": "text"
+				},
+				{
+					"name": "user_id",
+					"type": "bigint"
+				}
+			],
+			"primary_key": "((avatar), user_id)",
+			"options": ""
+		},
+		{
+			"name": "operator_pass_wall_pending",
+			"columns": [
+				{
+					"name": "bucket",
+					"type": "text"
+				},
+				{
+					"name": "user_id",
+					"type": "bigint"
+				}
+			],
+			"primary_key": "((bucket), user_id)",
+			"options": ""
+		},
+		{
+			"name": "operator_pass_wall_tombstones",
+			"columns": [
+				{
+					"name": "token_",
+					"type": "bigint"
+				},
+				{
+					"name": "left_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "purged_at",
+					"type": "timestamp"
+				}
+			],
+			"primary_key": "((token_))",
+			"options": ""
+		},
+		{
+			"name": "operator_pass_wall_state",
+			"columns": [
+				{
+					"name": "id",
+					"type": "text"
+				},
+				{
+					"name": "wall_version",
+					"type": "bigint"
+				},
+				{
+					"name": "frozen",
+					"type": "boolean"
+				},
+				{
+					"name": "frozen_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "frozen_by",
+					"type": "bigint"
+				},
+				{
+					"name": "frozen_snapshot",
+					"type": "text"
+				},
+				{
+					"name": "published_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "version",
+					"type": "int"
+				}
+			],
+			"primary_key": "((id))",
+			"options": ""
+		},
+		{
+			"name": "operator_pass_wall_events",
+			"columns": [
+				{
+					"name": "user_id",
+					"type": "bigint"
+				},
+				{
+					"name": "occurred_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "event_id",
+					"type": "text"
+				},
+				{
+					"name": "kind",
+					"type": "text"
+				},
+				{
+					"name": "name",
+					"type": "text"
+				},
+				{
+					"name": "reason",
+					"type": "text"
+				},
+				{
+					"name": "cause",
+					"type": "text"
+				},
+				{
+					"name": "purchase_id",
+					"type": "text"
+				},
+				{
+					"name": "release_year",
+					"type": "int"
+				},
+				{
+					"name": "release_tag",
+					"type": "text"
+				},
+				{
+					"name": "actor_id",
+					"type": "bigint"
+				},
+				{
+					"name": "pass_count",
+					"type": "int"
+				},
+				{
+					"name": "first_pass_at",
+					"type": "timestamp"
+				}
+			],
+			"primary_key": "((user_id), occurred_at, event_id)",
+			"options": ""
+		},
+		{
+			"name": "operator_pass_releases",
+			"columns": [
+				{
+					"name": "year",
+					"type": "int"
+				},
+				{
+					"name": "tag",
+					"type": "text"
+				},
+				{
+					"name": "released_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "published_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "published_by",
+					"type": "bigint"
+				},
+				{
+					"name": "cutoff_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "names",
+					"type": "list<text>"
+				},
+				{
+					"name": "erased_names",
+					"type": "list<text>"
+				}
+			],
+			"primary_key": "((year))",
+			"options": ""
+		},
+		{
+			"name": "payment_dispute_reviews",
+			"columns": [
+				{
+					"name": "dispute_id",
+					"type": "text"
+				},
+				{
+					"name": "product",
+					"type": "text"
+				},
+				{
+					"name": "order_id",
+					"type": "text"
+				},
+				{
+					"name": "invoice_number",
+					"type": "text"
+				},
+				{
+					"name": "purchaser_id",
+					"type": "bigint"
+				},
+				{
+					"name": "is_gift",
+					"type": "boolean"
+				},
+				{
+					"name": "reason",
+					"type": "text"
+				},
+				{
+					"name": "payment_intent_id",
+					"type": "text"
+				},
+				{
+					"name": "charge_id",
+					"type": "text"
+				},
+				{
+					"name": "amount_minor",
+					"type": "int"
+				},
+				{
+					"name": "currency",
+					"type": "text"
+				},
+				{
+					"name": "evidence_submitted",
+					"type": "boolean"
+				},
+				{
+					"name": "evidence_due_by",
+					"type": "timestamp"
+				},
+				{
+					"name": "disputed_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "closed_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "outcome",
+					"type": "text"
+				},
+				{
+					"name": "purchased_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "perks_started_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "withdrawal_ends_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "withdrawn_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "refunded_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "perks_removed_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "status",
+					"type": "text"
+				},
+				{
+					"name": "created_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "decided_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "decided_by",
+					"type": "bigint"
+				},
+				{
+					"name": "decision_note",
+					"type": "text"
+				},
+				{
+					"name": "warning_deadline",
+					"type": "timestamp"
+				},
+				{
+					"name": "warned_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "warning_email_sent_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "warning_dm_sent_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "enforcement_decision_id",
+					"type": "bigint"
+				},
+				{
+					"name": "reversed_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "reversed_by",
+					"type": "bigint"
+				},
+				{
+					"name": "reversal_note",
+					"type": "text"
+				},
+				{
+					"name": "dispute_purchase_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "version",
+					"type": "int"
+				}
+			],
+			"primary_key": "((dispute_id))",
+			"options": ""
+		},
+		{
+			"name": "payment_dispute_reviews_by_purchaser",
+			"columns": [
+				{
+					"name": "purchaser_id",
+					"type": "bigint"
+				},
+				{
+					"name": "dispute_id",
+					"type": "text"
+				}
+			],
+			"primary_key": "((purchaser_id), dispute_id)",
+			"options": ""
 		},
 		{
 			"name": "password_change_tickets",
@@ -8258,6 +9459,29 @@
 			"options": ""
 		},
 		{
+			"name": "user_sso_identities_by_user",
+			"columns": [
+				{
+					"name": "user_id",
+					"type": "bigint"
+				},
+				{
+					"name": "provider_id",
+					"type": "text"
+				},
+				{
+					"name": "subject",
+					"type": "text"
+				},
+				{
+					"name": "claimed_at",
+					"type": "timestamp"
+				}
+			],
+			"primary_key": "((user_id), provider_id, subject)",
+			"options": ""
+		},
+		{
 			"name": "user_entrance_sound",
 			"columns": [
 				{
@@ -8743,6 +9967,14 @@
 					"type": "set<text>"
 				},
 				{
+					"name": "badge_ids",
+					"type": "set<bigint>"
+				},
+				{
+					"name": "hidden_profile_badges",
+					"type": "set<text>"
+				},
+				{
 					"name": "premium_type",
 					"type": "int"
 				},
@@ -8964,6 +10196,21 @@
 			"options": ""
 		},
 		{
+			"name": "users_by_acl",
+			"columns": [
+				{
+					"name": "acl",
+					"type": "text"
+				},
+				{
+					"name": "user_id",
+					"type": "bigint"
+				}
+			],
+			"primary_key": "((acl), user_id)",
+			"options": ""
+		},
+		{
 			"name": "users_by_stripe_customer_id",
 			"columns": [
 				{
@@ -9167,6 +10414,10 @@
 				{
 					"name": "soft_connection_limit",
 					"type": "int"
+				},
+				{
+					"name": "notes",
+					"type": "text"
 				}
 			],
 			"primary_key": "((region_id), server_id)",
@@ -9411,6 +10662,236 @@
 				}
 			],
 			"primary_key": "((source_channel_id), webhook_id)",
+			"options": ""
+		},
+		{
+			"name": "operator_pass_units",
+			"columns": [
+				{
+					"name": "pass_id",
+					"type": "text"
+				},
+				{
+					"name": "purchase_id",
+					"type": "text"
+				},
+				{
+					"name": "buyer_id",
+					"type": "bigint"
+				},
+				{
+					"name": "holder_id",
+					"type": "bigint"
+				},
+				{
+					"name": "source",
+					"type": "text"
+				},
+				{
+					"name": "status",
+					"type": "text"
+				},
+				{
+					"name": "transferable",
+					"type": "boolean"
+				},
+				{
+					"name": "delivered_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "first_delivered_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "paused_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "ended_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "end_reason",
+					"type": "text"
+				},
+				{
+					"name": "withdrawal_country",
+					"type": "text"
+				},
+				{
+					"name": "withdrawal_days",
+					"type": "int"
+				},
+				{
+					"name": "version",
+					"type": "int"
+				}
+			],
+			"primary_key": "((pass_id))",
+			"options": ""
+		},
+		{
+			"name": "operator_pass_units_by_holder",
+			"columns": [
+				{
+					"name": "holder_id",
+					"type": "bigint"
+				},
+				{
+					"name": "pass_id",
+					"type": "text"
+				}
+			],
+			"primary_key": "((holder_id), pass_id)",
+			"options": ""
+		},
+		{
+			"name": "operator_pass_units_by_purchase",
+			"columns": [
+				{
+					"name": "purchase_id",
+					"type": "text"
+				},
+				{
+					"name": "pass_id",
+					"type": "text"
+				}
+			],
+			"primary_key": "((purchase_id), pass_id)",
+			"options": ""
+		},
+		{
+			"name": "operator_pass_offers",
+			"columns": [
+				{
+					"name": "offer_id",
+					"type": "text"
+				},
+				{
+					"name": "pass_id",
+					"type": "text"
+				},
+				{
+					"name": "sender_id",
+					"type": "bigint"
+				},
+				{
+					"name": "recipient_id",
+					"type": "bigint"
+				},
+				{
+					"name": "status",
+					"type": "text"
+				},
+				{
+					"name": "created_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "accepted_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "completes_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "ended_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "wall_name",
+					"type": "text"
+				},
+				{
+					"name": "wall_opt_out",
+					"type": "boolean"
+				},
+				{
+					"name": "terms_version",
+					"type": "text"
+				},
+				{
+					"name": "version",
+					"type": "int"
+				}
+			],
+			"primary_key": "((offer_id))",
+			"options": ""
+		},
+		{
+			"name": "operator_pass_offers_by_user",
+			"columns": [
+				{
+					"name": "user_id",
+					"type": "bigint"
+				},
+				{
+					"name": "offer_id",
+					"type": "text"
+				}
+			],
+			"primary_key": "((user_id), offer_id)",
+			"options": ""
+		},
+		{
+			"name": "operator_pass_unit_events",
+			"columns": [
+				{
+					"name": "pass_id",
+					"type": "text"
+				},
+				{
+					"name": "occurred_at",
+					"type": "timestamp"
+				},
+				{
+					"name": "event_id",
+					"type": "text"
+				},
+				{
+					"name": "kind",
+					"type": "text"
+				},
+				{
+					"name": "payment_id",
+					"type": "text"
+				},
+				{
+					"name": "purchase_id",
+					"type": "text"
+				},
+				{
+					"name": "sender_id",
+					"type": "bigint"
+				},
+				{
+					"name": "recipient_id",
+					"type": "bigint"
+				},
+				{
+					"name": "offer_id",
+					"type": "text"
+				},
+				{
+					"name": "country",
+					"type": "text"
+				},
+				{
+					"name": "days",
+					"type": "int"
+				},
+				{
+					"name": "rule_version",
+					"type": "text"
+				},
+				{
+					"name": "reason",
+					"type": "text"
+				}
+			],
+			"primary_key": "((pass_id), occurred_at, event_id)",
 			"options": ""
 		}
 	],

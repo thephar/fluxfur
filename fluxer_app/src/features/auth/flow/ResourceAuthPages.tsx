@@ -32,7 +32,7 @@ import type {ReactNode} from 'react';
 import {useCallback, useMemo} from 'react';
 
 export type ResourceAuthMode = 'login' | 'register';
-export interface ResourceAuthState<T> {
+interface ResourceAuthState<T> {
 	loading: boolean;
 	error: boolean;
 	resource: T | null;
@@ -129,7 +129,7 @@ const ResourceAuthContent = observer(function ResourceAuthContent<T>({
 					desktopHandoff={isHandoffRequest(params)}
 					excludeCurrentUser={false}
 					extraTopContent={
-						<>
+						<div className={sharedStyles.loginHeader} data-flx={`${prefix}.login-header`}>
 							<DesktopDeepLinkPrompt
 								code={id}
 								kind={config.kind}
@@ -137,7 +137,7 @@ const ResourceAuthContent = observer(function ResourceAuthContent<T>({
 								data-flx={`${prefix}.desktop-deep-link-prompt`}
 							/>
 							{config.renderHeader(state.resource, 'login', false)}
-						</>
+						</div>
 					}
 					forgotPasswordAction={null}
 					showTitle={false}

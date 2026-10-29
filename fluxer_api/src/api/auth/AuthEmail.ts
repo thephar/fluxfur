@@ -2,9 +2,9 @@
 
 import type {ApiContext} from '@app/api/ApiContext';
 import * as AuthUtility from '@app/api/auth/AuthUtility';
+import {confirmEmailOwnership} from '@app/api/auth/EmailOwnership';
 import {createEmailVerificationToken} from '@app/api/BrandedTypes';
 import type {User} from '@app/api/models/User';
-import {dispatchUserUpdate} from '@app/api/user/UserMappers';
 import * as RandomUtils from '@app/api/utils/RandomUtils';
 import {createRateLimitError} from '@app/api/utils/RateLimitUtils';
 import {UserFlags} from '@fluxer/constants/src/UserConstants';
@@ -12,7 +12,7 @@ import type {VerifyEmailRequest} from '@fluxer/schema/src/domains/auth/AuthSchem
 import {ms} from 'itty-time';
 
 export async function verifyEmail(ctx: ApiContext, data: VerifyEmailRequest): Promise<boolean> {
-	const {users, gateway} = ctx.services;
+	const {users} = ctx.services;
 	const tokenData = await users.getEmailVerificationToken(data.token);
 	if (!tokenData) {
 		return false;
@@ -29,9 +29,8 @@ export async function verifyEmail(ctx: ApiContext, data: VerifyEmailRequest): Pr
 	) {
 		return false;
 	}
-	const updatedUser = await users.patchUpsert(user.id, {email_verified: true, email_bounced: false}, user.toRow());
+	await confirmEmailOwnership(ctx, user);
 	await users.deleteEmailVerificationToken(data.token);
-	await dispatchUserUpdate(gateway, updatedUser);
 	return true;
 }
 
@@ -61,5 +60,5 @@ export async function sendVerificationEmail(ctx: ApiContext, params: {user: User
 		user_id: user.id,
 		email,
 	});
-	await emailService.sendEmailVerification(email, user.username, token, user.locale);
+	await emailService.send('email_verification', email, {verificationToken: token}, user.locale);
 }

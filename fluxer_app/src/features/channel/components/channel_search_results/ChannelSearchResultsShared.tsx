@@ -56,7 +56,7 @@ const SEARCH_RESULTS_DESCRIPTOR = msg({
 	message: 'Search results',
 	comment: 'Default header title in the channel search results panel before a query has been submitted.',
 });
-export const AN_ERROR_OCCURRED_WHILE_SEARCHING_DESCRIPTOR = msg({
+const AN_ERROR_OCCURRED_WHILE_SEARCHING_DESCRIPTOR = msg({
 	message: 'An error occurred while searching.',
 	comment: 'Fallback error message shown when the channel search request fails for an unknown reason.',
 });

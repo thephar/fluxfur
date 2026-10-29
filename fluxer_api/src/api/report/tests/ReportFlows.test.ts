@@ -16,7 +16,7 @@ import {resetActivityEventsForTests, startActivityEvents} from '@app/api/infrast
 import type {ActivityPublisher} from '@app/api/infrastructure/activity/ActivitySpool';
 import {phraseBlocklistCache} from '@app/api/middleware/PhraseBlocklistCache';
 import {getRateLimitService} from '@app/api/middleware/ServiceSingletons';
-import {getReportFlowVariant, type ReportFlowStepInput} from '@app/api/report/flows/ReportFlowRegistry';
+import {getReportFlowResponse} from '@app/api/report/flows/ReportFlowRegistry';
 import {ReportRepository} from '@app/api/report/ReportRepository';
 import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHarness';
 import {HTTP_STATUS, TEST_IDS} from '@app/api/test/TestConstants';
@@ -25,6 +25,7 @@ import {APIErrorCodes} from '@fluxer/constants/src/ApiErrorCodes';
 import {UserFlags} from '@fluxer/constants/src/UserConstants';
 import type {
 	ReportFlowResponse,
+	ReportFlowStep,
 	ReportFlowSurface,
 	ReportFlowTargetType,
 } from '@fluxer/schema/src/domains/report/ReportFlowSchemas';
@@ -54,24 +55,24 @@ interface MessageTarget {
 const HAS_SESSION_STARTED = 1n << 39n;
 const RATE_LIMIT_HEADER = 'x-fluxer-test-enable-rate-limits';
 
-const SPAM_WALK: ReadonlyArray<ReportFlowStepInput> = [{screen_id: 'root_message', option_id: 'spam'}];
-const USER_SPAM_WALK: ReadonlyArray<ReportFlowStepInput> = [
+const SPAM_WALK: ReadonlyArray<ReportFlowStep> = [{screen_id: 'root_message', option_id: 'spam'}];
+const USER_SPAM_WALK: ReadonlyArray<ReportFlowStep> = [
 	{screen_id: 'profile_intro'},
 	{screen_id: 'profile_parts', item_ids: ['name']},
 	{screen_id: 'root_user', option_id: 'spam'},
 	{screen_id: 'spam_profile', option_id: 'spam_profile'},
 ];
-const PRIVATE_INFO_WALK: ReadonlyArray<ReportFlowStepInput> = [
+const PRIVATE_INFO_WALK: ReadonlyArray<ReportFlowStep> = [
 	{screen_id: 'root_message', option_id: 'private_info'},
 	{screen_id: 'private_info', item_ids: ['phone', 'email']},
 ];
-const CSAM_WALK: ReadonlyArray<ReportFlowStepInput> = [
+const CSAM_WALK: ReadonlyArray<ReportFlowStep> = [
 	{screen_id: 'root_message', option_id: 'abuse'},
 	{screen_id: 'abuse', option_id: 'sexual'},
 	{screen_id: 'sexual', option_id: 'minor_sexual'},
 	{screen_id: 'minor_sexual', option_id: 'csam'},
 ];
-const USER_PRIVATE_INFO_WALK: ReadonlyArray<ReportFlowStepInput> = [
+const USER_PRIVATE_INFO_WALK: ReadonlyArray<ReportFlowStep> = [
 	{screen_id: 'profile_intro'},
 	{screen_id: 'profile_parts', item_ids: ['profile_text']},
 	{screen_id: 'root_user', option_id: 'something_else'},
@@ -88,7 +89,7 @@ class CapturingPublisher implements ActivityPublisher {
 }
 
 function currentHash(target: ReportFlowTargetType, surface: ReportFlowSurface = 'in_app'): string {
-	return getReportFlowVariant(target, surface).revisionHash;
+	return getReportFlowResponse(target, surface, 'en-US').revision_hash;
 }
 
 async function readReport(reportId: string) {
@@ -387,7 +388,7 @@ describe('Report flows', () => {
 			const target = await setupMessage(harness);
 			await unclaimAccount(harness, target.reporter.userId);
 			await submitMessage(harness, target.reporter.token, messageBody(target))
-				.expect(HTTP_STATUS.BAD_REQUEST, APIErrorCodes.UNCLAIMED_ACCOUNT_CANNOT_SUBMIT_REPORTS)
+				.expect(HTTP_STATUS.FORBIDDEN, APIErrorCodes.UNCLAIMED_ACCOUNT_CANNOT_SUBMIT_REPORTS)
 				.execute();
 		});
 
@@ -728,6 +729,7 @@ describe('Report flows', () => {
 						'report_id',
 						'reported_user_id',
 						'reporter_id',
+						'reporter_tier',
 						'target_type',
 					].sort(),
 				);

@@ -12,6 +12,8 @@ interface SudoMfaMethodsResponse {
 	webauthn: boolean;
 	backup_codes: boolean;
 	has_mfa: boolean;
+	email_code?: boolean;
+	password?: boolean;
 }
 
 interface SudoModeRequiredResponse {
@@ -45,7 +47,14 @@ describe('MFA Consistency Tests', () => {
 			const methods = await createBuilder<SudoMfaMethodsResponse>(harness, account.token)
 				.get('/users/@me/sudo/mfa-methods')
 				.execute();
-			expect(methods).toEqual({totp: false, webauthn: false, backup_codes: false, has_mfa: false});
+			expect(methods).toEqual({
+				totp: false,
+				webauthn: false,
+				backup_codes: false,
+				has_mfa: false,
+				email_code: false,
+				password: true,
+			});
 			const errorResp = await createBuilder<SudoModeRequiredResponse>(harness, account.token)
 				.post('/users/@me/disable')
 				.body({})
@@ -56,6 +65,8 @@ describe('MFA Consistency Tests', () => {
 				totp: methods.totp,
 				webauthn: methods.webauthn,
 				backup_codes: methods.backup_codes,
+				email_code: methods.email_code,
+				password: methods.password,
 			});
 		});
 		test('mfa-methods agrees with the SUDO_MODE_REQUIRED body for an enrolled TOTP user', async () => {
@@ -73,7 +84,14 @@ describe('MFA Consistency Tests', () => {
 			const methods = await createBuilder<SudoMfaMethodsResponse>(harness, loggedIn.token)
 				.get('/users/@me/sudo/mfa-methods')
 				.execute();
-			expect(methods).toEqual({totp: true, webauthn: false, backup_codes: true, has_mfa: true});
+			expect(methods).toEqual({
+				totp: true,
+				webauthn: false,
+				backup_codes: true,
+				has_mfa: true,
+				email_code: false,
+				password: false,
+			});
 			const errorResp = await createBuilder<SudoModeRequiredResponse>(harness, loggedIn.token)
 				.post('/users/@me/disable')
 				.body({})
@@ -84,6 +102,8 @@ describe('MFA Consistency Tests', () => {
 				totp: methods.totp,
 				webauthn: methods.webauthn,
 				backup_codes: methods.backup_codes,
+				email_code: methods.email_code,
+				password: methods.password,
 			});
 		});
 	});

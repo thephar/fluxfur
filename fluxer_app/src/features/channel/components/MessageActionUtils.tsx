@@ -177,6 +177,7 @@ export interface MessagePermissions {
 	canSuppressEmbeds: boolean;
 	shouldRenderSuppressEmbeds: boolean;
 	canCreateThread: boolean;
+	isPreviewing: boolean;
 }
 
 function canCreateThreadFromMessage(message: Message, channel: Channel): boolean {
@@ -239,7 +240,10 @@ function getMessagePermissionsForChannel(message: Message, channel: Channel): Me
 		!sendMessageDisabled &&
 		(isDM ? true : Permission.can(Permissions.PIN_MESSAGES, {channelId: message.channelId}));
 	const canForwardMessage =
-		!interactionsBlocked && !sendMessageDisabled && canForwardMessageFromChannel(message, channel, isDM);
+		!interactionsBlocked &&
+		!sendMessageDisabled &&
+		guild?.visiting !== true &&
+		canForwardMessageFromChannel(message, channel, isDM);
 	const canCrosspostMessage =
 		!interactionsBlocked &&
 		!sendMessageDisabled &&
@@ -274,6 +278,7 @@ function getMessagePermissionsForChannel(message: Message, channel: Channel): Me
 		canSuppressEmbeds,
 		shouldRenderSuppressEmbeds,
 		canCreateThread: canCreateThreadFromMessage(message, channel),
+		isPreviewing: guild?.visiting === true,
 	};
 }
 

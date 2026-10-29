@@ -93,8 +93,14 @@ export const useMediaPermission = (type: PermissionType) => {
 		setState((prev) => ({...prev, status: 'loading'}));
 		const granted = await VoiceDevicePermissionState.requestPermissionFor(type);
 		const deviceState = VoiceDevicePermissionState.getState();
+		let status: PermissionState['status'] = 'idle';
+		if (granted) {
+			status = 'granted';
+		} else if (deviceState.permissionStatus[type] === 'denied') {
+			status = 'denied';
+		}
 		const nextState = {
-			status: granted ? 'granted' : deviceState.permissionStatus[type] === 'denied' ? 'denied' : 'idle',
+			status,
 			devices: devicesFromVoiceState(deviceState, type),
 			deviceState,
 		} satisfies PermissionState;

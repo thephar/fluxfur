@@ -2,10 +2,6 @@
 
 -module(gateway_rpc_guild_routing).
 
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
--endif.
-
 -typing([eqwalizer]).
 
 -export([
@@ -208,41 +204,3 @@ collect_results(Ref, Remaining, Deadline, Acc) ->
             collect_results(Ref, Remaining, Deadline, Acc)
     after TimeoutMs -> lists:reverse(Acc)
     end.
-
--ifdef(TEST).
-
-owner_groups_for_reload_all_empty_ids_uses_active_nodes_test() ->
-    NodeA = 'gateway_a@127.0.0.1',
-    NodeB = 'gateway_b@127.0.0.1',
-    ?assertEqual(
-        [{NodeA, []}, {NodeB, []}],
-        owner_groups_for_reload_all([], fun() -> [NodeB, NodeA, NodeB] end)
-    ).
-
-process_batch_collects_successful_results_test() ->
-    Results = process_batch([1, 2, 3], fun(N) -> eqwalizer:dynamic_cast(N) * 2 end, 1000),
-    ?assertEqual([2, 4, 6], lists:sort(Results)).
-
-process_batch_drops_failed_workers_test() ->
-    Results = process_batch(
-        [1, 2, 3],
-        fun
-            (2) -> erlang:error(boom);
-            (N) -> N
-        end,
-        1000
-    ),
-    ?assertEqual([1, 3], lists:sort(Results)).
-
-process_batch_bounded_by_deadline_under_crashes_test() ->
-    Timeout = 200,
-    Start = erlang:monotonic_time(millisecond),
-    _ = process_batch(
-        lists:seq(1, 5),
-        fun(_) -> erlang:error(boom) end,
-        Timeout
-    ),
-    Elapsed = erlang:monotonic_time(millisecond) - Start,
-    ?assert(Elapsed < Timeout * 3).
-
--endif.

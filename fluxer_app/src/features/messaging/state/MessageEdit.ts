@@ -22,8 +22,6 @@ class MessageEdit {
 			return;
 		}
 		if (currentMessageId !== messageId) {
-			if (currentMessageId) {
-			}
 			this.editingMessageIds[channelId] = messageId;
 		}
 		if (currentContent !== initialContent) {
@@ -34,9 +32,6 @@ class MessageEdit {
 	stopEditing(channelId: string): void {
 		if (!(channelId in this.editingMessageIds)) {
 			return;
-		}
-		const messageId = this.editingMessageIds[channelId];
-		if (messageId) {
 		}
 		delete this.editingMessageIds[channelId];
 	}

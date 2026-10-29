@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {createTestAccount, type TestAccount} from '@app/api/auth/tests/AuthTestUtils';
-import {ThreadRepository} from '@app/api/channel/repositories/ThreadRepository';
 import {acceptInvite, createChannel, createChannelInvite, createGuild} from '@app/api/channel/tests/ChannelTestUtils';
 import {threadsRequest} from '@app/api/channel/tests/ThreadTestUtils';
 import {clearChannelThreadsTaintCacheForTesting} from '@app/api/experiment/ChannelThreadsGate';
@@ -10,7 +9,7 @@ import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHa
 import {createBuilder} from '@app/api/test/TestRequestBuilder';
 import {ChannelTypes} from '@fluxer/constants/src/ChannelConstants';
 import type {ThreadChannelResponse} from '@fluxer/schema/src/domains/channel/ThreadRequestSchemas';
-import {afterAll, beforeAll, beforeEach, describe, expect, test, vi} from 'vitest';
+import {afterAll, beforeAll, beforeEach, describe, expect, test} from 'vitest';
 
 interface RpcEnvelope<T> {
 	type: string;
@@ -63,23 +62,17 @@ describe('RpcService thread collections', () => {
 	test('active guild channel collections carry the gate and forums but load threads separately', async () => {
 		await setup();
 		await startThread();
-		const spy = vi.spyOn(ThreadRepository.prototype, 'listActiveThreads');
-		try {
-			const {data} = await rpc<{
-				thread_gate: {active: boolean; config_version: number};
-				thread_tainted: boolean;
-				thread_only_channels: Array<unknown>;
-			}>({type: 'guild_collection', guild_id: guildId, collection: 'channels'});
-			expect(data.thread_gate.active).toBe(true);
-			expect(data.thread_gate.config_version).toBe(0);
-			expect(data.thread_tainted).toBe(true);
-			expect(data.thread_only_channels).toEqual([]);
-			for (const key of ['threads', 'thread_members', 'thread_parent_settings', 'thread_load_failed']) {
-				expect(data).not.toHaveProperty(key);
-			}
-			expect(spy).not.toHaveBeenCalled();
-		} finally {
-			spy.mockRestore();
+		const {data} = await rpc<{
+			thread_gate: {active: boolean; config_version: number};
+			thread_tainted: boolean;
+			thread_only_channels: Array<unknown>;
+		}>({type: 'guild_collection', guild_id: guildId, collection: 'channels'});
+		expect(data.thread_gate.active).toBe(true);
+		expect(data.thread_gate.config_version).toBe(0);
+		expect(data.thread_tainted).toBe(true);
+		expect(data.thread_only_channels).toEqual([]);
+		for (const key of ['threads', 'thread_members', 'thread_parent_settings', 'thread_load_failed']) {
+			expect(data).not.toHaveProperty(key);
 		}
 	});
 

@@ -7,6 +7,7 @@ pub struct NavItem {
     pub path: &'static str,
     pub active_key: &'static str,
     pub required_acls: &'static [&'static str],
+    pub hosted_only: bool,
 }
 
 pub const PENDING_REGISTRATIONS_KEY: &str = "pending-registrations";
@@ -18,7 +19,10 @@ pub struct NavSection {
 
 macro_rules! item {
     ($t:expr, $p:expr, $k:expr, [ $($a:expr),+ $(,)? ]) => {
-        NavItem { title: $t, path: $p, active_key: $k, required_acls: &[$($a),+] }
+        NavItem { title: $t, path: $p, active_key: $k, required_acls: &[$($a),+], hosted_only: false }
+    };
+    ($t:expr, $p:expr, $k:expr, [ $($a:expr),+ $(,)? ], hosted) => {
+        NavItem { title: $t, path: $p, active_key: $k, required_acls: &[$($a),+], hosted_only: true }
     };
 }
 
@@ -47,7 +51,7 @@ pub const NAV_SECTIONS: &[NavSection] = &[
                 [acl::ENFORCEMENT_VIEW]
             ),
             item!(
-                "Discovery Review",
+                "Explore review",
                 "/discovery",
                 "discovery",
                 [acl::DISCOVERY_REVIEW]
@@ -245,6 +249,7 @@ pub const NAV_SECTIONS: &[NavSection] = &[
                     acl::INSTANCE_LIMIT_CONFIG_UPDATE
                 ]
             ),
+            item!("Badges", "/badges", "badges", [acl::BADGE_LIST]),
             item!(
                 "Admin API Keys",
                 "/admin-api-keys",
@@ -255,11 +260,47 @@ pub const NAV_SECTIONS: &[NavSection] = &[
     },
     NavSection {
         title: "Premium",
-        items: &[item!(
-            "Gift Codes",
-            "/gift-codes",
-            "gift-codes",
-            [acl::GIFT_CODES_GENERATE]
-        )],
+        items: &[
+            item!(
+                "Gift Codes",
+                "/gift-codes",
+                "gift-codes",
+                [acl::GIFT_CODES_GENERATE]
+            ),
+            item!(
+                "Operator Pass Waitlist",
+                "/operator-pass-waitlist",
+                "operator-pass-waitlist",
+                [acl::OPERATOR_PASS_WAITLIST_STATS],
+                hosted
+            ),
+            item!(
+                "Operators' Wall",
+                "/operator-pass-wall",
+                "operator-pass-wall",
+                [acl::USER_LOOKUP],
+                hosted
+            ),
+            item!(
+                "Operators' Wall Tools",
+                "/operator-pass-wall/tools",
+                "operator-pass-wall-tools",
+                [acl::USER_LOOKUP],
+                hosted
+            ),
+            item!(
+                "Operators Release List",
+                "/operator-pass-releases",
+                "operator-pass-releases",
+                [acl::USER_LOOKUP],
+                hosted
+            ),
+            item!(
+                "Payment Disputes",
+                "/payment-disputes",
+                "payment-disputes",
+                [acl::USER_LOOKUP]
+            ),
+        ],
     },
 ];

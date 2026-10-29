@@ -449,9 +449,3 @@ export function pinImage(src: string | null | undefined): () => void {
 export function warmImage(src: string | null | undefined): void {
 	loadImage(src, () => {});
 }
-
-export function _clearForTests(): void {
-	for (const recovery of [...recoveries.values()]) stopRecovery(recovery);
-	imageCache.clear();
-	lastAttentionWakeAt = Number.NEGATIVE_INFINITY;
-}

@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {openClaimAccountModal} from '@app/features/auth/components/modals/ClaimAccountModal';
 import styles from '@app/features/channel/components/GiftEmbed.module.css';
 import * as GiftCommands from '@app/features/gift/commands/GiftCommands';
 import Gifts from '@app/features/gift/state/Gifts';
@@ -18,7 +17,10 @@ import {Logger} from '@app/features/platform/utils/AppLogger';
 import {ComponentBus} from '@app/features/platform/utils/ComponentBus';
 import {Button} from '@app/features/ui/button/Button';
 import Users from '@app/features/user/state/Users';
+import {getAccountGatePresentation} from '@app/features/user/utils/AccountGatePresentation';
+import {canPerform} from '@app/features/user/utils/AccountGates';
 import * as NicknameUtils from '@app/features/user/utils/NicknameUtils';
+import {TierGatedActions} from '@fluxer/constants/src/AccountTierConstants';
 import {msg} from '@lingui/core/macro';
 import {useLingui} from '@lingui/react/macro';
 import {GiftIcon, QuestionIcon} from '@phosphor-icons/react';
@@ -33,10 +35,6 @@ const ALREADY_REDEEMED_DESCRIPTOR = msg({
 	message: 'Already redeemed',
 	comment: 'Status pill on a gift code embed when the gift has already been claimed.',
 });
-const CLAIM_YOUR_ACCOUNT_TO_REDEEM_THIS_GIFT_DESCRIPTOR = msg({
-	message: 'Claim your account to redeem this gift.',
-	comment: 'Helper text on a gift code embed for guest accounts. Prompts account claim before redeeming.',
-});
 const CLICK_TO_CLAIM_YOUR_GIFT_DESCRIPTOR = msg({
 	message: 'Click to claim your gift!',
 	comment: 'Call-to-action text on a redeemable gift code embed. Tone can be friendly.',
@@ -44,10 +42,6 @@ const CLICK_TO_CLAIM_YOUR_GIFT_DESCRIPTOR = msg({
 const GIFT_CLAIMED_DESCRIPTOR = msg({
 	message: 'Gift claimed',
 	comment: 'Toast confirmation shown after successfully claiming a gift from the gift code embed.',
-});
-const CLAIM_ACCOUNT_TO_REDEEM_DESCRIPTOR = msg({
-	message: 'Claim account to redeem',
-	comment: 'Button label on a gift code embed for guest accounts. Opens the account claim flow.',
 });
 const CLAIM_GIFT_DESCRIPTOR = msg({
 	message: 'Claim gift',
@@ -77,7 +71,7 @@ export const GiftEmbed = observer(function GiftEmbed({code}: GiftEmbedProps) {
 	const giftState = Gifts.getGift(code, target);
 	const gift = giftState?.data;
 	const creator = Users.getUser(gift?.created_by?.id ?? '');
-	const isUnclaimed = !(Users.currentUser?.isClaimed() ?? false);
+	const giftRedeemGate = canPerform(Users.currentUser, TierGatedActions.GIFT_REDEEM);
 	useEffect(() => {
 		if (!giftState) {
 			void GiftCommands.fetchWithCoalescing(code, target).catch(() => {});
@@ -99,9 +93,10 @@ export const GiftEmbed = observer(function GiftEmbed({code}: GiftEmbedProps) {
 	}
 	const durationText = getGiftDurationText(i18n, gift);
 	const creatorTag = creator ? NicknameUtils.getDisplayName(creator) : '';
+	const gatePresentation = giftRedeemGate.allowed ? null : getAccountGatePresentation(i18n, giftRedeemGate);
 	const handleRedeem = async () => {
-		if (isUnclaimed) {
-			openClaimAccountModal({force: true});
+		if (gatePresentation) {
+			gatePresentation.onAction();
 			return;
 		}
 		try {
@@ -117,11 +112,9 @@ export const GiftEmbed = observer(function GiftEmbed({code}: GiftEmbedProps) {
 	) : undefined;
 	const helpText = gift.redeemed
 		? i18n._(ALREADY_REDEEMED_DESCRIPTOR)
-		: isUnclaimed
-			? i18n._(CLAIM_YOUR_ACCOUNT_TO_REDEEM_THIS_GIFT_DESCRIPTOR)
-			: i18n._(CLICK_TO_CLAIM_YOUR_GIFT_DESCRIPTOR);
+		: (gatePresentation?.description ?? i18n._(CLICK_TO_CLAIM_YOUR_GIFT_DESCRIPTOR));
 	const footer =
-		gift.redeemed && !isUnclaimed ? (
+		gift.redeemed && gatePresentation === null ? (
 			<Button variant="primary" fitContainer matchSkeletonHeight disabled data-flx="channel.gift-embed.button">
 				{i18n._(GIFT_CLAIMED_DESCRIPTOR)}
 			</Button>
@@ -131,12 +124,12 @@ export const GiftEmbed = observer(function GiftEmbed({code}: GiftEmbedProps) {
 				fitContainer
 				matchSkeletonHeight
 				onClick={handleRedeem}
-				disabled={gift.redeemed || isUnclaimed}
+				disabled={gift.redeemed}
 				data-flx="channel.gift-embed.button.redeem"
 			>
 				{(() => {
 					if (gift.redeemed) return i18n._(GIFT_CLAIMED_DESCRIPTOR);
-					if (isUnclaimed) return i18n._(CLAIM_ACCOUNT_TO_REDEEM_DESCRIPTOR);
+					if (gatePresentation) return gatePresentation.actionLabel;
 					return i18n._(CLAIM_GIFT_DESCRIPTOR);
 				})()}
 			</Button>

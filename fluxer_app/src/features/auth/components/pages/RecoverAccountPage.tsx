@@ -11,10 +11,15 @@ import {AuthRouterLink} from '@app/features/auth/flow/AuthRouterLink';
 import {AuthRuntimeTargetGate} from '@app/features/auth/flow/AuthRuntimeTargetGate';
 import MfaScreen from '@app/features/auth/flow/MfaScreen';
 import {useAuthPresentation} from '@app/features/auth/flow/useAuthPresentation';
+import {type StepTitleChangeHandler, useReportStepTitle} from '@app/features/auth/flow/useReportStepTitle';
 import {resolveAuthBannerError, useAuthForm} from '@app/features/auth/hooks/useAuthForm';
 import {type LoginSuccessPayload, type MfaChallenge, recoverAccount} from '@app/features/auth/state/AuthFlow';
 import {AuthCardVariant} from '@app/features/auth/state/AuthLayoutContext';
-import {BACK_TO_SIGN_IN_DESCRIPTOR, USERNAME_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
+import {
+	BACK_TO_SIGN_IN_DESCRIPTOR,
+	TWO_FACTOR_AUTHENTICATION_DESCRIPTOR,
+	USERNAME_DESCRIPTOR,
+} from '@app/features/i18n/utils/CommonMessageDescriptors';
 import * as RouterUtils from '@app/features/navigation/utils/RouterUtils';
 import {Button} from '@app/features/ui/button/Button';
 import {rememberRecoveryKit} from '@app/features/user/commands/RecoveryKitCommands';
@@ -96,6 +101,7 @@ interface RecoverAccountFormProps {
 	readonly fragment?: RecoveryFragment;
 	readonly footerLink?: ReactNode;
 	readonly onRecovered: (payload: LoginSuccessPayload) => Promise<void>;
+	readonly onStepTitleChange?: StepTitleChangeHandler | null;
 }
 
 export const RecoverAccountForm = observer(function RecoverAccountForm({
@@ -103,6 +109,7 @@ export const RecoverAccountForm = observer(function RecoverAccountForm({
 	fragment = EMPTY_RECOVERY_FRAGMENT,
 	footerLink,
 	onRecovered,
+	onStepTitleChange = null,
 }: RecoverAccountFormProps) {
 	const {i18n} = useLingui();
 	const loginId = useId();
@@ -111,6 +118,10 @@ export const RecoverAccountForm = observer(function RecoverAccountForm({
 	const confirmPasswordId = useId();
 	const [mfaChallenge, setMfaChallenge] = useState<MfaChallenge | null>(null);
 	const [pendingKit, setPendingKit] = useState<PendingRecoveryKit | null>(null);
+	useReportStepTitle(
+		onStepTitleChange,
+		i18n._(mfaChallenge ? TWO_FACTOR_AUTHENTICATION_DESCRIPTOR : RECOVER_ACCOUNT_DESCRIPTOR),
+	);
 	const {form, isLoading, error, fieldErrors} = useAuthForm({
 		initialValues: {
 			login: fragment.username,
@@ -169,6 +180,7 @@ export const RecoverAccountForm = observer(function RecoverAccountForm({
 				challenge={mfaChallenge}
 				onSuccess={handleMfaSuccess}
 				onCancel={handleMfaCancel}
+				onStepTitleChange={onStepTitleChange}
 				data-flx="auth.recover-account-page.mfa-screen"
 			/>
 		);
@@ -176,9 +188,11 @@ export const RecoverAccountForm = observer(function RecoverAccountForm({
 	const bannerError = resolveAuthBannerError(error, fieldErrors, API_RENDERED_FIELDS);
 	return (
 		<>
-			<h1 className={styles.title} data-flx="auth.recover-account-page.title">
-				{i18n._(RECOVER_ACCOUNT_DESCRIPTOR)}
-			</h1>
+			{onStepTitleChange == null ? (
+				<h1 className={styles.title} data-flx="auth.recover-account-page.title">
+					{i18n._(RECOVER_ACCOUNT_DESCRIPTOR)}
+				</h1>
+			) : null}
 			<p className={styles.description} data-flx="auth.recover-account-page.description">
 				<Trans>Enter your username and the recovery key from your recovery kit, then choose a new password.</Trans>
 			</p>

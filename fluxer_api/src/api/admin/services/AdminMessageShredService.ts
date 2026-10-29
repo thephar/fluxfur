@@ -7,7 +7,6 @@ import type {EnforcementDecisionRow} from '@app/api/database/types/EnforcementTy
 import type {EnforcementActor} from '@app/api/enforcement/EnforcementActor';
 import {decisionAuditMetadata, type EnforcementDecisionService} from '@app/api/enforcement/EnforcementDecisionService';
 import {Logger} from '@app/api/Logger';
-import {UnknownUserError} from '@fluxer/errors/src/domains/user/UnknownUserError';
 import type {
 	AdminUserMessageShredRequest,
 	MessageShredResponse,
@@ -87,10 +86,7 @@ export class AdminMessageShredService {
 		};
 		let decision: EnforcementDecisionRow | null = null;
 		if (basis.type === 'enforcement') {
-			const user = await apiContext.services.users.findUnique(userId);
-			if (!user) {
-				throw new UnknownUserError();
-			}
+			const user = await apiContext.services.users.findUniqueAssert(userId);
 			({decision} = await enforcement.record(
 				{
 					subject: {type: 'user', user},

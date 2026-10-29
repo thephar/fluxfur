@@ -9,10 +9,15 @@ import {
 	loginUser,
 	type TestAccount,
 } from '@app/api/auth/tests/AuthTestUtils';
+import {createUserID} from '@app/api/BrandedTypes';
+import {resetApiServicesForTesting} from '@app/api/CreateApiContext';
+import {setInjectedWorkerService} from '@app/api/middleware/ServiceRegistry';
+import {getUserRepository} from '@app/api/middleware/ServiceSingletons';
 import type {ApiTestHarness} from '@app/api/test/ApiTestHarness';
-import {NoopWorkerService} from '@app/api/test/NoopWorkerService';
+import {RecordingWorkerService} from '@app/api/test/RecordingWorkerService';
 import {createBuilder, createBuilderWithoutAuth} from '@app/api/test/TestRequestBuilder';
-import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi} from 'vitest';
+import {UserTraits} from '@app/api/user/UserTraits';
+import {afterAll, beforeAll, beforeEach, describe, expect, it} from 'vitest';
 
 interface EmailChangeStartResponse {
 	ticket: string;
@@ -48,6 +53,7 @@ interface UserPrivateResponse {
 	mfa_enabled: boolean;
 	authenticator_types: Array<number>;
 	password_last_changed_at?: string;
+	traits?: Array<string>;
 }
 
 interface EmailRevertResponse {
@@ -170,9 +176,6 @@ describe('Email revert flow', () => {
 		await harness.reset();
 		await clearTestEmails(harness);
 	});
-	afterEach(() => {
-		vi.restoreAllMocks();
-	});
 	afterAll(async () => {
 		await harness?.shutdown();
 	});
@@ -197,10 +200,12 @@ describe('Email revert flow', () => {
 			.body({stripe_customer_id: 'cus_email_revert_sync'})
 			.expect(200)
 			.execute();
-		const addJob = vi.spyOn(NoopWorkerService.prototype, 'addJob');
+		const worker = new RecordingWorkerService();
+		setInjectedWorkerService(worker);
+		resetApiServicesForTesting();
 		const revertToken = await changeEmailAndGetRevertToken(harness, account);
 		const newPassword = uniquePassword();
-		addJob.mockClear();
+		worker.jobs.length = 0;
 		const revertResp = await createBuilderWithoutAuth<EmailRevertResponse>(harness)
 			.post('/auth/email-revert')
 			.body({
@@ -209,7 +214,7 @@ describe('Email revert flow', () => {
 			})
 			.execute();
 		expect(revertResp.token.length).toBeGreaterThan(0);
-		expect(addJob).toHaveBeenCalledWith('syncStripeCustomerEmail', {userId: account.userId});
+		expect(worker.byTask('syncStripeCustomerEmail').map((job) => job.payload)).toContainEqual({userId: account.userId});
 		expect(Object.keys(revertResp).sort()).toEqual(['token', 'user', 'user_id']);
 		await createBuilder(harness, account.token).get('/users/@me').expect(401).execute();
 		const user = await createBuilder<UserPrivateResponse>(harness, revertResp.token).get('/users/@me').execute();
@@ -230,6 +235,24 @@ describe('Email revert flow', () => {
 				email: account.email,
 				password: account.password,
 			})
+			.expect(400)
+			.execute();
+	});
+	it('drops the passkey trait when a claimed revert clears the passkeys', async () => {
+		const account = await createTestAccount(harness);
+		const userId = createUserID(BigInt(account.userId));
+		const stored = await getUserRepository().findUniqueAssert(userId);
+		await getUserRepository().patchUpsert(userId, {traits: new Set([UserTraits.PASSKEY])}, stored.toRow());
+		const revertToken = await changeEmailAndGetRevertToken(harness, account);
+		const revertResp = await createBuilderWithoutAuth<EmailRevertResponse>(harness)
+			.post('/auth/email-revert')
+			.body({token: revertToken, password: uniquePassword()})
+			.execute();
+		const user = await createBuilder<UserPrivateResponse>(harness, revertResp.token).get('/users/@me').execute();
+		expect(user.traits ?? []).not.toContain(UserTraits.PASSKEY);
+		await createBuilderWithoutAuth(harness)
+			.post('/auth/email-revert')
+			.body({token: revertToken, password: uniquePassword()})
 			.expect(400)
 			.execute();
 	});

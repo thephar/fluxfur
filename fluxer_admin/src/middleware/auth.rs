@@ -20,6 +20,14 @@ pub struct AuthContext {
     pub branding: Option<PremiumBranding>,
 }
 
+impl AuthContext {
+    pub fn acls(&self) -> &[String] {
+        self.admin_user
+            .as_ref()
+            .map_or(&[], |user| user.acls.as_slice())
+    }
+}
+
 pub async fn require_auth(
     State(state): State<AppState>,
     mut request: Request,

@@ -40,7 +40,7 @@ describe('Unclaimed Account Restrictions', () => {
 			code: string;
 		}>(harness, unclaimed.token)
 			.put(`/channels/${channelId}/messages/${message.id}/reactions/%F0%9F%91%8D/@me`)
-			.expect(HTTP_STATUS.BAD_REQUEST)
+			.expect(HTTP_STATUS.FORBIDDEN)
 			.executeWithResponse();
 		expect(error.code).toBe('UNCLAIMED_ACCOUNT_CANNOT_ADD_REACTIONS');
 	});
@@ -52,7 +52,7 @@ describe('Unclaimed Account Restrictions', () => {
 		await createBuilder(harness, unclaimed.token)
 			.post('/users/@me/channels')
 			.body({recipients: [user1.userId, user2.userId]})
-			.expect(HTTP_STATUS.BAD_REQUEST)
+			.expect(HTTP_STATUS.FORBIDDEN)
 			.execute();
 	});
 	test('unclaimed account cannot join group DM via invite', async () => {
@@ -79,7 +79,7 @@ describe('Unclaimed Account Restrictions', () => {
 		}>(harness, friend2.token)
 			.post(`/invites/${invite.code}`)
 			.body({})
-			.expect(HTTP_STATUS.BAD_REQUEST)
+			.expect(HTTP_STATUS.FORBIDDEN)
 			.executeWithResponse();
 		expect(error.code).toBe('UNCLAIMED_ACCOUNT_CANNOT_JOIN_GROUP_DMS');
 	});
@@ -92,7 +92,7 @@ describe('Unclaimed Account Restrictions', () => {
 		await createBuilder(harness, sender.token)
 			.post(`/channels/${dmChannel.id}/messages`)
 			.body({content: 'Hello from unclaimed'})
-			.expect(HTTP_STATUS.BAD_REQUEST)
+			.expect(HTTP_STATUS.FORBIDDEN)
 			.execute();
 	});
 	test('unclaimed account cannot send guild messages', async () => {
@@ -108,7 +108,7 @@ describe('Unclaimed Account Restrictions', () => {
 		}>(harness, unclaimed.token)
 			.post(`/channels/${channelId}/messages`)
 			.body({content: 'Hello world'})
-			.expect(HTTP_STATUS.BAD_REQUEST)
+			.expect(HTTP_STATUS.FORBIDDEN)
 			.executeWithResponse();
 		expect(error.code).toBe('UNCLAIMED_ACCOUNT_CANNOT_SEND_MESSAGES');
 	});
@@ -127,7 +127,7 @@ describe('Unclaimed Account Restrictions', () => {
 		await createBuilder(harness, unclaimed.token)
 			.post('/guilds')
 			.body({name: 'Guild'})
-			.expect(HTTP_STATUS.BAD_REQUEST, APIErrorCodes.UNCLAIMED_ACCOUNT_CANNOT_CREATE_GUILDS)
+			.expect(HTTP_STATUS.FORBIDDEN, APIErrorCodes.UNCLAIMED_ACCOUNT_CANNOT_CREATE_GUILDS)
 			.execute();
 	});
 	test('bot account cannot create guild', async () => {

@@ -6,12 +6,11 @@ import {Readable} from 'node:stream';
 import {Config} from '@app/api/Config';
 import {
 	type IStorageService,
-	type ProcessedStorageObjectMetadata,
 	StorageObjectListingOverflowError,
 	StorageObjectRangeNotSatisfiableError,
 } from '@app/api/infrastructure/IStorageService';
+import {compareText} from '@app/api/utils/StringComparison';
 import {S3ServiceException} from '@aws-sdk/client-s3';
-import {isSupportedMediaContentType} from '@pkgs/mime_utils/src/ContentTypeUtils';
 import {vi} from 'vitest';
 
 const OBJECT_ID_SEPARATOR = '\u0000';
@@ -284,35 +283,6 @@ export class MockStorageService implements IStorageService {
 		}
 	}
 
-	async copyObjectWithMetadataStripping(params: {
-		sourceBucket: string;
-		sourceKey: string;
-		destinationBucket: string;
-		destinationKey: string;
-		contentType: string;
-		sourceLocalPath?: string;
-	}): Promise<ProcessedStorageObjectMetadata | null> {
-		await this.copyObject({
-			sourceBucket: params.sourceBucket,
-			sourceKey: params.sourceKey,
-			destinationBucket: params.destinationBucket,
-			destinationKey: params.destinationKey,
-			newContentType: params.contentType,
-		});
-		if (!isSupportedMediaContentType(params.contentType)) {
-			return null;
-		}
-		const data =
-			this.objects.get(this.objectId(params.destinationBucket, params.destinationKey))?.data ?? new Uint8Array();
-		return {
-			contentType: params.contentType,
-			contentLength: data.length,
-			contentHash: createHash('sha256').update(data).digest('hex'),
-			width: 100,
-			height: 100,
-		};
-	}
-
 	async getPresignedDownloadURL(_params: {
 		bucket: string;
 		key: string;
@@ -369,7 +339,7 @@ export class MockStorageService implements IStorageService {
 		const matches = [...this.objects.entries()]
 			.filter(([id]) => id.startsWith(this.objectId(params.bucket, params.prefix)))
 			.map(([id, object]) => ({key: id.slice(keyOffset), lastModified: object.lastModified}))
-			.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+			.sort((a, b) => compareText(a.key, b.key));
 		if (params.maxObjects !== undefined && matches.length > params.maxObjects) {
 			throw new StorageObjectListingOverflowError(params.bucket, params.prefix, params.maxObjects);
 		}

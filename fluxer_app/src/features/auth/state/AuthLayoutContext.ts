@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import type {RuntimeConfigSnapshot} from '@app/features/app/state/RuntimeConfigSnapshot';
 import type {GuildSplashCardAlignmentValue} from '@fluxer/constants/src/GuildConstants';
 import React, {useContext} from 'react';
 
@@ -20,6 +21,7 @@ export type AuthLayoutContentMode = (typeof AuthLayoutContentMode)[keyof typeof 
 
 export interface AuthLayoutContextType {
 	setSplashUrl: (url: string | null) => void;
+	setBrandSnapshot: (snapshot: RuntimeConfigSnapshot | null) => void;
 	setCardVariant: React.Dispatch<React.SetStateAction<AuthCardVariant>>;
 	setContentMode: React.Dispatch<React.SetStateAction<AuthLayoutContentMode>>;
 	setSplashCardAlignment: React.Dispatch<React.SetStateAction<GuildSplashCardAlignmentValue>>;

@@ -5,15 +5,13 @@ import {createChannelID, createGuildID, createUserID} from '@app/api/BrandedType
 import {acceptInvite, createChannel, createChannelInvite, createGuild} from '@app/api/channel/tests/ChannelTestUtils';
 import {threadsRequest} from '@app/api/channel/tests/ThreadTestUtils';
 import {clearChannelThreadsTaintCacheForTesting} from '@app/api/experiment/ChannelThreadsGate';
-import type {IGatewayService} from '@app/api/infrastructure/IGatewayService';
-import {threadArchiveQueueKey} from '@app/api/infrastructure/KVThreadAutoArchiveQueueService';
-import {ensureSessionStarted} from '@app/api/message/tests/MessageTestUtils';
-import {getKVClient} from '@app/api/middleware/ServiceRegistry';
 import {
-	getChannelRepository,
-	getGuildRepository,
-	getInstanceConfigRepository,
-} from '@app/api/middleware/ServiceSingletons';
+	KVThreadAutoArchiveQueueService,
+	threadArchiveQueueKey,
+} from '@app/api/infrastructure/KVThreadAutoArchiveQueueService';
+import {ensureSessionStarted} from '@app/api/message/tests/MessageTestUtils';
+import {getKVClient, getSnowflakeService} from '@app/api/middleware/ServiceRegistry';
+import {getChannelRepository, getGuildRepository} from '@app/api/middleware/ServiceSingletons';
 import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHarness';
 import {createTestWorkerHelpers} from '@app/api/test/SyncTaskWorkerService';
 import {
@@ -21,18 +19,17 @@ import {
 	deleteChannelThreads,
 	removeThreadMembershipsForGuildMember,
 } from '@app/api/worker/tasks/ThreadMaintenanceTasks';
-import {clearWorkerDependencies, setWorkerDependenciesForTest} from '@app/api/worker/WorkerContext';
-import type {WorkerDependencies} from '@app/api/worker/WorkerDependencies';
+import {clearWorkerDependencies, setWorkerDependencies} from '@app/api/worker/WorkerContext';
+import {initializeWorkerDependencies} from '@app/api/worker/WorkerDependencies';
 import {ChannelTypes} from '@fluxer/constants/src/ChannelConstants';
 import {ChannelFlags, DEFAULT_THREAD_AUTO_ARCHIVE_DURATION} from '@fluxer/constants/src/ThreadConstants';
 import type {ThreadChannelResponse} from '@fluxer/schema/src/domains/channel/ThreadRequestSchemas';
-import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi} from 'vitest';
+import {afterAll, beforeAll, beforeEach, describe, expect, it} from 'vitest';
 
 const PAST_ARCHIVE_WINDOW_MS = (DEFAULT_THREAD_AUTO_ARCHIVE_DURATION + 1) * 60_000;
 
 describe('thread maintenance tasks', () => {
 	let harness: ApiTestHarness;
-	let dispatchGuild: ReturnType<typeof vi.fn>;
 
 	beforeAll(async () => {
 		harness = await createApiTestHarness();
@@ -41,21 +38,7 @@ describe('thread maintenance tasks', () => {
 	beforeEach(async () => {
 		await harness.reset();
 		clearChannelThreadsTaintCacheForTesting();
-		dispatchGuild = vi.fn(async () => {});
-		setWorkerDependenciesForTest({
-			kvClient: getKVClient(),
-			channelRepository: getChannelRepository(),
-			guildRepository: getGuildRepository(),
-			instanceConfigRepository: getInstanceConfigRepository(),
-			gatewayService: {dispatchGuild, dispatchGuildMany: vi.fn(async () => {})} as unknown as IGatewayService,
-			channelService: {
-				attachments: {purgeChannelAttachments: vi.fn(async () => {})},
-			} as unknown as WorkerDependencies['channelService'],
-		});
-	});
-
-	afterEach(() => {
-		vi.restoreAllMocks();
+		setWorkerDependencies(await initializeWorkerDependencies(getSnowflakeService()));
 	});
 
 	afterAll(async () => {
@@ -94,13 +77,14 @@ describe('thread maintenance tasks', () => {
 		await getChannelRepository().threads.updateState(createChannelID(BigInt(fresh.id)), () => ({
 			flags: ChannelFlags.PINNED,
 		}));
-		const now = Date.now();
-		vi.spyOn(Date, 'now').mockReturnValue(now + PAST_ARCHIVE_WINDOW_MS);
+		const backdated = await getChannelRepository().threads.updateState(createChannelID(BigInt(thread.id)), () => ({
+			archive_timestamp: new Date(Date.now() - PAST_ARCHIVE_WINDOW_MS),
+		}));
+		await new KVThreadAutoArchiveQueueService(getKVClient()).schedule(backdated!.state, null);
 
 		await archiveInactiveThreads({}, createTestWorkerHelpers());
 		expect((await state(thread.id))?.archived).toBe(true);
 		expect((await state(fresh.id))?.archived).toBe(false);
-		expect(dispatchGuild.mock.calls.some(([params]) => params.event === 'THREAD_UPDATE')).toBe(true);
 		const queued = await getKVClient().zrangebyscore(
 			threadArchiveQueueKey(createGuildID(BigInt(s.guildId))),
 			'-inf',

@@ -6,7 +6,6 @@
 -export([
     can_manage_roles/2,
     can_manage_role/2,
-    get_assignable_roles/2,
     check_target_member/2,
     user_ids_for_any_role/2
 ]).
@@ -46,13 +45,14 @@ add_user_map_ids(UserMap, AccSet) ->
     lists:foldl(fun gb_sets:add/2, AccSet, maps:keys(UserMap)).
 
 -spec can_manage_roles(map(), guild_state()) -> guild_reply(map()).
-can_manage_roles(#{user_id := UserId, target_user_id := _TU, role_id := RoleId}, State) ->
+can_manage_roles(
+    #{user_id := UserId, target_user_id := TargetUserId, role_id := RoleId}, State
+) ->
     OwnerId = guild_members_common:owner_id(State),
-    Reply = check_can_manage(UserId, RoleId, OwnerId, State),
-    {reply, #{can_manage => Reply}, State};
-can_manage_roles(#{user_id := UserId, role_id := RoleId}, State) ->
-    OwnerId = guild_members_common:owner_id(State),
-    Reply = check_can_manage(UserId, RoleId, OwnerId, State),
+    Reply =
+        check_can_manage(UserId, RoleId, OwnerId, State) andalso
+            (UserId =:= TargetUserId orelse TargetUserId =:= OwnerId orelse
+                check_can_manage_target(UserId, TargetUserId, OwnerId, State)),
     {reply, #{can_manage => Reply}, State}.
 
 -spec can_manage_role(map(), guild_state()) -> guild_reply(map()).
@@ -69,36 +69,6 @@ can_manage_role(#{user_id := UserId, role_id := RoleId}, State) ->
                 can_rank_manage_role(UserMax, RolePos, UserId, RoleId, State)
         end,
     {reply, #{can_manage => Reply}, State}.
-
--spec get_assignable_roles(map(), guild_state()) -> guild_reply(map()).
-get_assignable_roles(#{user_id := UserId}, State) ->
-    Roles = guild_members_common:guild_roles(State),
-    OwnerId = guild_members_common:owner_id(State),
-    RoleIds =
-        case UserId =:= OwnerId of
-            true ->
-                guild_members_common:role_ids_from_roles(Roles);
-            false ->
-                UserRoleRank = get_member_role_rank(UserId, State),
-                assignable_role_ids(Roles, UserRoleRank)
-        end,
-    {reply, #{role_ids => RoleIds}, State}.
-
--spec assignable_role_ids([role()], {integer(), integer()}) -> [role_id()].
-assignable_role_ids(Roles, UserRoleRank) ->
-    lists:filtermap(
-        fun(Role) ->
-            assignable_role_id(Role, UserRoleRank)
-        end,
-        Roles
-    ).
-
--spec assignable_role_id(role(), {integer(), integer()}) -> {true, role_id()} | false.
-assignable_role_id(Role, UserRoleRank) ->
-    case {role_rank(Role) < UserRoleRank, role_id(Role)} of
-        {true, Id} when is_integer(Id) -> {true, Id};
-        _ -> false
-    end.
 
 -spec check_target_member(map(), guild_state()) -> guild_reply(map()).
 check_target_member(#{user_id := UserId, target_user_id := TargetUserId}, State) ->

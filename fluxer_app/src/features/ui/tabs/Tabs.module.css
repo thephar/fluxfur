@@ -19,8 +19,8 @@
 	color: var(--text-primary-muted);
 	background: none;
 	border-top: none;
-	border-left: none;
-	border-right: none;
+	border-inline-start: none;
+	border-inline-end: none;
 	cursor: pointer;
 	border-radius: 0.25rem 0.25rem 0 0;
 	outline: none;

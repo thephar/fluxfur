@@ -11,7 +11,7 @@ import {parseInstanceDiscoveryDocument} from '@fluxer/instance_bootstrap/src/Dis
 const RUNTIME_PLAN_CACHE_MAX_ENTRIES = 256;
 const ROUTE_CACHE_KEY_PREFIX = 'route:';
 
-export interface LocalAppRuntimeEndpoints {
+interface LocalAppRuntimeEndpoints {
 	readonly apiEndpoint: string;
 	readonly apiPublicEndpoint: string | null;
 	readonly webAppEndpoint: string | null;
@@ -54,7 +54,7 @@ class LocalAppRuntimePlanCacheInvariantError extends Error {
 	}
 }
 
-export function localAppRuntimeInstanceKey(apiEndpoint: string): string | null {
+function localAppRuntimeInstanceKey(apiEndpoint: string): string | null {
 	let url: URL;
 	try {
 		url = new URL(apiEndpoint.trim());

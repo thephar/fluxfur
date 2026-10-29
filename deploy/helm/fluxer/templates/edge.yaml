@@ -3,7 +3,7 @@
 {{- $e := $v.edge }}
 {{- $ctx := dict "root" . "name" "edge" "component" "edge" "w" $e }}
 {{- $lb := eq $e.expose "loadBalancer" }}
-{{- $caddyfile := .Files.Get "files/Caddyfile" }}
+{{- $caddyfile := .Files.Get "files/Caddyfile" | replace "\r" "" }}
 {{- $globalOptions := ternary (printf "email %s" $v.email) "" (and $lb (ne $v.email "")) }}
 {{- $siteAddress := ternary (printf "https://%s, :8080" $v.domain) ":8080" $lb }}
 {{- $trusted := ternary "127.0.0.1/32" "private_ranges" $lb }}

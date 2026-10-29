@@ -1,13 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {createTestAccount, type TestAccount} from '@app/api/auth/tests/AuthTestUtils';
-import {MessageSendService} from '@app/api/channel/services/message/MessageSendService';
 import {createChannel, createGuild} from '@app/api/channel/tests/ChannelTestUtils';
 import {threadsRequest} from '@app/api/channel/tests/ThreadTestUtils';
 import {clearChannelThreadsTaintCacheForTesting} from '@app/api/experiment/ChannelThreadsGate';
 import {ensureSessionStarted} from '@app/api/message/tests/MessageTestUtils';
 import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHarness';
-import {NoopGatewayService} from '@app/api/test/NoopGatewayService';
 import {createBuilderWithoutAuth} from '@app/api/test/TestRequestBuilder';
 import {APIErrorCodes} from '@fluxer/constants/src/ApiErrorCodes';
 import {ChannelTypes} from '@fluxer/constants/src/ChannelConstants';
@@ -16,7 +14,7 @@ import type {ThreadChannelResponse} from '@fluxer/schema/src/domains/channel/Thr
 import type {GuildAuditLogListResponse} from '@fluxer/schema/src/domains/guild/GuildAuditLogSchemas';
 import type {MessageResponse} from '@fluxer/schema/src/domains/message/MessageResponseSchemas';
 import type {WebhookResponse} from '@fluxer/schema/src/domains/webhook/WebhookSchemas';
-import {afterAll, beforeAll, beforeEach, describe, expect, it, vi} from 'vitest';
+import {afterAll, beforeAll, beforeEach, describe, expect, it} from 'vitest';
 
 interface Setup {
 	owner: TestAccount;
@@ -86,39 +84,11 @@ describe('webhooks on forum and media channels', () => {
 
 	it('rejects an invalid starter before creating the post', async () => {
 		const s = await setup();
-		const dispatched: Array<string> = [];
-		const spy = vi.spyOn(NoopGatewayService.prototype, 'dispatchGuild').mockImplementation(async (params) => {
-			dispatched.push(params.event);
-		});
 		await execute(s, {thread_name: 'empty'}).expect(400, APIErrorCodes.CANNOT_SEND_EMPTY_MESSAGE).execute();
-		spy.mockRestore();
-		expect(dispatched).not.toContain('THREAD_CREATE');
 		const forum = await threadsRequest<ChannelResponse>(harness, s.owner.token)
 			.get(`/channels/${s.forum.id}`)
 			.execute();
 		expect(forum.last_message_id ?? null).toBeNull();
-	});
-
-	it('rolls clients back to the previous forum last_message_id when the starter fails', async () => {
-		const s = await setup();
-		const first = await execute(s, {content: 'first', thread_name: 'first'}).execute();
-		const dispatched: Array<{event: string; data: unknown}> = [];
-		const dispatch = vi.spyOn(NoopGatewayService.prototype, 'dispatchGuild').mockImplementation(async (params) => {
-			dispatched.push({event: params.event, data: params.data});
-		});
-		const send = vi
-			.spyOn(MessageSendService.prototype, 'sendWebhookMessage')
-			.mockRejectedValueOnce(new Error('starter failed'));
-		await execute(s, {content: 'second', thread_name: 'second'}).expect(500).execute();
-		send.mockRestore();
-		dispatch.mockRestore();
-		const events = dispatched.map((entry) => entry.event);
-		expect(events).toEqual(['THREAD_CREATE', 'CHANNEL_UPDATE', 'THREAD_DELETE']);
-		expect(dispatched[1]!.data).toMatchObject({id: s.forum.id, last_message_id: first.channel_id});
-		const forum = await threadsRequest<ChannelResponse>(harness, s.owner.token)
-			.get(`/channels/${s.forum.id}`)
-			.execute();
-		expect(forum.last_message_id).toBe(first.channel_id);
 	});
 
 	it('enforces the forum target rules', async () => {

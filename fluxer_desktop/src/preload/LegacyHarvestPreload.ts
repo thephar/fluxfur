@@ -355,21 +355,22 @@ async function runLegacyHarvest(): Promise<LegacyHarvestPayload> {
 	};
 }
 
-function isTrustworthyHarvestOrigin(): boolean {
-	if (window.location.protocol === 'https:') return true;
-	if (window.location.protocol !== 'http:') return false;
-	return LEGACY_HARVEST_LOOPBACK_HOSTS.has(window.location.hostname);
-}
-
-function isLegacyHarvestDocument(): boolean {
-	try {
-		return isTrustworthyHarvestOrigin() && window.location.pathname === DESKTOP_LEGACY_HARVEST_SENTINEL_PATH;
-	} catch {
-		return false;
+let harvestDocument = false;
+try {
+	let trustworthyOrigin = false;
+	if (window.location.protocol === 'https:') {
+		trustworthyOrigin = true;
+	} else if (window.location.protocol === 'http:') {
+		trustworthyOrigin = LEGACY_HARVEST_LOOPBACK_HOSTS.has(window.location.hostname);
 	}
+	if (trustworthyOrigin) {
+		harvestDocument = window.location.pathname === DESKTOP_LEGACY_HARVEST_SENTINEL_PATH;
+	}
+} catch {
+	harvestDocument = false;
 }
 
-function submitLegacyHarvest(): void {
+if (harvestDocument) {
 	runLegacyHarvest()
 		.then(
 			(payload) => ipcRenderer.invoke(DESKTOP_LEGACY_HARVEST_CHANNELS.submit, {ok: true, error: null, payload}),
@@ -381,8 +382,4 @@ function submitLegacyHarvest(): void {
 				}),
 		)
 		.catch(() => undefined);
-}
-
-if (isLegacyHarvestDocument()) {
-	submitLegacyHarvest();
 }

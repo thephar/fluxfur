@@ -2,7 +2,7 @@
 
 import {AdminRepository} from '@app/api/admin/AdminRepository';
 import {ProfileSubstringBlocklistCache} from '@app/api/middleware/ProfileSubstringBlocklistCache';
-import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it} from 'vitest';
 
 describe('ProfileSubstringBlocklistCache', () => {
 	let cache: ProfileSubstringBlocklistCache;
@@ -10,15 +10,25 @@ describe('ProfileSubstringBlocklistCache', () => {
 		cache = new ProfileSubstringBlocklistCache();
 	});
 	afterEach(() => {
-		vi.restoreAllMocks();
 		cache.resetForTesting();
 	});
 	it('refresh replaces every scope while preserving name widening and normalized matches', async () => {
 		cache.add('bio', 'oldbio');
-		vi.spyOn(AdminRepository.prototype, 'loadAllBannedProfileSubstrings').mockResolvedValue([
-			{scope: 'username', substring: 'Unban Tor', added_at: null, added_by: null, notes: null},
-			{scope: 'bio', substring: 'blockedbio', added_at: null, added_by: null, notes: null},
-		]);
+		const repository = new AdminRepository();
+		await repository.banProfileSubstring({
+			scope: 'username',
+			substring: 'Unban Tor',
+			added_at: null,
+			added_by: null,
+			notes: null,
+		});
+		await repository.banProfileSubstring({
+			scope: 'bio',
+			substring: 'blockedbio',
+			added_at: null,
+			added_by: null,
+			notes: null,
+		});
 		await cache.refresh();
 		expect(cache.containsBannedSubstring('nickname', 'ｕｎｂａｎ　ｔｏｒ')).toBe(true);
 		expect(cache.containsBannedSubstring('global_name', 'u n b a n t o r')).toBe(true);

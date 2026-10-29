@@ -41,7 +41,7 @@ role(Role) when is_map(Role) ->
 role(Role) ->
     Role.
 
--spec channel(term()) -> term().
+-spec channel(T) -> T | map().
 channel(Channel) when is_map(Channel) ->
     Channel1 = normalize_required_snowflake_field(<<"id">>, Channel),
     Channel2 = normalize_optional_snowflake_field(<<"guild_id">>, Channel1),
@@ -102,7 +102,7 @@ thread(Thread) when is_map(Thread) ->
 thread(Thread) ->
     Thread.
 
--spec thread_member(term()) -> term().
+-spec thread_member(T) -> T | map().
 thread_member(Member) when is_map(Member) ->
     Member1 = normalize_required_snowflake_fields([<<"id">>, <<"user_id">>], Member),
     Member2 = guild_data_normalize_schema:normalize_int_fields([<<"flags">>], Member1),

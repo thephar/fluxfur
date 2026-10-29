@@ -128,9 +128,17 @@ function getWindowsLoginItemPath(): string {
 }
 
 function getAutoLaunchConfig(): AutoLaunchConfig {
+	let launchPath: string;
+	if (isWindows) {
+		launchPath = getWindowsLoginItemPath();
+	} else if (isLinux) {
+		launchPath = getStableLinuxLaunchPath();
+	} else {
+		launchPath = process.execPath;
+	}
 	return {
 		name: isWindows ? WINDOWS_APP_USER_MODEL_ID : APP_NAME,
-		path: isWindows ? getWindowsLoginItemPath() : isLinux ? getStableLinuxLaunchPath() : process.execPath,
+		path: launchPath,
 		args: [AUTOSTART_LAUNCH_ARG],
 	};
 }
@@ -596,7 +604,7 @@ function isLegacyGeneratedLinuxAutostartEntry(contents: string, entry: Map<strin
 	return contents.includes(GENERATED_MARKER) || entry.get('StartupWMClass')?.trim() === LEGACY_LINUX_DESKTOP_ENTRY_ID;
 }
 
-export function rewriteLegacyLinuxAutostartContents(contents: string, execPath: string, execStale: boolean): string {
+function rewriteLegacyLinuxAutostartContents(contents: string, execPath: string, execStale: boolean): string {
 	const replacements = new Map<string, string>([
 		['StartupWMClass', LINUX_STARTUP_WM_CLASS],
 		['Icon', LINUX_ICON_NAME],

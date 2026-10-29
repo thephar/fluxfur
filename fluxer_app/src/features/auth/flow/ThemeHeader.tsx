@@ -17,13 +17,16 @@ const SHARED_THEME_DESCRIPTOR = msg({
 });
 export function ThemeHeader({prefix, sso = false}: {prefix: string; sso?: boolean}) {
 	const {i18n} = useLingui();
+	let iconSpotSuffix = 'div';
+	if (sso) {
+		iconSpotSuffix = 'div.sso';
+	} else if (prefix.includes('register')) {
+		iconSpotSuffix = 'div--2';
+	}
 	return (
 		<AuthPageHeader
 			icon={
-				<div
-					className={sharedStyles.themeIconSpot}
-					data-flx={`${prefix}.${sso ? 'div.sso' : prefix.includes('register') ? 'div--2' : 'div'}`}
-				>
+				<div className={sharedStyles.themeIconSpot} data-flx={`${prefix}.${iconSpotSuffix}`}>
 					<PaletteIcon
 						className={sharedStyles.themeIcon}
 						weight="fill"

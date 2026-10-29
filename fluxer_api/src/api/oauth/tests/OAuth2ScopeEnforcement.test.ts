@@ -27,6 +27,9 @@ interface UserMeResponse {
 	id: string;
 	username: string;
 	email?: string | null;
+	verified?: boolean;
+	premium_type?: number | null;
+	terms_agreed_at?: string | null;
 }
 
 interface UserGuildResponse {
@@ -211,6 +214,11 @@ describe('OAuth2 Scope Enforcement', () => {
 				.expect(HTTP_STATUS.OK)
 				.execute();
 			expect(json.email).toBeNull();
+			expect(json.verified).toBe(false);
+			expect(json.premium_type).toBeNull();
+			expect(json.terms_agreed_at).toBeNull();
+			expect(json).not.toHaveProperty('timezone');
+			expect(json).not.toHaveProperty('account_tier');
 		});
 		test('Token with identify and email can access both user info and email', async () => {
 			const account = await createTestAccount(harness);

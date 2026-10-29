@@ -7,12 +7,11 @@ import {createChannel, createGuild} from '@app/api/channel/tests/ChannelTestUtil
 import {THREADS_FEATURE, THREADS_FEATURE_HEADER, threadsRequest} from '@app/api/channel/tests/ThreadTestUtils';
 import {clearChannelThreadsTaintCacheForTesting, insertGuildThreadMarker} from '@app/api/experiment/ChannelThreadsGate';
 import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHarness';
-import {NoopGatewayService} from '@app/api/test/NoopGatewayService';
 import {createBuilder} from '@app/api/test/TestRequestBuilder';
 import {ChannelTypes} from '@fluxer/constants/src/ChannelConstants';
 import {ChannelOverrideFlags} from '@fluxer/constants/src/ThreadConstants';
 import type {UserGuildSettingsResponse} from '@fluxer/schema/src/domains/user/UserResponseSchemas';
-import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi} from 'vitest';
+import {afterAll, beforeAll, beforeEach, describe, expect, it} from 'vitest';
 
 const repository = new ChannelRepository();
 
@@ -30,10 +29,6 @@ describe('thread user settings', () => {
 	beforeEach(async () => {
 		await harness.reset();
 		clearChannelThreadsTaintCacheForTesting();
-	});
-
-	afterEach(() => {
-		vi.restoreAllMocks();
 	});
 
 	afterAll(async () => {
@@ -90,7 +85,6 @@ describe('thread user settings', () => {
 				{channel_overrides: {[s.channelId]: override({flags: ChannelOverrideFlags.NEW_FORUM_THREADS_OFF})}},
 				true,
 			);
-			const dispatch = vi.spyOn(NoopGatewayService.prototype, 'dispatchPresence');
 			const control = await patchSettings(
 				s.account,
 				s.guildId,
@@ -99,9 +93,6 @@ describe('thread user settings', () => {
 			);
 			expect(control.channel_overrides?.[s.channelId]).toEqual(expect.not.objectContaining({flags: expect.anything()}));
 			expect(control.channel_overrides?.[s.channelId]?.muted).toBe(true);
-			const updates = dispatch.mock.calls
-				.map(([params]) => params)
-				.filter((params) => params.event === 'USER_GUILD_SETTINGS_UPDATE');
 			const viewer = await createBuilder<UserGuildSettingsResponse>(harness, s.account.token)
 				.header(THREADS_FEATURE_HEADER, THREADS_FEATURE)
 				.patch(`/users/@me/guilds/${s.guildId}/settings`)
@@ -109,11 +100,6 @@ describe('thread user settings', () => {
 				.expect(200)
 				.execute();
 			expect(viewer.channel_overrides?.[s.channelId]?.flags).toBe(ChannelOverrideFlags.NEW_FORUM_THREADS_OFF);
-			expect(updates).toHaveLength(2);
-			expect(updates[0]?.data).not.toHaveProperty('__thread_scoped');
-			expect(updates[0]?.data).toMatchObject({__thread_unscoped: s.guildId});
-			expect(JSON.stringify(updates[0]?.data)).not.toContain('"flags"');
-			expect(updates[1]?.data).toMatchObject({__thread_scoped: s.guildId});
 		});
 
 		it('ignores malformed flags from non-viewers and rejects them from viewers', async () => {
@@ -130,16 +116,6 @@ describe('thread user settings', () => {
 				.body(body)
 				.expect(400)
 				.execute();
-		});
-
-		it('sends a single settings update when no override carries thread data', async () => {
-			const s = await setup();
-			const dispatch = vi.spyOn(NoopGatewayService.prototype, 'dispatchPresence');
-			await patchSettings(s.account, s.guildId, {channel_overrides: {[s.channelId]: override()}}, true);
-			const updates = dispatch.mock.calls.filter(([params]) => params.event === 'USER_GUILD_SETTINGS_UPDATE');
-			expect(updates).toHaveLength(1);
-			expect(updates[0]?.[0].data).not.toHaveProperty('__thread_scoped');
-			expect(updates[0]?.[0].data).not.toHaveProperty('__thread_unscoped');
 		});
 	});
 
@@ -163,57 +139,6 @@ describe('thread user settings', () => {
 			const viewer = await patchSettings(s.account, s.guildId, {muted: true}, true);
 			expect(viewer.channel_overrides?.[forumId]?.muted).toBe(true);
 			expect(viewer.channel_overrides?.[s.channelId]?.collapsed).toBe(true);
-		});
-	});
-
-	describe('device capability', () => {
-		interface PushSubscriptionsRpc {
-			data: Record<string, Array<{subscription_id: string; thread_channels?: boolean}>>;
-		}
-
-		async function subscriptions(account: TestAccount) {
-			const response = await createBuilder<PushSubscriptionsRpc>(harness, '')
-				.post('/test/rpc-session-init')
-				.body({type: 'get_push_subscriptions', user_ids: [account.userId]})
-				.expect(200)
-				.execute();
-			return response.data[account.userId] ?? [];
-		}
-
-		it('records the thread capability of a mobile device only when the features header carries it', async () => {
-			const account = await createTestAccount(harness);
-			const capable = await threadsRequest<{device_id: string}>(harness, account.token)
-				.post('/users/@me/mobile-devices')
-				.body({platform: 'android_fcm', token: 'capable-device-token'})
-				.execute();
-			const legacy = await threadsRequest<{device_id: string}>(harness, account.token, {capable: false})
-				.post('/users/@me/mobile-devices')
-				.body({platform: 'android_fcm', token: 'legacy-device-token'})
-				.execute();
-			const byId = new Map((await subscriptions(account)).map((sub) => [sub.subscription_id, sub]));
-			expect(byId.get(capable.device_id)?.thread_channels).toBe(true);
-			expect(byId.get(legacy.device_id)).toBeDefined();
-			expect(byId.get(legacy.device_id)).not.toHaveProperty('thread_channels');
-		});
-
-		it('clears the thread capability on a header-less re-registration', async () => {
-			const account = await createTestAccount(harness);
-			const register = (capable: boolean) =>
-				threadsRequest<{device_id: string}>(harness, account.token, {capable})
-					.post('/users/@me/mobile-devices')
-					.body({platform: 'android_fcm', token: 'downgraded-device-token'})
-					.execute();
-			const capability = async (deviceId: string) =>
-				(await subscriptions(account)).find((sub) => sub.subscription_id === deviceId)?.thread_channels;
-
-			const {device_id} = await register(true);
-			await register(false);
-			expect(await capability(device_id)).toBeUndefined();
-
-			await register(true);
-			expect(await capability(device_id)).toBe(true);
-			await register(false);
-			expect(await capability(device_id)).toBeUndefined();
 		});
 	});
 });

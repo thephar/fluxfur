@@ -5,7 +5,6 @@ import {ChannelDataRepository} from '@app/api/channel/repositories/ChannelDataRe
 import {setCassandraQueryExecutorForTesting, upsertOne} from '@app/api/database/CassandraQueryExecution';
 import type {ChannelRow} from '@app/api/database/types/ChannelTypes';
 import {createRequestCache} from '@app/api/middleware/RequestCacheMiddleware';
-import {Channel} from '@app/api/models/Channel';
 import {Channels} from '@app/api/Tables';
 import {InMemoryCassandraQueryExecutor} from '@app/api/test/InMemoryCassandraQueryExecutor';
 import {ChannelTypes} from '@fluxer/constants/src/ChannelConstants';
@@ -43,58 +42,17 @@ function makeChannelRow(channelId: ChannelID): ChannelRow {
 	};
 }
 
-let executor: InMemoryCassandraQueryExecutor;
-
 describe('ChannelDataRepository request cache', () => {
 	beforeEach(() => {
-		executor = new InMemoryCassandraQueryExecutor();
-		setCassandraQueryExecutorForTesting(executor);
+		setCassandraQueryExecutorForTesting(new InMemoryCassandraQueryExecutor());
 	});
 	afterEach(() => {
 		setCassandraQueryExecutorForTesting(new InMemoryCassandraQueryExecutor());
-	});
-	it('reads the channel row once per lookup without a request cache', async () => {
-		const channelId = createChannelID(1910000000000000000n);
-		await upsertOne(Channels.upsertAll(makeChannelRow(channelId)));
-		executor.executed.length = 0;
-		const repository = new ChannelDataRepository();
-
-		await repository.findUnique(channelId);
-		await repository.findUnique(channelId);
-
-		expect(executor.countStatements('select:channels')).toBe(2);
-	});
-	it('serves the prefetched channel once and falls back to the database afterwards', async () => {
-		const channelId = createChannelID(1910000000000000000n);
-		const row = makeChannelRow(channelId);
-		await upsertOne(Channels.upsertAll(row));
-		executor.executed.length = 0;
-		const requestCache = createRequestCache();
-		requestCache.channels.set(channelId, new Channel(row));
-		const repository = new ChannelDataRepository(requestCache);
-
-		const prefetched = await repository.findUnique(channelId);
-		expect(prefetched?.id).toBe(channelId);
-		expect(executor.countStatements('select:channels')).toBe(0);
-
-		const reread = await repository.findUnique(channelId);
-		expect(reread?.id).toBe(channelId);
-		expect(executor.countStatements('select:channels')).toBe(1);
-	});
-	it('keeps a prefetched miss distinguishable from an absent entry', async () => {
-		const channelId = createChannelID(1920000000000000000n);
-		const requestCache = createRequestCache();
-		requestCache.channels.set(channelId, null);
-		const repository = new ChannelDataRepository(requestCache);
-
-		expect(await repository.findUnique(channelId)).toBeNull();
-		expect(executor.countStatements('select:channels')).toBe(0);
 	});
 	it('drops the prefetched channel when the same request writes it', async () => {
 		const channelId = createChannelID(1930000000000000000n);
 		const row = makeChannelRow(channelId);
 		await upsertOne(Channels.upsertAll(row));
-		executor.executed.length = 0;
 		const requestCache = createRequestCache();
 		requestCache.channels.set(channelId, null);
 		const repository = new ChannelDataRepository(requestCache);

@@ -35,7 +35,10 @@ const LANE_CONFIG = {
 		consumerName: 'workers_lifecycle',
 		tasks: [
 			'processStripeWebhook',
+			'sendBillingEmail',
+			'closePaymentDisputeAccounts',
 			'sendSystemDm',
+			'notifyRegistrationApprovers',
 			'userProcessPendingDeletion',
 			'userProcessPendingDeletions',
 			'applicationProcessDeletion',
@@ -56,10 +59,14 @@ const LANE_CONFIG = {
 			'bulkScheduleUserDeletion',
 			'bulkUpdateGuildFeatures',
 			'bulkAddGuildMembers',
+			'joinSingleCommunityMembers',
 			'bulkBanFileShas',
 			'bulkDeleteMessagesForUsers',
 			'drainActivitySpool',
 			'liftExpiredGuildInvitePauses',
+			'endGuildVisitsForCode',
+			'pruneGuildVisits',
+			'endUnassignedGuildVisits',
 		] as const,
 		retiredTasks: ['sendScheduledMessage', 'finalizeNcmecAttachmentReport'],
 		concurrency: 8,
@@ -95,10 +102,20 @@ const LANE_CONFIG = {
 			'removeThreadMembershipsForGuildMember',
 			'syncThreadSearchDocument',
 			'backfillThreadSearch',
+			'backfillPasskeyTrait',
+			'backfillUserAclIndex',
+			'backfillDeletedUsers',
+			'backfillHiddenProfileBadges',
 			'syncDiscoveryIndex',
 			'syncUrlBlocklists',
 			'syncFileShaBlocklists',
 			'flushUserActivityBuffer',
+			'operatorPassSaleBroadcast',
+			'operatorPassWaitlistCleanup',
+			'operatorPassRemovalExpiry',
+			'operatorPassOfferCompletion',
+			'operatorPassWallRetention',
+			'scanBillingNotices',
 		] as const,
 		retiredTasks: [],
 		concurrency: 12,
@@ -141,6 +158,17 @@ interface WorkerLaneRuntimeConfig {
 	laneName?: APIWorkerLaneName;
 	taskName?: WorkerTaskName;
 	laneConcurrencyOverrides: Partial<Record<APIWorkerLaneName, number>>;
+	availableParallelism: number;
+}
+
+const FULL_CONCURRENCY_CORES = 4;
+
+function scaleLaneToCores(lane: WorkerLaneDefinition, cores: number): WorkerLaneDefinition {
+	const concurrency = Math.max(
+		1,
+		Math.min(lane.concurrency, Math.ceil((lane.concurrency * cores) / FULL_CONCURRENCY_CORES)),
+	);
+	return {...lane, concurrency};
 }
 
 function makeLane(name: APIWorkerLaneName): WorkerLaneDefinition {
@@ -244,11 +272,11 @@ function applyLaneConcurrencyOverride(
 
 function resolveWorkerLanes(config: WorkerLaneRuntimeConfig): Array<WorkerLaneDefinition> {
 	if (config.mode === 'single_task') {
-		return [resolveSingleTaskLane(config.taskName)];
+		return [scaleLaneToCores(resolveSingleTaskLane(config.taskName), config.availableParallelism)];
 	}
 	const laneNames = resolveLaneNames(config);
 	return laneNames.map((laneName) => {
-		const lane = resolveLaneByName(laneName);
+		const lane = scaleLaneToCores(resolveLaneByName(laneName), config.availableParallelism);
 		return applyLaneConcurrencyOverride(lane, config.laneConcurrencyOverrides);
 	});
 }

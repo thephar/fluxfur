@@ -5,6 +5,7 @@ import type {PickerHeaderRow} from '@app/features/channel/components/pickers/sha
 import {GuildIcon} from '@app/features/guild/components/popouts/GuildIcon';
 import Guilds from '@app/features/guild/state/Guilds';
 import {remFromPx} from '@app/features/theme/layout/RemFromPx';
+import {getCollapsedCaretAngle} from '@app/features/ui/icons/DirectionalIcons';
 import {CaretDownIcon, ClockIcon, StarIcon} from '@phosphor-icons/react';
 import type React from 'react';
 export function PickerCategoryHeaderRow({
@@ -65,8 +66,7 @@ export function PickerCategoryHeaderRow({
 				height: remFromPx(PICKER_CATEGORY_HEADER_HEIGHT),
 				display: 'flex',
 				alignItems: 'center',
-				paddingLeft: '0.75rem',
-				paddingRight: '0.75rem',
+				paddingInline: '0.75rem',
 				marginBottom: '0.5rem',
 				position: 'sticky',
 				top: 0,
@@ -74,7 +74,7 @@ export function PickerCategoryHeaderRow({
 				cursor: 'pointer',
 				border: 'none',
 				width: '100%',
-				textAlign: 'left',
+				textAlign: 'start',
 				gap: '0.5rem',
 				minWidth: 0,
 			}}
@@ -101,7 +101,7 @@ export function PickerCategoryHeaderRow({
 				<CaretDownIcon
 					weight="bold"
 					className={styles.caretIcon}
-					style={{transform: `rotate(${isCollapsed ? -90 : 0}deg)`, marginLeft: '0.5rem'}}
+					style={{transform: `rotate(${isCollapsed ? getCollapsedCaretAngle() : 0}deg)`, marginInlineStart: '0.5rem'}}
 					data-flx="channel.emoji-picker.virtual-row.virtual-row-renderer.caret-icon"
 				/>
 			</div>

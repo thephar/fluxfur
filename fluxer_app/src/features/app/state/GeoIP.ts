@@ -10,7 +10,7 @@ import {compareStructural, makeAutoObservable, reaction, runInAction} from 'mobx
 const logger = new Logger('GeoIP');
 const RESOLVE_TIMEOUT_MS = 5000;
 
-export type GeoIPResolution = 'pending' | 'resolved' | 'unavailable';
+type GeoIPResolution = 'pending' | 'resolved' | 'unavailable';
 
 interface ConnectionGeo {
 	countryCode: string | null;

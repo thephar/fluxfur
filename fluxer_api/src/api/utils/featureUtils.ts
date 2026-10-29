@@ -7,7 +7,7 @@ import {THREAD_AWARE_ALL_PERMISSIONS, THREAD_PERMISSIONS} from '@fluxer/constant
 export const CLIENT_FEATURES_HEADER = Headers.X_FLUXER_FEATURES;
 export const CHANNEL_THREADS_CLIENT_FEATURE = 'channel_threads';
 
-export type ThreadPermissionMode = 'active';
+type ThreadPermissionMode = 'active';
 
 export interface ProtectedBitActor {
 	clientFeatures: ReadonlySet<string>;

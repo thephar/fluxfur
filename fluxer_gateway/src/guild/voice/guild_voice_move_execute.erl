@@ -112,6 +112,17 @@ broadcast_disconnects(ConnectionsToMove, NewState) ->
         ConnectionsToMove
     ).
 
+-spec broadcast_moves(voice_state_map(), binary(), guild_state()) -> ok.
+broadcast_moves(ConnectionsToMove, ChannelIdBin, Snapshot) ->
+    maps:foreach(
+        fun(_ConnId, VoiceState) ->
+            OldChannelIdBin = maps:get(<<"channel_id">>, VoiceState, null),
+            MovedVS = VoiceState#{<<"channel_id">> => ChannelIdBin},
+            guild_voice_broadcast:broadcast_voice_state_move(MovedVS, Snapshot, OldChannelIdBin)
+        end,
+        ConnectionsToMove
+    ).
+
 -spec handle_channel_move(
     voice_state_map(), integer(), integer(), integer(), voice_state_map(), guild_state()
 ) -> voice_reply().
@@ -188,7 +199,8 @@ execute_move(ConnectionsToMove, ChannelIdValue, UserId, VoiceStates, State) ->
     StateWithVA = maybe_add_virtual_access(UserId, ChannelIdValue, StateAfterDisconnect),
     StateCleaned = cleanup_stale_virtual_access(UserId, StateWithVA),
     BroadcastSnapshot = build_broadcast_snapshot(StateCleaned),
-    spawn(fun() -> broadcast_disconnects(ConnectionsToMove, BroadcastSnapshot) end),
+    ChannelIdBin = integer_to_binary(ChannelIdValue),
+    spawn(fun() -> broadcast_moves(ConnectionsToMove, ChannelIdBin, BroadcastSnapshot) end),
     SessionData = extract_session_data(ConnectionsToMove),
     Reply = #{
         success => true,
@@ -382,6 +394,7 @@ build_pending_metadata(
         region_id => maps:get(region_id, TokenData, undefined),
         server_id => maps:get(server_id, TokenData, undefined),
         token_nonce => TokenNonce,
+        moved => true,
         created_at => Now,
         expires_at => Now + ?MOVE_PENDING_TTL_MS
     }.

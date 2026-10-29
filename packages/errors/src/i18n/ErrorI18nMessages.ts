@@ -1,10 +1,31 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 export const ERROR_I18N_MESSAGES = {
+	'account.already_claimed': 'This account is already set up to sign in from other devices.',
+	'account.below_minimum_age': "You aren't old enough to have an account here.",
+	'account.date_of_birth_already_set': 'Your date of birth is already set.',
+	'account.date_of_birth_required': 'Enter your date of birth to continue.',
+	'account.password_required_to_claim':
+		"{reason, select, email_delivery_off {Set a password to keep this account. This instance can't send email codes.} local_credential_basis {Set a password to keep this account. This instance asks every account for a password or passkey.} other {Set a password to keep this account.}}",
+	'account.unclaimed_cannot_accept_friend_requests': 'Claim your account to accept friend requests.',
+	'account.unclaimed_cannot_add_reactions': 'Claim your account to add reactions.',
+	'account.unclaimed_cannot_create_applications': 'Claim your account to create applications.',
+	'account.unclaimed_cannot_join_calls': 'Claim your account to start or join calls.',
+	'account.unclaimed_cannot_join_group_dms': 'Claim your account to join group chats.',
+	'account.unclaimed_cannot_join_voice': 'Claim your account to join voice channels.',
+	'account.unclaimed_cannot_make_purchases': 'Claim your account to make purchases.',
+	'account.unclaimed_cannot_send_direct_messages': 'Claim your account to send direct messages.',
+	'account.unclaimed_cannot_send_friend_requests': 'Claim your account to send friend requests.',
+	'account.unclaimed_cannot_send_messages': 'Claim your account to send messages.',
+	'account.use_claim_route': 'Add an email address to your account first.',
+	'account.verification_required':
+		'{need, select, add_email {{action, select, message {Add an email to your account to send messages.} typing {Add an email to your account to send messages.} reaction {Add an email to your account to add reactions.} direct_message {Add an email to your account to send direct messages.} direct_message_open {Add an email to your account to start direct messages.} group_dm {Add an email to your account to join group chats.} friend_request {Add an email to your account to send friend requests.} friend_accept {Add an email to your account to accept friend requests.} invite_create {Add an email to your account to create invites.} guild_join {Add an email to your account to join this community.} guild_create {Add an email to your account to create a community.} voice {Add an email to your account to join voice channels.} call {Add an email to your account to start calls.} group_call {Add an email to your account to join group calls.} thread_join {Add an email to your account to join threads.} channel_follow {Add an email to your account to follow channels.} ownership_transfer {This person needs to add an email to their account before they can own a community.} application_create {Add an email to your account to create applications.} gift_redeem {Add an email to your account to redeem gifts.} profile_customize {Add an email to your account to change your profile.} report {Add an email to your account to submit reports.} mfa {Add an email to your account to turn on two-factor authentication.} guild_verification {Add an email to your account to talk in this community.} other {Add an email to your account to do this.}}} confirm_email {{action, select, message {Confirm your email to send messages.} typing {Confirm your email to send messages.} reaction {Confirm your email to add reactions.} direct_message {Confirm your email to send direct messages.} direct_message_open {Confirm your email to start direct messages.} group_dm {Confirm your email to join group chats.} friend_request {Confirm your email to send friend requests.} friend_accept {Confirm your email to accept friend requests.} invite_create {Confirm your email to create invites.} guild_join {Confirm your email to join this community.} guild_create {Confirm your email to create a community.} voice {Confirm your email to join voice channels.} call {Confirm your email to start calls.} group_call {Confirm your email to join group calls.} thread_join {Confirm your email to join threads.} channel_follow {Confirm your email to follow channels.} ownership_transfer {This person needs to confirm their email before they can own a community.} application_create {Confirm your email to create applications.} gift_redeem {Confirm your email to redeem gifts.} profile_customize {Confirm your email to change your profile.} report {Confirm your email to submit reports.} mfa {Confirm your email to turn on two-factor authentication.} guild_verification {Confirm your email to talk in this community.} other {Confirm your email to do this.}}} password {{action, select, message {Set a password to send messages.} typing {Set a password to send messages.} reaction {Set a password to add reactions.} direct_message {Set a password to send direct messages.} direct_message_open {Set a password to start direct messages.} group_dm {Set a password to join group chats.} friend_request {Set a password to send friend requests.} friend_accept {Set a password to accept friend requests.} invite_create {Set a password to create invites.} guild_join {Set a password to join this community.} guild_create {Set a password to create a community.} voice {Set a password to join voice channels.} call {Set a password to start calls.} group_call {Set a password to join group calls.} thread_join {Set a password to join threads.} channel_follow {Set a password to follow channels.} ownership_transfer {This person needs to set a password before they can own a community.} application_create {Set a password to create applications.} gift_redeem {Set a password to redeem gifts.} profile_customize {Set a password to change your profile.} report {Set a password to submit reports.} mfa {Set a password to turn on two-factor authentication.} guild_verification {Set a password to talk in this community.} other {Set a password to do this.}}} other {{action, select, message {Claim your account to send messages.} typing {Claim your account to send messages.} reaction {Claim your account to add reactions.} direct_message {Claim your account to send direct messages.} direct_message_open {Claim your account to start direct messages.} group_dm {Claim your account to join group chats.} friend_request {Claim your account to send friend requests.} friend_accept {Claim your account to accept friend requests.} invite_create {Claim your account to create invites.} guild_join {Claim your account to join this community.} guild_create {Claim your account to create a community.} voice {Claim your account to join voice channels.} call {Claim your account to start calls.} group_call {Claim your account to join group calls.} thread_join {Claim your account to join threads.} channel_follow {Claim your account to follow channels.} ownership_transfer {This person needs to claim their account before they can own a community.} application_create {Claim your account to create applications.} gift_redeem {Claim your account to redeem gifts.} profile_customize {Claim your account to change your profile.} report {Claim your account to submit reports.} mfa {Claim your account to turn on two-factor authentication.} guild_verification {Claim your account to talk in this community.} other {Claim your account to do this.}}}}',
 	'account.communication_disabled': 'Communication is disabled.',
 	'account.email_verification_required': 'Email verification is required for this action.',
-	'account.guild_verification_required': 'Community verification is required.',
+	'account.guild_verification_required':
+		"{reason, select, membership_age {You can talk here once you've been a member for 10 minutes.} other {Claim your account to talk in this community.}}",
 	'account.ip_authorization_required': 'IP authorization is required.',
+	'account.mfa_email_verification_required': 'Confirm your email address to use two-factor authentication or passkeys.',
 	'account.limited': 'Messaging is paused on your account. Check your email for a quick step to continue.',
 	'account.sensitive_content_filter_age_restricted':
 		"This sensitive content filter isn't available for your age group.",
@@ -12,10 +33,19 @@ export const ERROR_I18N_MESSAGES = {
 	'account.session_token_mismatch': 'Session token mismatch.',
 	'account.suspended_permanently': 'This account has been permanently suspended.',
 	'account.suspended_temporarily': 'This account has been temporarily suspended.',
+	'account.synced_preferences_conflict': 'Your preferences changed on another device. Try again.',
 	'account.too_new_for_guild': 'Your account is too new to send messages in this community.',
 	'account.trusted_domains_wildcard_conflict': "The wildcard (*) can't be combined with specific domains.",
 	'account.unauthorized': 'Unauthorized.',
 	'admin_and_system.acls_must_be_non_empty': 'ACLs must be non-empty.',
+	'admin_and_system.captcha_required_by_instant_accounts': 'Turn off instant accounts before turning off the captcha.',
+	'admin_and_system.identifier_first_requires_email_identity':
+		'Email-first sign-in only works when people sign in with an email.',
+	'admin_and_system.email_delivery_requires_email_identity':
+		'Email delivery only works when people sign in with an email.',
+	'admin_and_system.verification_basis_requires_email_delivery':
+		'Accounts can only be verified by a confirmed email while email delivery is on.',
+	'admin_and_system.instant_accounts_require_captcha': 'Turn on the captcha before allowing instant accounts.',
 	'admin_and_system.instance_policy_transition_not_allowed': 'This instance policy change is not allowed.',
 	'admin_and_system.admin_api_key_not_found': "Admin API key wasn't found.",
 	'admin_and_system.deletion_failed': "We couldn't delete the resource. Please try again.",
@@ -62,6 +92,7 @@ export const ERROR_I18N_MESSAGES = {
 		'This flag is part of a restriction. Change it through the suspension, deletion or feature limit routes.',
 	'admin_and_system.general_error': 'Something went wrong. Please try again later.',
 	'admin_and_system.invalid_acls_format': 'Invalid ACL format.',
+	'admin_and_system.invalid_allowed_domain': '"{domain}" isn\'t a valid domain.',
 	'admin_and_system.invalid_api_origin': 'Invalid API origin.',
 	'admin_and_system.invalid_audit_log_reason': 'Invalid audit log reason.',
 	'admin_and_system.invalid_bot_flag': 'Invalid bot flag.',
@@ -81,11 +112,11 @@ export const ERROR_I18N_MESSAGES = {
 	'admin_and_system.processing_failed': "We couldn't process the request. Please try again.",
 	'admin_and_system.response_validation_failed': 'Response validation failed: {errors}.',
 	'admin_and_system.resource_locked': 'This resource is being modified. Please try again shortly.',
+	'admin_and_system.smtp_host_required': 'Enter an SMTP server before turning on email delivery.',
 	'admin_and_system.test_harness_disabled': 'Test harness is disabled.',
 	'admin_and_system.test_harness_forbidden': 'Test harness is forbidden.',
 	'admin_and_system.update_failed': "We couldn't update the resource. Please try again.",
 	'admin_and_system.user_must_be_bot_for_system_user': 'User must be a bot to be marked as a system user.',
-	'age_verification.already_verified': "You've already completed age verification.",
 	'attachments_and_uploads.attachment_must_be_image':
 		'Attachment "{filename}" must be an image file (png, jpg, jpeg, webp, or gif).',
 	'attachments_and_uploads.attachment_not_found_in_message':
@@ -132,6 +163,9 @@ export const ERROR_I18N_MESSAGES = {
 	'auth_and_oauth.failed_to_fetch_sso_user_info': "We couldn't fetch your SSO user info. Please try again.",
 	'auth_and_oauth.failed_to_parse_sso_user_info':
 		"We couldn't read the response from your SSO provider. Please try again.",
+	'auth_and_oauth.handoff_attempts_exceeded':
+		'Too many sign-in attempts from your network. Try again in {minutes, plural, one {# minute} other {# minutes}}.',
+	'auth_and_oauth.handoff_code_already_used': 'This code was already used. Start a new sign-in from the app.',
 	'auth_and_oauth.handoff_code_expired': 'Handoff code expired.',
 	'auth_and_oauth.handoff_code_invalid': 'Invalid handoff code.',
 	'auth_and_oauth.invalid_code': 'Invalid code.',
@@ -148,14 +182,23 @@ export const ERROR_I18N_MESSAGES = {
 	'auth_and_oauth.origin_handoff_nonce_invalid': "This sign-in transfer doesn't match the one you started.",
 	'auth_and_oauth.passkey_bridge_nonce_invalid': 'This passkey request could not be confirmed. Try again.',
 	'auth_and_oauth.registration_closed': 'Registration is closed on this instance.',
+	'auth_and_oauth.registration_credential_required':
+		"Choose a password to sign up. This instance can't send email codes to confirm your address.",
 	'auth_and_oauth.registration_credentials_required':
 		'This instance reviews new accounts. Sign up from the sign-up page with a password so you can sign in once approved.',
 	'auth_and_oauth.registration_pending_approval': 'This registration is waiting for admin approval.',
 	'auth_and_oauth.registration_rejected': 'This registration request was rejected.',
 	'auth_and_oauth.registration_url_invalid': 'This registration link is invalid or has expired.',
+	'auth_and_oauth.sso_account_linked_to_another_identity':
+		'This account is already linked to a different SSO identity.',
+	'auth_and_oauth.sso_email_not_verified': 'Your SSO provider has not verified your email address.',
+	'auth_and_oauth.sso_identity_linked_to_another_account':
+		'This SSO identity is already linked to a different account.',
 	'auth_and_oauth.sso_identity_mismatch': 'SSO identity mismatch between id_token and userinfo.',
 	'auth_and_oauth.sso_misconfigured': 'SSO is misconfigured. Please contact your administrator.',
 	'auth_and_oauth.sso_provider_did_not_return_email': "Your SSO provider didn't return an email address.",
+	'auth_and_oauth.sso_required':
+		"{reason, select, managed_credentials {This instance requires single sign-on, so your SSO provider manages your email and password.} no_account {This instance only lets existing accounts sign in with SSO, and there's no account for you yet. Ask an admin of this instance for access.} managed_username {This instance requires single sign-on, so your username comes from your SSO provider.} other {This instance requires single sign-on. Sign in with the SSO button on the sign-in page.}}",
 	'auth_and_oauth.sso_test_code_missing_email': 'SSO test code is missing the email payload.',
 	'auth_and_oauth.sso_unable_to_allocate_discriminator':
 		"We couldn't allocate a discriminator for your SSO account. Please try again.",
@@ -164,6 +207,18 @@ export const ERROR_I18N_MESSAGES = {
 	'auth_and_oauth.unknown_origin_handoff': 'This sign-in transfer has expired or was already used.',
 	'auth_and_oauth.unknown_passkey_bridge': 'This passkey request has expired. Try again.',
 	'auth_and_oauth.unknown_passkey_migration': 'There is no passkey to update right now.',
+	'auth_and_registration.email_code_resend_cooldown': 'Wait a moment before asking for another code.',
+	'auth_and_registration.sudo_second_factor_required':
+		"Confirm it's you with your authenticator app, passkey or a backup code.",
+	'auth_and_registration.email_codes_unavailable': "This instance can't send email codes. Use your password instead.",
+	'auth_and_registration.password_sign_in_required': 'Sign in to this account with its password.',
+	'auth_and_registration.instant_accounts_disabled':
+		"Creating an account from just a display name isn't available right now.",
+	'auth_and_registration.invalid_account_handoff_nonce': "This sign-up link isn't valid.",
+	'auth_and_registration.invalid_sign_in_code': "That code isn't right. Check it and try again.",
+	'auth_and_registration.sign_in_code_expired': 'This code has expired. Ask for a new one.',
+	'auth_and_registration.unknown_account_handoff': 'This sign-up link has expired or was already used.',
+	'auth_and_registration.unknown_sign_in_ticket': 'This sign-in attempt has expired. Start again.',
 	'auth_and_registration.account_identity_locked': "The sign-in method is already set and can't be changed.",
 	'auth_and_registration.instance_address_required':
 		'This instance uses usernames. Enter the username you want followed by @{host}.',
@@ -218,6 +273,7 @@ export const ERROR_I18N_MESSAGES = {
 	'channels_and_guilds.follow_target_not_age_restricted':
 		'Updates from an age-restricted channel can only go to an age-restricted channel.',
 	'channels_and_guilds.invalid_follow_target_channel': 'Followed channels can only post into text channels.',
+	'channels_and_guilds.search_filter_needs_membership': 'Join this community to search by person or mention.',
 	'channels_and_guilds.single_community_cannot_create_guilds':
 		'This instance is a single community, so additional communities cannot be created.',
 	'channels_and_guilds.single_community_cannot_delete': 'The community for this instance cannot be deleted.',
@@ -238,7 +294,7 @@ export const ERROR_I18N_MESSAGES = {
 	'channels_and_guilds.channel_not_found': 'Channel not found.',
 	'channels_and_guilds.context_channel_or_guild_required': 'A context channel or community ID is required.',
 	'channels_and_guilds.discoverable_guild_verification_level_too_low':
-		'Discoverable communities must have a verification level of at least Low.',
+		'Communities listed in Explore must have a verification level of at least Low.',
 	'channels_and_guilds.group_dm_mature_content_ineligible':
 		'Not everyone in this group is eligible for mature content.',
 	'channels_and_guilds.group_dm_recipients_not_addable': "One or more selected users can't be added to this group DM.",
@@ -249,6 +305,9 @@ export const ERROR_I18N_MESSAGES = {
 	'channels_and_guilds.guild_id_must_match_referenced_message':
 		'Community ID must match the community containing the channel the referenced message was fetched from.',
 	'channels_and_guilds.guild_template_invalid': 'The community template data is invalid or malformed.',
+	'channels_and_guilds.guild_visit_age_restricted': 'This community is for adults only.',
+	'channels_and_guilds.guild_visit_not_found': "You're not previewing this community anymore.",
+	'channels_and_guilds.guild_visits_disabled': 'This community asks people to join before previewing it.',
 	'channels_and_guilds.invalid_channel_id': 'Invalid channel ID: {channelId}.',
 	'channels_and_guilds.invalid_channel_type': 'Invalid channel type.',
 	'channels_and_guilds.invalid_channel_type_for_call': 'Calls can only be made in direct messages or group DMs.',
@@ -278,8 +337,7 @@ export const ERROR_I18N_MESSAGES = {
 	'channels_and_guilds.system_channel_must_be_in_guild': 'System channel must be in this community.',
 	'channels_and_guilds.system_channel_must_be_text': 'System channel must be a text channel.',
 	'channels_and_guilds.temporary_invite_requires_presence': 'Temporary invite requires presence.',
-	'channels_and_guilds.unclaimed_account_cannot_create_guilds':
-		'You need to complete your account setup before you can create communities.',
+	'channels_and_guilds.unclaimed_account_cannot_create_guilds': 'Claim your account to create communities.',
 	'channels_and_guilds.vanity_url_requires_feature': 'Vanity URL requires VANITY_URL feature.',
 	'channels_and_guilds.voice_channel_full': 'Voice channel is full.',
 	'channels_and_guilds.voice_channels_cannot_be_above_text_channels':
@@ -299,26 +357,65 @@ export const ERROR_I18N_MESSAGES = {
 	'content_and_safety.content_blocked': 'This content was blocked by safety systems.',
 	'content_and_safety.explicit_content_cannot_be_sent': "Explicit content can't be sent.",
 	'content_and_safety.nsfw_age_restricted': 'NSFW content is age restricted.',
-	'discovery.already_applied': 'This community has already applied for Discovery.',
-	'discovery.application_already_reviewed': 'This Discovery application has already been reviewed.',
-	'discovery.application_not_found': "Discovery application wasn't found.",
-	'discovery.disabled': "Discovery isn't available on this instance.",
-	'discovery.insufficient_members': "This community doesn't meet the minimum member count for Discovery.",
-	'discovery.not_discoverable': "This community isn't listed in Discovery.",
+	'discovery.already_applied': 'This community has already applied to be listed in Explore.',
+	'discovery.application_already_reviewed': 'This application to Explore has already been reviewed.',
+	'discovery.application_not_found': "The application to Explore wasn't found.",
+	'discovery.disabled': "Explore isn't available on this instance.",
+	'discovery.insufficient_members': "This community doesn't have enough members to be listed in Explore.",
+	'discovery.not_discoverable': "This community isn't listed in Explore.",
 	'donation.amount_invalid': 'Donation amount is invalid.',
 	'donation.magic_link_expired': 'Magic link has expired.',
 	'donation.magic_link_invalid': 'Magic link is invalid.',
 	'donation.magic_link_used': 'Magic link has already been used.',
+	'operator_pass.offer_unavailable': 'This pass cannot be passed on to that account right now.',
+	'operator_pass.offer_busy': 'Another offer from your account is still being sent. Try again in a moment.',
+	'operator_pass.recipient_not_friend': 'You can only pass this on to one of your friends on Fluxer.',
+	'operator_pass.not_transferable':
+		'This pass cannot be passed on. A pass you received, or one that comes with Visionary, stays with you.',
+	'operator_pass.last_pass_confirmation_required':
+		"This is your only pass. Confirm that passing it on removes your badge and your name on the Operators' wall.",
+	'operator_pass.unknown_offer': 'Unknown Operator Pass offer.',
+	'operator_pass.unknown_pass': 'Unknown Operator Pass.',
+	'operator_pass.age_confirmation_required':
+		'To buy more than one pass, confirm that you are 18 or older, or that you have permission from a parent or guardian.',
+	'operator_pass.country_unavailable': 'You cannot buy the Operator Pass in your country right now.',
+	'operator_pass.waiver_required': 'Confirm that you want the Operator Pass delivered right away.',
+	'operator_pass.wall_name_required': "Enter a name for the Operators' wall, or choose not to be listed.",
+	'operator_pass.not_held': "This account doesn't have the Operator Pass.",
+	'operator_pass.unknown_wall_entry': "This account has no name on the Operators' wall.",
+	'operator_pass.release_already_published': 'This Operators list has already been published.',
+	'operator_pass.release_not_ready': 'This Operators list cannot be published before its cut-off date.',
+	'operator_pass.unknown_release_entry': 'This account is not in that published Operators list.',
+	'operator_pass.not_on_sale': 'You cannot buy the Operator Pass yet.',
+	'operator_pass.price_changed': 'The Operator Pass price has changed. Check the new price and try again.',
+	'operator_pass.waitlist_closed': 'The Operator Pass waitlist is closed because you can get the pass now.',
+	'operator_pass.waitlist_followup_invalid':
+		'Choose from the listed options. You can add your own answer only with "Other", in up to 500 characters.',
+	'operator_pass.waitlist_followup_token_invalid':
+		'This answer can no longer be saved. Your waitlist signup is not affected.',
+	'operator_pass.waitlist_token_expired': 'This waitlist link has expired.',
+	'operator_pass.waitlist_token_invalid': 'This waitlist link is invalid.',
+	'operator_pass.removal_limited_first':
+		'A permanent removal for a breach that is not serious needs an earlier removal for a limited time.',
+	'operator_pass.removal_notice_required':
+		'A permanent removal needs a notice sent at least 7 days earlier, unless the breach is serious.',
+	'operator_pass.removed': 'The Operator Pass was removed from this account, so it cannot be bought or redeemed again.',
+	'operator_pass.terms_not_accepted': 'Accept the Operator Pass terms to get this pass.',
+	'operator_pass.withdrawal_unavailable': 'This purchase can no longer be withdrawn from here.',
+	'operator_pass.unknown_purchase': 'Unknown Operator Pass purchase.',
 	'email.domain_cannot_receive_mail':
 		'That email domain cannot receive mail. Use an address on a domain that accepts email.',
+	'email.domain_not_allowed': 'This instance only accepts email addresses from certain domains.',
 	'email.email_already_in_use': 'Email is already in use.',
 	'email.email_required': 'Email is required.',
+	'email.email_delivery_off': "This instance doesn't send email. Create a password reset link instead.",
 	'email.email_service_not_testable': 'Email service is temporarily unavailable. Please try again later.',
 	'email.invalid_format': 'Invalid email address format.',
 	'email.invalid_or_expired_reset_token': 'Invalid or expired password reset token.',
 	'email.invalid_or_expired_revert_token': 'Invalid or expired revert token.',
 	'email.invalid_or_expired_verification_token': 'Invalid or expired verification token.',
-	'email.invalid_or_password': 'Invalid email or password.',
+	'email.invalid_or_password':
+		'Check your email and password. If you usually sign in with an email code, use Forgot password to set a password, or update the app.',
 	'email.invalid_token': 'Invalid email token.',
 	'email.invalid_verification_code': 'Invalid verification code.',
 	'email.length_invalid': 'Email address must be between {min} and {max} characters.',
@@ -344,9 +441,10 @@ export const ERROR_I18N_MESSAGES = {
 	'feature_flags.feature_not_available_self_hosted': "This feature isn't available on self-hosted instances.",
 	'feature_flags.feature_temporarily_disabled': 'This feature is temporarily disabled.',
 	'friends_and_dms.already_friends': "You're already friends with this user.",
-	'friends_and_dms.direct_messages_disabled': 'Direct messages and friend requests are disabled on this instance.',
+	'friends_and_dms.direct_messages_disabled': 'Direct messages are disabled on this instance.',
+	'friends_and_dms.friends_disabled': 'Friend requests are disabled on this instance.',
+	'friends_and_dms.personal_notes_disabled': 'Personal notes are turned off on this instance.',
 	'friends_and_dms.new_conversations_limited': "You can't start new conversations right now. Please try again later.",
-	'friends_and_dms.at_least_one_recipient_required': 'At least one recipient is required.',
 	'friends_and_dms.bots_cannot_send_friend_requests': "Bots can't send friend requests.",
 	'friends_and_dms.cannot_add_yourself_to_group_dm': "You can't add yourself to a group DM.",
 	'friends_and_dms.cannot_block_system_user': "You can't block the system user.",
@@ -358,8 +456,6 @@ export const ERROR_I18N_MESSAGES = {
 	'friends_and_dms.friend_request_blocked': 'User does not accept friend requests at this time.',
 	'friends_and_dms.not_friends': "You're not friends with this user.",
 	'friends_and_dms.recipient_ids_cannot_be_empty': "Recipient IDs can't be empty.",
-	'friends_and_dms.recipient_ids_must_be_strings': 'Recipient IDs must be strings.',
-	'friends_and_dms.recipient_ids_must_be_valid_snowflakes': 'Recipient IDs must be valid snowflakes.',
 	'harvest.expired': 'Your data export request has expired. Please request a new export.',
 	'harvest.failed': 'Your data export request failed. Please try again.',
 	'harvest.not_ready': 'Your data export is still being prepared. Please check back in a few moments.',
@@ -435,7 +531,7 @@ export const ERROR_I18N_MESSAGES = {
 	'mfa_and_passkeys.passkey_authentication_failed': 'Passkey authentication failed.',
 	'mfa_and_passkeys.totp_not_enabled':
 		"Two-factor authentication using an authenticator app isn't enabled for this account.",
-	'mfa_and_passkeys.two_factor_not_enabled': "Two-factor authentication isn't enabled.",
+	'mfa_and_passkeys.two_factor_already_enabled': 'Two-factor authentication is already enabled.',
 	'mfa_and_passkeys.two_factor_required': 'Two-factor authentication is required.',
 	'mfa_and_passkeys.unknown_webauthn_credential': 'Unknown WebAuthn credential.',
 	'mfa_and_passkeys.webauthn_credential_limit_reached':
@@ -447,6 +543,8 @@ export const ERROR_I18N_MESSAGES = {
 	'misc.invalid_snowflake': 'Invalid snowflake.',
 	'misc_limits.max_applications_reached':
 		"You've reached the maximum of {limit, plural, one {# application} other {# applications}}.",
+	'misc_limits.max_badges_reached':
+		"You've reached the maximum of {count, plural, one {# badge} other {# badges}} for this type.",
 	'misc_limits.max_bookmarks_reached':
 		"You've reached the maximum of {count, plural, one {# bookmark} other {# bookmarks}}.",
 	'misc_limits.max_category_channels_reached':
@@ -470,8 +568,7 @@ export const ERROR_I18N_MESSAGES = {
 	'moderation_and_reports.report_outcome_invalid':
 		'An actioned resolution needs an outcome other than no violation. A duplicate needs the report it repeats and takes no outcome. A no violation resolution takes no other outcome.',
 	'moderation_and_reports.report_under_legal_hold': "This report is under a legal hold and can't be deleted.",
-	'moderation_and_reports.unclaimed_account_cannot_submit_reports':
-		'You need to complete your account setup before you can submit reports.',
+	'moderation_and_reports.unclaimed_account_cannot_submit_reports': 'Claim your account to submit reports.',
 	'moderation_and_reports.unknown_enforcement_decision': 'Unknown enforcement decision.',
 	'moderation_and_reports.unknown_report': 'Unknown report.',
 	'moderation_and_reports.user_is_not_banned': "This user isn't banned.",
@@ -489,7 +586,7 @@ export const ERROR_I18N_MESSAGES = {
 	'permissions.user_owns_guilds': 'This user owns communities.',
 	'premium_and_plans.animated_avatars_require_premium': 'Animated avatars require Premium.',
 	'premium_and_plans.banners_require_premium': 'Banners require Premium.',
-	'premium_and_plans.cannot_redeem_plutonium_with_visionary': "You can't redeem {premium_tier_name} with Visionary.",
+	'premium_and_plans.cannot_redeem_plutonium_with_visionary': 'You already have lifetime {premium_tier_name}.',
 	'premium_and_plans.custom_emojis_outside_source_require_premium':
 		"You can't use custom emojis outside their source communities without Premium.",
 	'premium_and_plans.custom_stickers_in_dms_require_premium': "You can't use custom stickers in DMs without Premium.",
@@ -541,6 +638,9 @@ export const ERROR_I18N_MESSAGES = {
 	'store_billing.purchase_sandbox_not_entitled': 'Test purchases cannot be applied to this account.',
 	'store_billing.unavailable': 'In-app purchases are unavailable right now. Try again later.',
 	'store_billing.unknown_purchase': 'Unknown store purchase.',
+	'stripe.dispute_exempt': 'Our terms rule out any action on this payment dispute.',
+	'stripe.dispute_review_closed': 'This payment dispute has already closed.',
+	'stripe.dispute_warning_too_late': "The bank's deadline is too close to warn the account in time.",
 	'stripe.error':
 		'{supportEmail, select, null {Payment processing encountered an error. Please try again or contact the administrators of this instance.} other {Payment processing encountered an error. Please try again or contact support.}}',
 	'stripe.invalid_product_configuration': 'Invalid product configuration.',
@@ -554,6 +654,7 @@ export const ERROR_I18N_MESSAGES = {
 	'stripe.refund_outside_window': 'This purchase is outside the 3-day self-serve refund window.',
 	'stripe.subscription_already_canceling': 'Subscription is already set to cancel at period end.',
 	'stripe.subscription_not_canceling': "Subscription isn't set to cancel.",
+	'stripe.unknown_dispute_review': 'Unknown payment dispute review.',
 	'stripe.webhook_not_available': "Webhook processing isn't available.",
 	'stripe.webhook_signature_invalid': 'Stripe webhook signature is invalid.',
 	'stripe.webhook_signature_missing': 'Stripe webhook signature is missing.',
@@ -573,10 +674,11 @@ export const ERROR_I18N_MESSAGES = {
 	'threads.thread_archived': 'This thread is archived.',
 	'threads.thread_locked': 'This thread is locked.',
 	'tickets.ticket_already_completed': 'This ticket has already been completed.',
-	'tos_and_age.date_of_birth_format_invalid': 'Invalid date of birth format.',
-	'tos_and_age.must_agree_to_tos_and_privacy': 'You must agree to the Terms of service and Privacy policy.',
+	'tos_and_age.date_of_birth_format_invalid': 'Enter your real date of birth.',
+	'tos_and_age.must_agree_to_tos_and_privacy': 'You need to accept the terms of service to create an account.',
 	'tos_and_age.must_be_minimum_age':
 		'You must be at least {minAge, plural, one {# year} other {# years}} old to create an account.',
+	'unknown_entities.unknown_badge': "Badge wasn't found.",
 	'unknown_entities.unknown_channel': "Channel wasn't found.",
 	'unknown_entities.unknown_forum_tag': "Tag wasn't found.",
 	'unknown_entities.unknown_guild': "Community wasn't found.",
@@ -590,6 +692,7 @@ export const ERROR_I18N_MESSAGES = {
 	'urls.invalid_url_format': 'Invalid URL format.',
 	'urls.invalid_url_or_attachment_reference': 'Invalid URL format or attachment reference.',
 	'urls.url_length_invalid': 'URL must be between {min} and {max} characters.',
+	'urls.url_must_use_https': 'URL must start with https://.',
 	'urls.url_not_publicly_routable': 'URL must resolve to a publicly routable address.',
 	'usernames_and_tags.discriminator_invalid_format': 'Discriminator must be {min}–{max} digits.',
 	'usernames_and_tags.tag_style_requires_email_sign_in': 'Tags are only available when people sign in with email.',
@@ -605,7 +708,7 @@ export const ERROR_I18N_MESSAGES = {
 	'usernames_and_tags.too_many_users_with_username_try_different':
 		'There are too many users with this username. Try a different username.',
 	'usernames_and_tags.unclaimed_accounts_can_only_set_email_via_token':
-		'Unclaimed accounts can only set an email address using a token.',
+		'{need, select, add_email {Add an email to your account before changing your profile.} confirm_email {Confirm your email before changing your profile.} password {Set a password to keep this account before changing your profile.} other {Claim your account before changing your profile.}}',
 	'usernames_and_tags.username_already_taken': 'This username is already taken.',
 	'usernames_and_tags.username_invalid_characters':
 		'Username can only contain Latin letters (a-z, A-Z), numbers (0-9), and underscores (_).',

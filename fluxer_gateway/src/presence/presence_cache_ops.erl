@@ -6,7 +6,8 @@
 -export([
     handle_put/3,
     handle_delete/2,
-    get_local/2
+    get_local/2,
+    replicate_to_nodes/4
 ]).
 
 -export_type([state/0]).

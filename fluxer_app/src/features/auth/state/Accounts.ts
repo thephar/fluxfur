@@ -55,14 +55,14 @@ export class AccountReplacementOperationCapacityExceededError extends Error {
 	}
 }
 
-export class AccountSwitchTargetNotFoundError extends Error {
+class AccountSwitchTargetNotFoundError extends Error {
 	constructor(accountKey: string) {
 		super(`No stored account found for ${accountKey}`);
 		this.name = 'AccountSwitchTargetNotFoundError';
 	}
 }
 
-export class AccountSwitchUnavailableError extends Error {
+class AccountSwitchUnavailableError extends Error {
 	constructor(state: string) {
 		super(`Cannot switch from state: ${state}`);
 		this.name = 'AccountSwitchUnavailableError';
@@ -76,7 +76,7 @@ export class AccountReplacementRecoveryFailedError extends AggregateError {
 	}
 }
 
-export interface SwitchToNewAccountRequest {
+interface SwitchToNewAccountRequest {
 	readonly userId: string;
 	readonly token: string;
 	readonly userData?: UserData;
@@ -208,6 +208,10 @@ class Accounts {
 		await SessionManager.initialize();
 	}
 
+	async reorderAccounts(orderedAccountKeys: ReadonlyArray<string>): Promise<void> {
+		await SessionManager.reorderAccounts(orderedAccountKeys);
+	}
+
 	markAccountInvalid(accountKey: string, expectedToken?: string): void {
 		SessionManager.markAccountInvalid(accountKey, expectedToken);
 	}
@@ -292,7 +296,7 @@ class Accounts {
 			}
 			await this.runAccountReplacementActivation({
 				activate: (suspension) => SessionManager.loginWithinAccountActivation(loginRequest, suspension),
-				redirectPath,
+				redirectPath: redirectPath ?? Routes.ME,
 				targetAccountKey,
 			});
 		});
@@ -309,17 +313,23 @@ class Accounts {
 		});
 	}
 
-	async logout(): Promise<void> {
+	async logout({
+		redirectPath = Routes.LOGIN,
+		...options
+	}: {
+		notifyServer?: boolean;
+		redirectPath?: string;
+	} = {}): Promise<void> {
 		await this.runAccountReplacementExclusive(async () => {
 			const currentAccountKey = this.currentAccountKey;
 			await this.leaveActiveVoiceChannel(VoiceAccountExitReason.LOGOUT);
-			await SessionManager.logout();
+			await SessionManager.logout(options);
 			ResettableStates.prepareForAccountTransition('logout');
 			ExperimentAssignments.reset();
 			if (currentAccountKey !== null) {
 				AccountAccess.forgetAccount(currentAccountKey);
 			}
-			RouterUtils.replaceWith('/login');
+			RouterUtils.replaceWith(redirectPath);
 		});
 	}
 

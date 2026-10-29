@@ -282,27 +282,30 @@ export function useChangeAvatarAction({
 		[processAvatarFile, showAvatarUploadError],
 	);
 	const handleAvatarUpload = useCallback(() => {
-		const uploadHint = canUploadAnimatedAvatar
-			? formatImageUploadRecommendedHint(i18n, {
-					formats: ANIMATED_IMAGE_FORMATS,
-					maxSize: formatFileSize(i18n.locale, GlobalLimits.getAvatarMaxSize()),
-					recommendedSize: AVATAR_RECOMMENDED_SIZE_LABEL,
-				})
-			: shouldShowPremiumFeatures()
-				? formatImageUploadRecommendedHintWithNote(i18n, {
-						formats: STATIC_IMAGE_FORMATS,
-						maxSize: formatFileSize(i18n.locale, GlobalLimits.getAvatarMaxSize()),
-						recommendedSize: AVATAR_RECOMMENDED_SIZE_LABEL,
-						note: i18n._(ANIMATED_AVATARS_REQUIRE_PREMIUM_NOTE_DESCRIPTOR, {
-							animatedAvatarFormats: ANIMATED_AVATAR_FORMATS,
-							premiumProductName: getPremiumProductName(),
-						}),
-					})
-				: formatImageUploadRecommendedHint(i18n, {
-						formats: STATIC_IMAGE_FORMATS,
-						maxSize: formatFileSize(i18n.locale, GlobalLimits.getAvatarMaxSize()),
-						recommendedSize: AVATAR_RECOMMENDED_SIZE_LABEL,
-					});
+		let uploadHint: string;
+		if (canUploadAnimatedAvatar) {
+			uploadHint = formatImageUploadRecommendedHint(i18n, {
+				formats: ANIMATED_IMAGE_FORMATS,
+				maxSize: formatFileSize(i18n.locale, GlobalLimits.getAvatarMaxSize()),
+				recommendedSize: AVATAR_RECOMMENDED_SIZE_LABEL,
+			});
+		} else if (shouldShowPremiumFeatures()) {
+			uploadHint = formatImageUploadRecommendedHintWithNote(i18n, {
+				formats: STATIC_IMAGE_FORMATS,
+				maxSize: formatFileSize(i18n.locale, GlobalLimits.getAvatarMaxSize()),
+				recommendedSize: AVATAR_RECOMMENDED_SIZE_LABEL,
+				note: i18n._(ANIMATED_AVATARS_REQUIRE_PREMIUM_NOTE_DESCRIPTOR, {
+					animatedAvatarFormats: ANIMATED_AVATAR_FORMATS,
+					premiumProductName: getPremiumProductName(),
+				}),
+			});
+		} else {
+			uploadHint = formatImageUploadRecommendedHint(i18n, {
+				formats: STATIC_IMAGE_FORMATS,
+				maxSize: formatFileSize(i18n.locale, GlobalLimits.getAvatarMaxSize()),
+				recommendedSize: AVATAR_RECOMMENDED_SIZE_LABEL,
+			});
+		}
 		openAssetSourceModal({
 			title: i18n._(CHANGE_AVATAR_DESCRIPTOR),
 			uploadHint,

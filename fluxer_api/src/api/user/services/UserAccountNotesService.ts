@@ -3,7 +3,6 @@
 import type {UserID} from '@app/api/BrandedTypes';
 import type {UserRepository} from '@app/api/user/repositories/UserRepository';
 import type {UserAccountUpdatePropagator} from '@app/api/user/services/UserAccountUpdatePropagator';
-import {UnknownUserError} from '@fluxer/errors/src/domains/user/UnknownUserError';
 
 interface UserAccountNotesServiceDeps {
 	userAccountRepository: UserRepository;
@@ -29,8 +28,7 @@ export class UserAccountNotesService {
 
 	async setUserNote(params: {userId: UserID; targetId: UserID; note: string | null}): Promise<void> {
 		const {userId, targetId, note} = params;
-		const targetUser = await this.deps.userAccountRepository.findUnique(targetId);
-		if (!targetUser) throw new UnknownUserError();
+		await this.deps.userAccountRepository.findUniqueAssert(targetId);
 		if (note) {
 			await this.deps.userAccountRepository.upsertUserNote(userId, targetId, note);
 		} else {

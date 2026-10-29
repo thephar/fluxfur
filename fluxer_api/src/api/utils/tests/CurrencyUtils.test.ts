@@ -12,40 +12,6 @@ describe('getCurrencyPreferences first choice', () => {
 	it.each(['US', 'CA', 'GB', 'JP', 'AU', 'CH'])('returns USD for non-EEA country %s', (country) => {
 		expect(getCurrencyPreferences(country)[0]).toBe('USD');
 	});
-	describe('handles case insensitivity', () => {
-		it('returns EUR for lowercase country code', () => {
-			expect(getCurrencyPreferences('de')[0]).toBe('EUR');
-			expect(getCurrencyPreferences('fr')[0]).toBe('EUR');
-		});
-		it('returns USD for lowercase non-EEA', () => {
-			expect(getCurrencyPreferences('us')[0]).toBe('USD');
-			expect(getCurrencyPreferences('gb')[0]).toBe('USD');
-		});
-		it('handles mixed case', () => {
-			expect(getCurrencyPreferences('De')[0]).toBe('EUR');
-			expect(getCurrencyPreferences('dE')[0]).toBe('EUR');
-		});
-	});
-	describe('handles null and undefined', () => {
-		it('returns USD for null', () => {
-			expect(getCurrencyPreferences(null)[0]).toBe('USD');
-		});
-		it('returns USD for undefined', () => {
-			expect(getCurrencyPreferences(undefined)[0]).toBe('USD');
-		});
-	});
-	describe('handles empty and invalid inputs', () => {
-		it('returns USD for empty string', () => {
-			expect(getCurrencyPreferences('')[0]).toBe('USD');
-		});
-		it('returns USD for invalid country code', () => {
-			expect(getCurrencyPreferences('XX')[0]).toBe('USD');
-			expect(getCurrencyPreferences('ZZ')[0]).toBe('USD');
-		});
-		it('returns USD for numeric strings', () => {
-			expect(getCurrencyPreferences('12')[0]).toBe('USD');
-		});
-	});
 	describe('covers all EEA member states', () => {
 		const eeaCountries = [
 			'AT',

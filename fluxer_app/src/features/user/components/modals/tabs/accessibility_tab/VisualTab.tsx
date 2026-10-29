@@ -10,6 +10,7 @@ import type {RadioOption} from '@app/features/ui/radio_group/RadioGroup';
 import {RadioGroup} from '@app/features/ui/radio_group/RadioGroup';
 import {formatRoundedPercentage} from '@app/features/ui/utils/PercentageFormatting';
 import styles from '@app/features/user/components/modals/tabs/accessibility_tab/VisualTab.module.css';
+import {shouldShowDirectMessageSettings} from '@app/features/user/components/settings_utils/SettingsVisibility';
 import {DIM_STRIKETHROUGH_TEXT_DESCRIPTOR} from '@app/features/user/components/settings_utils/section_registry/SharedDescriptors';
 import {
 	ALWAYS_UNDERLINE_LINKS_DESCRIPTOR,
@@ -131,18 +132,20 @@ export const VisualTabContent: React.FC = observer(() => {
 				onChange={(value) => AccessibilityCommands.update({dimStrikethroughText: value})}
 				data-flx="user.accessibility-tab.visual-tab.visual-tab-content.switch.update--2"
 			/>
-			<SettingsTabSection
-				title={<Trans>DM message previews</Trans>}
-				data-flx="user.accessibility-tab.visual-tab.visual-tab-content.settings-tab-section--2"
-			>
-				<RadioGroup
-					options={dmMessagePreviewOptions(i18n)}
-					value={Accessibility.dmMessagePreviewMode}
-					onChange={(value) => AccessibilityCommands.update({dmMessagePreviewMode: value})}
-					aria-label={i18n._(DM_MESSAGE_PREVIEW_MODE_DESCRIPTOR)}
-					data-flx="user.accessibility-tab.visual-tab.visual-tab-content.radio-group.update"
-				/>
-			</SettingsTabSection>
+			{shouldShowDirectMessageSettings() && (
+				<SettingsTabSection
+					title={<Trans>DM message previews</Trans>}
+					data-flx="user.accessibility-tab.visual-tab.visual-tab-content.settings-tab-section--2"
+				>
+					<RadioGroup
+						options={dmMessagePreviewOptions(i18n)}
+						value={Accessibility.dmMessagePreviewMode}
+						onChange={(value) => AccessibilityCommands.update({dmMessagePreviewMode: value})}
+						aria-label={i18n._(DM_MESSAGE_PREVIEW_MODE_DESCRIPTOR)}
+						data-flx="user.accessibility-tab.visual-tab.visual-tab-content.radio-group.update"
+					/>
+				</SettingsTabSection>
+			)}
 		</>
 	);
 });

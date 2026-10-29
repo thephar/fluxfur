@@ -97,15 +97,13 @@ describe('StorageService with every bucket inside one real bucket', () => {
 		const service = storage(`https://${HOST}/${REAL_BUCKET}`, true);
 		await service.uploadObject({bucket: 'fluxer-uploads', key: 'upload 1', body: PDF});
 
-		await expect(
-			service.copyObjectWithMetadataStripping({
-				sourceBucket: 'fluxer-uploads',
-				sourceKey: 'upload 1',
-				destinationBucket: 'fluxer-cdn',
-				destinationKey: 'attachments/1/2/file.pdf',
-				contentType: 'application/pdf',
-			}),
-		).resolves.toBeNull();
+		await service.copyObject({
+			sourceBucket: 'fluxer-uploads',
+			sourceKey: 'upload 1',
+			destinationBucket: 'fluxer-cdn',
+			destinationKey: 'attachments/1/2/file.pdf',
+			newContentType: 'application/pdf',
+		});
 
 		expect(objects.get('fluxer-cdn/attachments/1/2/file.pdf')?.contentType).toBe('application/pdf');
 		await expect(service.readObject('fluxer-cdn', 'attachments/1/2/file.pdf')).resolves.toEqual(PDF);
@@ -141,15 +139,13 @@ describe.each(['NoSuchBucket', 'AccessDenied'])(
 			const service = storage(`https://${REAL_BUCKET}.${HOST}`, true);
 			await service.uploadObject({bucket: 'fluxer-uploads', key: 'upload 1', body: PDF});
 
-			await expect(
-				service.copyObjectWithMetadataStripping({
-					sourceBucket: 'fluxer-uploads',
-					sourceKey: 'upload 1',
-					destinationBucket: 'fluxer',
-					destinationKey: 'attachments/1/2/file.pdf',
-					contentType: 'application/pdf',
-				}),
-			).resolves.toBeNull();
+			await service.copyObject({
+				sourceBucket: 'fluxer-uploads',
+				sourceKey: 'upload 1',
+				destinationBucket: 'fluxer',
+				destinationKey: 'attachments/1/2/file.pdf',
+				newContentType: 'application/pdf',
+			});
 
 			expect(objects.get('fluxer/attachments/1/2/file.pdf')).toEqual({body: PDF, contentType: 'application/pdf'});
 		});

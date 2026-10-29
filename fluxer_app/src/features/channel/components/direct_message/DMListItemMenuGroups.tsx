@@ -74,8 +74,10 @@ import type {User} from '@app/features/user/models/User';
 import UserGuildSettings from '@app/features/user/state/UserGuildSettings';
 import UserSettings from '@app/features/user/state/UserSettings';
 import Users from '@app/features/user/state/Users';
+import {canPerform} from '@app/features/user/utils/AccountGates';
 import {hasActiveDirectCallWithUser} from '@app/features/voice/utils/PrivateCallMenuUtils';
 import {getMutedText} from '@app/lib/overlay/OverlayContextMenu';
+import {TierGatedActions} from '@fluxer/constants/src/AccountTierConstants';
 import {PublicUserFlags, RelationshipTypes} from '@fluxer/constants/src/UserConstants';
 import type {I18n} from '@lingui/core';
 import {msg} from '@lingui/core/macro';
@@ -456,7 +458,7 @@ export function buildMobileMenuGroups({
 					onClick: () => undefined,
 					disabled: true,
 				});
-			} else if (Users.currentUser?.verified !== false) {
+			} else if (canPerform(Users.currentUser, TierGatedActions.FRIEND_REQUEST).allowed) {
 				relationshipItems.push({
 					icon: (
 						<SendFriendRequestIcon
@@ -520,7 +522,7 @@ export function buildMobileMenuGroups({
 					});
 					break;
 				default:
-					if (Users.currentUser?.verified !== false) {
+					if (canPerform(Users.currentUser, TierGatedActions.FRIEND_REQUEST).allowed) {
 						relationshipItems.push({
 							icon: (
 								<SendFriendRequestIcon

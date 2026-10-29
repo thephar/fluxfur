@@ -41,19 +41,12 @@ export class GuildDataHelpers {
 	}
 
 	computeGuildChanges(
-		previousSnapshot: Record<string, unknown> | null,
-		guildOrSnapshot: Guild | Record<string, unknown> | null,
-		keys?: ReadonlySet<string>,
+		previousSnapshot: Record<string, unknown>,
+		guild: Guild,
+		keys: ReadonlySet<string>,
 	): GuildAuditLogChange {
-		const currentSnapshot = guildOrSnapshot
-			? 'id' in guildOrSnapshot
-				? serializeGuildForAudit(guildOrSnapshot as Guild)
-				: guildOrSnapshot
-			: null;
+		const currentSnapshot = serializeGuildForAudit(guild);
 		const changes = this.guildAuditLogService.computeChanges(previousSnapshot, currentSnapshot);
-		if (!keys) {
-			return changes;
-		}
 		return changes.filter((change) => keys.has(change.key));
 	}
 

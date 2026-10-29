@@ -48,7 +48,7 @@ dispatch_member_list_event(channel_update, EventData, _OldState, UpdatedState) -
 dispatch_member_list_event(channel_update_bulk, EventData, _OldState, UpdatedState) ->
     Channels = maps:get(<<"channels">>, EventData, []),
     lists:foldl(
-        fun(Channel, AccState) -> broadcast_channel_update(Channel, AccState) end,
+        fun broadcast_channel_update/2,
         UpdatedState,
         Channels
     );

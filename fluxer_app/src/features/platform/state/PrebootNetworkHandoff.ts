@@ -4,7 +4,7 @@ import {isDesktopLocalAppDocument} from '@app/features/platform/DesktopLocalAppR
 import {PREBOOT_NETWORK_HINT_STORAGE_KEY, writeRawStorageItem} from '@app/features/platform/state/PrebootMirror';
 import {waitForAbortablePromise} from '@app/features/platform/utils/AbortablePromise';
 
-export const PREBOOT_NETWORK_HINT_VERSION = 1;
+const PREBOOT_NETWORK_HINT_VERSION = 1;
 const PREBOOT_HANDOFF_MAX_AGE_MS = 60_000;
 const MAX_HINT_FIELD_LENGTH = 2048;
 

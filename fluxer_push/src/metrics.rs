@@ -2,7 +2,7 @@
 
 use crate::relay::reject::{REASON_COUNT, Reason};
 use crate::relay_consent::ConsentUpdate;
-use fluxer_common::metrics::{Histogram, now_ms, render_counter};
+use fluxer_common::metrics::{Histogram, now_ms, render_counter, render_gauge};
 use std::fmt::{self, Write as _};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -598,11 +598,6 @@ impl Default for Metrics {
     fn default() -> Self {
         Self::new()
     }
-}
-
-fn render_gauge(out: &mut String, name: &str, gauge: &AtomicU64) -> fmt::Result {
-    writeln!(out, "# TYPE {name} gauge")?;
-    writeln!(out, "{name} {}", gauge.load(ORDERING))
 }
 
 fn render_labelled_counter<const N: usize>(

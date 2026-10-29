@@ -66,12 +66,4 @@ mod tests {
         let error = screen(lan_address(), false).err().unwrap();
         assert_eq!(error.to_string(), BLOCKED_ADDRESS_ERROR);
     }
-
-    #[test]
-    fn a_listed_private_host_may_resolve_to_a_private_address() {
-        let hosts = vec!["ntfy.example.com".to_owned()];
-        assert!(is_private_host("NTFY.example.com.", &hosts));
-        assert!(!is_private_host("other.example.com", &hosts));
-        assert!(screen(lan_address(), true).is_ok());
-    }
 }

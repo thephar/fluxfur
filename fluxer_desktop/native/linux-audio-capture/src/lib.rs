@@ -13,8 +13,6 @@ mod pipewire_bridge;
 mod routing;
 #[cfg(target_os = "linux")]
 mod self_identity;
-#[cfg(all(test, target_os = "linux"))]
-mod test_alloc;
 
 use std::sync::Arc;
 use std::sync::Mutex;

@@ -61,16 +61,12 @@ viewable_channel_ids(UserId, Base, Channels, State) ->
         {#{}, [], #{}},
         Channels
     ),
-    lists:foldl(
-        fun(Id, Acc) ->
-            case maps:is_key(Id, ViewableParents) andalso is_category(Id, State) of
-                true -> Acc#{Id => true};
-                false -> Acc
-            end
-        end,
-        Viewable,
-        Undecided
-    ).
+    ViewableCategories =
+        #{
+            Id => true
+         || Id <- Undecided, maps:is_key(Id, ViewableParents) andalso is_category(Id, State)
+        },
+    maps:merge(Viewable, ViewableCategories).
 
 -spec classify_channel(
     map(),
@@ -81,21 +77,19 @@ viewable_channel_ids(UserId, Base, Channels, State) ->
     {#{channel_id() => true}, [channel_id()], map()}
 ) -> {#{channel_id() => true}, [channel_id()], map()}.
 classify_channel(Channel, UserId, Base, Virtual, State, {Viewable, Undecided, Parents} = Acc) ->
-    case channel_list_id(Channel) of
-        undefined ->
+    Id = channel_list_id(Channel),
+    case {Id, Id =/= undefined andalso base_has_view(Base, UserId, Id, State)} of
+        {undefined, _} ->
             Acc;
-        Id ->
-            case base_has_view(Base, UserId, Id, State) of
-                true ->
-                    Parent = snowflake_id:parse_maybe(
-                        maps:get(<<"parent_id">>, Channel, undefined)
-                    ),
-                    {Viewable#{Id => true}, Undecided, Parents#{Parent => true}};
-                false when is_map_key(Id, Virtual) ->
-                    {Viewable#{Id => true}, Undecided, Parents};
-                false ->
-                    {Viewable, [Id | Undecided], Parents}
-            end
+        {_, true} ->
+            Parent = snowflake_id:parse_maybe(
+                maps:get(<<"parent_id">>, Channel, undefined)
+            ),
+            {Viewable#{Id => true}, Undecided, Parents#{Parent => true}};
+        {_, false} when is_map_key(Id, Virtual) ->
+            {Viewable#{Id => true}, Undecided, Parents};
+        {_, false} ->
+            {Viewable, [Id | Undecided], Parents}
     end.
 
 -spec channel_list_id(map()) -> channel_id() | undefined.
@@ -206,7 +200,7 @@ max_role_position_for_id(RoleId, Roles, MaxPos) ->
         Role -> max(role_position(Role), MaxPos)
     end.
 
--spec find_member_by_user_id(user_id(), guild_state()) -> member() | undefined.
+-spec find_member_by_user_id(term(), guild_state()) -> member() | undefined.
 find_member_by_user_id(UserId, State) when is_integer(UserId) ->
     case guild_permissions_common:resolve_data_map(State) of
         undefined -> undefined;
@@ -328,30 +322,26 @@ is_category_with_viewable_child(UserId, ChannelId, Base, State) ->
     user_id(), channel_id(), guild_permissions:base_permissions(), guild_state()
 ) -> boolean().
 any_child_viewable(UserId, CategoryId, Base, State) ->
+    IsViewableChild = fun(Channel) ->
+        is_viewable_child(Channel, UserId, CategoryId, Base, State)
+    end,
     case guild_permissions_common:resolve_data_map(State) of
         undefined ->
             false;
         Data ->
             Channels = map_utils:ensure_list(maps:get(<<"channels">>, Data, [])),
-            lists:any(
-                fun(Channel) -> is_viewable_child(Channel, UserId, CategoryId, Base, State) end,
-                Channels
-            )
+            lists:any(IsViewableChild, Channels)
     end.
 
 -spec is_viewable_child(
     map(), user_id(), channel_id(), guild_permissions:base_permissions(), guild_state()
 ) -> boolean().
 is_viewable_child(Channel, UserId, CategoryId, Base, State) ->
-    case snowflake_id:parse_maybe(maps:get(<<"parent_id">>, Channel, undefined)) of
-        CategoryId ->
-            case channel_list_id(Channel) of
-                ChildId when is_integer(ChildId) -> base_has_view(Base, UserId, ChildId, State);
-                undefined -> false
-            end;
-        _ ->
-            false
-    end.
+    snowflake_id:parse_maybe(maps:get(<<"parent_id">>, Channel, undefined)) =:= CategoryId andalso
+        case channel_list_id(Channel) of
+            ChildId when is_integer(ChildId) -> base_has_view(Base, UserId, ChildId, State);
+            undefined -> false
+        end.
 
 -spec view_inputs(channel_id(), guild_state()) -> term().
 view_inputs(ChannelId, State) ->

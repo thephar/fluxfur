@@ -14,7 +14,7 @@ import type {
 	MediaProxyNsfwMode,
 } from '@app/api/infrastructure/IMediaService';
 import type {ISnowflakeService} from '@app/api/infrastructure/ISnowflakeService';
-import type {IStorageService, ProcessedStorageObjectMetadata} from '@app/api/infrastructure/IStorageService';
+import type {IStorageService} from '@app/api/infrastructure/IStorageService';
 import {hashFileSha256} from '@app/api/infrastructure/StorageObjectHelpers';
 import {Logger} from '@app/api/Logger';
 import type {Channel} from '@app/api/models/Channel';
@@ -60,8 +60,15 @@ interface ProcessedAttachment {
 	copyOperation: AttachmentCopyOperation;
 	hasVirusDetected: boolean;
 	applyFinalObjectMetadata: boolean;
-	sourceLocalPath: string | null;
 	sniffedContentType: string | null;
+}
+
+interface StoredAttachmentObject {
+	contentType: string;
+	contentLength: number;
+	contentHash: string;
+	width?: number;
+	height?: number;
 }
 
 export class AttachmentProcessingService {
@@ -87,46 +94,28 @@ export class AttachmentProcessingService {
 		hasVirusDetected: boolean;
 	}> {
 		validateAttachmentIds(params.attachments.map((a) => ({id: BigInt(a.id)})));
-		const retainedLocalPaths: Array<string> = [];
-		let results: Array<ProcessedAttachment>;
-		let copyResults: Array<ProcessedStorageObjectMetadata | null>;
-		let hasVirusDetected: boolean;
-		try {
-			results = await mapWithConcurrency(
-				params.attachments,
-				ATTACHMENT_PROCESSING_CONCURRENCY,
-				async (attachment, index) => {
-					const result = await this.processAttachment({
-						message: params.message,
-						attachment,
-						index,
-						uploadUserId: params.uploadUserId,
-						uploadChannelId: params.uploadChannelId,
-						channel: params.channel,
-						guild: params.guild,
-						member: params.member,
-						nsfwMode: params.nsfwMode,
-					});
-					if (result.sourceLocalPath !== null) retainedLocalPaths.push(result.sourceLocalPath);
-					return result;
-				},
-			);
-			hasVirusDetected = results.some((result) => result.hasVirusDetected);
-			copyResults = hasVirusDetected
-				? []
-				: await mapWithConcurrency(results, ATTACHMENT_PROCESSING_CONCURRENCY, (result) =>
-						this.storageService.copyObjectWithMetadataStripping({
-							sourceBucket: result.copyOperation.sourceBucket,
-							sourceKey: result.copyOperation.sourceKey,
-							destinationBucket: result.copyOperation.destinationBucket,
-							destinationKey: result.copyOperation.destinationKey,
-							contentType: result.copyOperation.newContentType,
-							...(result.sourceLocalPath ? {sourceLocalPath: result.sourceLocalPath} : {}),
-						}),
-					);
-		} finally {
-			await Promise.all(retainedLocalPaths.map((localPath) => fs.promises.unlink(localPath).catch(() => undefined)));
-		}
+		const results = await mapWithConcurrency(
+			params.attachments,
+			ATTACHMENT_PROCESSING_CONCURRENCY,
+			(attachment, index) =>
+				this.processAttachment({
+					message: params.message,
+					attachment,
+					index,
+					uploadUserId: params.uploadUserId,
+					uploadChannelId: params.uploadChannelId,
+					channel: params.channel,
+					guild: params.guild,
+					member: params.member,
+					nsfwMode: params.nsfwMode,
+				}),
+		);
+		const hasVirusDetected = results.some((result) => result.hasVirusDetected);
+		const copyResults = hasVirusDetected
+			? []
+			: await mapWithConcurrency(results, ATTACHMENT_PROCESSING_CONCURRENCY, (result) =>
+					this.storeAttachmentObject(result.copyOperation),
+				);
 		if (hasVirusDetected) {
 			for (const result of results) {
 				this.deleteUploadObject(result.copyOperation.sourceBucket, result.copyOperation.sourceKey);
@@ -265,8 +254,7 @@ export class AttachmentProcessingService {
 				nsfw = metadata.nsfw;
 			}
 		}
-		const needsLocalDownload =
-			this.virusScanService.enabled || metadata == null || isSupportedMediaContentType(contentType);
+		const needsLocalDownload = this.virusScanService.enabled || metadata == null;
 		let sourceLocalPath: string | null = null;
 		try {
 			if (needsLocalDownload) {
@@ -293,40 +281,37 @@ export class AttachmentProcessingService {
 				});
 			}
 			const scanResult = await this.scanMalware(sourceLocalPath);
+			const processedAttachment = {
+				attachment_id: attachmentId,
+				filename: attachment.filename,
+				size,
+				title: attachment.title ?? null,
+				description: attachment.description ?? null,
+				height,
+				width,
+				content_type: contentType,
+				content_hash: contentHash,
+				placeholder,
+				flags,
+				duration: duration ?? clientDuration,
+				nsfw,
+				waveform,
+			};
+			const copyOperation = {
+				sourceBucket: Config.s3.buckets.uploads,
+				sourceKey: attachment.upload_filename,
+				destinationBucket: Config.s3.buckets.cdn,
+				destinationKey: cdnKey,
+				newContentType: contentType,
+			};
 			if (scanResult.isVirusDetected) {
 				hasVirusDetected = true;
 				await this.storageService.deleteObject(Config.s3.buckets.uploads, attachment.upload_filename);
-				if (sourceLocalPath) {
-					await fs.promises.unlink(sourceLocalPath).catch(() => undefined);
-					sourceLocalPath = null;
-				}
 				return {
-					attachment: {
-						attachment_id: attachmentId,
-						filename: attachment.filename,
-						size,
-						title: attachment.title ?? null,
-						description: attachment.description ?? null,
-						height,
-						width,
-						content_type: contentType,
-						content_hash: contentHash,
-						placeholder,
-						flags,
-						duration: duration ?? clientDuration,
-						nsfw,
-						waveform,
-					},
-					copyOperation: {
-						sourceBucket: Config.s3.buckets.uploads,
-						sourceKey: attachment.upload_filename,
-						destinationBucket: Config.s3.buckets.cdn,
-						destinationKey: cdnKey,
-						newContentType: contentType,
-					},
+					attachment: processedAttachment,
+					copyOperation,
 					hasVirusDetected,
 					applyFinalObjectMetadata,
-					sourceLocalPath: null,
 					sniffedContentType,
 				};
 			}
@@ -337,42 +322,57 @@ export class AttachmentProcessingService {
 					ValidationErrorCodes.VOICE_MESSAGES_ATTACHMENT_MUST_BE_AUDIO,
 				);
 			}
-			const retainedLocalPath = sourceLocalPath;
-			sourceLocalPath = null;
 			return {
-				attachment: {
-					attachment_id: attachmentId,
-					filename: attachment.filename,
-					size,
-					title: attachment.title ?? null,
-					description: attachment.description ?? null,
-					height,
-					width,
-					content_type: contentType,
-					content_hash: contentHash,
-					placeholder,
-					flags,
-					duration: duration ?? clientDuration,
-					nsfw,
-					waveform,
-				},
-				copyOperation: {
-					sourceBucket: Config.s3.buckets.uploads,
-					sourceKey: attachment.upload_filename,
-					destinationBucket: Config.s3.buckets.cdn,
-					destinationKey: cdnKey,
-					newContentType: contentType,
-				},
+				attachment: processedAttachment,
+				copyOperation,
 				hasVirusDetected,
 				applyFinalObjectMetadata,
-				sourceLocalPath: retainedLocalPath,
 				sniffedContentType,
 			};
-		} catch (error) {
+		} finally {
 			if (sourceLocalPath) {
 				await fs.promises.unlink(sourceLocalPath).catch(() => undefined);
 			}
-			throw error;
+		}
+	}
+
+	private async storeAttachmentObject(operation: AttachmentCopyOperation): Promise<StoredAttachmentObject | null> {
+		const {sourceBucket, sourceKey, destinationBucket, destinationKey, newContentType} = operation;
+		const copyOriginal = () =>
+			this.storageService.copyObject({sourceBucket, sourceKey, destinationBucket, destinationKey, newContentType});
+		if (!isSupportedMediaContentType(newContentType)) {
+			await copyOriginal();
+			return null;
+		}
+		const strippedPath = temporaryFile();
+		try {
+			const stripped = await this.mediaService.stripObjectMetadata(
+				{bucket: sourceBucket, key: sourceKey},
+				newContentType,
+				strippedPath,
+			);
+			if (!stripped) {
+				Logger.error(
+					{contentType: newContentType, sourceBucket, sourceKey},
+					'Failed to strip attachment media metadata',
+				);
+				await copyOriginal();
+				return null;
+			}
+			const [contentHash, {size: contentLength}] = await Promise.all([
+				hashFileSha256(strippedPath),
+				fs.promises.stat(strippedPath),
+			]);
+			await this.storageService.uploadObjectFromFile({
+				bucket: destinationBucket,
+				key: destinationKey,
+				filePath: strippedPath,
+				contentType: stripped.contentType,
+				contentLength,
+			});
+			return {...stripped, contentLength, contentHash};
+		} finally {
+			await fs.promises.unlink(strippedPath).catch(() => undefined);
 		}
 	}
 

@@ -15,6 +15,43 @@ export interface VoiceAccessContext {
 
 const EMPTY_CONNECTION_COUNTS: ReadonlyMap<string, number> = new Map();
 
+function meetsVoiceRestrictions(restrictions: VoiceRegionRecord['restrictions'], context: VoiceAccessContext): boolean {
+	if (restrictions.allowedUserIds.size > 0 && !restrictions.allowedUserIds.has(context.requestingUserId)) {
+		return false;
+	}
+	const hasAllowedGuildIds = restrictions.allowedGuildIds.size > 0;
+	const hasRequiredGuildFeatures = restrictions.requiredGuildFeatures.size > 0;
+	const hasVipOnly = restrictions.vipOnly;
+	if (!hasAllowedGuildIds && !hasRequiredGuildFeatures && !hasVipOnly) {
+		return true;
+	}
+	if (!context.guildId) {
+		return false;
+	}
+	const isGuildAllowed = hasAllowedGuildIds && restrictions.allowedGuildIds.has(context.guildId);
+	if (isGuildAllowed) {
+		return true;
+	}
+	if (!hasRequiredGuildFeatures && !hasVipOnly) {
+		return !hasAllowedGuildIds;
+	}
+	if (!context.guildFeatures) {
+		return false;
+	}
+	if (hasVipOnly && !context.guildFeatures.has(GuildFeatures.VIP_VOICE)) {
+		return false;
+	}
+	if (hasRequiredGuildFeatures) {
+		for (const feature of restrictions.requiredGuildFeatures) {
+			if (context.guildFeatures.has(feature)) {
+				return true;
+			}
+		}
+		return false;
+	}
+	return true;
+}
+
 export class VoiceAvailabilityService {
 	private rotationIndex: Map<string, number> = new Map();
 
@@ -27,83 +64,12 @@ export class VoiceAvailabilityService {
 		return this.loadSource?.getConnectionCounts() ?? EMPTY_CONNECTION_COUNTS;
 	}
 
-	isRegionAccessible(region: VoiceRegionRecord, context: VoiceAccessContext): boolean {
-		const {restrictions} = region;
-		if (restrictions.allowedUserIds.size > 0 && !restrictions.allowedUserIds.has(context.requestingUserId)) {
-			return false;
-		}
-		const hasAllowedGuildIds = restrictions.allowedGuildIds.size > 0;
-		const hasRequiredGuildFeatures = restrictions.requiredGuildFeatures.size > 0;
-		const hasVipOnly = restrictions.vipOnly;
-		if (!hasAllowedGuildIds && !hasRequiredGuildFeatures && !hasVipOnly) {
-			return true;
-		}
-		if (!context.guildId) {
-			return false;
-		}
-		const isGuildAllowed = hasAllowedGuildIds && restrictions.allowedGuildIds.has(context.guildId);
-		if (isGuildAllowed) {
-			return true;
-		}
-		if (!hasRequiredGuildFeatures && !hasVipOnly) {
-			return !hasAllowedGuildIds;
-		}
-		if (!context.guildFeatures) {
-			return false;
-		}
-		if (hasVipOnly && !context.guildFeatures.has(GuildFeatures.VIP_VOICE)) {
-			return false;
-		}
-		if (hasRequiredGuildFeatures) {
-			for (const feature of restrictions.requiredGuildFeatures) {
-				if (context.guildFeatures.has(feature)) {
-					return true;
-				}
-			}
-			return false;
-		}
-		return true;
-	}
-
 	isServerAccessible(server: VoiceServerRecord, context: VoiceAccessContext): boolean {
 		const {restrictions} = server;
 		if (!server.isActive) {
 			return false;
 		}
-		if (restrictions.allowedUserIds.size > 0 && !restrictions.allowedUserIds.has(context.requestingUserId)) {
-			return false;
-		}
-		const hasAllowedGuildIds = restrictions.allowedGuildIds.size > 0;
-		const hasRequiredGuildFeatures = restrictions.requiredGuildFeatures.size > 0;
-		const hasVipOnly = restrictions.vipOnly;
-		if (!hasAllowedGuildIds && !hasRequiredGuildFeatures && !hasVipOnly) {
-			return true;
-		}
-		if (!context.guildId) {
-			return false;
-		}
-		const isGuildAllowed = hasAllowedGuildIds && restrictions.allowedGuildIds.has(context.guildId);
-		if (isGuildAllowed) {
-			return true;
-		}
-		if (!hasRequiredGuildFeatures && !hasVipOnly) {
-			return !hasAllowedGuildIds;
-		}
-		if (!context.guildFeatures) {
-			return false;
-		}
-		if (hasVipOnly && !context.guildFeatures.has(GuildFeatures.VIP_VOICE)) {
-			return false;
-		}
-		if (hasRequiredGuildFeatures) {
-			for (const feature of restrictions.requiredGuildFeatures) {
-				if (context.guildFeatures.has(feature)) {
-					return true;
-				}
-			}
-			return false;
-		}
-		return true;
+		return meetsVoiceRestrictions(restrictions, context);
 	}
 
 	getAvailableRegions(context: VoiceAccessContext): Array<VoiceRegionAvailability> {
@@ -111,7 +77,7 @@ export class VoiceAvailabilityService {
 		return regions.map<VoiceRegionAvailability>((region) => {
 			const servers = this.topology.getServersForRegion(region.id);
 			const accessibleServers = servers.filter((server) => this.isServerAccessible(server, context));
-			const regionAccessible = this.isRegionAccessible(region, context);
+			const regionAccessible = meetsVoiceRestrictions(region.restrictions, context);
 			return {
 				id: region.id,
 				name: region.name,

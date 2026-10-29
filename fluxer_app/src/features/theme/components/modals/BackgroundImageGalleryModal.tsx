@@ -42,8 +42,8 @@ import {Trans, useLingui} from '@lingui/react/macro';
 import type {IconProps} from '@phosphor-icons/react';
 import {
 	ArrowsClockwiseIcon,
+	AtomIcon,
 	CheckIcon,
-	CrownIcon,
 	EyeSlashIcon,
 	GifIcon,
 	PlusIcon,
@@ -286,6 +286,70 @@ const BackgroundItem: React.FC<BackgroundItemProps> = React.memo(
 		const handleRetry = useCallback(() => {
 			loadImage();
 		}, [loadImage]);
+		let customPreview: React.ReactNode = null;
+		if (isLoading) {
+			customPreview = (
+				<div
+					className={styles.loadingContainer}
+					data-flx="theme.background-image-gallery-modal.background-item.loading-container"
+				>
+					<div className={styles.spinner} data-flx="theme.background-image-gallery-modal.background-item.spinner" />
+				</div>
+			);
+		} else if (hasError) {
+			customPreview = (
+				<div
+					className={styles.errorContainer}
+					data-flx="theme.background-image-gallery-modal.background-item.error-container"
+				>
+					<WarningCircleIcon
+						size={remFromPx(24)}
+						weight="fill"
+						className={styles.errorIcon}
+						data-flx="theme.background-image-gallery-modal.background-item.error-icon"
+					/>
+					<div className={styles.errorText} data-flx="theme.background-image-gallery-modal.background-item.error-text">
+						<Trans>Failed to load</Trans>
+					</div>
+					<FocusRing offset={-2} data-flx="theme.background-image-gallery-modal.background-item.focus-ring">
+						<button
+							type="button"
+							onClick={(e) => {
+								e.stopPropagation();
+								handleRetry();
+							}}
+							className={styles.errorButton}
+							data-flx="theme.background-image-gallery-modal.background-item.error-button.stop-propagation"
+						>
+							{i18n._(TRY_AGAIN_DESCRIPTOR)}
+						</button>
+					</FocusRing>
+				</div>
+			);
+		} else if (isNearViewport && imageUrl && isVideo) {
+			customPreview = (
+				<video
+					ref={videoRef}
+					className={styles.backgroundImage}
+					muted
+					loop
+					playsInline
+					preload={shouldAnimate ? 'auto' : 'metadata'}
+					autoPlay={shouldAnimate}
+					src={imageUrl}
+					data-flx="theme.background-image-gallery-modal.background-item.background-video"
+				/>
+			);
+		} else if (isNearViewport && imageUrl) {
+			customPreview = (
+				<img
+					src={imageUrl}
+					alt={i18n._(BACKGROUND_DESCRIPTOR)}
+					className={styles.backgroundImage}
+					data-flx="theme.background-image-gallery-modal.background-item.background-image"
+				/>
+			);
+		}
 		return (
 			<div
 				ref={visibilityRef}
@@ -333,67 +397,7 @@ const BackgroundItem: React.FC<BackgroundItemProps> = React.memo(
 					</div>
 				) : (
 					<>
-						{isLoading ? (
-							<div
-								className={styles.loadingContainer}
-								data-flx="theme.background-image-gallery-modal.background-item.loading-container"
-							>
-								<div
-									className={styles.spinner}
-									data-flx="theme.background-image-gallery-modal.background-item.spinner"
-								/>
-							</div>
-						) : hasError ? (
-							<div
-								className={styles.errorContainer}
-								data-flx="theme.background-image-gallery-modal.background-item.error-container"
-							>
-								<WarningCircleIcon
-									size={remFromPx(24)}
-									weight="fill"
-									className={styles.errorIcon}
-									data-flx="theme.background-image-gallery-modal.background-item.error-icon"
-								/>
-								<div
-									className={styles.errorText}
-									data-flx="theme.background-image-gallery-modal.background-item.error-text"
-								>
-									<Trans>Failed to load</Trans>
-								</div>
-								<FocusRing offset={-2} data-flx="theme.background-image-gallery-modal.background-item.focus-ring">
-									<button
-										type="button"
-										onClick={(e) => {
-											e.stopPropagation();
-											handleRetry();
-										}}
-										className={styles.errorButton}
-										data-flx="theme.background-image-gallery-modal.background-item.error-button.stop-propagation"
-									>
-										{i18n._(TRY_AGAIN_DESCRIPTOR)}
-									</button>
-								</FocusRing>
-							</div>
-						) : isNearViewport && imageUrl && isVideo ? (
-							<video
-								ref={videoRef}
-								className={styles.backgroundImage}
-								muted
-								loop
-								playsInline
-								preload={shouldAnimate ? 'auto' : 'metadata'}
-								autoPlay={shouldAnimate}
-								src={imageUrl}
-								data-flx="theme.background-image-gallery-modal.background-item.background-video"
-							/>
-						) : isNearViewport && imageUrl ? (
-							<img
-								src={imageUrl}
-								alt={i18n._(BACKGROUND_DESCRIPTOR)}
-								className={styles.backgroundImage}
-								data-flx="theme.background-image-gallery-modal.background-item.background-image"
-							/>
-						) : null}
+						{customPreview}
 						<div
 							className={styles.imageOverlay}
 							data-flx="theme.background-image-gallery-modal.background-item.image-overlay"
@@ -989,7 +993,7 @@ const BackgroundImageGalleryModal: React.FC = observer(() => {
 						{maxBackgroundImages === 1 && shouldShowPremiumFeatures() && (
 							<div className={styles.premiumUpsell} data-flx="theme.background-image-gallery-modal.premium-upsell">
 								<div className={styles.premiumHeader} data-flx="theme.background-image-gallery-modal.premium-header">
-									<CrownIcon
+									<AtomIcon
 										weight="fill"
 										size={remFromPx(18)}
 										className={styles.premiumIcon}
