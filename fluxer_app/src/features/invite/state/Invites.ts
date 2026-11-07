@@ -135,7 +135,7 @@ class Invites {
 			this.handleInviteDelete(invite.code, target);
 			return;
 		}
-		const wait = remaining > SETTIMEOUT_LIMIT_MS ? SETTIMEOUT_LIMIT_MS : remaining;
+		const wait = Math.min(remaining, SETTIMEOUT_LIMIT_MS);
 		const handle = setTimeout(() => {
 			runInAction(() => {
 				this.armTimer(invite, target);
@@ -173,6 +173,14 @@ class Invites {
 		this.channelFetchStatus = new Map();
 		this.guildInviteCache = new Map();
 		this.guildFetchStatus = new Map();
+	}
+
+	dropFailedInviteSlots(): void {
+		const next = new Map(this.inviteSlots);
+		for (const [resourceKey, slot] of this.inviteSlots) {
+			if (slot.error != null) next.delete(resourceKey);
+		}
+		if (next.size !== this.inviteSlots.size) this.inviteSlots = next;
 	}
 
 	fetchInvite = action(async (code: string, target: InstanceHTTPTarget): Promise<Invite> => {
@@ -304,6 +312,10 @@ class Invites {
 
 const invites = new Invites();
 
-AccountScopedWork.registerCancellation(() => invites.reset());
+AccountScopedWork.registerTransition({
+	suspend: () => invites.reset(),
+	resume: () => {},
+	released: () => invites.dropFailedInviteSlots(),
+});
 
 export default invites;

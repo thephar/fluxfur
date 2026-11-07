@@ -42,7 +42,7 @@ helm install fluxer ./fluxer/deploy/helm/fluxer \
   -f fluxer-values.yaml --wait --timeout 15m
 ```
 
-Keep `fluxer-values.yaml` for upgrades. When the install is done, `helm test fluxer -n fluxer` checks that the instance answers for your domain.
+Keep `fluxer-values.yaml` for upgrades. When the install is done, `helm test fluxer -n fluxer` checks that the instance responds on your domain.
 
 Open your domain in a browser to create your admin account. The setup page asks for the setup token in the `fluxer-env` Secret.
 
@@ -66,8 +66,10 @@ The chart's `values.yaml` explains every value. These are the ones most installs
 | `email` | The contact address for Let's Encrypt and web push |
 | `edge.expose` | `ingress`, `gateway`, `loadBalancer` or `none` for a proxy of your own |
 | `livekit.expose` | `hostNetwork` (the default, needs a privileged namespace), `loadBalancer` or `nodePort` |
-| `env` | Fluxer settings as `NAME: value` |
+| `env` | Fluxer settings as `NAME: value`, listed on [Environment variables](/operator/environment/) |
 | `secrets.extra` | Settings that have a password or a key |
+
+To relay calls through a TURN server when people can't connect to LiveKit directly, add it to `livekit.extraConfig`, as [Voice behind a tunnel](/operator/reverse-proxy/#voice-behind-a-tunnel) shows.
 
 Under Argo CD or `helm template`, set `secrets.generate: false` and give every key in `secrets.values`, or put a Secret you manage in `secrets.existingSecret`.
 
@@ -87,6 +89,39 @@ To use a service you already run, turn off the bundled one and say where yours i
 The Postgres database and role, and the S3 buckets in `s3.buckets`, must exist before you install. Put passwords and keys in `secrets.values` under the key `values.yaml` gives for each service.
 
 Point your LiveKit server's webhook at `https://<your domain>/api/webhooks/livekit`, signed with the key in `FLUXER_LIVEKIT_API_KEY`.
+
+Give every LiveKit server of an instance its own API key. Fluxer finds the server that sent a webhook by its key. To add more voice servers, create a join token in the admin panel and run [`rexctl voice join`](/operator/voice-servers/#on-another-machine) on another machine, or follow [Run a voice server with Docker Compose](/operator/voice-compose/). Joining talks only to your instance's public API, and it works with the Helm chart too.
+
+Joined servers work next to the chart's LiveKit and next to a LiveKit of your own in `livekit.external.url`. To run with only joined servers and no LiveKit of the chart's, set `livekit.enabled: false` and `livekit.joined: true`. Voice stays on, the default region starts with no server in it and calls go to the servers you join. `livekit.enabled: false` without `livekit.external.url` or `livekit.joined` turns voice off.
+
+## Trust your own CA
+
+When your email server or another service the api calls has a certificate from your own CA, mount that CA's PEM file into the api and worker and set `NODE_EXTRA_CA_CERTS` to its path. This example reads `ca.pem` from a ConfigMap called `smtp-ca`.
+
+```yaml
+api:
+  env:
+    NODE_EXTRA_CA_CERTS: /etc/fluxer/ca/ca.pem
+  extraVolumes:
+    - name: smtp-ca
+      configMap:
+        name: smtp-ca
+  extraVolumeMounts:
+    - name: smtp-ca
+      mountPath: /etc/fluxer/ca
+      readOnly: true
+worker:
+  env:
+    NODE_EXTRA_CA_CERTS: /etc/fluxer/ca/ca.pem
+  extraVolumes:
+    - name: smtp-ca
+      configMap:
+        name: smtp-ca
+  extraVolumeMounts:
+    - name: smtp-ca
+      mountPath: /etc/fluxer/ca
+      readOnly: true
+```
 
 ## Upgrade
 

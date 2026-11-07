@@ -3,6 +3,7 @@
 import {ME} from '@fluxer/constants/src/AppConstants';
 
 export const Endpoints = {
+	INSTANCE_BADGES: '/instance/badges',
 	INSTANCE_SETUP_ACCOUNT_IDENTITY: '/instance/setup/account-identity',
 	INSTANCE_SETUP_TOKEN_CHECKS: '/instance/setup/token-checks',
 	ATTACHMENTS_REFRESH_URLS: '/attachments/refresh-urls',
@@ -157,8 +158,11 @@ export const Endpoints = {
 	PREMIUM_SWITCH_TO_LIST_PRICE: '/premium/switch-to-list-price',
 	PREMIUM_GRACE_END: '/premium/grace/end',
 	PREMIUM_REFUND_LATEST: '/premium/refund-latest',
+	PREMIUM_WITHDRAWALS: '/premium/withdrawals',
+	PREMIUM_WITHDRAW: (purchaseId: string) => `/premium/withdrawals/${encodeURIComponent(purchaseId)}`,
 	STRIPE_CHECKOUT_SUBSCRIPTION: '/stripe/checkout/subscription',
 	STRIPE_CHECKOUT_GIFT: '/stripe/checkout/gift',
+	BILLING_DOCUMENT_PDF: (documentId: string) => `/users/@me/billing/documents/${encodeURIComponent(documentId)}/pdf`,
 	OPERATOR_PASS_STATE: '/operator-pass/state',
 	OPERATOR_PASS_CHECKOUT: '/operator-pass/checkout',
 	OPERATOR_PASS_PURCHASES: '/operator-pass/purchases',
@@ -166,8 +170,14 @@ export const Endpoints = {
 	OPERATOR_PASS_PURCHASE_WITHDRAW: (purchaseId: string) =>
 		`/operator-pass/purchases/${encodeURIComponent(purchaseId)}/withdraw`,
 	OPERATOR_PASS_PASSES: '/operator-pass/passes',
+	OPERATOR_PASS_LABS_GREETING: '/operator-pass/labs-greeting',
+	OPERATOR_PASS_LABS_OPERATORS: '/operator-pass/labs-operators',
+	OPERATOR_PASS_LABS_JOIN: '/operator-pass/labs/join',
+	OPERATOR_PASS_VISIONARY_TURN_ON: '/operator-pass/visionary/turn-on',
 	OPERATOR_PASS_PASS_OFFERS: (passId: string) => `/operator-pass/passes/${encodeURIComponent(passId)}/offers`,
 	OPERATOR_PASS_PASS_WITHDRAW: (passId: string) => `/operator-pass/passes/${encodeURIComponent(passId)}/withdraw`,
+	OPERATOR_PASS_CERTIFICATE_LINK_RESET: (passId: string) =>
+		`/operator-pass/passes/${encodeURIComponent(passId)}/certificate-link/reset`,
 	OPERATOR_PASS_OFFER: (offerId: string) => `/operator-pass/offers/${encodeURIComponent(offerId)}`,
 	OPERATOR_PASS_OFFER_ACCEPT: (offerId: string) => `/operator-pass/offers/${encodeURIComponent(offerId)}/accept`,
 	OPERATOR_PASS_OFFER_DECLINE: (offerId: string) => `/operator-pass/offers/${encodeURIComponent(offerId)}/decline`,
@@ -191,6 +201,7 @@ export const Endpoints = {
 	USER_ME: '/users/@me',
 	USER_TERMS_ACCEPTANCE: '/users/@me/terms-acceptance',
 	USER_DATE_OF_BIRTH: '/users/@me/date-of-birth',
+	USER_AGE_RANGE: '/users/@me/age-range',
 	USER_CLAIM: '/users/@me/claim',
 	USER_EMAIL_VERIFICATION_SEND: '/users/@me/email-verification/send',
 	USER_EMAIL_VERIFICATION_CONFIRM: '/users/@me/email-verification/confirm',
@@ -231,6 +242,7 @@ export const Endpoints = {
 	USER_PASSWORD_CHANGE_COMPLETE: '/users/@me/password-change/complete',
 	USER_PASSWORD: '/users/@me/password',
 	USER_RECOVERY_KIT: '/users/@me/recovery-kit',
+	USER_SSO_LINK_START: '/users/@me/sso/link/start',
 	USER_DISABLE: '/users/@me/disable',
 	USER_DELETE: '/users/@me/delete',
 	USER_BULK_DELETE_MY_MESSAGES: '/users/@me/messages/bulk-delete-mine',

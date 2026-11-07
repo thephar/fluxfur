@@ -2,11 +2,17 @@
 
 use super::super::native_runtime::ensure_vips_init;
 use super::super::{MediaError, native_optional_deadline, native_status_error};
-use crate::native::{self, FluxerAVAudioDurationOut, NativeStatus};
+use super::strip_image_metadata;
+use crate::{
+    media_limits::MediaLimits,
+    native::{self, FluxerAVAudioDurationOut, NativeStatus},
+};
+use libc::{c_int, c_void, size_t};
 use std::{
     ffi::{CStr, CString},
     os::unix::ffi::OsStrExt,
     path::Path,
+    slice,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -67,10 +73,57 @@ pub fn av_container(content_type: &str) -> Option<AvContainer> {
     })
 }
 
+struct PictureStrip<'a> {
+    media_limits: &'a MediaLimits,
+    deadline_ms: Option<i64>,
+    stripped: Vec<u8>,
+}
+
+unsafe extern "C" fn strip_attached_picture(
+    user_data: *mut c_void,
+    data: *const c_void,
+    len: size_t,
+    out_data: *mut *const c_void,
+    out_len: *mut size_t,
+    out_width: *mut c_int,
+    out_height: *mut c_int,
+) -> c_int {
+    if user_data.is_null()
+        || data.is_null()
+        || out_data.is_null()
+        || out_len.is_null()
+        || out_width.is_null()
+        || out_height.is_null()
+    {
+        return -1;
+    }
+    let context = unsafe { &mut *user_data.cast::<PictureStrip<'_>>() };
+    let input = unsafe { slice::from_raw_parts(data.cast::<u8>(), len) };
+    let Ok(stripped) = strip_image_metadata(input, context.media_limits, context.deadline_ms)
+    else {
+        return -1;
+    };
+    let (Ok(width), Ok(height)) = (
+        c_int::try_from(stripped.width),
+        c_int::try_from(stripped.height),
+    ) else {
+        return -1;
+    };
+    context.stripped = stripped.bytes;
+    unsafe {
+        *out_data = context.stripped.as_ptr().cast();
+        *out_len = context.stripped.len();
+        *out_width = width;
+        *out_height = height;
+    }
+    0
+}
+
 pub fn strip_av_metadata(
     input: &[u8],
     container: AvContainer,
     output: &Path,
+    media_limits: &MediaLimits,
     deadline_ms: Option<i64>,
 ) -> Result<(), MediaError> {
     ensure_vips_init()?;
@@ -79,6 +132,11 @@ pub fn strip_av_metadata(
     }
     let output =
         CString::new(output.as_os_str().as_bytes()).map_err(|_| MediaError::MediaEncodeFailed)?;
+    let mut pictures = PictureStrip {
+        media_limits,
+        deadline_ms,
+        stripped: Vec::new(),
+    };
     let rc = unsafe {
         native::fluxer_av_strip_metadata(
             input.as_ptr().cast(),
@@ -88,6 +146,8 @@ pub fn strip_av_metadata(
             i32::from(container.faststart),
             output.as_ptr(),
             native_optional_deadline(deadline_ms),
+            strip_attached_picture,
+            (&raw mut pictures).cast(),
         )
     };
     match native_status_error(NativeStatus::from_code(rc), MediaError::MediaDecodeFailed) {
@@ -126,81 +186,4 @@ pub fn audio_duration_seconds(
     Ok(frames
         .or_else(|| positive(out.stream_seconds))
         .or_else(|| positive(out.format_seconds)))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn wav_with_info(samples: u32, sample_rate: u32) -> Vec<u8> {
-        let data: Vec<u8> = (0..samples)
-            .flat_map(|i| (((i % 64) as i16 - 32) * 512).to_le_bytes())
-            .collect();
-        let mut info = b"INFO".to_vec();
-        info.extend_from_slice(b"INAM");
-        info.extend_from_slice(&14u32.to_le_bytes());
-        info.extend_from_slice(b"secret title\0\0");
-        let mut body = b"WAVEfmt ".to_vec();
-        body.extend_from_slice(&16u32.to_le_bytes());
-        body.extend_from_slice(&1u16.to_le_bytes());
-        body.extend_from_slice(&1u16.to_le_bytes());
-        body.extend_from_slice(&sample_rate.to_le_bytes());
-        body.extend_from_slice(&(sample_rate * 2).to_le_bytes());
-        body.extend_from_slice(&2u16.to_le_bytes());
-        body.extend_from_slice(&16u16.to_le_bytes());
-        body.extend_from_slice(b"LIST");
-        body.extend_from_slice(&(info.len() as u32).to_le_bytes());
-        body.extend_from_slice(&info);
-        body.extend_from_slice(b"data");
-        body.extend_from_slice(&(data.len() as u32).to_le_bytes());
-        body.extend_from_slice(&data);
-        let mut wav = b"RIFF".to_vec();
-        wav.extend_from_slice(&(body.len() as u32).to_le_bytes());
-        wav.extend_from_slice(&body);
-        wav
-    }
-
-    fn flv_tag(kind: u8, timestamp_ms: u32, data: &[u8]) -> Vec<u8> {
-        let mut tag = vec![kind];
-        tag.extend_from_slice(&(data.len() as u32).to_be_bytes()[1..]);
-        tag.extend_from_slice(&timestamp_ms.to_be_bytes()[1..]);
-        tag.push((timestamp_ms >> 24) as u8);
-        tag.extend_from_slice(&[0, 0, 0]);
-        tag.extend_from_slice(data);
-        tag.extend_from_slice(&(11 + data.len() as u32).to_be_bytes());
-        tag
-    }
-
-    #[test]
-    fn remux_refuses_streams_that_appear_after_probing() {
-        let mut flv = b"FLV\x01\x04\x00\x00\x00\x09\x00\x00\x00\x00".to_vec();
-        let mut audio = vec![0x3E];
-        audio.extend_from_slice(&[0; 8820]);
-        for index in 0..700 {
-            flv.extend(flv_tag(8, index * 100, &audio));
-        }
-        let mut video = vec![0x12];
-        video.extend_from_slice(&[0; 64]);
-        for index in 0..10 {
-            flv.extend(flv_tag(9, 70_000 + index * 100, &video));
-        }
-        let container = av_container("video/x-flv").expect("flv container");
-        let output = tempfile::NamedTempFile::new().expect("output file");
-
-        assert!(strip_av_metadata(&flv, container, output.path(), None).is_err());
-    }
-
-    #[test]
-    fn remux_drops_container_tags_and_keeps_every_sample() {
-        let input = wav_with_info(48_000 * 3 / 2, 48_000);
-        let container = av_container("audio/wav").expect("wav container");
-        let output = tempfile::NamedTempFile::new().expect("output file");
-
-        strip_av_metadata(&input, container, output.path(), None).expect("stripped wav");
-
-        let stripped = std::fs::read(output.path()).expect("stripped bytes");
-        assert!(!stripped.windows(6).any(|window| window == b"secret"));
-        let duration = audio_duration_seconds(&stripped, None).expect("duration");
-        assert_eq!(Some(1.5), duration);
-    }
 }

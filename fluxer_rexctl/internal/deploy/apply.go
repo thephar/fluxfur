@@ -4,7 +4,6 @@ package deploy
 
 import (
 	"context"
-	"maps"
 	"slices"
 
 	"github.com/fluxerapp/fluxer/fluxer_rexctl/internal/engine"
@@ -33,7 +32,7 @@ func Apply(ctx context.Context, inst *instance.Instance, e *engine.Engine, o App
 	if err != nil {
 		return nil, err
 	}
-	restartEdge := len(r.RestartNeeded) > 0 || !maps.Equal(mounted, inst.State.Mounted)
+	restart := mountRestarts(r.RestartNeeded, mounted, inst.State.Mounted)
 	if err := save(inst); err != nil {
 		return nil, err
 	}
@@ -54,6 +53,11 @@ func Apply(ctx context.Context, inst *instance.Instance, e *engine.Engine, o App
 	if err != nil {
 		return nil, err
 	}
+	if slices.Contains(restart, edgeService) || slices.Contains(restarted(plan), edgeService) {
+		if err := CheckEdge(ctx, inst, p, ""); err != nil {
+			return nil, err
+		}
+	}
 	if err := up(ctx, p, o.Wait, o.OnEvent); err != nil {
 		return nil, err
 	}
@@ -61,11 +65,14 @@ func Apply(ctx context.Context, inst *instance.Instance, e *engine.Engine, o App
 		return nil, err
 	}
 	change := &Change{Restarted: restarted(plan), Removed: slices.Clone(plan.Remove), Applied: true}
-	if restartEdge && slices.Contains(p.Services(), edgeService) && !slices.Contains(change.Restarted, edgeService) {
-		if err := p.Restart(context.WithoutCancel(ctx), edgeService); err != nil {
+	for _, svc := range restart {
+		if !slices.Contains(p.Services(), svc) || slices.Contains(change.Restarted, svc) {
+			continue
+		}
+		if err := p.Restart(context.WithoutCancel(ctx), svc); err != nil {
 			return change, err
 		}
-		change.Restarted = append(change.Restarted, edgeService)
+		change.Restarted = append(change.Restarted, svc)
 	}
 	inst.State.Mounted = mounted
 	if err := save(inst); err != nil {
@@ -82,6 +89,17 @@ func up(ctx context.Context, p *engine.Project, wait bool, onEvent func(engine.E
 		WaitTimeout:   engine.DefaultReadyTimeout,
 		OnEvent:       onEvent,
 	})
+}
+
+func mountRestarts(files []string, mounted, saved map[string]string) []string {
+	out := slices.Clone(files)
+	for dir, hash := range mounted {
+		if saved[dir] != hash {
+			out = append(out, stack.MountedDirs[dir]...)
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
 }
 
 func restarted(plan *engine.Plan) []string {

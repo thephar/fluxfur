@@ -21,8 +21,8 @@ function dedupeKey(clientIp: string, target: LimitedReportTarget): string {
 	return `report:dedupe:${getSubnet(clientIp) ?? ipKey(clientIp)}:${target.type}:${target.id}`;
 }
 
-export function isLimitedReporter(user: User): boolean {
-	return isInteractionTierEnforced() && getAccountTier(user) !== 'verified';
+export function isLimitedReporter(user: User, capExempt = false): boolean {
+	return getAccountTier(user) !== 'verified' && (isInteractionTierEnforced() || capExempt);
 }
 
 export async function admitLimitedReport(
@@ -39,4 +39,12 @@ export async function admitLimitedReport(
 	}
 	const stored = await env.kv.setnx(dedupeKey(clientIp, target), '1', DAY_SECONDS);
 	return stored ? 'store' : 'drop';
+}
+
+export async function releaseLimitedReport(
+	env: BudgetEnv,
+	clientIp: string,
+	target: LimitedReportTarget,
+): Promise<void> {
+	await env.kv.del(dedupeKey(clientIp, target));
 }

@@ -3,76 +3,75 @@
 package host
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"runtime"
-	"slices"
-	"strconv"
-	"strings"
 	"testing"
 )
 
-func TestUnitBinariesReadWhatRexctlWrites(t *testing.T) {
-	const bin = `/home/a b/it's 100%/$rexctl`
-	a := AutoUpgrade{Project: "fluxer", Dir: "/srv/fluxer", Binary: bin, At: "04:00", Log: "/srv/fluxer/.rexctl/upgrade.log"}
-	for name, c := range map[string]struct {
-		unit string
-		want string
-	}{
-		"rootful boot unit":  {BootUnit{Project: "fluxer", Dir: "/srv/fluxer", Binary: bin}.render(false, "fluxer"), LibexecBinary},
-		"rootless boot unit": {BootUnit{Project: "fluxer", Dir: "/srv/fluxer", Binary: bin, Rootless: true}.render(false, ""), bin},
-		"upgrade service":    {a.service("fluxer"), bin},
-		"cron job":           {a.cron(4, 0, "fluxer"), bin},
-	} {
-		if got := unitBinaries([]byte(c.unit)); !slices.Equal(got, []string{c.want}) {
-			t.Errorf("%s runs %q, want %q", name, got, c.want)
-		}
+func TestUpgradeAsDockerGroupUserRunsNothingAsRoot(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs a Unix account that isn't root")
 	}
-}
+	tmp := t.TempDir()
+	fake := filepath.Join(tmp, "fake")
+	sudoLog := filepath.Join(tmp, "sudo.log")
+	writeScript(t, filepath.Join(fake, "sudo"), "echo \"$@\" >> '"+sudoLog+"'\nexit 1\n")
+	writeScript(t, filepath.Join(fake, "systemctl"), "for a in \"$@\"; do case $a in is-enabled) echo enabled;; is-active) echo active;; esac; done\n")
+	t.Setenv("PATH", fake+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-func TestRootRefreshesOnlyUnitsRootOwns(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", "")
-	prev := asRoot
-	t.Cleanup(func() { asRoot = prev })
-	for _, root := range []bool{false, true} {
-		asRoot = func() bool { return root }
-		units, err := unitFiles("fluxer")
-		if err != nil {
-			t.Fatal(err)
-		}
-		inHome := 0
-		for path := range units {
-			if strings.HasPrefix(path, home) {
-				inHome++
-			}
-		}
-		if root && inHome > 0 {
-			t.Errorf("as root, rexctl reads units from $HOME, which sudo may keep: %v", units)
-		}
-		if !root && inHome != 2 {
-			t.Errorf("without root, rexctl skips your own units: %v", units)
-		}
-	}
-}
+	oldRoot, oldDir, oldSupported := asRoot, systemUnitDir, bootUnitSupported
+	t.Cleanup(func() { asRoot, systemUnitDir, bootUnitSupported = oldRoot, oldDir, oldSupported })
+	asRoot = func() bool { return false }
+	systemUnitDir = filepath.Join(tmp, "etc", "systemd", "system")
+	bootUnitSupported = func() bool { return true }
 
-func TestInstallKeepsTheBinarysOwner(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("no owners on Windows")
-	}
-	dir := t.TempDir()
-	dst := filepath.Join(dir, "rexctl")
-	if got := installArgs("/tmp/new", dst); slices.Contains(got, "-o") {
-		t.Fatalf("a new binary got an owner: %q", got)
-	}
-	if err := os.WriteFile(dst, []byte("old"), 0o755); err != nil {
+	bin := filepath.Join(tmp, "home", ".local", "bin", "rexctl")
+	writeScript(t, bin, "echo rexctl 2026.1106\n")
+	dir := filepath.Join(tmp, "home", "fluxer")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	uid, gid := strconv.Itoa(os.Getuid()), strconv.Itoa(os.Getgid())
-	got := installArgs("/tmp/new", dst)
-	want := []string{"-D", "-m", "0755", "-o", uid, "-g", gid, "/tmp/new", dst}
-	if !slices.Equal(got, want) {
-		t.Fatalf("install %q, want %q", got, want)
+	ctx := context.Background()
+	u := BootUnit{Project: "fluxer", Dir: dir, Binary: bin}
+	path, err := u.Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(u.content(ctx)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	writeScript(t, bin, "echo rexctl 2026.1107\n")
+	steps, err := u.RefreshSteps(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := RunSteps(ctx, steps); err != nil {
+		t.Errorf("refreshing the boot unit after the upgrade: %v", err)
+	}
+	s, err := CheckBootUnit(ctx, u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Needed() {
+		t.Errorf("the boot unit wants a fix after the upgrade: %+v", s)
+	}
+	if got, err := os.ReadFile(sudoLog); err == nil {
+		t.Fatalf("the upgrade ran sudo:\n%s", got)
+	}
+}
+
+func writeScript(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body), 0o755); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -45,7 +45,7 @@ import {UserHarvestRepository} from '@app/api/user/UserHarvestRepository';
 import {dispatchUserUpdate} from '@app/api/user/UserMappers';
 import {serializeSelfMessageFilter} from '@app/api/worker/utils/SelfMessageFilterPayload';
 import type {WorkerTaskName} from '@app/api/worker/WorkerLaneConfig';
-import {MAX_BOOKMARKS_NON_PREMIUM} from '@fluxer/constants/src/LimitConstants';
+import {MAX_BOOKMARKS_NON_PREMIUM, MAX_PUSH_SUBSCRIPTIONS_PER_USER} from '@fluxer/constants/src/LimitConstants';
 import {THREAD_CHANNEL_TYPES} from '@fluxer/constants/src/ThreadConstants';
 import {UserFlags} from '@fluxer/constants/src/UserConstants';
 import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
@@ -59,7 +59,7 @@ import {UnknownGuildError} from '@fluxer/errors/src/domains/guild/UnknownGuildEr
 import {HarvestExpiredError} from '@fluxer/errors/src/domains/moderation/HarvestExpiredError';
 import {HarvestFailedError} from '@fluxer/errors/src/domains/moderation/HarvestFailedError';
 import {HarvestNotReadyError} from '@fluxer/errors/src/domains/moderation/HarvestNotReadyError';
-import {NsfwContentRequiresAgeVerificationError} from '@fluxer/errors/src/domains/moderation/NsfwContentRequiresAgeVerificationError';
+import {NsfwContentAgeRestrictedError} from '@fluxer/errors/src/domains/moderation/NsfwContentAgeRestrictedError';
 import {UnknownHarvestError} from '@fluxer/errors/src/domains/moderation/UnknownHarvestError';
 import type {MessageResponse} from '@fluxer/schema/src/domains/message/MessageResponseSchemas';
 import type {HarvestCreationResponse, HarvestStatusResponse} from '@fluxer/schema/src/domains/user/UserHarvestSchemas';
@@ -70,7 +70,6 @@ import type {
 	UnregisterMobileDeviceRequest,
 } from '@fluxer/schema/src/domains/user/UserRequestSchemas';
 import type {SavedMessageStatus} from '@fluxer/schema/src/domains/user/UserResponseSchemas';
-import {snowflakeToDate} from '@fluxer/snowflake/src/Snowflake';
 import {compareSnowflakes} from '@fluxer/snowflake/src/SnowflakeComparison';
 import {isPubliclyRoutableUrlShape} from '@pkgs/http_client/src/PublicInternetRequestUrlPolicy';
 import type {IKVProvider} from '@pkgs/kv_client/src/IKVProvider';
@@ -191,7 +190,7 @@ const isUnreachableEntityError = (error: unknown): boolean =>
 	error instanceof UnknownChannelError ||
 	error instanceof UnknownGuildError ||
 	error instanceof AccessDeniedError ||
-	error instanceof NsfwContentRequiresAgeVerificationError;
+	error instanceof NsfwContentAgeRestrictedError;
 
 export class UserContentService {
 	private readonly userRepository: UserRepository;
@@ -486,6 +485,7 @@ export class UserContentService {
 		if (originKind === 'legacy' && (await this.isLegacyWebPushReplaced(data, installedApp))) {
 			return new PushSubscription(data);
 		}
+		await this.makeRoomForPushSubscription(data);
 		const subscription = await this.userRepository.createPushSubscription(data);
 		if (originKind === 'legacy' && installedApp) {
 			await this.bestEffortPushOriginWrite(() => markInstalledLegacyPushSubscription(this.kv, data.subscription_id));
@@ -622,8 +622,25 @@ export class UserContentService {
 			provider_environment: providerEnvironment,
 			...(threadChannels === true ? {thread_channels: true} : {}),
 		};
+		await this.makeRoomForPushSubscription(data);
 		const subscription = await this.userRepository.createPushSubscription(data);
 		return subscription;
+	}
+
+	private async makeRoomForPushSubscription(data: PushSubscriptionRow): Promise<void> {
+		const others = (await this.userRepository.listPushSubscriptions(data.user_id)).filter(
+			(subscription) => subscription.subscriptionId !== data.subscription_id,
+		);
+		const excess = others.length - (MAX_PUSH_SUBSCRIPTIONS_PER_USER - 1);
+		if (excess <= 0) return;
+		const sessionIdHash = data.auth_session_id_hash;
+		const evictionOrder = [
+			...others.filter((subscription) => sessionIdHash !== null && subscription.authSessionIdHash === sessionIdHash),
+			...others.filter((subscription) => sessionIdHash === null || subscription.authSessionIdHash !== sessionIdHash),
+		];
+		for (const subscription of evictionOrder.slice(0, excess)) {
+			await this.userRepository.deletePushSubscription(data.user_id, subscription.subscriptionId);
+		}
 	}
 
 	async listMobileDevices(userId: UserID): Promise<Array<PushSubscription>> {
@@ -807,27 +824,25 @@ export class UserContentService {
 		const scheduledAt = new Date(Date.now() + delayMs);
 		const user = await this.userRepository.findUniqueAssert(userId);
 		await this.bulkMessageDeletionQueue.removeFromQueue(userId);
-		const counts = await this.countBulkDeletionTargets(userId, scheduledAt.getTime());
 		Logger.debug(
-			{
-				userId: userId.toString(),
-				channelCount: counts.channelCount,
-				messageCount: counts.messageCount,
-				scheduledAt: scheduledAt.toISOString(),
-			},
+			{userId: userId.toString(), scheduledAt: scheduledAt.toISOString()},
 			'Scheduling bulk message deletion',
 		);
 		const updatedUser = await this.userRepository.patchUpsert(
 			userId,
 			{
 				pending_bulk_message_deletion_at: scheduledAt,
-				pending_bulk_message_deletion_channel_count: counts.channelCount,
-				pending_bulk_message_deletion_message_count: counts.messageCount,
+				pending_bulk_message_deletion_channel_count: null,
+				pending_bulk_message_deletion_message_count: null,
 			},
 			user.toRow(),
 		);
 		await this.bulkMessageDeletionQueue.scheduleDeletion(userId, scheduledAt);
 		await dispatchUserUpdate(this.gatewayService, updatedUser);
+		await this.workerService.addJob('countBulkMessageDeletionTargets', {
+			userId: userId.toString(),
+			scheduledAt: scheduledAt.getTime(),
+		});
 	}
 
 	async bulkDeleteSelfMessagesImmediate(params: {userId: UserID; filter: BulkDeleteSelfMessagesFilter}): Promise<void> {
@@ -858,40 +873,6 @@ export class UserContentService {
 		);
 		await this.bulkMessageDeletionQueue.removeFromQueue(userId);
 		await dispatchUserUpdate(this.gatewayService, updatedUser);
-	}
-
-	private async countBulkDeletionTargets(
-		userId: UserID,
-		cutoffMs: number,
-	): Promise<{
-		channelCount: number;
-		messageCount: number;
-	}> {
-		const CHUNK_SIZE = 200;
-		let lastMessageId: MessageID | undefined;
-		const channels = new Set<string>();
-		let messageCount = 0;
-		while (true) {
-			const messageRefs = await this.channelRepository.messages.listMessagesByAuthor(userId, CHUNK_SIZE, lastMessageId);
-			if (messageRefs.length === 0) {
-				break;
-			}
-			for (const {channelId, messageId} of messageRefs) {
-				if (snowflakeToDate(messageId).getTime() > cutoffMs) {
-					continue;
-				}
-				channels.add(channelId.toString());
-				messageCount++;
-			}
-			lastMessageId = messageRefs[messageRefs.length - 1].messageId;
-			if (messageRefs.length < CHUNK_SIZE) {
-				break;
-			}
-		}
-		return {
-			channelCount: channels.size,
-			messageCount,
-		};
 	}
 
 	private async dispatchRecentMentionDelete({

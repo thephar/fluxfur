@@ -4,6 +4,8 @@ package checks
 
 import (
 	"context"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 
@@ -27,6 +29,7 @@ type Phase int
 const (
 	Preinstall Phase = 1 << iota
 	Installed
+	Voice
 )
 
 type Result struct {
@@ -36,6 +39,7 @@ type Result struct {
 	Fix     string   `json:"fix,omitempty"`
 	Fixable bool     `json:"fixable"`
 	Fixed   bool     `json:"fixed"`
+	Plan    *Plan    `json:"plan,omitempty"`
 	Manual  string   `json:"-"`
 	Details []string `json:"-"`
 }
@@ -63,6 +67,9 @@ type Env struct {
 	importEnv     bool
 	stagedBy      []string
 	keptEdits     [][2]string
+	dryRun        bool
+	steps         []host.Step
+	stageSteps    map[string]int
 	publicIP      string
 	publicErr     error
 	publicDone    bool
@@ -100,16 +107,28 @@ var order = []string{
 	"boot-unit",
 	"origin",
 	"vapid",
+	"attachment-signatures",
 	"services",
 	"stale-containers",
 	"health",
 	"certificate",
 	"discovery",
 	"app-proxy-discovery",
+	"media-proxy-spool",
 	"postgres-password",
 	"postgres-scram",
 	"livekit-ip",
+	"voice-servers",
+	"voice-endpoints",
+	"voice-ports",
+	"voice-node-ip",
+	"voice-tls",
+	"voice-registration",
+	"voice-webhook",
+	"voice-keys",
+	"voice-health",
 	"client-ip",
+	"sso-provider",
 	"backup-age",
 }
 
@@ -172,7 +191,7 @@ func RunOne(ctx context.Context, env *Env, c Check) Result {
 	env.prepare(ctx)
 	r := c.Run(ctx, env)
 	r.ID = c.ID
-	if env.phase&Installed == 0 {
+	if env.phase&(Installed|Voice) == 0 {
 		r.Fix = strings.Replace(r.Fix, "then run rexctl doctor.", "then run rexctl install.", 1)
 	}
 	r.Fixable = r.Fixable && c.Fix != nil && (r.Status == Warn || r.Status == Fail)
@@ -206,6 +225,36 @@ func ApplyFix(ctx context.Context, env *Env, id string) (Result, error) {
 	r.Fixable = true
 	r.Fixed = r.Status == Pass || r.Status == Skip
 	return r, nil
+}
+
+type Plan struct {
+	Asks     bool        `json:"asks"`
+	Settings bool        `json:"settings"`
+	Steps    []host.Step `json:"steps"`
+	Error    string      `json:"error,omitempty"`
+}
+
+func PlanFix(ctx context.Context, env *Env, id string) (Plan, error) {
+	c, ok := registry[id]
+	if !ok || c.Fix == nil {
+		return Plan{}, ErrNoFix
+	}
+	staged, secrets, admin := maps.Clone(env.staged), maps.Clone(env.stagedSecrets), maps.Clone(env.stagedAdmin)
+	importEnv, kept := env.importEnv, slices.Clone(env.keptEdits)
+	defer func() {
+		env.staged, env.stagedSecrets, env.stagedAdmin = staged, secrets, admin
+		env.importEnv, env.keptEdits = importEnv, kept
+		env.dryRun = false
+		env.env = nil
+		env.steps, env.stageSteps = nil, nil
+	}()
+	env.dryRun = true
+	err := c.Fix(ctx, env)
+	steps := env.steps
+	if steps == nil {
+		steps = []host.Step{}
+	}
+	return Plan{Asks: !c.SafeFix, Settings: len(env.stageSteps) > 0, Steps: steps}, err
 }
 
 func Failed(results []Result) bool {

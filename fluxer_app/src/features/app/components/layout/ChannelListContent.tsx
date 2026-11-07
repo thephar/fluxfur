@@ -41,6 +41,7 @@ import {
 } from '@app/features/app/hooks/useSkeletonLayoutMemoryCapture';
 import type {Channel} from '@app/features/channel/models/Channel';
 import Channels from '@app/features/channel/state/Channels';
+import {hasForumUnread} from '@app/features/forum/state/ForumReadState';
 import * as GuildCommands from '@app/features/guild/commands/GuildCommands';
 import type {Guild} from '@app/features/guild/models/Guild';
 import {MEMBERS_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
@@ -53,6 +54,7 @@ import ReadStates from '@app/features/read_state/state/ReadStates';
 import {remFromPx} from '@app/features/theme/layout/RemFromPx';
 import {SidebarThreadList} from '@app/features/threads/components/SidebarThreadList';
 import ThreadGuilds from '@app/features/threads/state/ThreadGuilds';
+import {getSidebarThreadActivity} from '@app/features/threads/utils/SidebarThreadActivity';
 import {ChannelListContextMenu} from '@app/features/ui/action_menu/ChannelListContextMenu';
 import * as ContextMenuCommands from '@app/features/ui/commands/ContextMenuCommands';
 import * as DimensionCommands from '@app/features/ui/commands/DimensionCommands';
@@ -65,7 +67,7 @@ import KeyboardMode from '@app/features/ui/state/KeyboardMode';
 import MobileLayout from '@app/features/ui/state/MobileLayout';
 import * as UserGuildSettingsCommands from '@app/features/user/commands/UserGuildSettingsCommands';
 import UserGuildSettings from '@app/features/user/state/UserGuildSettings';
-import MediaEngine from '@app/features/voice/engine/MediaEngineFacade';
+import VoiceRuntime from '@app/features/voice/engine/VoiceRuntime';
 import {APIErrorCodes} from '@fluxer/constants/src/ApiErrorCodes';
 import {Permissions} from '@fluxer/constants/src/ChannelConstants';
 import {MAX_CHANNELS_PER_CATEGORY} from '@fluxer/constants/src/LimitConstants';
@@ -200,7 +202,7 @@ export const ChannelListContent = observer(({guild, scrollY, banner}: ChannelLis
 		enabled: KeyboardMode.keyboardModeEnabled,
 		restoreFocusOnWindowFocus: false,
 	});
-	const connectedChannelId = MediaEngine.channelId;
+	const connectedChannelId = VoiceRuntime.channelId;
 	const hideMutedChannels = userGuildSettings?.hide_muted_channels ?? false;
 	const showFadedUnreadOnMutedChannels = Accessibility.showFadedUnreadOnMutedChannels;
 	const isMobile = MobileLayout.enabled;
@@ -347,11 +349,11 @@ export const ChannelListContent = observer(({guild, scrollY, banner}: ChannelLis
 		[guild],
 	);
 	const getUnreadStateInChannel = (channelId: string): ChannelUnreadState => {
+		const channel = Channels.getChannel(channelId);
 		const unreadCount = ReadStates.getUnreadCount(channelId);
-		const hasUnread = ReadStates.hasUnread(channelId);
+		const hasUnread = channel?.isThreadOnly() ? hasForumUnread(channel) : ReadStates.hasUnread(channelId);
 		const mentionCount = ReadStates.getMentionCount(channelId);
 		const isMuted = UserGuildSettings.isChannelDirectlyMuted(guild.id, channelId);
-		const channel = Channels.getChannel(channelId);
 		const unreadBadgesLevel = channel
 			? UserGuildSettings.resolvedUnreadBadgesLevel({
 					id: channel.id,
@@ -423,13 +425,14 @@ export const ChannelListContent = observer(({guild, scrollY, banner}: ChannelLis
 			const showSet = new Set<string>();
 			for (const ch of filteredTextChannels) {
 				const unreadState = getUnreadStateInChannel(ch.id);
+				const threadActivity = threadsActive ? getSidebarThreadActivity(ch.id) : null;
 				if (
 					shouldShowChannelInCollapsedCategory({
 						isCategoryMuted,
 						isSelected: ch.id === showTextSelected,
 						isConnected: false,
-						hasVisibleUnread: unreadState.hasVisibleUnread,
-						hasMentions: unreadState.hasMentions,
+						hasVisibleUnread: unreadState.hasVisibleUnread || threadActivity?.hasActivity === true,
+						hasMentions: unreadState.hasMentions || threadActivity?.hasMentions === true,
 					})
 				) {
 					showSet.add(ch.id);
@@ -659,7 +662,7 @@ export const ChannelListContent = observer(({guild, scrollY, banner}: ChannelLis
 											<SidebarThreadList
 												guildId={guild.id}
 												parentId={ch.id}
-												onlySelected={group.isCollapsed}
+												collapsed={group.isCollapsed}
 												data-flx="app.channel-list-content.sidebar-thread-list"
 											/>
 										</React.Fragment>

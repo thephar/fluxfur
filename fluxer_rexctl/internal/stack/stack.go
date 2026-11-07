@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -34,6 +35,7 @@ const (
 	OverlayTunnel              Overlay = "tunnel"
 	OverlayExternalObjectStore Overlay = "external-object-store"
 	OverlayIPv6                Overlay = "ipv6"
+	OverlayExternalVoice       Overlay = "external-voice"
 )
 
 var OverlayFiles = map[Overlay]string{
@@ -41,15 +43,24 @@ var OverlayFiles = map[Overlay]string{
 	OverlayTunnel:              "tunnel.compose.yml",
 	OverlayExternalObjectStore: "external-object-store.compose.yml",
 	OverlayIPv6:                "ipv6.compose.yml",
+	OverlayExternalVoice:       "external-voice.compose.yml",
 }
 
-var overlayOrder = []Overlay{OverlayProxy, OverlayTunnel, OverlayExternalObjectStore, OverlayIPv6}
+var overlayOrder = []Overlay{OverlayProxy, OverlayTunnel, OverlayExternalObjectStore, OverlayIPv6, OverlayExternalVoice}
 
 var MountedFiles = map[string][]string{
 	Caddyfile: {"edge"},
 }
 
-var MountedDirs = []string{"certs", "caddy.d"}
+const NodeCADir = "/etc/fluxer/ca"
+
+var MountedDirs = map[string][]string{
+	"ca":      {"api", "worker"},
+	"caddy.d": {"edge"},
+	"certs":   {"edge"},
+}
+
+var madeDirs = append(slices.Sorted(maps.Keys(MountedDirs)), "caddy.d/sites")
 
 var (
 	ErrUnknownOverlay  = errors.New("stack: unknown overlay")
@@ -99,7 +110,15 @@ func OverlaysFor(settings map[string]string) []Overlay {
 	if on, err := strconv.ParseBool(strings.TrimSpace(settings["network.ipv6"])); err == nil && on {
 		out = append(out, OverlayIPv6)
 	}
+	if !VoiceBundled(settings["voice.bundled"]) {
+		out = append(out, OverlayExternalVoice)
+	}
 	return out
+}
+
+func VoiceBundled(value string) bool {
+	on, err := strconv.ParseBool(strings.TrimSpace(value))
+	return err != nil || on
 }
 
 func FileNames() []string {
@@ -313,7 +332,7 @@ func RenderAt(set *Set, selected []Overlay, images map[string]string, project, d
 	if err != nil {
 		return nil, err
 	}
-	for _, d := range MountedDirs {
+	for _, d := range madeDirs {
 		if err := os.MkdirAll(filepath.Join(dir, d), 0o755); err != nil {
 			return nil, err
 		}
@@ -324,7 +343,11 @@ func RenderAt(set *Set, selected []Overlay, images map[string]string, project, d
 		}
 	}
 	gen := FilesDir(dir, root)
-	if err := os.MkdirAll(gen, 0o755); err != nil {
+	if root {
+		if err := os.MkdirAll(gen, 0o755); err != nil {
+			return nil, err
+		}
+	} else if err := MakeGenerated(gen); err != nil {
 		return nil, err
 	}
 	changed, stale, err := plan(gen, files, overlays)
@@ -367,7 +390,19 @@ func restartNeeded(changed []string) []string {
 	return out
 }
 
-const tmpSuffix = ".rexctl-tmp"
+func MakeGenerated(path string) error {
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		return err
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("stack: %s is not a directory", path)
+	}
+	return nil
+}
 
 func writeAll(dir string, files []renderedFile) error {
 	var staged []string
@@ -377,9 +412,8 @@ func writeAll(dir string, files []renderedFile) error {
 		}
 	}
 	for _, f := range files {
-		tmp := filepath.Join(dir, f.name+tmpSuffix)
-		if err := writeSynced(tmp, f.data); err != nil {
-			os.Remove(tmp)
+		tmp, err := stage(dir, f.name, f.data)
+		if err != nil {
 			cleanup()
 			return err
 		}
@@ -393,10 +427,14 @@ func writeAll(dir string, files []renderedFile) error {
 	var done []previous
 	restore := func() {
 		for _, p := range done {
-			if p.exists {
-				writeSynced(p.path, p.data)
-			} else {
+			if !p.exists {
 				os.Remove(p.path)
+				continue
+			}
+			if tmp, err := stage(filepath.Dir(p.path), filepath.Base(p.path), p.data); err == nil {
+				if os.Rename(tmp, p.path) != nil {
+					os.Remove(tmp)
+				}
 			}
 		}
 	}
@@ -419,18 +457,25 @@ func writeAll(dir string, files []renderedFile) error {
 	return nil
 }
 
-func writeSynced(path string, data []byte) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+func stage(dir, name string, data []byte) (string, error) {
+	f, err := os.CreateTemp(dir, "."+name+".rexctl-tmp-*")
 	if err != nil {
-		return err
+		return "", err
 	}
-	if _, err := f.Write(data); err != nil {
-		f.Close()
-		return err
+	path := f.Name()
+	err = f.Chmod(0o644)
+	if err == nil {
+		_, err = f.Write(data)
 	}
-	if err := f.Sync(); err != nil {
-		f.Close()
-		return err
+	if err == nil {
+		err = f.Sync()
 	}
-	return f.Close()
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		os.Remove(path)
+		return "", err
+	}
+	return path, nil
 }

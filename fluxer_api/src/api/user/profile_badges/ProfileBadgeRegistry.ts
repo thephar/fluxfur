@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {getContentMessage} from '@app/api/content_i18n/ContentI18n';
-import type {CustomBadgeDefinition} from '@app/api/instance/InstanceConfigRepository';
+import type {CustomBadge} from '@app/api/instance/custom_badges/CustomBadgeRepository';
+import type {BuiltInBadgeImages} from '@app/api/instance/InstanceConfigRepository';
 import {Logger} from '@app/api/Logger';
 import type {VisiblePremiumBadge} from '@app/api/user/profile_badges/PremiumBadgeMasking';
 import {
@@ -22,12 +23,14 @@ export interface ProfileBadgeEnvironment {
 	premiumInfoUrl: string | null;
 	marketingUrl: string;
 	mediaUrl: string;
-	customBadges: ReadonlyArray<CustomBadgeDefinition>;
+	customBadges: ReadonlyArray<Pick<CustomBadge, 'id' | 'name' | 'description' | 'asset' | 'href'>>;
+	builtInImages: BuiltInBadgeImages;
 }
 
 export interface VisibleOperatorPass {
 	since: Date | null;
 	count: number | null;
+	quote: string | null;
 }
 
 export interface ProfileBadgeView {
@@ -44,6 +47,7 @@ interface ProfileBadgeContent {
 	count?: number;
 	accessibleLabel?: string;
 	details?: {title: string; lines: Array<string>};
+	quote?: string;
 	caption?: string;
 	asset?: string | null;
 	smallAsset?: string | null;
@@ -123,7 +127,7 @@ export const PROFILE_BADGE_REGISTRY: ReadonlyArray<ProfileBadgeDefinition> = [
 		href: marketing('pass'),
 		qualify: (view) => {
 			if (!view.operatorPass) return null;
-			const {since, count} = view.operatorPass;
+			const {since, count, quote} = view.operatorPass;
 			const stacked = count != null && count >= 2;
 			const sinceDate = since ? formatSinceDate(since, view.locale) : null;
 			const lines: Array<string> = [];
@@ -136,7 +140,6 @@ export const PROFILE_BADGE_REGISTRY: ReadonlyArray<ProfileBadgeDefinition> = [
 			}
 			if (stacked) {
 				lines.push(getContentMessage('profile_badge.operator_pass_count', view.locale, {count}));
-				lines.push(getContentMessage('profile_badge.operator_pass_recognition', view.locale));
 			}
 			let label: string;
 			if (sinceDate && stacked) {
@@ -161,6 +164,7 @@ export const PROFILE_BADGE_REGISTRY: ReadonlyArray<ProfileBadgeDefinition> = [
 					? getContentMessage('profile_badge.operator_pass_accessible_count', view.locale, {count})
 					: title,
 				details: {title, lines},
+				...(quote ? {quote} : {}),
 			};
 		},
 	},

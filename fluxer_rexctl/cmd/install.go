@@ -3,11 +3,9 @@
 package cmd
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"maps"
 	"net"
 	"net/netip"
@@ -57,6 +55,7 @@ type installFlags struct {
 	Project       string
 	VoiceTCPPort  int
 	VoiceUDPPort  int
+	NoVoice       bool
 	Setup         setupFlags
 	Storage       storageFlags
 }
@@ -74,7 +73,6 @@ type installer struct {
 	findErr      error
 	ran          map[string]bool
 	plan         []string
-	offered      bool
 	lowPortsSaid bool
 }
 
@@ -91,8 +89,8 @@ func newInstallCmd(app *App) *cobra.Command {
 	fl := c.Flags()
 	fl.StringVar(&f.Domain, "domain", "", "address people will use to open your instance, like chat.example.com")
 	fl.StringVar(&f.Engine, "engine", "", "container engine to use (docker or podman)")
-	fl.BoolVar(&f.BehindProxy, "behind-proxy", false, "serve plain HTTP for your own reverse proxy")
-	fl.StringVar(&f.Bind, "bind", "127.0.0.1:8080", "address your proxy connects to, with --behind-proxy")
+	fl.BoolVar(&f.BehindProxy, "behind-proxy", false, "serve plain HTTP for your own reverse proxy or tunnel")
+	fl.StringVar(&f.Bind, "bind", "127.0.0.1:8080", "address your proxy or tunnel connects to, with --behind-proxy")
 	fl.StringVar(&f.VoiceIP, "voice-ip", "", "public IP address for voice and video (found automatically)")
 	fl.StringVar(&f.MemoryProfile, "memory-profile", "", "pin small, medium or large instead of sizing Fluxer to this machine on every start")
 	fl.BoolVar(&f.InstallDocker, "install-docker", true, "install Docker if it's missing")
@@ -103,14 +101,54 @@ func newInstallCmd(app *App) *cobra.Command {
 	fl.BoolVar(&f.DryRun, "dry-run", false, "show what would happen without changing anything")
 	fl.BoolVar(&f.TakeOver, "take-over", false, "take over Fluxer data found on this machine")
 	fl.BoolVar(&f.DeleteOld, "delete-old-data", false, "delete Fluxer data found on this machine and start fresh")
-	fl.StringVar(&f.Project, "project", defaultProject, "name for this instance's containers and volumes")
+	fl.StringVar(&f.Project, "project", defaultProject, "name for this instance's containers and volumes, for running more than one instance on a host")
 	fl.IntVar(&f.VoiceTCPPort, "voice-tcp-port", 0, "TCP port for voice and video, for running more than one instance on a host")
 	fl.IntVar(&f.VoiceUDPPort, "voice-udp-port", 0, "UDP port for voice and video, for running more than one instance on a host")
-	_ = fl.MarkHidden("project")
+	fl.BoolVar(&f.NoVoice, "no-bundled-voice", false, "run without the bundled LiveKit and use only voice servers you add later")
 	confirmFlag(c, &f.Confirm)
 	f.Setup.bind(c)
 	f.Storage.bind(c)
 	return c
+}
+
+func installTarget(app *App) (string, error) {
+	l, err := app.locate()
+	if err != nil {
+		return "", err
+	}
+	dir := l.Dir
+	switch {
+	case l.Stale != "" && l.Chosen:
+		dir = l.Stale
+		app.located = &instance.Located{Dir: dir, From: instance.FromRecord, Scope: l.Scope}
+		app.UI.Info("Installing Fluxer in %s, the folder you picked with rexctl use.", dir)
+	case l.Stale != "":
+		app.warnStale(l)
+	}
+	if dir, err = filepath.Abs(dir); err != nil {
+		return "", err
+	}
+	inst, err := instance.Find(dir)
+	if err != nil || !inst.State.IsVoice() {
+		return dir, nil
+	}
+	refusal := ui.Refused(fmt.Sprintf("%s holds voice servers that joined %s, not a Fluxer instance.", dir, voiceInstances(inst)), "Pass --dir with another folder to install Fluxer there.")
+	if l.From == instance.FromFlag || l.From == instance.FromWorkdir {
+		return "", refusal
+	}
+	fallback, err := instance.DefaultDir()
+	if err != nil {
+		return "", err
+	}
+	if fallback, err = filepath.Abs(fallback); err != nil {
+		return "", err
+	}
+	if other, err := instance.Find(fallback); err == nil && other.State.IsVoice() {
+		return "", refusal
+	}
+	app.located = &instance.Located{Dir: fallback, From: instance.FromFallback}
+	app.UI.Info("Installing Fluxer in %s. %s holds this machine's voice servers.", fallback, dir)
+	return fallback, nil
 }
 
 func runInstall(ctx context.Context, app *App, c *cobra.Command, f *installFlags) error {
@@ -126,20 +164,7 @@ func runInstall(ctx context.Context, app *App, c *cobra.Command, f *installFlags
 	if names := f.Setup.passedNames(c); f.SetupWhere == "browser" && len(names) > 0 {
 		return &ui.ExitError{Code: ui.ExitUsage, Msg: fmt.Sprintf("--setup browser doesn't take %s.", ui.JoinAnd(names)), Fix: "Pass --setup terminal instead, or leave out the setup options and enter them in the browser."}
 	}
-	l, err := app.locate()
-	if err != nil {
-		return err
-	}
-	dir := l.Dir
-	switch {
-	case l.Stale != "" && l.Chosen:
-		dir = l.Stale
-		app.located = &instance.Located{Dir: dir, From: instance.FromRecord, Scope: l.Scope}
-		app.UI.Info("Installing Fluxer in %s, the folder you picked with rexctl use.", dir)
-	case l.Stale != "":
-		app.warnStale(l)
-	}
-	dir, err = filepath.Abs(dir)
+	dir, err := installTarget(app)
 	if err != nil {
 		return err
 	}
@@ -173,7 +198,10 @@ func runInstall(ctx context.Context, app *App, c *cobra.Command, f *installFlags
 		return err
 	}
 	if in.engine != nil {
-		if in.runChecks(ctx, checks.Preinstall, "engine", "podman-subids", "windows-linux-containers") {
+		if in.engine != in.found {
+			delete(in.ran, "disk")
+		}
+		if in.runChecks(ctx, checks.Preinstall, "engine", "podman-subids", "windows-linux-containers", "disk") {
 			return notReady()
 		}
 	} else {
@@ -306,6 +334,9 @@ func validateInstallFlags(f *installFlags) error {
 		if p < 0 || p > 65535 {
 			return ui.Usage("Pass a voice port from 1 to 65535.")
 		}
+	}
+	if f.NoVoice && (f.VoiceTCPPort > 0 || f.VoiceUDPPort > 0) {
+		return ui.Usage("Pass --voice-tcp-port and --voice-udp-port only with the bundled LiveKit, not with --no-bundled-voice.")
 	}
 	if !projectPattern.MatchString(f.Project) {
 		return ui.Usage("Pass --project with lowercase letters, numbers, dashes or underscores.")
@@ -461,7 +492,7 @@ func (in *installer) ensureEngine(ctx context.Context) error {
 
 func dockerInstalled() bool {
 	if path, err := exec.LookPath("docker"); err == nil {
-		return !podmanDockerWrapper(path)
+		return !engine.PodmanDockerWrapper(path)
 	}
 	switch runtime.GOOS {
 	case "windows":
@@ -472,23 +503,6 @@ func dockerInstalled() bool {
 		return fileExists("/Applications/Docker.app") || (home != "" && fileExists(filepath.Join(home, "Applications", "Docker.app")))
 	}
 	return false
-}
-
-func podmanDockerWrapper(path string) bool {
-	if runtime.GOOS != "linux" {
-		return false
-	}
-	if target, err := filepath.EvalSymlinks(path); err == nil && filepath.Base(target) == "podman" {
-		return true
-	}
-	f, err := os.Open(path)
-	if err != nil {
-		return false
-	}
-	defer f.Close()
-	head := make([]byte, 512)
-	n, _ := io.ReadFull(f, head)
-	return bytes.HasPrefix(head[:n], []byte("#!")) && bytes.Contains(head[:n], []byte("podman"))
 }
 
 func (in *installer) startPodman(ctx context.Context) error {
@@ -511,7 +525,7 @@ func (in *installer) startPodman(ctx context.Context) error {
 		in.plan = append(in.plan, "Start Podman's API socket.")
 		return nil
 	}
-	if err := host.FixPodman(ctx, s); err != nil {
+	if err := host.RunSteps(ctx, s.Steps()); err != nil {
 		return ui.Wrap(err, "Couldn't start Podman's API socket.", "Run rexctl install --verbose to see why.")
 	}
 	e, err := engine.Connect(ctx, engine.ConnectOptions{Prefer: engine.Podman, AllowOld: true})
@@ -567,7 +581,7 @@ func (in *installer) setupPodman(ctx context.Context) error {
 		in.plan = append(in.plan, "Set up Podman for Fluxer.")
 		return nil
 	}
-	if err := host.FixPodman(ctx, s); err != nil {
+	if err := host.RunSteps(ctx, s.Steps()); err != nil {
 		return ui.Wrap(err, "Couldn't set up Podman for Fluxer.", "Run rexctl install --verbose to see why.")
 	}
 	in.app.UI.OK("Set up Podman for Fluxer.")
@@ -586,13 +600,13 @@ func (in *installer) allowLowPorts(ctx context.Context) error {
 		return err
 	}
 	if !ok {
-		return ui.Refused("Fluxer can't serve HTTPS from rootless Podman without ports 80 and 443.", "Run rexctl install --behind-proxy to use your own reverse proxy instead.")
+		return ui.Refused("Fluxer can't serve HTTPS from rootless Podman without ports 80 and 443.", "Run rexctl install --behind-proxy to use your own reverse proxy or tunnel instead.")
 	}
 	if in.f.DryRun {
 		in.plan = append(in.plan, "Let programs that don't run as root use ports 80 and up.")
 		return nil
 	}
-	if err := host.AllowLowPorts(ctx); err != nil {
+	if err := host.RunSteps(ctx, host.LowPortsSysctl.Steps()); err != nil {
 		return ui.Wrap(err, "Couldn't open ports 80 and up to programs that don't run as root.", "Run rexctl install --verbose to see why.")
 	}
 	in.app.UI.OK("Programs that don't run as root can use ports 80 and up.")
@@ -670,31 +684,40 @@ func (in *installer) offerProxy() error {
 	if !ok {
 		return nil
 	}
-	in.offered, in.lowPortsSaid = true, len(h.Busy) == 0
+	in.lowPortsSaid = len(h.Busy) == 0
 	in.app.UI.Info("%s", reason)
-	yes, err := in.app.UI.Confirm("Use your own reverse proxy in front of Fluxer?", def)
+	yes, err := in.app.UI.Confirm("Use your own reverse proxy or tunnel in front of Fluxer, as with --behind-proxy?", def)
 	if err != nil || !yes {
 		return err
 	}
 	if err := in.app.UI.Ask(in.c, ui.Field{
 		Flag:     "bind",
-		Title:    "Which address should your proxy connect to?",
+		Title:    "Which address should your proxy or tunnel connect to?",
 		Value:    &in.f.Bind,
 		Validate: validateBind,
 	}); err != nil {
 		return err
 	}
 	in.f.BehindProxy = true
-	in.plan = append(in.plan, fmt.Sprintf("Serve Fluxer over plain HTTP on %s for your reverse proxy.", in.f.Bind))
+	in.plan = append(in.plan, fmt.Sprintf("Serve Fluxer over plain HTTP on %s for your reverse proxy or tunnel.", in.f.Bind))
 	return nil
 }
 
+const (
+	publicSchemeVar = "FLUXER_PUBLIC_SCHEME"
+	plainHTTPNote   = "Fluxer uses http links for %s because Tor and I2P browsers open it over plain HTTP. To use https, run rexctl config set FLUXER_PUBLIC_SCHEME=https."
+)
+
+func (in *installer) plainHTTP() bool {
+	return in.f.BehindProxy && checks.PlainHTTPDomain(in.f.Domain)
+}
+
 func (in *installer) proxyNote() {
-	if !in.offered || !in.f.BehindProxy {
+	if !in.f.BehindProxy {
 		return
 	}
-	in.app.UI.Info("Set up your proxy to forward https://%s to http://%s.", normaliseDomain(in.f.Domain), in.f.Bind)
-	in.app.UI.Info("See %sreverse-proxy/ for what your proxy needs to do.", docsURL)
+	in.app.UI.Info("Set up your proxy or tunnel to forward %s to http://%s.", normaliseDomain(in.f.Domain), in.f.Bind)
+	in.app.UI.Info("See %sreverse-proxy/ for what your proxy or tunnel needs to do.", docsURL)
 }
 
 func (in *installer) installDocker(ctx context.Context) error {
@@ -754,16 +777,28 @@ func (in *installer) settings() map[string]string {
 	if in.f.VoiceUDPPort > 0 {
 		out[stack.VoiceUDPPortKey] = strconv.Itoa(in.f.VoiceUDPPort)
 	}
+	if in.f.NoVoice {
+		out[stack.VoiceBundledKey] = "false"
+	}
+	if in.f.Storage.Endpoint != "" {
+		out[settings.StorageEndpoint] = in.f.Storage.Endpoint
+	}
 	return out
 }
 
 func (in *installer) resolveVoicePorts(ctx context.Context) {
+	if in.f.NoVoice {
+		return
+	}
 	tcpSet := in.f.VoiceTCPPort > 0
 	udpSet := in.f.VoiceUDPPort > 0
 	if tcpSet && udpSet {
 		return
 	}
 	pub := in.publishedPorts(ctx)
+	for _, v := range instance.RecordedVoicePorts() {
+		pub[host.Port{Number: v.Number, Proto: v.Proto}] = true
+	}
 	free := func(number int, proto string) bool {
 		if number < 1 || number > 65535 {
 			return false
@@ -1061,7 +1096,11 @@ func (in *installer) printPlan() error {
 	if in.f.NoStart {
 		steps = append(steps, "Leave Fluxer stopped.")
 	} else {
-		steps = append(steps, fmt.Sprintf("Download Fluxer and start it at https://%s.", domain))
+		scheme := "https"
+		if in.plainHTTP() {
+			scheme = "http"
+		}
+		steps = append(steps, fmt.Sprintf("Download Fluxer and start it at %s://%s.", scheme, domain))
 		if in.answers != nil {
 			steps = append(steps, fmt.Sprintf("Create the admin account %s and finish setup.", in.answers.Username))
 		} else if in.f.SetupWhere == "terminal" {
@@ -1089,6 +1128,10 @@ func (in *installer) write(ctx context.Context, inst *instance.Instance, deleteO
 		st.Settings[settings.EdgeMode] = settings.EdgeProxy
 		st.Settings[settings.EdgeBind] = f.Bind
 	}
+	if in.plainHTTP() {
+		st.Settings[publicSchemeVar] = "http"
+		in.app.UI.Info(plainHTTPNote, normaliseDomain(f.Domain))
+	}
 	if f.VoiceTCPPort > 0 {
 		st.Settings[settings.VoiceTCPPort] = strconv.Itoa(f.VoiceTCPPort)
 	}
@@ -1098,11 +1141,21 @@ func (in *installer) write(ctx context.Context, inst *instance.Instance, deleteO
 	if f.VoiceIP != "" {
 		st.Settings[settings.VoicePublicIP] = f.VoiceIP
 	}
+	if f.NoVoice {
+		st.Settings[settings.VoiceBundled] = "false"
+	}
 	if f.MemoryProfile != "" {
 		st.Settings[settings.MemoryProfile] = f.MemoryProfile
 	}
 	if in.storage != nil {
 		maps.Copy(st.Settings, in.storage.values())
+	}
+	store := engine.ImageStore(inst.Dir, in.engine)
+	if total, err := host.DiskSize(store); err == nil {
+		if profile := stack.DiskProfileFor(total); profile != "" {
+			st.Settings[settings.DiskProfile] = profile
+			in.app.UI.Info("%s is on a %s disk, so Fluxer keeps its logs, database write-ahead log and upload spool smaller. To use the usual sizes, run rexctl config unset %s.", store, ui.Bytes(int64(total)), settings.DiskProfile)
+		}
 	}
 	if _, err := secrets.Mint(st.Secrets, false); err != nil {
 		return ui.Wrap(err, "Couldn't create your instance's secrets.", "Run rexctl install again.")
@@ -1117,14 +1170,14 @@ func (in *installer) write(ctx context.Context, inst *instance.Instance, deleteO
 		st.Images.Refs = map[string]string{}
 	}
 	if err := release.WriteRelease(inst, set); err != nil {
-		return ui.Wrap(err, fmt.Sprintf("Couldn't write Fluxer's files to %s.", inst.Dir), "Check the free disk space, then run rexctl install again.")
+		return saveFailed(inst, err, fmt.Sprintf("Couldn't write Fluxer's files to %s.", inst.Dir), "rexctl install")
 	}
 	r, err := inst.Render(set, stack.OverlaysFor(st.Settings), st.Images.Refs)
 	if err != nil {
-		return ui.Wrap(err, fmt.Sprintf("Couldn't write Fluxer's files to %s.", inst.Dir), "Check the free disk space, then run rexctl install again.")
+		return saveFailed(inst, err, fmt.Sprintf("Couldn't write Fluxer's files to %s.", inst.Dir), "rexctl install")
 	}
 	if err := inst.WriteCustomTemplate(); err != nil {
-		return ui.Wrap(err, fmt.Sprintf("Couldn't write %s to %s.", instance.CustomCompose, inst.Dir), "Check the free disk space, then run rexctl install again.")
+		return saveFailed(inst, err, fmt.Sprintf("Couldn't write %s to %s.", instance.CustomCompose, inst.Dir), "rexctl install")
 	}
 	st.Rendered = r.Hashes
 	if err := inst.Save(); err != nil {
@@ -1273,15 +1326,29 @@ func installBootUnit(ctx context.Context, inst *instance.Instance, e *engine.Eng
 	if err != nil {
 		return err
 	}
-	return host.InstallBootUnit(ctx, u)
+	steps, err := u.InstallSteps(ctx)
+	if err != nil {
+		return err
+	}
+	return host.RunSteps(ctx, steps)
 }
 
-func refreshBootUnit(ctx context.Context, inst *instance.Instance, e *engine.Engine, p *engine.Project) error {
+func refreshBootUnit(ctx context.Context, app *App, inst *instance.Instance, e *engine.Engine, p *engine.Project) error {
 	u, err := checks.BootUnitFor(inst, e, p)
 	if err != nil {
 		return err
 	}
-	return host.RefreshBootUnit(ctx, u)
+	steps, err := u.RefreshSteps(ctx)
+	if err != nil || len(steps) == 0 {
+		return err
+	}
+	if !u.Rootless && euid() != 0 {
+		app.UI.Info("Updating the service that starts Fluxer with this machine needs root, so sudo may ask for your password.")
+		for _, s := range steps {
+			app.UI.Info("  %s", s.Do)
+		}
+	}
+	return host.RunSteps(ctx, steps)
 }
 
 func (in *installer) waitCertificate(ctx context.Context, inst *instance.Instance, p *engine.Project) {

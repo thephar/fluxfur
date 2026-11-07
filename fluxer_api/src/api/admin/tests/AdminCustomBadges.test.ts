@@ -4,7 +4,7 @@ import {createTestCustomBadge} from '@app/api/admin/tests/AdminTestUtils';
 import {createTestAccount, setUserACLs, type TestAccount} from '@app/api/auth/tests/AuthTestUtils';
 import {getPngDataUrl} from '@app/api/emoji/tests/EmojiTestUtils';
 import {createGuild} from '@app/api/message/tests/MessageTestUtils';
-import {getInstanceConfigRepository} from '@app/api/middleware/ServiceSingletons';
+import {getCustomBadgeCatalog} from '@app/api/middleware/ServiceSingletons';
 import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHarness';
 import {HTTP_STATUS} from '@app/api/test/TestConstants';
 import {createBuilder} from '@app/api/test/TestRequestBuilder';
@@ -46,7 +46,7 @@ describe('custom badges', () => {
 
 	test('stores an uploaded image reference and serves it as a profile badge until deleted', async () => {
 		const badge = await createTestCustomBadge(harness, admin.token, 'user', 'Translator');
-		const [stored] = await getInstanceConfigRepository().getCustomBadges();
+		const stored = await getCustomBadgeCatalog().getById(badge.id);
 		expect(stored?.asset).toMatch(new RegExp(`^custom-badges/${badge.id}/[0-9a-f]{8}\\.png$`));
 		expect(badge.asset_url).toMatch(new RegExp(`/custom-badges/${badge.id}/[0-9a-f]{8}\\.webp$`));
 

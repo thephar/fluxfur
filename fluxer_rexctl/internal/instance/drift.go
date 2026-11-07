@@ -118,27 +118,6 @@ func (r *EnvDrift) Fix() string {
 	return unused + " Change the others with these commands, then delete " + r.Path + ":"
 }
 
-func (r *EnvDrift) Settings() map[string]*string {
-	out := map[string]*string{}
-	for _, c := range r.Changes {
-		if c.Kind == ChangeSetting {
-			v := c.Value
-			out[c.Key] = &v
-		}
-	}
-	return out
-}
-
-func (r *EnvDrift) Values(kind ChangeKind) map[string]string {
-	out := map[string]string{}
-	for _, c := range r.Changes {
-		if c.Kind == kind {
-			out[c.Key] = c.Value
-		}
-	}
-	return out
-}
-
 func KeepEdited(inst *Instance, name string) (string, error) {
 	data, err := os.ReadFile(inst.Path(name))
 	if err != nil {
@@ -323,9 +302,16 @@ func UnseenEdits(inst *Instance) []string {
 }
 
 func SeenEdits(inst *Instance) {
-	path := inst.Path(StateDirName, EditedDir, seenMarker)
+	root, err := os.OpenRoot(inst.Dir)
+	if err != nil {
+		return
+	}
+	defer root.Close()
+	name := filepath.Join(StateDirName, EditedDir, seenMarker)
 	now := time.Now()
-	if os.Chtimes(path, now, now) != nil {
-		_ = os.WriteFile(path, nil, 0o600)
+	if root.Chtimes(name, now, now) != nil {
+		if f, err := root.OpenFile(name, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600); err == nil {
+			_ = f.Close()
+		}
 	}
 }

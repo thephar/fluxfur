@@ -1,8 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {createGuildIDSet, createUserIDSet} from '@app/api/BrandedTypes';
-import {BatchBuilder, deleteOneOrMany, fetchMany, fetchOne, upsertOne} from '@app/api/database/CassandraQueryExecution';
+import {
+	BatchBuilder,
+	deleteOneOrMany,
+	executeConditional,
+	fetchMany,
+	fetchOne,
+	upsertOne,
+} from '@app/api/database/CassandraQueryExecution';
 import {defineTable} from '@app/api/database/CassandraTableDsl';
+import {Db} from '@app/api/database/CassandraTypes';
 import {
 	VOICE_REGION_COLUMNS,
 	VOICE_SERVER_COLUMNS,
@@ -10,6 +18,13 @@ import {
 	type VoiceServerRow,
 } from '@app/api/database/types/VoiceTypes';
 import type {VoiceRegionRecord, VoiceRegionWithServers, VoiceServerRecord} from '@app/api/voice/VoiceModel';
+
+export type VoiceServerNodeFields = Partial<
+	Pick<
+		VoiceServerRecord,
+		'endpoint' | 'draining' | 'latitude' | 'longitude' | 'softConnectionLimit' | 'publicIpv4' | 'publicIpv6'
+	>
+>;
 
 function toIterable<T>(value: unknown): Array<T> {
 	if (value === null || value === undefined) return [];
@@ -136,8 +151,49 @@ export class VoiceRepository {
 		return fullServer;
 	}
 
+	async createServerIfAbsent(server: Omit<VoiceServerRecord, 'createdAt' | 'updatedAt'>): Promise<boolean> {
+		const now = new Date();
+		return executeConditional(
+			VoiceServers.insertIfNotExists(this.toServerRow({...server, createdAt: now, updatedAt: now})),
+		);
+	}
+
+	async listAllServers(): Promise<Array<VoiceServerRecord>> {
+		const regions = await this.listRegionsWithServers();
+		return regions.flatMap((region) => region.servers);
+	}
+
 	async upsertServer(server: VoiceServerRecord): Promise<void> {
-		const row: VoiceServerRow = {
+		await upsertOne(VoiceServers.upsertAll(this.toServerRow(server)));
+	}
+
+	async patchServerNodeFields(
+		regionId: string,
+		serverId: string,
+		fields: VoiceServerNodeFields,
+		updatedAt: Date,
+	): Promise<void> {
+		await fetchOne(
+			VoiceServers.patchByPk(
+				{region_id: regionId, server_id: serverId},
+				{
+					...(fields.endpoint !== undefined && {endpoint: Db.set(fields.endpoint)}),
+					...(fields.draining !== undefined && {draining: Db.set(fields.draining)}),
+					...(fields.latitude !== undefined && {latitude: Db.set(fields.latitude)}),
+					...(fields.longitude !== undefined && {longitude: Db.set(fields.longitude)}),
+					...(fields.softConnectionLimit !== undefined && {
+						soft_connection_limit: Db.set(fields.softConnectionLimit),
+					}),
+					...(fields.publicIpv4 !== undefined && {public_ipv4: Db.set(fields.publicIpv4)}),
+					...(fields.publicIpv6 !== undefined && {public_ipv6: Db.set(fields.publicIpv6)}),
+					updated_at: Db.set(updatedAt),
+				},
+			),
+		);
+	}
+
+	private toServerRow(server: VoiceServerRecord): VoiceServerRow {
+		return {
 			region_id: server.regionId,
 			server_id: server.serverId,
 			endpoint: server.endpoint,
@@ -152,10 +208,15 @@ export class VoiceRepository {
 			required_guild_features: new Set(server.restrictions.requiredGuildFeatures),
 			allowed_guild_ids: new Set(Array.from(server.restrictions.allowedGuildIds).map((id) => BigInt(id))),
 			allowed_user_ids: new Set(Array.from(server.restrictions.allowedUserIds).map((id) => BigInt(id))),
+			internal_endpoint: server.internalEndpoint,
+			draining: server.draining,
+			pinned_hostname: server.pinnedHostname,
+			pinned_soft_limit: server.pinnedSoftLimit,
+			public_ipv4: server.publicIpv4,
+			public_ipv6: server.publicIpv6,
 			created_at: server.createdAt ?? new Date(),
 			updated_at: server.updatedAt ?? new Date(),
 		};
-		await upsertOne(VoiceServers.upsertAll(row));
 	}
 
 	async deleteServer(regionId: string, serverId: string): Promise<void> {
@@ -199,6 +260,12 @@ export class VoiceRepository {
 				allowedGuildIds: createGuildIDSet(new Set(toIterable<bigint>(row.allowed_guild_ids))),
 				allowedUserIds: createUserIDSet(new Set(toIterable<bigint>(row.allowed_user_ids))),
 			},
+			internalEndpoint: row.internal_endpoint ?? null,
+			draining: row.draining ?? false,
+			pinnedHostname: row.pinned_hostname ?? null,
+			pinnedSoftLimit: row.pinned_soft_limit ?? false,
+			publicIpv4: row.public_ipv4 ?? null,
+			publicIpv6: row.public_ipv6 ?? null,
 			createdAt: row.created_at,
 			updatedAt: row.updated_at,
 		};

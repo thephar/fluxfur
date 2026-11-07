@@ -15,6 +15,7 @@ export const DATE_OF_BIRTH_ALLOWLIST: ReadonlyArray<{method: string; path: RegEx
 	{method: 'POST', path: /^\/users\/@me\/delete$/},
 	{method: 'POST', path: /^\/users\/@me\/disable$/},
 	{method: 'POST', path: /^\/users\/@me\/terms-acceptance$/},
+	{method: 'DELETE', path: /^\/users\/@me\/age-range$/},
 	{method: 'GET', path: /^\/users\/@me\/harvest(\/[^/]+)*$/},
 	{method: 'POST', path: /^\/users\/@me\/harvest(\/[^/]+)*$/},
 	{method: 'GET', path: /^\/experiments$/},

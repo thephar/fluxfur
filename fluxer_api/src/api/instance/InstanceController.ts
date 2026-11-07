@@ -1,23 +1,32 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import {createHash} from 'node:crypto';
 import {Config} from '@app/api/Config';
+import type {AgePolicyConfig} from '@app/api/config/APIConfig';
 import type {NatsGifProvider} from '@app/api/gif/NatsGifProvider';
 import {withAccountIdentitySetupLock} from '@app/api/instance/AccountIdentitySetupLock';
+import {type CustomBadge, compareBigInts} from '@app/api/instance/custom_badges/CustomBadgeRepository';
 import {
 	type DiscoveryValidators,
 	isDiscoveryNotModified,
 	nextDiscoveryValidators,
 } from '@app/api/instance/DiscoveryValidators';
 import {customBadgeImageUrl} from '@app/api/instance/InstanceAssetReferences';
-import type {CustomBadgeDefinition} from '@app/api/instance/InstanceConfigRepository';
+import type {BuiltInBadgeImages} from '@app/api/instance/InstanceConfigRepository';
 import {assertSetupToken} from '@app/api/instance/SetupToken';
+import {getStatusPageDetector} from '@app/api/instance/StatusPageDetector';
 import {RateLimitMiddleware} from '@app/api/middleware/RateLimitMiddleware';
 import {OpenAPI} from '@app/api/middleware/ResponseTypeMiddleware';
+import {getVoiceTopology} from '@app/api/middleware/ServiceRegistry';
+import {getCustomBadgeCatalog} from '@app/api/middleware/ServiceSingletons';
+import {listHiddenLabsRoleIds} from '@app/api/operator_pass/OperatorPassLabsRole';
 import {RateLimitConfigs} from '@app/api/RateLimitConfig';
 import {isBillingActive, isPremiumTieringActive, isStripeServiceable} from '@app/api/stripe/BillingConfigCache';
 import type {HonoEnv} from '@app/api/types/HonoEnv';
+import {entityTagMatches} from '@app/api/utils/EntityTag';
 import {requireConfiguredClientIp} from '@app/api/utils/RequestClientIp';
 import {Validator} from '@app/api/Validator';
+import {endpointOrigin} from '@app/api/voice/VoiceServerEndpoints';
 import {
 	type EmailDeliveryState,
 	EmailDeliveryStates,
@@ -31,6 +40,7 @@ import {
 } from '@fluxer/constants/src/AccountIdentityConstants';
 import {resolveEffectiveVerificationBasis, resolveIdentifierFirst} from '@fluxer/constants/src/AccountTierRules';
 import {API_CODE_VERSION} from '@fluxer/constants/src/AppConstants';
+import {BUILT_IN_GUILD_BADGE_KINDS, type HideableBuiltInBadgeKind} from '@fluxer/constants/src/BadgeConstants';
 import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
 import {AccountIdentityLockedError} from '@fluxer/errors/src/domains/auth/AccountIdentityLockedError';
 import {InputValidationError} from '@fluxer/errors/src/domains/core/InputValidationError';
@@ -39,16 +49,30 @@ import type {InstanceAppPublic} from '@fluxer/instance_bootstrap/src/Types';
 import type {AccountsConfig, AuthConfig} from '@fluxer/schema/src/domains/admin/AccountsConfigSchemas';
 import type {CaptchaConfig} from '@fluxer/schema/src/domains/admin/CaptchaSchemas';
 import {toDomainMigrationDiscovery} from '@fluxer/schema/src/domains/admin/DomainMigrationSchemas';
+import type {GeoEntry} from '@fluxer/schema/src/domains/geolocation/GeolocationSchemas';
 import {
 	InstanceAccountIdentityResponse,
 	InstanceAccountIdentityUpdateRequest,
-	type InstanceGuildBadge,
+	type InstanceAgePolicy,
+	type InstanceAgePolicyAction,
+	type InstanceBadge,
+	InstanceBadgesQuery,
+	InstanceBadgesResponse,
+	type InstanceBuiltInGuildBadgeImages,
+	type InstanceHiddenBuiltInGuildBadges,
 	InstanceSetupTokenCheckRequest,
 	WellKnownFluxerResponse,
 } from '@fluxer/schema/src/domains/instance/InstanceSchemas';
 import type {Hono} from 'hono';
+import {getDomain} from 'tldts';
 
 let discoveryValidators: DiscoveryValidators | null = null;
+
+function toAgePolicyDiscovery(agePolicy: AgePolicyConfig): InstanceAgePolicy {
+	const geos = (entries: Array<GeoEntry>, action: InstanceAgePolicyAction) =>
+		entries.map((entry) => ({country_code: entry.countryCode, region_code: entry.regionCode, action}));
+	return {geos: geos(agePolicy.restricted, 'restrict')};
+}
 
 function buildDiscoveryStaticInput(
 	gifService: NatsGifProvider | undefined,
@@ -68,7 +92,7 @@ function buildDiscoveryStaticInput(
 		deliveryState: runtime.emailDeliveryState,
 	});
 	const apiClientEndpoint = Config.endpoints.apiClient;
-	const apiPublicEndpoint = Config.endpoints.apiPublic;
+	const apiPublicEndpoint = Config.endpoints.apiPublicDiscovery;
 	let gifProvider: NatsGifProvider | undefined;
 	if (gifService !== undefined) {
 		gifProvider = gifService;
@@ -87,6 +111,7 @@ function buildDiscoveryStaticInput(
 			api: apiClientEndpoint,
 			api_client: apiClientEndpoint,
 			api_public: apiPublicEndpoint,
+			...(Config.endpoints.apiTransportDiscovery ? {api_transport: Config.endpoints.apiTransportDiscovery} : {}),
 			gateway: Config.endpoints.gateway,
 			media: Config.endpoints.media,
 			upload_relay: Config.mediaProxy.uploadRelay.endpoint,
@@ -135,19 +160,90 @@ function buildDiscoveryStaticInput(
 			public_vapid_key: Config.push.publicVapidKey ?? null,
 		},
 		appPublic,
+		agePolicy: toAgePolicyDiscovery(Config.instance.agePolicy),
 	};
 }
 
-function mapGuildBadgesForDiscovery(badges: ReadonlyArray<CustomBadgeDefinition>): Array<InstanceGuildBadge> {
-	return badges
-		.filter((badge) => badge.type === 'guild')
-		.map((badge) => ({
-			id: badge.id,
-			name: badge.name,
-			description: badge.description,
-			asset_url: customBadgeImageUrl(badge.asset, Config.endpoints.media),
-			href: badge.href,
-		}));
+function listVoiceOrigins(): Array<string> {
+	const topology = getVoiceTopology();
+	if (!topology) return [];
+	const origins = new Set<string>();
+	for (const region of topology.getAllRegions()) {
+		for (const server of topology.getServersForRegion(region.id)) {
+			const origin = endpointOrigin(server.endpoint);
+			if (origin) origins.add(origin);
+		}
+	}
+	return collapseVoiceOrigins(origins);
+}
+
+function collapseVoiceOrigins(origins: Iterable<string>): Array<string> {
+	const groups = new Map<string, Array<URL>>();
+	const out = new Set<string>();
+	for (const origin of origins) {
+		const url = new URL(origin);
+		const domain = getDomain(url.hostname);
+		if (!domain) {
+			out.add(origin);
+			continue;
+		}
+		const key = `${url.protocol}//${domain}:${url.port}`;
+		groups.set(key, [...(groups.get(key) ?? []), url]);
+	}
+	for (const urls of groups.values()) {
+		if (urls.length === 1) {
+			out.add(urls[0].origin);
+			continue;
+		}
+		const labels = urls.map((url) => url.hostname.split('.').reverse());
+		let shared = 0;
+		while (labels.every((host) => shared < host.length && host[shared] === labels[0][shared])) shared++;
+		const parent = labels[0].slice(0, shared).reverse().join('.');
+		const port = urls[0].port ? `:${urls[0].port}` : '';
+		for (const url of urls) {
+			if (url.hostname === parent) out.add(url.origin);
+		}
+		out.add(`${urls[0].protocol}//*.${parent}${port}`);
+	}
+	return Array.from(out).sort();
+}
+
+function mapBuiltInGuildBadgeImagesForDiscovery(images: BuiltInBadgeImages): InstanceBuiltInGuildBadgeImages {
+	const url = (asset: string | undefined) => (asset ? customBadgeImageUrl(asset, Config.endpoints.media) : null);
+	return {
+		verified: url(images.guild_verified),
+		partnered: url(images.guild_partnered),
+		discoverable: url(images.guild_discoverable),
+	};
+}
+
+function mapHiddenBuiltInGuildBadgesForDiscovery(
+	hidden: ReadonlySet<HideableBuiltInBadgeKind>,
+): InstanceHiddenBuiltInGuildBadges {
+	return BUILT_IN_GUILD_BADGE_KINDS.filter((kind) => hidden.has(`guild_${kind}`));
+}
+
+const INT64_MAX = (1n << 63n) - 1n;
+const BADGE_CACHE_CURRENT = 'public, max-age=86400, immutable';
+const BADGE_CACHE_REVALIDATE = 'public, max-age=60, must-revalidate';
+
+function mapGuildBadge(badge: CustomBadge): InstanceBadge {
+	return {
+		id: badge.id,
+		name: badge.name,
+		description: badge.description,
+		asset_url: customBadgeImageUrl(badge.asset, Config.endpoints.media),
+		href: badge.href,
+		position: badge.position.toString(),
+	};
+}
+
+function parseBadgeIds(ids: string): Array<bigint> {
+	return [...new Set(ids.split(','))].map((id) => BigInt(id)).filter((id) => id <= INT64_MAX);
+}
+
+function badgeEntityTag(version: string, query: string): string {
+	return `"${createHash('sha256').update(`${version}\n${query}`).digest('hex').slice(0, 32)}"`;
 }
 
 export function InstanceController(app: Hono<HonoEnv>) {
@@ -183,7 +279,9 @@ export function InstanceController(app: Hono<HonoEnv>) {
 				accounts,
 				instantAccountAvailability,
 				notice,
-				customBadges,
+				badgeHead,
+				builtInBadgeImages,
+				hiddenBuiltInBadges,
 			] = await Promise.all([
 				instanceConfigRepository.getRegistrationPublicConfig(),
 				instanceConfigRepository.getInstanceCommunityPublicConfig(),
@@ -197,8 +295,11 @@ export function InstanceController(app: Hono<HonoEnv>) {
 				instanceConfigRepository.getAccountsConfig(),
 				instanceConfigRepository.getInstantAccountAvailability(),
 				instanceConfigRepository.getActiveInstanceNotice(),
-				instanceConfigRepository.getCustomBadges(),
+				getCustomBadgeCatalog().readDiscoveryHead(),
+				instanceConfigRepository.getBuiltInBadgeImages(),
+				instanceConfigRepository.getHiddenBuiltInBadges(),
 			]);
+			const statusPageInstatus = await getStatusPageDetector().isInstatus(appPublicConfig.branding.status_page_url);
 			const lockReason =
 				Config.instance.selfHosted && !appPublicConfig.setup.configured
 					? await instanceConfigRepository.getAccountIdentityLockReason()
@@ -216,6 +317,7 @@ export function InstanceController(app: Hono<HonoEnv>) {
 					gifService,
 					{
 						...appPublicConfig,
+						branding: {...appPublicConfig.branding, status_page_instatus: statusPageInstatus},
 						setup: {
 							...appPublicConfig.setup,
 							admin_url: Config.endpoints.admin || null,
@@ -243,7 +345,13 @@ export function InstanceController(app: Hono<HonoEnv>) {
 				...discovery,
 				notice,
 				domain_migration: toDomainMigrationDiscovery(domainMigration),
-				guild_badges: mapGuildBadgesForDiscovery(customBadges),
+				guild_badges: badgeHead.value.badges.map(mapGuildBadge),
+				guild_badges_partial: badgeHead.value.partial,
+				custom_badges_version: getCustomBadgeCatalog().clientVersion(badgeHead.version),
+				built_in_guild_badge_images: mapBuiltInGuildBadgeImagesForDiscovery(builtInBadgeImages),
+				hidden_built_in_guild_badges: mapHiddenBuiltInGuildBadgesForDiscovery(hiddenBuiltInBadges),
+				hidden_role_ids: listHiddenLabsRoleIds(),
+				voice_origins: listVoiceOrigins(),
 			};
 			discoveryValidators = nextDiscoveryValidators(response, discoveryValidators);
 			ctx.header('ETag', discoveryValidators.etag);
@@ -258,6 +366,58 @@ export function InstanceController(app: Hono<HonoEnv>) {
 				return ctx.body(null, 304);
 			}
 			return ctx.json(response);
+		},
+	);
+	app.get(
+		'/instance/badges',
+		RateLimitMiddleware(RateLimitConfigs.INSTANCE_BADGES),
+		Validator('query', InstanceBadgesQuery),
+		OpenAPI({
+			operationId: 'list_instance_badges',
+			summary: 'List community badges',
+			description:
+				'Lists the custom badges that communities on this instance can show, in display order. Send ids to look up the badges listed in badge_ids of a community, or page through every badge with after and limit. Send the custom_badges_version from discovery as version. While that is still the current version, the response can be cached for a day.',
+			responseSchema: InstanceBadgesResponse,
+			statusCode: 200,
+			security: [],
+			tags: ['Instance'],
+		}),
+		async (ctx) => {
+			ctx.header('Access-Control-Allow-Origin', '*');
+			const query = ctx.req.valid('query');
+			if (query.ids !== undefined && query.after !== undefined) {
+				throw InputValidationError.create('after', 'Send either ids or after');
+			}
+			const catalog = getCustomBadgeCatalog();
+			const read =
+				query.ids !== undefined
+					? await catalog.readByIds(parseBadgeIds(query.ids)).then((result) => ({
+							...result,
+							value: {badges: result.value.filter((badge) => badge.type === 'guild'), next: null},
+						}))
+					: await catalog.readPage({type: 'guild', after: query.after, limit: query.limit});
+			const version = catalog.clientVersion(read.version);
+			const normalizedQuery =
+				query.ids !== undefined
+					? `ids=${parseBadgeIds(query.ids).sort(compareBigInts).join(',')}`
+					: `after=${query.after ?? ''}&limit=${query.limit}`;
+			ctx.header(
+				'Cache-Control',
+				read.stable && query.version === version ? BADGE_CACHE_CURRENT : BADGE_CACHE_REVALIDATE,
+			);
+			if (read.stable) {
+				const etag = badgeEntityTag(version, normalizedQuery);
+				ctx.header('ETag', etag);
+				const ifNoneMatch = ctx.req.header('If-None-Match');
+				if (ifNoneMatch !== undefined && entityTagMatches(ifNoneMatch, etag)) {
+					return ctx.body(null, 304);
+				}
+			}
+			return ctx.json({
+				version,
+				badges: read.value.badges.map(mapGuildBadge),
+				next: read.value.next,
+			});
 		},
 	);
 	app.post(

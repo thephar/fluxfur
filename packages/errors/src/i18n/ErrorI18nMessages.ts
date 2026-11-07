@@ -1,12 +1,30 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 export const ERROR_I18N_MESSAGES = {
+	'account.age_range_not_adult': "An age range only counts here when it shows that you're 18 or older.",
+	'account.age_range_not_needed': "You don't need an age range where you are.",
 	'account.already_claimed': 'This account is already set up to sign in from other devices.',
+	'account.app_attest_assertion_invalid': "We couldn't confirm the age range your device sent.",
+	'account.app_attest_attestation_invalid': "We couldn't confirm this device key.",
+	'account.app_attest_challenge_invalid': 'This check has expired or was already used. Try again.',
+	'account.app_attest_key_in_use': 'This device key is already registered to another account.',
+	'account.app_attest_key_not_registered': "This device key isn't registered with your account.",
+	'account.app_attest_not_available': "This instance doesn't accept age ranges from the app.",
+	'account.app_attest_request_invalid': "This age range request isn't valid.",
 	'account.below_minimum_age': "You aren't old enough to have an account here.",
 	'account.date_of_birth_already_set': 'Your date of birth is already set.',
 	'account.date_of_birth_required': 'Enter your date of birth to continue.',
 	'account.password_required_to_claim':
 		"{reason, select, email_delivery_off {Set a password to keep this account. This instance can't send email codes.} local_credential_basis {Set a password to keep this account. This instance asks every account for a password or passkey.} other {Set a password to keep this account.}}",
+	'account.play_integrity_app_not_recognized':
+		'Install the app from Google Play and sign in to Google Play so the app can send your age range.',
+	'account.play_integrity_challenge_invalid': 'This check has expired or was already used. Try again.',
+	'account.play_integrity_device_not_trusted':
+		"This device didn't pass the Google Play device check, so the app can't send your age range from it.",
+	'account.play_integrity_not_available': "This instance doesn't accept age ranges from the Android app.",
+	'account.play_integrity_request_invalid': "This age range request isn't valid.",
+	'account.play_integrity_token_invalid': "We couldn't confirm the age range your device sent. Try again.",
+	'account.play_integrity_unavailable': "We couldn't connect to Google Play to get your age range. Try again later.",
 	'account.unclaimed_cannot_accept_friend_requests': 'Claim your account to accept friend requests.',
 	'account.unclaimed_cannot_add_reactions': 'Claim your account to add reactions.',
 	'account.unclaimed_cannot_create_applications': 'Claim your account to create applications.',
@@ -106,6 +124,7 @@ export const ERROR_I18N_MESSAGES = {
 	'admin_and_system.invalid_timeout_value': 'Invalid timeout value.',
 	'admin_and_system.invalid_timestamp': 'Invalid timestamp.',
 	'admin_and_system.invalid_timezone_identifier': 'Invalid time zone identifier.',
+	'admin_and_system.message_shred_preview_changed': 'These messages changed after the preview. Preview them again.',
 	'admin_and_system.missing_acl': 'Missing ACL.',
 	'admin_and_system.moderation_basis_required': 'Give a basis to delete the messages.',
 	'admin_and_system.must_be_iso_timestamp': 'Must be a valid ISO timestamp.',
@@ -136,6 +155,8 @@ export const ERROR_I18N_MESSAGES = {
 	'attachments_and_uploads.file_not_found': 'File not found.',
 	'attachments_and_uploads.file_size_too_large': 'File size is too large. Maximum file size is {maxSize}.',
 	'attachments_and_uploads.filename_length_invalid': 'Filename must be between {min} and {max} characters.',
+	'attachments_and_uploads.image_dimensions_out_of_range':
+		'Image width and height must each be between {min} and {max} pixels.',
 	'attachments_and_uploads.image_size_exceeds_limit': 'Image size exceeds {maxSize} bytes.',
 	'attachments_and_uploads.invalid_file_field_name':
 		'Invalid file field name: {key}. Expected format: `files[N]` where N is a number.',
@@ -191,17 +212,28 @@ export const ERROR_I18N_MESSAGES = {
 	'auth_and_oauth.registration_url_invalid': 'This registration link is invalid or has expired.',
 	'auth_and_oauth.sso_account_linked_to_another_identity':
 		'This account is already linked to a different SSO identity.',
+	'auth_and_oauth.sso_account_link_requires_sign_in':
+		"An account with this email already exists. Sign in to it another way, then connect single sign-on from your account settings in the web app. If you can't, ask an admin of this instance.",
+	'auth_and_oauth.sso_discovery_failed':
+		"Couldn't connect to the sign-in provider at its issuer URL. Check the issuer URL, or wait until the provider is back before you turn on Require SSO.",
 	'auth_and_oauth.sso_email_not_verified': 'Your SSO provider has not verified your email address.',
 	'auth_and_oauth.sso_identity_linked_to_another_account':
 		'This SSO identity is already linked to a different account.',
 	'auth_and_oauth.sso_identity_mismatch': 'SSO identity mismatch between id_token and userinfo.',
+	'auth_and_oauth.sso_issuer_change_has_identities':
+		'{count, plural, =1 {# account is} other {# accounts are}} linked to the old issuer. Choose whether to move those links to the new issuer or leave them behind.',
+	'auth_and_oauth.sso_issuer_required':
+		'Enter the issuer URL of your sign-in provider. SSO needs it to check who signed in.',
 	'auth_and_oauth.sso_misconfigured': 'SSO is misconfigured. Please contact your administrator.',
 	'auth_and_oauth.sso_provider_did_not_return_email': "Your SSO provider didn't return an email address.",
+	'auth_and_oauth.sso_provider_unavailable': "Your sign-in provider didn't respond. Try again in a moment.",
 	'auth_and_oauth.sso_required':
 		"{reason, select, managed_credentials {This instance requires single sign-on, so your SSO provider manages your email and password.} no_account {This instance only lets existing accounts sign in with SSO, and there's no account for you yet. Ask an admin of this instance for access.} managed_username {This instance requires single sign-on, so your username comes from your SSO provider.} other {This instance requires single sign-on. Sign in with the SSO button on the sign-in page.}}",
 	'auth_and_oauth.sso_test_code_missing_email': 'SSO test code is missing the email payload.',
 	'auth_and_oauth.sso_unable_to_allocate_discriminator':
 		"We couldn't allocate a discriminator for your SSO account. Please try again.",
+	'auth_and_oauth.sso_user_info_signed_response_unsupported':
+		"Your sign-in provider sent your profile in a signed format that Fluxer can't use. Ask an admin of this instance to turn off signed userinfo responses at the provider.",
 	'auth_and_oauth.sudo_mode_required': 'Sudo mode is required.',
 	'auth_and_oauth.unknown_application': 'Unknown application.',
 	'auth_and_oauth.unknown_origin_handoff': 'This sign-in transfer has expired or was already used.',
@@ -252,6 +284,17 @@ export const ERROR_I18N_MESSAGES = {
 		"Voice message duration can't exceed {maxDuration, plural, one {# second} other {# seconds}}.",
 	'calls_and_voice.voice_message_duration_required': 'Voice message attachments must specify a duration.',
 	'calls_and_voice.voice_message_waveform_required': 'Voice message attachments must include waveform data.',
+	'calls_and_voice.voice_join_endpoint_invalid': "The voice server endpoint isn't allowed.",
+	'calls_and_voice.voice_join_endpoint_unreachable': "Fluxer couldn't connect to the voice server endpoint.",
+	'calls_and_voice.voice_join_key_mismatch': 'The voice server rejected its API key and secret.',
+	'calls_and_voice.voice_join_token_busy': 'Another voice server is joining with this token right now.',
+	'calls_and_voice.voice_join_token_invalid': 'The voice join token is not valid.',
+	'calls_and_voice.voice_node_signature_invalid': "The voice server's signature doesn't match its secret.",
+	'calls_and_voice.voice_node_token_expired':
+		"The voice server's request is expired or not valid yet. Check the clock on that machine.",
+	'calls_and_voice.voice_node_unknown': 'No voice server has this API key.',
+	'calls_and_voice.voice_server_api_key_in_use': 'Another voice server already uses this API key.',
+	'calls_and_voice.voice_server_id_in_use': 'Another voice server already uses this ID.',
 	'calls_and_voice.voice_messages_require_single_attachment': 'Voice messages must contain exactly one attachment.',
 	'captcha.invalid': 'Verification failed. Try again.',
 	'captcha.required': 'Verification required. Try again.',
@@ -315,17 +358,17 @@ export const ERROR_I18N_MESSAGES = {
 	'channels_and_guilds.invite_splash_requires_feature': 'Invite splash requires INVITE_SPLASH feature.',
 	'channels_and_guilds.invites_disabled': 'Invites are disabled.',
 	'channels_and_guilds.max_group_dm_recipients_reached':
-		"You've reached the maximum of {count, plural, one {# group DM recipient} other {# group DM recipients}}.",
+		"You can't have more than {count, plural, one {# group DM recipient} other {# group DM recipients}}.",
 	'channels_and_guilds.max_group_dms_reached':
-		"You've reached the maximum of {count, plural, one {# group DM} other {# group DMs}}.",
+		"You can't have more than {count, plural, one {# group DM} other {# group DMs}}.",
 	'channels_and_guilds.max_guild_channels_reached':
-		"You've reached the maximum of {count, plural, one {# community channel} other {# community channels}}.",
+		"You can't have more than {count, plural, one {# community channel} other {# community channels}}.",
 	'channels_and_guilds.max_guild_members_reached':
-		"You've reached the maximum of {count, plural, one {# community member} other {# community members}}.",
+		"You can't have more than {count, plural, one {# community member} other {# community members}}.",
 	'channels_and_guilds.max_guild_roles_reached':
-		"You've reached the maximum of {count, plural, one {# community role} other {# community roles}}.",
+		"You can't have more than {count, plural, one {# community role} other {# community roles}}.",
 	'channels_and_guilds.max_guilds_reached':
-		"You've reached the maximum of {count, plural, one {# community} other {# communities}}.",
+		"You can't have more than {count, plural, one {# community} other {# communities}}.",
 	'channels_and_guilds.message_history_cutoff_before_guild_creation':
 		"Message history cutoff can't be before the community was created.",
 	'channels_and_guilds.message_history_cutoff_in_future': "Message history cutoff can't be in the future.",
@@ -350,7 +393,7 @@ export const ERROR_I18N_MESSAGES = {
 	'connections.bluesky_oauth_not_enabled': 'Bluesky connections are not enabled on this instance.',
 	'connections.initiation_token_invalid': 'The connection initiation token is invalid or has expired.',
 	'connections.invalid_type': 'The connection type is not supported.',
-	'connections.limit_reached': "You've reached the maximum number of connections ({limit}).",
+	'connections.limit_reached': "You can't have more than {limit} connections.",
 	'connections.not_found': 'Unknown connection.',
 	'connections.verification_failed':
 		'Connection verification failed. Make sure the verification token is correctly placed.',
@@ -377,30 +420,31 @@ export const ERROR_I18N_MESSAGES = {
 	'operator_pass.unknown_offer': 'Unknown Operator Pass offer.',
 	'operator_pass.unknown_pass': 'Unknown Operator Pass.',
 	'operator_pass.age_confirmation_required':
-		'To buy more than one pass, confirm that you are 18 or older, or that you have permission from a parent or guardian.',
-	'operator_pass.country_unavailable': 'You cannot buy the Operator Pass in your country right now.',
-	'operator_pass.waiver_required': 'Confirm that you want the Operator Pass delivered right away.',
+		'To buy a pass, confirm that you are 18 or older, or that you have permission from a parent or guardian.',
+	'operator_pass.delivery_consent_required': 'Confirm that you want your certificate delivered right away.',
+	'operator_pass.certificate_name_rejected': "We can't print this name on a certificate. Please choose another one.",
 	'operator_pass.wall_name_required': "Enter a name for the Operators' wall, or choose not to be listed.",
+	'operator_pass.wall_name_rejected': "We can't show this name on the Operators' wall. Please choose another one.",
+	'operator_pass.wall_quote_invalid':
+		'A quote can have up to 80 characters on one line, without hidden or control characters.',
+	'operator_pass.wall_quote_rejected': "A quote can't contain links, email addresses or @mentions.",
 	'operator_pass.not_held': "This account doesn't have the Operator Pass.",
 	'operator_pass.unknown_wall_entry': "This account has no name on the Operators' wall.",
 	'operator_pass.release_already_published': 'This Operators list has already been published.',
 	'operator_pass.release_not_ready': 'This Operators list cannot be published before its cut-off date.',
 	'operator_pass.unknown_release_entry': 'This account is not in that published Operators list.',
-	'operator_pass.not_on_sale': 'You cannot buy the Operator Pass yet.',
 	'operator_pass.price_changed': 'The Operator Pass price has changed. Check the new price and try again.',
-	'operator_pass.waitlist_closed': 'The Operator Pass waitlist is closed because you can get the pass now.',
-	'operator_pass.waitlist_followup_invalid':
-		'Choose from the listed options. You can add your own answer only with "Other", in up to 500 characters.',
-	'operator_pass.waitlist_followup_token_invalid':
-		'This answer can no longer be saved. Your waitlist signup is not affected.',
-	'operator_pass.waitlist_token_expired': 'This waitlist link has expired.',
 	'operator_pass.waitlist_token_invalid': 'This waitlist link is invalid.',
 	'operator_pass.removal_limited_first':
 		'A permanent removal for a breach that is not serious needs an earlier removal for a limited time.',
 	'operator_pass.removal_notice_required':
 		'A permanent removal needs a notice sent at least 7 days earlier, unless the breach is serious.',
+	'operator_pass.email_undeliverable':
+		'Emails to the address on this account cannot be delivered. Change your email in your settings before you buy the Operator Pass, because the purchase confirmation goes there.',
 	'operator_pass.removed': 'The Operator Pass was removed from this account, so it cannot be bought or redeemed again.',
 	'operator_pass.terms_not_accepted': 'Accept the Operator Pass terms to get this pass.',
+	'operator_pass.visionary_unavailable':
+		"This account can't turn on the Operator Pass that comes with Visionary right now.",
 	'operator_pass.withdrawal_unavailable': 'This purchase can no longer be withdrawn from here.',
 	'operator_pass.unknown_purchase': 'Unknown Operator Pass purchase.',
 	'email.domain_cannot_receive_mail':
@@ -475,8 +519,7 @@ export const ERROR_I18N_MESSAGES = {
 	'invites_and_gifts.gift_code_already_redeemed': 'Gift code is already redeemed.',
 	'invites_and_gifts.stripe_gift_redemption_in_progress': 'Gift code redemption is in progress. Try again in a moment.',
 	'invites_and_gifts.unknown_gift_code': 'Unknown gift code.',
-	'invites_and_packs.max_emojis_reached':
-		"You've reached the maximum of {count, plural, one {# emoji} other {# emojis}}.",
+	'invites_and_packs.max_emojis_reached': "You can't have more than {count, plural, one {# emoji} other {# emojis}}.",
 	'limits.base64_length_invalid': 'Base64 string length must be between {min} and {maxLength} characters.',
 	'limits.cannot_specify_before_and_after': "You can't specify both `before` and `after`.",
 	'limits.content_exceeds_max_length':
@@ -494,7 +537,7 @@ export const ERROR_I18N_MESSAGES = {
 	'media_and_memes.max_favorite_meme_tags_exceeded':
 		'You can only add up to {limit, plural, one {# tag} other {# tags}} per saved media item.',
 	'media_and_memes.max_favorite_memes_reached':
-		"You've reached the maximum of {count, plural, one {# saved media item} other {# saved media items}}.",
+		"You can't have more than {count, plural, one {# saved media item} other {# saved media items}}.",
 	'media_and_memes.media_already_in_favorites': 'This media is already in your saved media.',
 	'media_and_memes.media_metadata_error': 'Media metadata error.',
 	'media_and_memes.unknown_favorite_meme': 'Unknown saved media.',
@@ -535,22 +578,21 @@ export const ERROR_I18N_MESSAGES = {
 	'mfa_and_passkeys.two_factor_required': 'Two-factor authentication is required.',
 	'mfa_and_passkeys.unknown_webauthn_credential': 'Unknown WebAuthn credential.',
 	'mfa_and_passkeys.webauthn_credential_limit_reached':
-		"You've reached the maximum of {count, plural, one {# WebAuthn credential} other {# WebAuthn credentials}}.",
+		"You can't have more than {count, plural, one {# WebAuthn credential} other {# WebAuthn credentials}}.",
 	'misc.cannot_send_messages_in_non_text_channel': "You can't send messages in a non-text channel.",
 	'misc.invalid_permissions_integer': 'Permissions must be a valid integer.',
 	'misc.invalid_permissions_negative': 'Permissions must be non-negative.',
 	'misc.invalid_request_generic': 'Invalid request.',
 	'misc.invalid_snowflake': 'Invalid snowflake.',
 	'misc_limits.max_applications_reached':
-		"You've reached the maximum of {limit, plural, one {# application} other {# applications}}.",
-	'misc_limits.max_badges_reached':
-		"You've reached the maximum of {count, plural, one {# badge} other {# badges}} for this type.",
+		"You can't have more than {limit, plural, one {# application} other {# applications}}.",
+	'misc_limits.max_badges_reached': 'The limit is {count, plural, one {# badge} other {# badges}}.',
 	'misc_limits.max_bookmarks_reached':
-		"You've reached the maximum of {count, plural, one {# bookmark} other {# bookmarks}}.",
+		"You can't have more than {count, plural, one {# bookmark} other {# bookmarks}}.",
 	'misc_limits.max_category_channels_reached':
-		"You've reached the maximum of {count, plural, one {# category channel} other {# category channels}}.",
-	'misc_limits.max_friends_reached': "You've reached the maximum of {count, plural, one {# friend} other {# friends}}.",
-	'misc_limits.max_invites_reached': "You've reached the maximum of {count, plural, one {# invite} other {# invites}}.",
+		"You can't have more than {count, plural, one {# category channel} other {# category channels}}.",
+	'misc_limits.max_friends_reached': "You can't have more than {count, plural, one {# friend} other {# friends}}.",
+	'misc_limits.max_invites_reached': "You can't have more than {count, plural, one {# invite} other {# invites}}.",
 	'moderation_and_reports.cannot_report_own_message': "You can't report your own message.",
 	'moderation_and_reports.cannot_report_yourself': "You can't report yourself.",
 	'moderation_and_reports.invalid_dsa_report_target': 'Invalid DSA report target.',
@@ -607,11 +649,11 @@ export const ERROR_I18N_MESSAGES = {
 	'rate_limits.ip_authorization_resend_cooldown': 'IP authorization resend is on cooldown.',
 	'rate_limits.ip_authorization_resend_limit_exceeded': 'IP authorization resend limit exceeded.',
 	'rate_limits.message_crosspost_rate_limited':
-		'This channel has reached its publishing limit. It can publish 10 messages in a row, then one more every 6 minutes.',
+		'This channel is at its publishing limit. It can publish 10 messages in a row, then one more every 6 minutes.',
 	'rate_limits.pronouns_changed_too_often':
 		"You've changed your pronouns too often recently. Please try again in {minutes, plural, one {# minute} other {# minutes}}.",
 	'rate_limits.published_message_edit_rate_limited':
-		'This published message has reached its editing limit. It allows 3 quick edits, then 1 every 20 minutes.',
+		'This published message is at its editing limit. It allows 3 quick edits, then 1 every 20 minutes.',
 	'rate_limits.rate_limited': "You're being rate limited.",
 	'rate_limits.slowmode_rate_limited': 'Slowmode rate limited.',
 	'rate_limits.username_changed_too_often':
@@ -620,15 +662,18 @@ export const ERROR_I18N_MESSAGES = {
 		'You can only update your voice activity sharing default once every 24 hours. Please try again in {retry_after, plural, one {# second} other {# seconds}}.',
 	'roles.cannot_reorder_everyone_role': "You can't reorder the @everyone role.",
 	'roles.cannot_set_everyone_hoist': "You can't set hoist position for the @everyone role.",
+	'roles.cannot_set_everyone_icon': "The @everyone role can't have an icon.",
+	'roles.icon_and_emoji_exclusive': 'A role can have an image icon or an emoji, not both.',
+	'roles.icon_source_and_icon_exclusive': 'Set a role icon or copy one from another role, not both.',
 	'roles.invalid_role_id': 'Invalid role ID: {roleId}.',
 	'roles.parse_and_users_or_roles_cannot_be_used_together':
 		"You can't use `parse` together with `allowed_mentions.users` or `allowed_mentions.roles`.",
 	'stickers_and_emojis.custom_emoji_not_found': "Custom emoji wasn't found.",
 	'stickers_and_emojis.custom_sticker_not_found': "Custom sticker wasn't found.",
 	'stickers_and_emojis.max_reactions_reached':
-		"You've reached the maximum of {count, plural, one {# reaction} other {# reactions}}.",
+		"You can't have more than {count, plural, one {# reaction} other {# reactions}}.",
 	'stickers_and_emojis.max_stickers_reached':
-		"You've reached the maximum of {count, plural, one {# sticker} other {# stickers}}.",
+		"You can't have more than {count, plural, one {# sticker} other {# stickers}}.",
 	'stickers_and_emojis.not_valid_unicode_emoji': 'Not a valid Unicode emoji.',
 	'stickers_and_emojis.unknown_emoji': 'Unknown emoji.',
 	'stickers_and_emojis.unknown_sticker': 'Unknown sticker.',
@@ -638,6 +683,8 @@ export const ERROR_I18N_MESSAGES = {
 	'store_billing.purchase_sandbox_not_entitled': 'Test purchases cannot be applied to this account.',
 	'store_billing.unavailable': 'In-app purchases are unavailable right now. Try again later.',
 	'store_billing.unknown_purchase': 'Unknown store purchase.',
+	'stripe.billing_cycle_change_needs_resubscribe':
+		"Subscriptions paid with Pix or UPI can't switch between monthly and yearly. Cancel your subscription, and when it ends, subscribe again on the plan you want.",
 	'stripe.dispute_exempt': 'Our terms rule out any action on this payment dispute.',
 	'stripe.dispute_review_closed': 'This payment dispute has already closed.',
 	'stripe.dispute_warning_too_late': "The bank's deadline is too close to warn the account in time.",
@@ -663,10 +710,10 @@ export const ERROR_I18N_MESSAGES = {
 	'threads.forum_tag_required': 'A tag is required to create a post in this channel.',
 	'threads.hide_media_download_option_media_only': 'Hiding media download options is only available in media channels.',
 	'threads.invalid_thread_notification_settings': 'Invalid thread notification settings.',
-	'threads.max_active_threads_reached': 'This community has reached its active thread limit of {count}.',
-	'threads.max_forum_tags_reached': 'This channel has reached its tag limit of {count}.',
-	'threads.max_pinned_threads_reached': 'This channel has reached its pinned post limit of {count}.',
-	'threads.max_thread_members_reached': 'This thread has reached its member limit of {count}.',
+	'threads.max_active_threads_reached': 'This community is at its active thread limit of {count}.',
+	'threads.max_forum_tags_reached': 'This channel is at its tag limit of {count}.',
+	'threads.max_pinned_threads_reached': 'This channel is at its pinned post limit of {count}.',
+	'threads.max_thread_members_reached': 'This thread is at its member limit of {count}.',
 	'threads.no_tags_available_to_non_moderators':
 		'A tag is required, but only moderators can apply the tags in this channel.',
 	'threads.search_index_not_ready': "The search index isn't ready yet. Try again in a moment.",
@@ -691,10 +738,12 @@ export const ERROR_I18N_MESSAGES = {
 	'unknown_entities.unknown_user_flag': "The specified user flag isn't recognized.",
 	'urls.invalid_url_format': 'Invalid URL format.',
 	'urls.invalid_url_or_attachment_reference': 'Invalid URL format or attachment reference.',
+	'urls.url_hostname_not_resolvable':
+		"Fluxer couldn't look up the hostname in this URL. Check it's spelled right and resolves from the Fluxer server.",
 	'urls.url_length_invalid': 'URL must be between {min} and {max} characters.',
 	'urls.url_must_use_https': 'URL must start with https://.',
 	'urls.url_not_publicly_routable': 'URL must resolve to a publicly routable address.',
-	'usernames_and_tags.discriminator_invalid_format': 'Discriminator must be {min}–{max} digits.',
+	'usernames_and_tags.discriminator_invalid_format': 'Discriminator must be {min} to {max} digits.',
 	'usernames_and_tags.tag_style_requires_email_sign_in': 'Tags are only available when people sign in with email.',
 	'usernames_and_tags.discriminator_not_supported_on_instance':
 		"This instance doesn't use tags. Your username is unique on its own.",
@@ -726,9 +775,9 @@ export const ERROR_I18N_MESSAGES = {
 	'webhooks.forum_target_conflict': "You can't specify both `thread_id` and `thread_name`.",
 	'webhooks.forum_target_required': 'Webhooks posting to this channel need a `thread_id` or a `thread_name`.',
 	'webhooks.max_webhooks_per_channel_reached':
-		"You've reached the maximum of {count, plural, one {# webhook} other {# webhooks}} per channel.",
+		"You can't have more than {count, plural, one {# webhook} other {# webhooks}} per channel.",
 	'webhooks.max_webhooks_per_guild_reached':
-		"You've reached the maximum of {count, plural, one {# webhook} other {# webhooks}} per community.",
+		"You can't have more than {count, plural, one {# webhook} other {# webhooks}} per community.",
 	'webhooks.service_forum_unsupported':
 		"This webhook service can't post to a forum or media channel without a `thread_id`.",
 	'webhooks.thread_name_requires_forum': '`thread_name` and `applied_tags` only work in forum and media channels.',
@@ -737,7 +786,7 @@ export const ERROR_I18N_MESSAGES = {
 	'entrance_sounds.invalid_format': 'Entrance sounds must be MP3, OGG, M4A, or WAV audio.',
 	'entrance_sounds.duration_exceeds_limit': 'Entrance sounds can be at most {max_ms, number}ms long.',
 	'entrance_sounds.size_exceeds_limit': 'Entrance sounds can be at most {max_bytes, number} bytes.',
-	'entrance_sounds.quota_reached': "You've reached the limit of {max, number} saved entrance sounds.",
+	'entrance_sounds.quota_reached': "You can't save more than {max, number} entrance sounds.",
 	'entrance_sounds.name_length_invalid': 'Entrance sound names must be between 1 and {max, number} characters.',
 	'entrance_sounds.not_found': 'Entrance sound not found.',
 	'entrance_sounds.invalid_scope': 'Invalid entrance sound scope.',

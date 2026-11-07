@@ -24,17 +24,18 @@ export function revisionStatuses(
 		{status: OperatorPassWallRevisionStatus; decision: OperatorPassWallDecisionRow | null}
 	>(revisions.map((revision) => [revision.revision_id, {status: 'pending', decision: null}]));
 	let live: bigint | null = null;
+	let previous: bigint | null = null;
 	const timeline = [
 		...revisions.map((revision): WallHistoryItem => ({kind: 'revision', at: revision.revision_id, revision})),
 		...decisions.map((decision): WallHistoryItem => ({kind: 'decision', at: decision.decision_id, decision})),
 	].sort((left, right) => compareSnowflakes(left.at, right.at));
 	for (const item of timeline) {
 		if (item.kind === 'revision') {
-			for (const [id, value] of result) {
-				if (value.status === 'pending' && id < item.revision.revision_id) {
-					result.set(id, {status: 'superseded', decision: null});
-				}
+			const current = item.revision.revision_id;
+			if (previous != null && previous < current && result.get(previous)?.status === 'pending') {
+				result.set(previous, {status: 'superseded', decision: null});
 			}
+			previous = current;
 			continue;
 		}
 		const decision = item.decision;
@@ -79,7 +80,6 @@ export interface OperatorPassWallAsOfEntry {
 export function reconstructOperatorPassWallEntry(params: {
 	userId: UserID;
 	at: Date;
-	username: string | null;
 	revisions: ReadonlyArray<OperatorPassWallRevisionRow>;
 	decisions: ReadonlyArray<OperatorPassWallDecisionRow>;
 	events: ReadonlyArray<OperatorPassWallEventRow>;
@@ -110,12 +110,10 @@ export function reconstructOperatorPassWallEntry(params: {
 	const decisions = params.decisions.filter((decision) => decision.decided_at.getTime() <= atMs);
 	let liveId: bigint | null = null;
 	let hidden = false;
-	let usernameDeclined = false;
 	for (const decision of decisions) {
 		switch (decision.kind) {
 			case 'approve':
 				liveId = decision.revision_id ?? liveId;
-				usernameDeclined = false;
 				break;
 			case 'revert':
 				liveId = decision.revision_id ?? liveId;
@@ -130,7 +128,6 @@ export function reconstructOperatorPassWallEntry(params: {
 				hidden = false;
 				break;
 		}
-		usernameDeclined = decision.username_declined === true || usernameDeclined;
 	}
 	if (hidden) {
 		return null;
@@ -148,9 +145,6 @@ export function reconstructOperatorPassWallEntry(params: {
 			deleted: true,
 		};
 	}
-	let name = live?.name;
-	if (name == null) {
-		name = usernameDeclined || !params.username ? OPERATOR_PASS_WALL_FALLBACK_NAME : params.username;
-	}
+	const name = live?.name ?? OPERATOR_PASS_WALL_FALLBACK_NAME;
 	return {userId: params.userId, name, avatar: live?.avatar ?? null, count, tier, firstPassAt, deleted: false};
 }

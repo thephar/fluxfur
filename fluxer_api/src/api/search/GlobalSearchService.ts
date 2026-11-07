@@ -18,12 +18,11 @@ import {channelNeedsReindexing, queueIndexingChannels} from '@app/api/search/Cha
 import type {IMessageSearchService} from '@app/api/search/IMessageSearchService';
 import {MessageSearchResponseMapper} from '@app/api/search/MessageSearchResponseMapper';
 import {emptyMessageSearchResponse, runMessageSearch} from '@app/api/search/MessageSearchResultReconciler';
-import {channelRequiresAgeVerification, getCanUserAccessNsfw} from '@app/api/search/SearchNsfwUtils';
+import {channelIsAgeRestricted, getSearchNsfwAccess} from '@app/api/search/SearchNsfwUtils';
 import type {UserRepository} from '@app/api/user/repositories/UserRepository';
 import {mapWithConcurrency} from '@app/api/utils/ConcurrencyUtils';
 import type {WorkerTaskName} from '@app/api/worker/WorkerLaneConfig';
 import {ChannelTypes} from '@fluxer/constants/src/ChannelConstants';
-import {GuildNSFWLevel} from '@fluxer/constants/src/GuildConstants';
 import {FeatureTemporarilyDisabledError} from '@fluxer/errors/src/domains/core/FeatureTemporarilyDisabledError';
 import {MissingPermissionsError} from '@fluxer/errors/src/domains/core/MissingPermissionsError';
 import type {MessageSearchRequest} from '@fluxer/schema/src/domains/message/MessageRequestSchemas';
@@ -63,12 +62,15 @@ export class GlobalSearchService {
 		requestedChannelIds?: Array<ChannelID>;
 	}): Promise<MessageSearchResponse> {
 		const includeChannel = await this.findDmScopeContextChannel(params.userId, params.includeChannelId);
-		const dmChannelIds = await getDmChannelIdsForScope({
-			scope: params.scope,
-			userId: params.userId,
-			userRepository: this.userRepository,
-			includeChannel,
-		});
+		const dmChannelIds = await this.memberDmChannelIds(
+			params.userId,
+			await getDmChannelIdsForScope({
+				scope: params.scope,
+				userId: params.userId,
+				userRepository: this.userRepository,
+				includeChannel,
+			}),
+		);
 		const finalChannelIds = this.filterRequestedChannelIds(dmChannelIds, params.requestedChannelIds);
 		if (finalChannelIds.length === 0) {
 			return emptyMessageSearchResponse(params.searchParams);
@@ -84,6 +86,7 @@ export class GlobalSearchService {
 		userId: UserID;
 		viewer: ThreadViewer;
 		dmScope: DmSearchScope;
+		iosApp: boolean;
 		searchParams: MessageSearchRequest;
 		requestCache: RequestCache;
 		includeChannelId?: ChannelID | null;
@@ -93,18 +96,21 @@ export class GlobalSearchService {
 			this.guildService.search.collectAccessibleGuildChannels(params.userId, params.viewer, params.requestedChannelIds),
 			this.findDmScopeContextChannel(params.userId, params.includeChannelId),
 		]);
-		const {accessibleChannels, unindexedChannelIds, guildNsfwLevels, parentCategories, threadParents} = guildAccess;
+		const {accessibleChannels, unindexedChannelIds, nsfwGuildIds, parentCategories, threadParents} = guildAccess;
 		if (unindexedChannelIds.size > 0) {
 			await queueIndexingChannels(this.workerService, unindexedChannelIds);
 			return {indexing: true};
 		}
 		const guildChannelIds = [...accessibleChannels.keys(), ...threadParents.keys()];
-		const dmChannelIds = await getDmChannelIdsForScope({
-			scope: params.dmScope,
-			userId: params.userId,
-			userRepository: this.userRepository,
-			includeChannel,
-		});
+		const dmChannelIds = await this.memberDmChannelIds(
+			params.userId,
+			await getDmChannelIdsForScope({
+				scope: params.dmScope,
+				userId: params.userId,
+				userRepository: this.userRepository,
+				includeChannel,
+			}),
+		);
 		const combinedChannelSet = new Set<string>([...guildChannelIds, ...dmChannelIds]);
 		const validatedChannelIds = this.filterRequestedChannelIds(
 			Array.from(combinedChannelSet),
@@ -113,19 +119,17 @@ export class GlobalSearchService {
 		const includeNsfwRequested = params.searchParams.include_nsfw ?? false;
 		let canIncludeNsfw = false;
 		if (includeNsfwRequested) {
-			canIncludeNsfw = await getCanUserAccessNsfw(this.userRepository, params.userId);
+			canIncludeNsfw = (await getSearchNsfwAccess(this.userRepository, params.userId, params.iosApp)).allowed;
 		}
 		const finalChannelIds = validatedChannelIds.filter((channelIdStr) => {
 			const channel = accessibleChannels.get(channelIdStr) ?? threadParents.get(channelIdStr);
 			if (!channel) {
 				return true;
 			}
-			const guildId = channel.guildId?.toString();
-			const guildIsAgeRestricted = guildId != null && guildNsfwLevels.get(guildId) === GuildNSFWLevel.AGE_RESTRICTED;
-			if (guildIsAgeRestricted) {
+			if (channel.guildId != null && nsfwGuildIds.has(channel.guildId.toString())) {
 				return canIncludeNsfw;
 			}
-			if (channelRequiresAgeVerification(channel, parentCategories, false)) {
+			if (channelIsAgeRestricted(channel, parentCategories, false)) {
 				return canIncludeNsfw;
 			}
 			return true;
@@ -154,6 +158,29 @@ export class GlobalSearchService {
 			}
 		}
 		return requestedStrings;
+	}
+
+	private async memberDmChannelIds(userId: UserID, channelIds: Array<string>): Promise<Array<string>> {
+		const channels = await this.channelRepository.channelData.listChannels(
+			channelIds.map((id) => createChannelID(BigInt(id))),
+		);
+		const departed = channels.filter(
+			(channel) =>
+				(channel.type === ChannelTypes.DM || channel.type === ChannelTypes.GROUP_DM) &&
+				!channel.recipientIds.has(userId),
+		);
+		if (departed.length === 0) {
+			return channelIds;
+		}
+		void Promise.allSettled(departed.map((channel) => this.closeDepartedDmRow(userId, channel.id)));
+		const departedIds = new Set(departed.map((channel) => channel.id.toString()));
+		return channelIds.filter((id) => !departedIds.has(id));
+	}
+
+	private async closeDepartedDmRow(userId: UserID, channelId: ChannelID): Promise<void> {
+		if (await this.userRepository.isDmChannelOpen(userId, channelId)) {
+			await this.userRepository.closeDmForUser(userId, channelId);
+		}
 	}
 
 	private async findDmScopeContextChannel(userId: UserID, channelId?: ChannelID | null): Promise<Channel | null> {

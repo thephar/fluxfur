@@ -27,6 +27,7 @@ import {
 	GuildMFALevel,
 	GuildVerificationLevel,
 	getEffectiveGuildVerificationLevel,
+	guildRequiresMfa,
 } from '@fluxer/constants/src/GuildConstants';
 import {msg} from '@lingui/core/macro';
 import {Trans, useLingui} from '@lingui/react/macro';
@@ -39,6 +40,11 @@ const ONLY_OWNER_CAN_CHANGE_TOOLTIP_DESCRIPTOR = msg({
 	message: 'Only the community owner can change this setting',
 	comment:
 		'Tooltip on the 2FA-for-moderation switch in the community moderation settings tab when the viewer is not the owner. Plain explanatory tone.',
+});
+const MFA_REQUIRED_BY_STATUS_TOOLTIP_DESCRIPTOR = msg({
+	message: 'Verified and partnered communities always require 2FA for moderators',
+	comment:
+		'Tooltip on the 2FA-for-moderation switch in the community moderation settings tab when the community is verified or partnered, so the switch stays on and cannot be changed.',
 });
 const ENABLE_2FA_TO_CHANGE_TOOLTIP_DESCRIPTOR = msg({
 	message: 'Enable 2FA on your account to change this setting',
@@ -109,7 +115,7 @@ const EXPLICIT_CONTENT_FILTER_OFF_DESCRIPTION_DESCRIPTOR = msg({
 const EXPLICIT_CONTENT_FILTER_MEMBERS_WITHOUT_ROLES_NAME_DESCRIPTOR = msg({
 	message: 'Filter members without roles',
 	comment:
-		'Explicit content filter option in the community moderation settings tab. Filters messages from members who have no roles assigned.',
+		'Explicit content filter option in the community moderation settings tab. Checks images and videos from members who have no roles assigned.',
 });
 const EXPLICIT_CONTENT_FILTER_MEMBERS_WITHOUT_ROLES_DESCRIPTION_DESCRIPTOR = msg({
 	message: 'Suggested for most communities',
@@ -119,7 +125,7 @@ const EXPLICIT_CONTENT_FILTER_MEMBERS_WITHOUT_ROLES_DESCRIPTION_DESCRIPTOR = msg
 const EXPLICIT_CONTENT_FILTER_EVERYONE_NAME_DESCRIPTOR = msg({
 	message: 'Filter everyone',
 	comment:
-		'Explicit content filter option in the community moderation settings tab. Filters messages from every member regardless of role.',
+		'Explicit content filter option in the community moderation settings tab. Checks images and videos from every member regardless of role.',
 });
 const EXPLICIT_CONTENT_FILTER_EVERYONE_DESCRIPTION_DESCRIPTOR = msg({
 	message: 'Maximum protection for family-friendly spaces',
@@ -250,8 +256,12 @@ const GuildModerationTab: React.FC<{guildId: string}> = observer(({guildId}) => 
 		) : (
 			label
 		);
-	const isMfaDisabled = !isGuildOwner || !currentUserHas2FA;
+	const isMfaRequiredByStatus = !RuntimeConfig.isSelfHosted() && guildRequiresMfa(guild.features);
+	const isMfaDisabled = !isGuildOwner || !currentUserHas2FA || isMfaRequiredByStatus;
 	const getMfaTooltipText = (): string | undefined => {
+		if (isMfaRequiredByStatus) {
+			return i18n._(MFA_REQUIRED_BY_STATUS_TOOLTIP_DESCRIPTOR);
+		}
 		if (!isGuildOwner) {
 			return i18n._(ONLY_OWNER_CAN_CHANGE_TOOLTIP_DESCRIPTOR);
 		}
@@ -350,7 +360,7 @@ const GuildModerationTab: React.FC<{guildId: string}> = observer(({guildId}) => 
 							data-flx="guild.guild-tabs.guild-moderation-tab.section-description"
 						>
 							<Trans>
-								Automatically screen messages for explicit content in channels not marked for mature content.
+								Automatically check images and videos for explicit content in channels not marked for mature content.
 							</Trans>
 						</p>
 						{isDiscoverable && (
@@ -360,8 +370,8 @@ const GuildModerationTab: React.FC<{guildId: string}> = observer(({guildId}) => 
 								data-flx="guild.guild-tabs.guild-moderation-tab.section-description--2"
 							>
 								<Trans>
-									Communities listed in Explore must scan messages from all members. You can't change this setting while
-									your community is listed in Explore.
+									Communities listed in Explore must check images and videos from all members. You can't change this
+									setting while your community is listed in Explore.
 								</Trans>
 							</p>
 						)}

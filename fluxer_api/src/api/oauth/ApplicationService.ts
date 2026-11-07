@@ -19,8 +19,8 @@ import {assertTierAllows, NO_TIER_CONTEXT} from '@app/api/user/AccountTier';
 import {enforceFluxerTagChangeRateLimit} from '@app/api/user/FluxerTagChangeRateLimit';
 import {dispatchUserUpdate, hasPartialUserFieldsChanged} from '@app/api/user/UserMappers';
 import {runAllInOrder} from '@app/api/utils/ConcurrencyUtils';
-import {hashPassword} from '@app/api/utils/PasswordUtils';
 import {randomBase64Url} from '@app/api/utils/SecretHash';
+import {hashStoredSecret} from '@app/api/utils/StoredSecret';
 import {generateRandomUsername} from '@app/api/utils/UsernameGenerator';
 import {deriveUsernameFromDisplayName} from '@app/api/utils/UsernameSuggestionUtils';
 import {TierGatedActions} from '@fluxer/constants/src/AccountTierConstants';
@@ -162,10 +162,10 @@ export class ApplicationService {
 			token: botToken,
 			hash: botTokenHash,
 			preview: botTokenPreview,
-		} = await this.deps.botAuthService.generateBotToken(applicationId);
+		} = this.deps.botAuthService.generateBotToken(applicationId);
 		const botTokenCreatedAt = new Date();
 		const clientSecret = randomBase64Url(32);
-		const clientSecretHash = await hashPassword(clientSecret);
+		const clientSecretHash = hashStoredSecret(clientSecret);
 		const clientSecretCreatedAt = new Date();
 		const applicationRow: ApplicationRow = {
 			application_id: applicationId,
@@ -227,14 +227,15 @@ export class ApplicationService {
 				});
 			}
 		}
+		const currentRow = application.toRow();
 		const updatedRow: ApplicationRow = {
-			...application.toRow(),
+			...currentRow,
 			name: args.name ?? application.name,
 			oauth2_redirect_uris: args.redirectUris ? new Set(args.redirectUris) : application.oauth2RedirectUris,
 			bot_is_public: args.botPublic ?? application.botIsPublic,
 			bot_require_code_grant: args.botRequireCodeGrant ?? application.botRequireCodeGrant,
 		};
-		return this.deps.applicationRepository.upsertApplication(updatedRow);
+		return this.deps.applicationRepository.upsertApplication(updatedRow, currentRow);
 	}
 
 	async deleteApplication(userId: UserID, applicationId: ApplicationID): Promise<void> {
@@ -323,15 +324,16 @@ export class ApplicationService {
 		if (application.botUserId === null) {
 			throw new BotUserNotFoundError();
 		}
-		const {token, hash, preview} = await this.deps.botAuthService.generateBotToken(applicationId);
+		const {token, hash, preview} = this.deps.botAuthService.generateBotToken(applicationId);
 		const botTokenCreatedAt = new Date();
+		const currentRow = application.toRow();
 		const updatedRow: ApplicationRow = {
-			...application.toRow(),
+			...currentRow,
 			bot_token_hash: hash,
 			bot_token_preview: preview,
 			bot_token_created_at: botTokenCreatedAt,
 		};
-		await this.deps.applicationRepository.upsertApplication(updatedRow);
+		await this.deps.applicationRepository.upsertApplication(updatedRow, currentRow);
 		Logger.info({applicationId: applicationId.toString()}, 'Successfully rotated bot token');
 		const botUserId = application.botUserId;
 		if (botUserId !== null) {
@@ -350,14 +352,15 @@ export class ApplicationService {
 	}> {
 		const application = await this.verifyOwnership(userId, applicationId);
 		const clientSecret = randomBase64Url(32);
-		const clientSecretHash = await hashPassword(clientSecret);
+		const clientSecretHash = hashStoredSecret(clientSecret);
 		const clientSecretCreatedAt = new Date();
+		const currentRow = application.toRow();
 		const updatedRow: ApplicationRow = {
-			...application.toRow(),
+			...currentRow,
 			client_secret_hash: clientSecretHash,
 			client_secret_created_at: clientSecretCreatedAt,
 		};
-		await this.deps.applicationRepository.upsertApplication(updatedRow);
+		await this.deps.applicationRepository.upsertApplication(updatedRow, currentRow);
 		Logger.info({applicationId: applicationId.toString()}, 'Successfully rotated client secret');
 		return {clientSecret};
 	}

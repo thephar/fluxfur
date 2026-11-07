@@ -14,8 +14,15 @@ import MediaPermission from '@app/features/permissions/system/state/MediaPermiss
 import {ensureNativePermission} from '@app/features/permissions/system/utils/NativePermissions';
 import {http} from '@app/features/platform/transport/RestTransport';
 import {Logger} from '@app/features/platform/utils/AppLogger';
+import {isInsecureBrowserContext} from '@app/features/platform/utils/SecureContext';
 import {isDesktop} from '@app/features/ui/utils/NativeUtils';
 import {Store} from '@app/features/voice/engine/Store';
+import {
+	getLatchedLocalSelfMute,
+	getVoiceAudioControlsFromAppState,
+	isPushToMuteActiveFromAppState,
+	isPushToTalkActiveFromAppState,
+} from '@app/features/voice/engine/VoiceAudioControls';
 import VoiceDevicePermissionState from '@app/features/voice/engine/VoiceDevicePermissionState';
 import type {EffectiveAudioState} from '@app/features/voice/engine/VoiceEffectiveAudioState';
 import {getEffectiveAudioState} from '@app/features/voice/engine/VoiceEffectiveAudioState';
@@ -24,7 +31,6 @@ import {acquireVoiceInputContext, type VoiceInputContextLease} from '@app/featur
 import {
 	createVoiceMicrophoneFailureLatchSnapshot,
 	isVoiceMicrophoneFailureLatchActive,
-	selectVoiceLocalAudioEffectiveSelfMute,
 	selectVoiceMicrophoneFailureCount,
 	transitionVoiceMicrophoneFailureLatchSnapshot,
 	type VoiceMicrophoneFailureLatchEvent,
@@ -52,11 +58,7 @@ import {
 	getLocalMicrophonePublications,
 	getPrimaryLocalMicrophonePublication,
 } from '@app/features/voice/engine/VoiceTrackPublicationUtils';
-import {
-	asVoiceTrackSource,
-	isScreenShareAudioPublicationLike,
-	VoiceTrackSource,
-} from '@app/features/voice/engine/VoiceTrackSource';
+import {asVoiceTrackSource, VoiceTrackSource} from '@app/features/voice/engine/VoiceTrackSource';
 import {
 	assertBoolean,
 	assertNonEmptyString,
@@ -78,9 +80,7 @@ import {
 } from '@app/features/voice/engine/v2/VoiceEngineV2AppMicrophoneTransaction';
 import {
 	selectVoiceEngineV2AppEffectiveSelfMuteFromAudioControls,
-	selectVoiceEngineV2AppMuteReason,
 	selectVoiceEngineV2AppParticipant,
-	type VoiceEngineV2AppVoiceMuteReason,
 } from '@app/features/voice/engine/v2/VoiceEngineV2AppSelectors';
 import type {VoiceEngineV2AppSourceLifecycleBridge} from '@app/features/voice/engine/v2/VoiceEngineV2AppSourceLifecycleBridge';
 import {ensureNativeMediaPermission} from '@app/features/voice/engine/voice_screen_share_manager/NativePermissionGate';
@@ -99,20 +99,15 @@ import NoiseSuppressionAvailability from '@app/features/voice/utils/noise_suppre
 import {readCaptureNoiseSuppressionBackend} from '@app/features/voice/utils/noise_suppression/NoiseSuppressionRuntime';
 import {applyBackgroundProcessor, clearCameraVideoProcessor} from '@app/features/voice/utils/VideoBackgroundProcessor';
 import {readVoiceInputProcessor, VoiceInputTrackProcessor} from '@app/features/voice/utils/VoiceInputProcessor';
-import {
-	isVoicePermissionMuteActive,
-	isVoiceSpeakPermissionDenied,
-} from '@app/features/voice/utils/VoicePermissionUtils';
+import {isVoiceSpeakPermissionDenied} from '@app/features/voice/utils/VoicePermissionUtils';
 import {
 	applyContentHintToTrack,
-	getActiveVoiceProcessingMode,
 	type ResolvedVoiceProcessing,
 	resolveVoiceProcessingFromStateForDeviceLabel,
 } from '@app/features/voice/utils/VoiceProcessingProfile';
 import {resolveVoiceChannelBitrate} from '@fluxer/constants/src/GuildConstants';
 import type {
 	VoiceEngineV2AudioControls,
-	VoiceEngineV2AudioMode,
 	VoiceEngineV2CameraEncodingOptions,
 	VoiceEngineV2MicrophoneOptions,
 } from '@fluxer/voice_engine_v2/src/protocol/types';
@@ -130,7 +125,6 @@ import {Track, TrackEvent} from 'livekit-client';
 const logger = new Logger('VoiceEngineV2AppMediaExecutionAdapter');
 const CAMERA_PUBLISH_CODEC_CORRECTION_MAX = 1;
 const REPUBLISH_MICROPHONE_GUARD_MS = 150;
-type VoiceMuteReason = VoiceEngineV2AppVoiceMuteReason;
 
 interface SetCameraEnabledOptions {
 	deviceId?: string;
@@ -168,22 +162,6 @@ function extractUserIdFromVoiceIdentity(identity: string): string | null {
 	return match ? match[1] : null;
 }
 
-function isPushToTalkActiveFromAppState(): boolean {
-	if (getActiveVoiceProcessingMode(VoiceSettings) === 'studio') return false;
-	return Keybind.isPushToTalkEffective();
-}
-
-function isPushToMuteActiveFromAppState(): boolean {
-	if (getActiveVoiceProcessingMode(VoiceSettings) === 'studio') return false;
-	return Keybind.isPushToMuteEffective();
-}
-
-function getVoiceEngineV2AudioModeFromAppState(): VoiceEngineV2AudioMode {
-	if (isPushToTalkActiveFromAppState()) return 'pushToTalk';
-	if (isPushToMuteActiveFromAppState()) return 'pushToMute';
-	return 'voiceActivity';
-}
-
 let microphoneFailureLatchSnapshot = createVoiceMicrophoneFailureLatchSnapshot();
 
 function applyMicrophoneFailureLatchEvent(event: VoiceMicrophoneFailureLatchEvent): boolean {
@@ -203,28 +181,8 @@ function isMicrophoneEnableFailureLatched(): boolean {
 	return isVoiceMicrophoneFailureLatchActive(microphoneFailureLatchSnapshot);
 }
 
-function getLatchedLocalSelfMute(): boolean {
-	return selectVoiceLocalAudioEffectiveSelfMute({
-		localSelfMute: LocalVoiceState.getSelfMute(),
-		microphoneFailureLatched: isMicrophoneEnableFailureLatched(),
-	});
-}
-
 function getVoiceEngineV2AudioControlsFromAppState(): VoiceEngineV2AudioControls {
-	return {
-		mode: getVoiceEngineV2AudioModeFromAppState(),
-		locallyMuted: getLatchedLocalSelfMute(),
-		preferredLocallyMuted: LocalVoiceState.getSelfMute(),
-		locallyDeafened: LocalVoiceState.getSelfDeaf(),
-		mutedByPermission: LocalVoiceState.getMutedByPermission(),
-		hasUserSetMute: LocalVoiceState.getHasUserSetMute(),
-		hasUserSetDeaf: LocalVoiceState.getHasUserSetDeaf(),
-		shouldUnmuteOnUndeafen: LocalVoiceState.shouldUnmuteOnUndeafen,
-		pushToTalkActive: isPushToTalkActiveFromAppState() && Keybind.pushToTalkHeld,
-		pushToMuteActive: isPushToMuteActiveFromAppState() && Keybind.pushToMuteHeld,
-		inputVolume: VoiceSettings.inputVolume,
-		outputVolume: VoiceSettings.outputVolume,
-	};
+	return getVoiceAudioControlsFromAppState(isMicrophoneEnableFailureLatched());
 }
 
 function getEffectiveSelfMuteForVoiceStatePayloadFromV2AudioControls(): boolean {
@@ -392,6 +350,10 @@ class VoiceEngineV2AppMediaExecutionAdapter extends Store {
 			'prepareMicrophonePermissionForConnect pre-condition: permission helper present',
 		);
 		this.transitionMediaState({type: 'permission.warmup.start'});
+		if (isInsecureBrowserContext()) {
+			this.transitionMediaState({type: 'permission.warmup.unavailable'});
+			return true;
+		}
 		const devicePermission = VoiceDevicePermissionState.getState().permissionStatus;
 		if (MediaPermission.isMicrophoneGranted() || devicePermission.audio === 'granted') {
 			this.transitionMediaState({type: 'permission.warmup.granted'});
@@ -523,7 +485,7 @@ class VoiceEngineV2AppMediaExecutionAdapter extends Store {
 		const audioState = this.getEffectiveAudioState({
 			serverMute: params.serverMute || permissionMuted,
 			serverDeaf: params.serverDeaf,
-			selfMute: getLatchedLocalSelfMute(),
+			selfMute: getLatchedLocalSelfMute(isMicrophoneEnableFailureLatched()),
 		});
 		logger.info('Reconciling local media after voice state update', {
 			channelId: params.channelId,
@@ -1578,19 +1540,6 @@ class VoiceEngineV2AppMediaExecutionAdapter extends Store {
 		this.syncLocalSpeaking(room);
 	}
 
-	getMuteReason(voiceState: VoiceState | null, guildId?: string | null, channelId?: string | null): VoiceMuteReason {
-		if (voiceState !== null) {
-			assertObjectLike<VoiceState>(voiceState, 'getMuteReason.voiceState');
-		}
-		assertOptionalNonEmptyString(guildId, 'getMuteReason.guildId');
-		assertOptionalNonEmptyString(channelId, 'getMuteReason.channelId');
-		return selectVoiceEngineV2AppMuteReason({
-			voiceState,
-			permissionMuted: isVoicePermissionMuteActive(voiceState, guildId, channelId),
-			audio: getVoiceEngineV2AudioControlsFromAppState(),
-		});
-	}
-
 	private getLocalAudioTrack(room: Room): LocalAudioTrack | null {
 		const micPublication = this.getMicrophonePublication(room);
 		return (micPublication?.track as LocalAudioTrack) ?? null;
@@ -1611,16 +1560,8 @@ class VoiceEngineV2AppMediaExecutionAdapter extends Store {
 		});
 		room.remoteParticipants.forEach((participant) => {
 			participant.audioTrackPublications.forEach((publication) => {
-				const isScreenShareAudio = isScreenShareAudioPublicationLike(publication);
-				const isMicrophone = asVoiceTrackSource(publication.source) === VoiceTrackSource.Microphone;
-				if (!isScreenShareAudio && !isMicrophone) return;
+				if (asVoiceTrackSource(publication.source) !== VoiceTrackSource.Microphone) return;
 				try {
-					if (isScreenShareAudio) {
-						if (deafened && publication.isDesired) {
-							publication.setEnabled(false);
-						}
-						return;
-					}
 					if (deafened) {
 						if (publication.isDesired) {
 							publication.setEnabled(false);
@@ -1635,7 +1576,6 @@ class VoiceEngineV2AppMediaExecutionAdapter extends Store {
 						error,
 						deafened,
 						identity: participant.identity,
-						isScreenShareAudio,
 						trackSid: publication.trackSid,
 					});
 				}
@@ -1730,6 +1670,10 @@ class VoiceEngineV2AppMediaExecutionAdapter extends Store {
 				this.syncLocalSpeaking(room);
 				if (meter.speaking) noteLocalVoiceActivity(room.localParticipant, {force: true, speaking: true});
 			},
+			() => ({
+				suppressed: this.shouldSuppressLocalSpeaking(room),
+				open: isPushToTalkActiveFromAppState() ? true : (readVoiceInputProcessor(track)?.readGateOpen() ?? null),
+			}),
 		);
 		const reportRuntime = (): void => {
 			const processor = readVoiceInputProcessor(track);

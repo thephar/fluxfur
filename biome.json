@@ -123,7 +123,7 @@
 				"noSvgWithoutTitle": "off"
 			},
 			"nursery": {
-				"useSortedClasses": "error"
+				"useTailwindSortedClasses": "error"
 			}
 		}
 	},
@@ -153,6 +153,17 @@
 						"noExcessiveCognitiveComplexity": {"level": "error", "options": {"maxAllowedComplexity": 25}}
 					},
 					"suspicious": {"noEmptyBlockStatements": "error"}
+				}
+			}
+		},
+		{
+			"includes": ["fluxer_app/inline_scripts/boot-shell.js"],
+			"linter": {
+				"rules": {
+					"complexity": {"useOptionalChain": "off", "useMathMinMax": "off"},
+					"correctness": {"noInnerDeclarations": "off"},
+					"style": {"noNestedTernary": "off", "useTemplate": "off"},
+					"suspicious": {"noVar": "off", "noGlobalIsFinite": "off"}
 				}
 			}
 		},
@@ -202,12 +213,16 @@
 			"!packages/schema/src/gen",
 			"!**/tailwind.css",
 			"!**/*.html",
+			"!**/*.md",
+			"!**/*.yaml",
+			"!**/*.yml",
 			"!**/*.module.css.d.ts",
 			"!**/fluxer_app/src/features/ui/components/SVGMasks.tsx",
 			"!fluxer_static",
 			"!packages/fonts",
 			"!fluxer_admin/static/htmx.min.js",
 			"!fluxer_api/src/api/openapi/openapi.json",
+			"!fluxer_admin/openapi-admin.json",
 			"!fluxer_api/pkgs/email/src/email_i18n/weblate",
 			"!fluxer_api/src/api/content_i18n/weblate",
 			"!packages/errors/src/i18n/weblate",

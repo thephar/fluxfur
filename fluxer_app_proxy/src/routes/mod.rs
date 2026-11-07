@@ -29,7 +29,7 @@ use tower_http::{
     trace::TraceLayer,
 };
 
-const PERMISSIONS_POLICY_VALUE: &str = "accelerometer=(), camera=(self), ch-dpr=(self), ch-save-data=(self), ch-viewport-width=(self), ch-width=(self), geolocation=(), gyroscope=(), magnetometer=(), microphone=(self), payment=(), usb=()";
+const PERMISSIONS_POLICY_VALUE: &str = "accelerometer=(), camera=(self), geolocation=(), gyroscope=(), magnetometer=(), microphone=(self), payment=(), usb=()";
 const X_ROBOTS_TAG_VALUE: &str = "noindex, nofollow";
 
 pub fn build_router(state: AppState) -> Router {
@@ -49,6 +49,7 @@ pub fn build_router(state: AppState) -> Router {
             get(apple_association::apple_app_site_association),
         )
         .route("/assets/{*path}", get(assets_proxy::proxy_assets))
+        .route("/module-map.json", get(spa_static::module_map))
         .route("/version.json", get(spa_static::version_json))
         .route("/manifest.json", get(spa_static::manifest_json))
         .route("/browserconfig.xml", get(spa_static::browserconfig_xml))

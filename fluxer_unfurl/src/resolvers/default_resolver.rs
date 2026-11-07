@@ -478,6 +478,7 @@ fn optional_oembed_string(value: Option<&str>) -> Option<&str> {
 fn optional_absolute_url(value: Option<&str>) -> Option<String> {
     Url::parse(optional_oembed_string(value)?)
         .ok()
+        .filter(|url| matches!(url.scheme(), "http" | "https"))
         .map(|url| url.to_string())
 }
 
@@ -505,6 +506,13 @@ async fn try_canonical_activity_pub(
         .unwrap_or_else(|| canonical_url.clone());
     let context = activity_pub::build_context(client, &post_url, None).await;
     let author_actor = activity_pub::fetch_post_author_actor(client, &ap_post).await;
+    if activity_pub::visibility::is_hidden_from_unauthed_web(
+        &ap_post,
+        author_actor.as_ref(),
+        client.signer.is_some(),
+    ) {
+        return None;
+    }
     let embeds = activity_pub::formatter::format_activity_pub_post(
         &ap_post,
         &post_url,

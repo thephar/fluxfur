@@ -18,11 +18,13 @@ const INERT_LITERALS: ReadonlyArray<readonly [string, string]> = [
 	['>', '\uE001'],
 	['[', '\uE002'],
 	[']', '\uE003'],
+	['\\', '\uE004'],
 ];
-const INERT_PATTERN = /[<>[\]]/g;
-const LITERAL_PATTERN = /[\uE000-\uE003]/g;
+const INERT_PATTERN = /[<>[\]\\]/g;
+const LITERAL_PATTERN = /[\uE000-\uE004]/g;
 const TO_INERT = new Map(INERT_LITERALS);
 const TO_LITERAL = new Map(INERT_LITERALS.map(([literal, inert]) => [inert, literal]));
+const TO_MARKDOWN_LITERAL = new Map(INERT_LITERALS.map(([literal, inert]) => [inert, `\\${literal}`]));
 const HTML_ESCAPES: Record<string, string> = {
 	'&': '&amp;',
 	'<': '&lt;',
@@ -123,7 +125,7 @@ interface InlineLink {
 
 type InlinePart = string | InlineLink;
 
-const INLINE_PATTERN = /<(mail|settings|dsa|arn)>([^<]*)<\/\1>|\[([^\]\n]+)\]\(([^)\s]+)\)/g;
+const INLINE_PATTERN = /<(mail|settings|dsa|arn|labs)>([^<]*)<\/\1>|\[([^\]\n]+)\]\(([^)\s]+)\)/g;
 const CITED_LINK_HOSTS = ['digital-strategy.ec.europa.eu', 'www.arn.se'];
 
 export function emailLinkHosts(baseUrls: ReadonlyArray<string>): ReadonlySet<string> {
@@ -383,11 +385,7 @@ export function renderEmailText(slots: Slots, links: EmailTextLinks = 'plain'): 
 		].filter(Boolean);
 		sections.push(`${title}\n${blocks.join('\n\n')}`);
 	}
-	const footer = textBlock(
-		textParagraphs(slots.footer_reason, slots, links),
-		textLink(slots.unsubscribe, slots.unsubscribe_url, links),
-		slots.legal_address,
-	);
+	const footer = textBlock(textParagraphs(slots.footer_reason, slots, links), slots.legal_address);
 	const text = [
 		slots.heading,
 		textParagraphs(slots.intro, slots, links),
@@ -409,5 +407,8 @@ export function renderEmailText(slots: Slots, links: EmailTextLinks = 'plain'): 
 	]
 		.filter((block): block is string => Boolean(block))
 		.join('\n\n');
+	if (links === 'markdown') {
+		return text.replace(LITERAL_PATTERN, (character) => TO_MARKDOWN_LITERAL.get(character) ?? character);
+	}
 	return restoreEmailLiterals(text);
 }

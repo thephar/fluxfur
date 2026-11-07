@@ -24,8 +24,8 @@ export const CHANNEL_APP_URLS: Record<BuildChannel, string> = {
 };
 export const LOCAL_DEVELOPMENT_INSTANCE_URL = BUILD_CHANNEL === 'development' ? DEVELOPMENT_APP_URL : null;
 export const DOWNLOAD_PAGE_URLS: Record<BuildChannel, string> = {
-	stable: 'https://fluxer.app/download',
-	canary: 'https://canary.fluxer.app/download',
+	stable: 'https://fluxer.com/download',
+	canary: 'https://canary.fluxer.com/download',
 	development: 'http://localhost:8088/download',
 };
 export const STABLE_MIGRATED_APP_ORIGIN = 'https://fluxer.com';
@@ -36,6 +36,7 @@ export const DESKTOP_APP_ORIGIN = DESKTOP_LOCAL_APP_ORIGIN;
 export const DESKTOP_APP_URL = DESKTOP_LOCAL_APP_URL;
 export const DESKTOP_APP_LANDING_URL = `${DESKTOP_LOCAL_APP_URL}channels/@me`;
 export const DESKTOP_PREBOOT_THEME_CHANNEL = 'desktop-preboot-theme:report';
+export const RELEASE_RENDERER_MEMORY_CHANNEL = 'desktop-renderer-memory:release';
 export const DESKTOP_FIRST_CONTENT_PAINTED_CHANNEL = 'desktop-window:first-content-painted';
 export const STATIC_CDN_URL = 'https://fluxerstatic.com';
 export const DEFAULT_WINDOW_WIDTH = 1280;

@@ -21,8 +21,68 @@ const ImageSetEnv = "REXCTL_IMAGE_SET"
 var imageSetJSON []byte
 
 type ImageSet struct {
-	Release string            `json:"release"`
-	Images  map[string]string `json:"images"`
+	Release   string                         `json:"release"`
+	Images    map[string]string              `json:"images"`
+	Builds    map[string]string              `json:"builds,omitempty"`
+	Layers    map[string]Layer               `json:"layers,omitempty"`
+	Platforms map[string]map[string][]string `json:"platforms,omitempty"`
+}
+
+type Layer struct {
+	DiffID     string `json:"diff_id"`
+	Compressed uint64 `json:"compressed"`
+	Unpacked   uint64 `json:"unpacked"`
+}
+
+func (s ImageSet) LayersFor(platform, ref string) ([]Layer, bool) {
+	refs := s.Platforms[platform]
+	digests, ok := refs[ref]
+	if _, digest, pinned := strings.Cut(ref, "@"); !ok && pinned {
+		for k, v := range refs {
+			if strings.HasSuffix(k, "@"+digest) {
+				digests, ok = v, true
+				break
+			}
+		}
+	}
+	if !ok || len(digests) == 0 {
+		return nil, false
+	}
+	out := make([]Layer, 0, len(digests))
+	for _, d := range digests {
+		l, ok := s.Layers[d]
+		if !ok {
+			return nil, false
+		}
+		out = append(out, l)
+	}
+	return out, true
+}
+
+const ImageGuess = 1 << 30
+
+func (s ImageSet) Need(platform string, refs []string, local map[string]bool) uint64 {
+	var need uint64
+	seen := map[string]bool{}
+	guessed := map[string]bool{}
+	for _, ref := range refs {
+		layers, ok := s.LayersFor(platform, ref)
+		if !ok {
+			if !guessed[ref] {
+				guessed[ref] = true
+				need += ImageGuess
+			}
+			continue
+		}
+		for _, l := range layers {
+			if local[l.DiffID] || seen[l.DiffID] {
+				continue
+			}
+			seen[l.DiffID] = true
+			need += l.Unpacked + l.Compressed
+		}
+	}
+	return need
 }
 
 func EmbeddedImages() (ImageSet, error) {
@@ -124,7 +184,14 @@ func pinImages(compose []byte, release string, images map[string]string) ([]byte
 		case !pinned:
 			continue
 		default:
-			if name, _, ok := defaultedVar(img.value); ok {
+			name, def, ok := defaultedVar(img.value)
+			if !ok {
+				def = img.value
+			}
+			if withoutDigest(ref) != withoutDigest(def) {
+				continue
+			}
+			if ok {
 				value = "${" + name + ":-" + ref + "}"
 			} else {
 				value = ref
@@ -160,16 +227,71 @@ func UnpinImages(compose []byte) []byte {
 	if err != nil || prefix == "" {
 		return compose
 	}
+	shippedValue := map[string]string{}
+	for _, t := range templates {
+		shippedValue[t.service] = t.value
+	}
 	lines := strings.Split(string(compose), "\n")
 	for _, img := range found {
-		repo, digest, pinned := strings.Cut(img.value, "@sha256:")
 		i := img.line - 1
-		if !pinned || len(digest) != 64 || i < 0 || i >= len(lines) || img.column-1 > len(lines[i]) {
+		if i < 0 || i >= len(lines) || img.column-1 > len(lines[i]) {
+			continue
+		}
+		if name, ref, ok := defaultedVar(img.value); ok {
+			tmplName, _, tmplOK := defaultedVar(shippedValue[img.service])
+			if tmplOK && tmplName == name && digestPinned(ref) {
+				lines[i] = lines[i][:img.column-1] + shippedValue[img.service]
+			}
+			continue
+		}
+		repo, digest, pinned := strings.Cut(img.value, "@sha256:")
+		if !pinned || len(digest) != 64 {
 			continue
 		}
 		lines[i] = lines[i][:img.column-1] + prefix + path.Base(repo) + suffix
 	}
 	return []byte(strings.Join(lines, "\n"))
+}
+
+func RegistryServices() map[string]bool {
+	out := map[string]bool{}
+	compose, err := ReadFile(Embedded(), ComposeFile)
+	if err != nil {
+		return out
+	}
+	found, err := imageLines(compose)
+	if err != nil {
+		return out
+	}
+	for _, img := range found {
+		if strings.HasPrefix(img.value, "${FLUXER_REGISTRY") {
+			out[img.service] = true
+		}
+	}
+	return out
+}
+
+func withoutDigest(ref string) string {
+	name, _, _ := strings.Cut(ref, "@")
+	return name
+}
+
+func digestPinned(ref string) bool {
+	_, digest, ok := strings.Cut(ref, "@sha256:")
+	if !ok || len(digest) != 64 {
+		return false
+	}
+	for _, r := range digest {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+func ImageDefault(value string) (string, bool) {
+	_, def, ok := defaultedVar(value)
+	return def, ok
 }
 
 func defaultedVar(value string) (name, def string, ok bool) {

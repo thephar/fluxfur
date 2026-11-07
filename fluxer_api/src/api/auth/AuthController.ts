@@ -80,6 +80,7 @@ import {
 	WebAuthnAuthenticationOptionsResponse,
 	WebAuthnMfaRequest,
 } from '@fluxer/schema/src/domains/auth/AuthSchemas';
+import {WebAuthnRpIdQuery} from '@fluxer/schema/src/domains/auth/WebAuthnSchemas';
 import type {Context} from 'hono';
 
 function optionalString(value: unknown): string | null {
@@ -157,7 +158,7 @@ export function AuthController(app: HonoApp) {
 			security: [],
 			tags: ['Auth'],
 			description:
-				'Complete the SSO authentication flow with the authorization code from the SSO provider. Returns authentication token and user information.',
+				'Complete the SSO authentication flow with the authorization code from the SSO provider. Returns authentication token and user information, or linked when the flow was started from account settings.',
 		}),
 		async (ctx) => {
 			const result = await ctx
@@ -554,6 +555,7 @@ export function AuthController(app: HonoApp) {
 		'/auth/webauthn/authentication-options',
 		LocalAuthMiddleware,
 		RateLimitMiddleware(RateLimitConfigs.AUTH_WEBAUTHN_OPTIONS),
+		Validator('query', WebAuthnRpIdQuery),
 		OpenAPI({
 			operationId: 'get_webauthn_authentication_options',
 			summary: 'Get WebAuthn authentication options',
@@ -569,6 +571,7 @@ export function AuthController(app: HonoApp) {
 				await AuthMfa.generateWebAuthnAuthenticationOptionsDiscoverable(
 					ctx.get('apiContext'),
 					ctx.req.header('origin'),
+					ctx.req.valid('query').rp_id,
 				),
 			);
 		},
@@ -601,6 +604,7 @@ export function AuthController(app: HonoApp) {
 		'/auth/login/mfa/webauthn/authentication-options',
 		RateLimitMiddleware(RateLimitConfigs.AUTH_LOGIN_MFA),
 		Validator('json', MfaTicketRequest),
+		Validator('query', WebAuthnRpIdQuery),
 		MfaTicketAuthMiddleware,
 		OpenAPI({
 			operationId: 'get_webauthn_mfa_options',
@@ -618,6 +622,7 @@ export function AuthController(app: HonoApp) {
 					ctx.get('apiContext'),
 					ctx.req.valid('json').ticket,
 					ctx.req.header('origin'),
+					ctx.req.valid('query').rp_id,
 				),
 			);
 		},

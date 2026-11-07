@@ -187,7 +187,12 @@ export const UserPrivateResponse = UserPartialResponse.extend({
 		.describe(
 			'Information about a pending bulk message deletion request. Only populated when the legacy delayed-deletion flow is in progress; the new immediate-deletion flow does not surface a pending state here.',
 		),
-	age_verified_adult: z.boolean().optional().describe('Whether the user has verified their age as an adult'),
+	mature_content_unlocked: z
+		.boolean()
+		.optional()
+		.describe(
+			'Whether mature content is unlocked for the account in regions where a date of birth typed in is not enough for mature content. It is true when the iOS or Android app sent an age range of 18 or over, when staff set it, or when the account already had mature content unlocked before. Never true from an age range on a self-hosted instance',
+		),
 	terms_agreed_at: z
 		.string()
 		.nullable()
@@ -215,6 +220,12 @@ export const UserPrivateResponse = UserPartialResponse.extend({
 		.boolean()
 		.optional()
 		.describe('Whether the account still has to enter its date of birth, which clients ask for before anything else'),
+	has_age_range: z
+		.boolean()
+		.optional()
+		.describe(
+			'Whether Fluxer keeps an age range for the account that the iOS or Android app sent from the Apple or Google account. The range itself is not included',
+		),
 	profile_restricted: z
 		.boolean()
 		.optional()
@@ -302,6 +313,12 @@ export const UserPasswordUpdateResponse = z.object({
 });
 
 export type UserPasswordUpdateResponse = z.infer<typeof UserPasswordUpdateResponse>;
+
+export const UserAccountDeleteResponse = z.object({
+	pending_deletion_at: z.string().describe('ISO8601 timestamp of when the account is deleted'),
+});
+
+export type UserAccountDeleteResponse = z.infer<typeof UserAccountDeleteResponse>;
 
 export const RecoveryKitStatusResponse = z.object({
 	has_recovery_kit: z.boolean().describe('Whether the account has a recovery kit'),
@@ -411,6 +428,11 @@ export const UserSettingsResponse = z.object({
 		SensitiveMediaGuildFilterLevelSchema,
 		'Sensitive media filter level for community channels',
 	),
+	allow_mature_content_on_ios: z
+		.boolean()
+		.describe(
+			'Whether 18+ communities, channels and the "Show" sensitive media option are allowed in the iOS app. Only adults can turn this on. The iOS app never offers this setting.',
+		),
 	suppress_unprivileged_self_mentions: z
 		.boolean()
 		.describe('Whether direct mentions and reply mentions from unprivileged users are suppressed'),
@@ -574,7 +596,7 @@ export interface UserPrivate extends UserPartial, UserProfile {
 	readonly has_ever_purchased: boolean;
 	readonly has_unread_gift_inventory: boolean;
 	readonly unread_gift_inventory_count: number;
-	readonly age_verified_adult?: boolean;
+	readonly mature_content_unlocked?: boolean;
 	readonly terms_agreed_at?: string | null;
 	readonly privacy_agreed_at?: string | null;
 	readonly traits: ReadonlyArray<string>;
@@ -583,6 +605,7 @@ export interface UserPrivate extends UserPartial, UserProfile {
 	readonly verification_need?: AccountVerificationNeed | null;
 	readonly has_password?: boolean;
 	readonly date_of_birth_required?: boolean;
+	readonly has_age_range?: boolean;
 	readonly profile_restricted?: boolean;
 }
 

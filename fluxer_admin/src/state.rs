@@ -3,9 +3,13 @@
 use crate::{
     api::{
         client::{AdminApiClient, ApiResultExt},
-        types::{AccountIdentityMode, AccountIdentitySettings, PremiumBranding, ReportReasonEntry},
+        types::{
+            AccountIdentityMode, AccountIdentitySettings, InstanceConfigResponse, PremiumBranding,
+            ReportReasonEntry,
+        },
     },
     config::AdminConfig,
+    sso::{self, ProviderMetadata},
 };
 use std::{
     sync::{Arc, Mutex},
@@ -15,6 +19,7 @@ use std::{
 const PREMIUM_BRANDING_TTL: Duration = Duration::from_secs(60);
 const ACCOUNT_IDENTITY_TTL: Duration = Duration::from_secs(60);
 const ACCOUNT_IDENTITY_RETRY_TTL: Duration = Duration::from_secs(10);
+const SSO_DISCOVERY_TTL: Duration = Duration::from_secs(3600);
 
 #[derive(Clone)]
 pub struct AppState {
@@ -24,9 +29,11 @@ pub struct AppState {
 struct AppStateInner {
     pub config: AdminConfig,
     pub http_client: reqwest::Client,
+    sso_http_client: reqwest::Client,
     premium_branding: Mutex<Option<(Instant, PremiumBranding)>>,
     account_identity: Mutex<Option<(Instant, AccountIdentitySettings)>>,
     report_reasons: Mutex<Option<Arc<[ReportReasonEntry]>>>,
+    sso_provider: Mutex<Option<(Instant, ProviderMetadata)>>,
 }
 
 impl AppState {
@@ -35,13 +42,16 @@ impl AppState {
             .user_agent(format!("FluxerAdmin/{} (Rust)", config.build_version))
             .build()
             .expect("failed to create HTTP client");
+        let sso_http_client = sso::http_client(&config.build_version);
         Self {
             inner: Arc::new(AppStateInner {
                 config,
                 http_client,
+                sso_http_client,
                 premium_branding: Mutex::new(None),
                 account_identity: Mutex::new(None),
                 report_reasons: Mutex::new(None),
+                sso_provider: Mutex::new(None),
             }),
         }
     }
@@ -52,6 +62,10 @@ impl AppState {
 
     pub fn http_client(&self) -> &reqwest::Client {
         &self.inner.http_client
+    }
+
+    pub fn sso_http_client(&self) -> &reqwest::Client {
+        &self.inner.sso_http_client
     }
 
     pub fn cached_premium_branding(&self) -> Option<PremiumBranding> {
@@ -72,6 +86,25 @@ impl AppState {
             .premium_branding
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some((Instant::now(), branding));
+    }
+
+    pub fn remember_instance_config_branding(&self, instance_config: &InstanceConfigResponse) {
+        self.merge_instance_config_branding(PremiumBranding::from_instance_config(instance_config));
+    }
+
+    fn merge_instance_config_branding(&self, branding: PremiumBranding) {
+        let mut cache = self
+            .inner
+            .premium_branding
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some((fetched_at, previous)) = cache.as_ref() {
+            let branding = PremiumBranding {
+                discovery_enabled: previous.discovery_enabled,
+                ..branding
+            };
+            *cache = Some((*fetched_at, branding));
+        }
     }
 
     pub async fn premium_branding(&self, client: &AdminApiClient) -> Option<PremiumBranding> {
@@ -151,6 +184,35 @@ impl AppState {
             .unwrap_or_else(|poisoned| poisoned.into_inner()) =
             Some((Instant::now() + ttl, settings));
         settings
+    }
+
+    pub async fn sso_provider(&self) -> Option<ProviderMetadata> {
+        let sso = self.config().sso.as_ref()?;
+        let cached = self
+            .inner
+            .sso_provider
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .as_ref()
+            .filter(|(fetched_at, _)| fetched_at.elapsed() < SSO_DISCOVERY_TTL)
+            .map(|(_, metadata)| metadata.clone());
+        if let Some(metadata) = cached {
+            return Some(metadata);
+        }
+        let metadata = match sso::discover(self.sso_http_client(), sso).await {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                tracing::error!(%error, issuer = %sso.issuer, "SSO provider discovery failed");
+                return None;
+            }
+        };
+        *self
+            .inner
+            .sso_provider
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) =
+            Some((Instant::now(), metadata.clone()));
+        Some(metadata)
     }
 
     pub async fn report_reasons(

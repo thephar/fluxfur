@@ -3,9 +3,13 @@
 import {isDeepStrictEqual} from 'node:util';
 import {AdminAuditReadActions} from '@app/api/admin/AdminAuditActions';
 import {recordAdminRead, recordAdminWrite} from '@app/api/admin/AdminAuditRecorder';
+import {migrateSsoIdentities} from '@app/api/admin/controllers/SsoIdentityAdminController';
 import {startAttachmentDecayReconcile} from '@app/api/attachment/AttachmentDecayReconcileRun';
 import {maybeAutoJoinInvite} from '@app/api/auth/AuthRegistration';
-import {ssoDiscoveryCacheKey} from '@app/api/auth/services/SsoService';
+import {ssoProviderIdOf} from '@app/api/auth/services/SsoIdentityLinks';
+import {SsoIdentityRepository} from '@app/api/auth/services/SsoIdentityRepository';
+import {legacySsoDiscoveryCacheKey, ssoDiscoveryCacheKey} from '@app/api/auth/services/SsoService';
+import {tryDiscoverOidcProviderMetadata} from '@app/api/auth/services/SsoUtils';
 import {createGuildID, createInviteCode, createUserID} from '@app/api/BrandedTypes';
 import {loadSigningKey} from '@app/api/bluesky/BlueskyOAuthService';
 import {Config} from '@app/api/Config';
@@ -17,6 +21,7 @@ import {
 	type InstanceConfigRepository,
 	type InstanceIntegrationsConfigPatch,
 	type InstancePolicyConfig,
+	type InstanceSsoConfig,
 	REGISTRATION_PENDING_APPROVAL_TRAIT,
 	REGISTRATION_REJECTED_TRAIT,
 	type SsoGroupRoleMapping,
@@ -41,6 +46,7 @@ import {
 } from '@app/api/middleware/ServiceSingletons';
 import type {User} from '@app/api/models/User';
 import {RateLimitConfigs} from '@app/api/RateLimitConfig';
+import {mergeDistributionRules} from '@app/api/stripe/DistributionPricing';
 import type {HonoApp, HonoEnv} from '@app/api/types/HonoEnv';
 import {scheduleSystemDeletion} from '@app/api/user/AccountCleanup';
 import {noticeEmailAddress} from '@app/api/user/services/SystemDmMessage';
@@ -152,6 +158,32 @@ async function readSavedSmtpConfig(): Promise<StoredEmailSmtpConfig> {
 	return (await getInstanceConfigRepository().getInstanceIntegrationsConfig()).email.smtp;
 }
 
+type SsoProviderKey = Pick<InstanceSsoConfig, 'issuer' | 'authorizationUrl'>;
+
+async function isSameSsoProvider(current: SsoProviderKey, next: SsoProviderKey): Promise<boolean> {
+	const withoutTrailingSlash = (id: string) => id.replace(/\/+$/, '');
+	if (withoutTrailingSlash(ssoProviderIdOf(current)) === withoutTrailingSlash(ssoProviderIdOf(next))) return true;
+	if (current.issuer || !current.authorizationUrl || !next.issuer) return false;
+	const discovered = await tryDiscoverOidcProviderMetadata(next.issuer);
+	return discovered?.authorization_endpoint === current.authorizationUrl;
+}
+
+async function shouldMoveSsoIdentities(
+	current: SsoProviderKey,
+	next: SsoProviderKey,
+	choice: boolean | undefined,
+): Promise<boolean> {
+	const fromProviderId = ssoProviderIdOf(current);
+	if (!next.issuer || fromProviderId === ssoProviderIdOf(next)) return false;
+	const linked = (await new SsoIdentityRepository().listForProvider(fromProviderId)).length;
+	if (linked === 0) return false;
+	if (choice !== undefined) return choice;
+	if (await isSameSsoProvider(current, next)) return true;
+	throw InputValidationError.fromCode('issuer', ValidationErrorCodes.SSO_ISSUER_CHANGE_HAS_IDENTITIES, {
+		count: linked,
+	});
+}
+
 async function validateSsoGroupRoleMappings(
 	mappings: Array<{group: string; role_id: string}> | undefined,
 ): Promise<Array<SsoGroupRoleMapping> | undefined> {
@@ -187,7 +219,7 @@ function nonEmptyPatch<T extends object>(value: T | null | undefined): Partial<T
 	return Object.keys(patch).length > 0 ? patch : undefined;
 }
 
-async function buildInstanceConfigResponse(): Promise<InstanceConfigResponse> {
+async function buildInstanceConfigResponse(warnings: Array<string> = []): Promise<InstanceConfigResponse> {
 	const instanceConfigRepository = getInstanceConfigRepository();
 	const [
 		ssoConfig,
@@ -227,6 +259,7 @@ async function buildInstanceConfigResponse(): Promise<InstanceConfigResponse> {
 		accountIdentityLockReason,
 		instantAccountAvailability,
 		notice,
+		distributionPricing,
 	] = await Promise.all([
 		instanceConfigRepository.getAppPublicConfig(),
 		instanceConfigRepository.getInstancePolicyConfig(),
@@ -238,6 +271,7 @@ async function buildInstanceConfigResponse(): Promise<InstanceConfigResponse> {
 		instanceConfigRepository.getAccountIdentityLockReason(),
 		instanceConfigRepository.getInstantAccountAvailability(),
 		instanceConfigRepository.getInstanceNotice(),
+		instanceConfigRepository.getDistributionPricingConfig(),
 	]);
 	return {
 		sso: {
@@ -305,7 +339,9 @@ async function buildInstanceConfigResponse(): Promise<InstanceConfigResponse> {
 		integrations,
 		media,
 		billing,
+		distribution_pricing: distributionPricing,
 		notice,
+		warnings,
 	};
 }
 
@@ -343,6 +379,7 @@ function assertSelfHostedBillingSections(data: InstanceConfigUpdateRequest): voi
 		'premium_product_name',
 		'premium_info_url',
 		'sign_in_backdrop_url',
+		'premium_page_color',
 		'favicon_dark_url',
 		'custom_css',
 		'upload_limit_message',
@@ -586,6 +623,7 @@ interface InstanceConfigUpdateContext {
 	readonly data: InstanceConfigUpdateRequest;
 	readonly instanceConfigRepository: InstanceConfigRepository;
 	readonly integrationsPatch: InstanceIntegrationsConfigPatch | null;
+	readonly warnings: Array<string>;
 }
 
 function createInstanceConfigSectionApplier<T extends object>(
@@ -633,6 +671,14 @@ const INSTANCE_CONFIG_SECTION_APPLIERS = {
 			);
 		},
 	),
+	distribution_pricing: createInstanceConfigSectionApplier(
+		({data}) => data.distribution_pricing,
+		async (update, {instanceConfigRepository}) => {
+			await instanceConfigRepository.updateDistributionPricingConfig((current) =>
+				mergeDistributionRules(current, update.rules),
+			);
+		},
+	),
 	voice_p2p: createInstanceConfigSectionApplier(
 		({data}) => nonEmptyPatch(data.voice_p2p),
 		async (patch, {instanceConfigRepository}) => {
@@ -677,7 +723,7 @@ const INSTANCE_CONFIG_SECTION_APPLIERS = {
 	),
 	sso: createInstanceConfigSectionApplier(
 		({data}) => data.sso,
-		async (sso, {ctx, instanceConfigRepository}) => {
+		async (sso, {ctx, instanceConfigRepository, warnings}) => {
 			const suppliedButtonLabel = readOptionalField(sso, 'button_label');
 			const buttonLabel = suppliedButtonLabel === undefined ? undefined : normalizeSsoButtonLabel(suppliedButtonLabel);
 			const current = await instanceConfigRepository.getSsoConfig({includeSecret: true});
@@ -698,6 +744,11 @@ const INSTANCE_CONFIG_SECTION_APPLIERS = {
 			const validated = await normalizeAndValidateSsoConfig(next, {
 				testModeEnabled: Config.dev.testModeEnabled,
 			});
+			const moveIdentities = await shouldMoveSsoIdentities(
+				current,
+				validated,
+				readOptionalField(sso, 'migrate_identities'),
+			);
 			const supplied = <T>(field: keyof typeof sso, value: T): T | undefined =>
 				readOptionalField(sso, field) === undefined ? undefined : value;
 			await instanceConfigRepository.setSsoConfig({
@@ -719,8 +770,18 @@ const INSTANCE_CONFIG_SECTION_APPLIERS = {
 				groupsClaim: readOptionalField(sso, 'groups_claim'),
 				groupRoleMappings: await validateSsoGroupRoleMappings(readOptionalField(sso, 'group_role_mappings')),
 			});
+			if (moveIdentities) {
+				await migrateSsoIdentities(ctx, ssoProviderIdOf(current), ssoProviderIdOf(validated));
+			}
 			for (const issuer of new Set([current.issuer, validated.issuer])) {
-				if (issuer) await ctx.get('cacheService').delete(ssoDiscoveryCacheKey(issuer));
+				if (!issuer) continue;
+				await ctx.get('cacheService').delete(ssoDiscoveryCacheKey(issuer));
+				await ctx.get('cacheService').delete(legacySsoDiscoveryCacheKey(issuer));
+			}
+			if (validated.providerUnreachable) {
+				warnings.push(
+					"Couldn't connect to the sign-in provider at its issuer URL. The SSO button stays hidden until the provider answers.",
+				);
 			}
 		},
 	),
@@ -756,6 +817,7 @@ const INSTANCE_CONFIG_SECTION_APPLIERS = {
 							premium_product_name: readOptionalField(appPublic.branding, 'premium_product_name'),
 							premium_info_url: readOptionalField(appPublic.branding, 'premium_info_url'),
 							sign_in_backdrop_url: readOptionalField(appPublic.branding, 'sign_in_backdrop_url'),
+							premium_page_color: readOptionalField(appPublic.branding, 'premium_page_color'),
 							custom_css: readOptionalField(appPublic.branding, 'custom_css'),
 							upload_limit_message: readOptionalField(appPublic.branding, 'upload_limit_message'),
 							trusted_domains: readTrustedDomains(appPublic.branding),
@@ -920,7 +982,8 @@ export function InstanceConfigAdminController(app: HonoApp) {
 			const integrationsPatch = toIntegrationsPatch(data.integrations, await readSavedSmtpConfig());
 			await assertConsistentInstanceConfig(data, integrationsPatch);
 			await assertValidBlueskyKeys(integrationsPatch);
-			const updateContext = {ctx, data, instanceConfigRepository, integrationsPatch};
+			const warnings: Array<string> = [];
+			const updateContext = {ctx, data, instanceConfigRepository, integrationsPatch, warnings};
 			for (const applySection of Object.values(INSTANCE_CONFIG_SECTION_APPLIERS)) {
 				const pendingUpdate = applySection(updateContext);
 				if (pendingUpdate) await pendingUpdate;
@@ -933,7 +996,7 @@ export function InstanceConfigAdminController(app: HonoApp) {
 					sections: listSuppliedSections(data),
 				},
 			});
-			return ctx.json(await buildInstanceConfigResponse());
+			return ctx.json(await buildInstanceConfigResponse(warnings));
 		},
 	);
 	app.post(
@@ -945,7 +1008,7 @@ export function InstanceConfigAdminController(app: HonoApp) {
 			operationId: 'create_admin_instance_branding_asset',
 			summary: 'Upload an instance branding asset',
 			description:
-				'Uploads a branding image served by the media proxy and stores its URL, or clears it when no image is provided. Requires INSTANCE_CONFIG_UPDATE permission.',
+				'Uploads a branding image served by the media proxy and stores its URL, or clears it when no image is provided. The favicon_dark, sign_in_backdrop and premium_showcase_* kinds are only available on self-hosted instances. Requires INSTANCE_CONFIG_UPDATE permission.',
 			responseSchema: InstanceConfigResponse,
 			statusCode: 200,
 			security: 'adminApiKey',
@@ -953,7 +1016,8 @@ export function InstanceConfigAdminController(app: HonoApp) {
 		}),
 		async (ctx) => {
 			const {kind, image} = ctx.req.valid('json');
-			const isBackdrop = kind === 'sign_in_backdrop';
+			const isPremiumShowcase = kind.startsWith('premium_showcase_');
+			const isBackdrop = kind === 'sign_in_backdrop' || isPremiumShowcase;
 			if ((isBackdrop || kind === 'favicon_dark') && !Config.instance.selfHosted) {
 				throw InputValidationError.create('kind', 'This setting is only available on self-hosted instances');
 			}
@@ -964,6 +1028,7 @@ export function InstanceConfigAdminController(app: HonoApp) {
 				previousHash: null,
 				base64Image: image ?? null,
 				errorPath: 'image',
+				enforceDimensions: isPremiumShowcase,
 			});
 			const brandingPatch: Partial<InstanceBranding> = {[`${kind}_url`]: prepared.newCdnUrl};
 			const {releasedBrandingAssets} = await instanceConfigRepository.writeAppPublicConfig({branding: brandingPatch});

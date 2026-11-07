@@ -11,7 +11,7 @@ use super::user_display::format_user_display;
 use crate::config::AdminConfig;
 use crate::utils::timestamps::format_admin_timestamp;
 
-use super::message_data::{Attachment, Message};
+use super::message_data::{Attachment, Embed, Message};
 
 fn is_image(att: &Attachment) -> bool {
     att.content_type
@@ -82,6 +82,167 @@ fn render_other_attachments(msg: &Message, has_content_or_images: bool) -> Marku
                       class="text-blue-600 hover:underline" { (att.filename) }
                     (attachment_nsfw_badge(att.nsfw.unwrap_or(false)))
                 }
+            }
+        }
+    }
+}
+
+fn safe_link(url: &str) -> Option<&str> {
+    (url.starts_with("https://") || url.starts_with("http://")).then_some(url)
+}
+
+enum ContentPart<'a> {
+    Text(&'a str),
+    MaskedLink { label: &'a str, url: &'a str },
+}
+
+fn masked_link_at(text: &str) -> Option<(&str, &str, usize)> {
+    let rest = text.strip_prefix('[')?;
+    let label_end = rest.find(']')?;
+    let label = &rest[..label_end];
+    if label.is_empty() || label.contains('\n') || label.contains('[') {
+        return None;
+    }
+    let after = rest[label_end + 1..].strip_prefix('(')?;
+    let url_end = after.find(')')?;
+    let url = &after[..url_end];
+    if safe_link(url).is_none() || url.chars().any(char::is_whitespace) {
+        return None;
+    }
+    Some((label, url, 1 + label_end + 2 + url_end + 1))
+}
+
+fn content_parts(content: &str) -> Vec<ContentPart<'_>> {
+    let mut parts = Vec::new();
+    let mut text_start = 0;
+    let mut index = 0;
+    while let Some(offset) = content[index..].find('[') {
+        let start = index + offset;
+        match masked_link_at(&content[start..]) {
+            Some((label, url, len)) => {
+                if start > text_start {
+                    parts.push(ContentPart::Text(&content[text_start..start]));
+                }
+                parts.push(ContentPart::MaskedLink { label, url });
+                index = start + len;
+                text_start = index;
+            }
+            None => index = start + 1,
+        }
+    }
+    if text_start < content.len() {
+        parts.push(ContentPart::Text(&content[text_start..]));
+    }
+    parts
+}
+
+fn render_content(content: &str) -> Markup {
+    html! {
+        @for part in content_parts(content) {
+            @match part {
+                ContentPart::Text(text) => (text),
+                ContentPart::MaskedLink { label, url } => {
+                    a href=(url) target="_blank" rel="noopener noreferrer" title=(url)
+                        class="text-blue-600 hover:underline" data-masked-link="" { (label) }
+                    " "
+                    span class="text-neutral-500 text-xs break-all" data-masked-link-url="" { "(" (url) ")" }
+                },
+            }
+        }
+    }
+}
+
+fn render_embed_image(url: &str, alt: &str, class: &str) -> Markup {
+    match safe_link(url) {
+        Some(href) => html! {
+            a href=(href) target="_blank" rel="noopener noreferrer"
+              class="block overflow-hidden rounded bg-neutral-100" {
+                img src=(href) alt=(alt) loading="lazy"
+                    class={(class) " scale-110 object-contain blur-2xl \
+                                    transition-[filter,transform] duration-150 \
+                                    hover:scale-100 hover:blur-none"};
+            }
+        },
+        None => html! {},
+    }
+}
+
+fn render_embed(embed: &Embed) -> Markup {
+    html! {
+        div class="max-w-xl rounded-lg border border-neutral-200 border-l-4 border-l-neutral-400 \
+                   bg-neutral-50 p-3 text-sm"
+            data-message-embed="" {
+            div class="flex gap-3" {
+                div class="min-w-0 flex-1 space-y-1" {
+                    @if let Some(author) = &embed.author_name {
+                        div class="font-medium text-neutral-700 text-xs" { (author) }
+                    }
+                    @if let Some(title) = &embed.title {
+                        @match embed.url.as_deref().and_then(safe_link) {
+                            Some(href) => a href=(href) target="_blank" rel="noopener noreferrer"
+                                class="block break-words font-semibold text-blue-600 hover:underline" {
+                                (title)
+                            },
+                            None => div class="break-words font-semibold text-neutral-900" { (title) },
+                        }
+                    }
+                    @if let Some(description) = &embed.description {
+                        div class="whitespace-pre-wrap break-words text-neutral-800 leading-snug" {
+                            (description)
+                        }
+                    }
+                    @if !embed.fields.is_empty() {
+                        div class="grid gap-2 pt-1" style="grid-template-columns:repeat(3,minmax(0,1fr));" {
+                            @for field in &embed.fields {
+                                @let span = if field.inline { "" } else { "grid-column:1/-1;" };
+                                div class="min-w-0" style=(span) {
+                                    div class="break-words font-semibold text-neutral-900 text-xs" {
+                                        (field.name)
+                                    }
+                                    div class="whitespace-pre-wrap break-words text-neutral-700 text-xs" {
+                                        (field.value)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                @if let Some(thumbnail) = &embed.thumbnail_url {
+                    div class="flex-shrink-0" style="width:80px;" {
+                        (render_embed_image(thumbnail, "Embed thumbnail", "block max-h-20 w-full"))
+                    }
+                }
+            }
+            @if let Some(image) = &embed.image_url {
+                div class="mt-2" {
+                    (render_embed_image(image, "Embed image", "block max-h-96 w-full"))
+                }
+            }
+            @if embed.footer_text.is_some() || embed.nsfw {
+                div class="mt-2 flex flex-wrap items-center gap-2 text-neutral-500 text-xs" {
+                    @if let Some(footer) = &embed.footer_text {
+                        span class="break-words" { (footer) }
+                    }
+                    (attachment_nsfw_badge(embed.nsfw))
+                }
+            }
+        }
+    }
+}
+
+fn render_embeds(msg: &Message) -> Markup {
+    if msg.embeds.is_empty() {
+        return html! {};
+    }
+    let spacer = if !msg.content.is_empty() || !msg.attachments.is_empty() {
+        "mt-2 space-y-2"
+    } else {
+        "mt-1 space-y-2"
+    };
+    html! {
+        div class=(spacer) {
+            @for embed in &msg.embeds {
+                (render_embed(embed))
             }
         }
     }
@@ -186,12 +347,13 @@ fn message_row(
                 div class="min-w-0" style="grid-column:4;" {
                     @if !msg.content.is_empty() {
                         div class="whitespace-pre-wrap break-words text-neutral-800 \
-                                   text-sm leading-snug" { (msg.content) }
+                                   text-sm leading-snug" { (render_content(&msg.content)) }
                     }
                     @if !msg.attachments.is_empty() {
                         (render_image_attachments(msg, include_delete))
                         (render_other_attachments(msg, has_content_or_images))
                     }
+                    (render_embeds(msg))
                     (render_missing_attachments(msg))
                     (meta)
                     @if include_delete && !has_images {
@@ -267,12 +429,13 @@ fn message_row(
                 }
                 @if !msg.content.is_empty() {
                     div class="mt-0.5 whitespace-pre-wrap break-words text-neutral-800 \
-                               text-sm leading-snug" { (msg.content) }
+                               text-sm leading-snug" { (render_content(&msg.content)) }
                 }
                 @if !msg.attachments.is_empty() {
                     (render_image_attachments(msg, include_delete))
                     (render_other_attachments(msg, has_content_or_images))
                 }
+                (render_embeds(msg))
                 (render_missing_attachments(msg))
                 (meta)
             }

@@ -45,6 +45,29 @@ func PublicIP(ctx context.Context) (string, error) {
 	return "", fmt.Errorf("%w: %v", ErrNoPublicIP, last)
 }
 
+func PublicIPv4(ctx context.Context) (string, error) {
+	return publicIPOver(ctx, "udp4")
+}
+
+func PublicIPv6(ctx context.Context) (string, error) {
+	return publicIPOver(ctx, "udp6")
+}
+
+func publicIPOver(ctx context.Context, network string) (string, error) {
+	var last error = ErrNoPublicIP
+	for _, server := range stunServers {
+		ip, err := stunQuery(ctx, network, server)
+		if err == nil {
+			return ip.String(), nil
+		}
+		last = err
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+	}
+	return "", fmt.Errorf("%w: %v", ErrNoPublicIP, last)
+}
+
 func stunQuery(ctx context.Context, network, server string) (net.IP, error) {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
@@ -108,7 +131,7 @@ func parseSTUN(msg, txid []byte) (net.IP, error) {
 		case stunMappedAddress:
 			mapped = stunAddress(val, false, txid)
 		}
-		attrs = attrs[4+(alen+3)&^3:]
+		attrs = attrs[min(4+(alen+3)&^3, len(attrs)):]
 	}
 	if mapped != nil {
 		return mapped, nil

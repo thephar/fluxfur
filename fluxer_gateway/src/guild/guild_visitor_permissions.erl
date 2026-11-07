@@ -5,8 +5,10 @@
 
 -export([
     viewable_channel_map/2,
+    channel_permissions/2,
     strip_overwrites/2,
-    guild_nsfw/1
+    guild_nsfw/1,
+    channel_effective_nsfw/3
 ]).
 
 -define(AGE_RESTRICTED_LEVEL, 3).
@@ -48,6 +50,29 @@ viewable_channel_map(State, Adult) ->
         map_utils:ensure_list(guild_data_index_channels:channel_list(Data))
     ).
 
+-spec channel_permissions(map(), integer()) -> non_neg_integer().
+channel_permissions(State, ChannelId) ->
+    Index = guild_data_index_channels:channel_index(guild_data_index:ensure_data_map(State)),
+    case permission_channel(ChannelId, Index, State) of
+        Channel when is_map(Channel) -> visible_permissions(context(State, false), Channel);
+        undefined -> 0
+    end.
+
+-spec permission_channel(integer(), map(), map()) -> map() | undefined.
+permission_channel(ChannelId, Index, State) ->
+    case guild_thread_gate:thread(ChannelId, State) of
+        Thread when is_map(Thread) ->
+            parent_channel(Thread, Index);
+        _ ->
+            indexed_channel(maps:get(ChannelId, Index, undefined))
+    end.
+
+-spec indexed_channel(term()) -> map() | undefined.
+indexed_channel(Channel) when is_map(Channel) ->
+    Channel;
+indexed_channel(_) ->
+    undefined.
+
 -spec strip_overwrites(map(), integer()) -> map().
 strip_overwrites(Channel, GuildId) ->
     case maps:get(<<"permission_overwrites">>, Channel, undefined) of
@@ -70,6 +95,25 @@ guild_nsfw(Data) ->
         false -> false;
         _ -> maps:get(<<"nsfw_level">>, Guild, 0) =:= ?AGE_RESTRICTED_LEVEL
     end.
+
+-spec channel_effective_nsfw(map(), integer(), integer() | undefined) -> boolean().
+channel_effective_nsfw(Data, ChannelId, ThreadParentId) ->
+    Index = guild_data_index_channels:channel_index(Data),
+    GuildNsfw = guild_nsfw(Data),
+    case maps:get(resolved_channel_id(ChannelId, ThreadParentId, Index), Index, undefined) of
+        Channel when is_map(Channel) ->
+            effective_nsfw(Channel, parent_channel(Channel, Index), GuildNsfw);
+        _ ->
+            GuildNsfw
+    end.
+
+-spec resolved_channel_id(integer(), integer() | undefined, map()) -> integer().
+resolved_channel_id(ChannelId, _ThreadParentId, Index) when is_map_key(ChannelId, Index) ->
+    ChannelId;
+resolved_channel_id(_ChannelId, ThreadParentId, _Index) when is_integer(ThreadParentId) ->
+    ThreadParentId;
+resolved_channel_id(ChannelId, _ThreadParentId, _Index) ->
+    ChannelId.
 
 -spec everyone_permissions(map(), integer()) -> non_neg_integer().
 everyone_permissions(Data, GuildId) ->

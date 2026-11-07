@@ -75,6 +75,7 @@ fn asset_kind_name(kind: AssetKind) -> &'static str {
         AssetKind::Emoji => "emoji",
         AssetKind::Sticker => "sticker",
         AssetKind::Branding => "branding",
+        AssetKind::RoleIcon => "role_icon",
     }
 }
 

@@ -24,6 +24,7 @@ func newUninstallCmd(app *App) *cobra.Command {
 	c := &cobra.Command{
 		Use:   "uninstall",
 		Short: "Remove Fluxer from this machine",
+		Long:  "Remove Fluxer from this machine, with its data and backups unless you pass --keep-data. To stop Fluxer and keep everything, run rexctl stop or rexctl down.",
 		Args:  noArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			return runUninstall(c.Context(), app, keepData, confirm)
@@ -38,6 +39,9 @@ func runUninstall(ctx context.Context, app *App, keepData bool, confirm string) 
 	inst, err := app.Instance()
 	if err != nil {
 		return err
+	}
+	if inst.State.IsVoice() {
+		return runVoiceMachineUninstall(ctx, app, inst)
 	}
 	p, err := app.Named(ctx, inst)
 	if err != nil {
@@ -64,6 +68,7 @@ func runUninstall(ctx context.Context, app *App, keepData bool, confirm string) 
 					}
 				}
 			}
+			removeLocalVoiceServersForUninstall(ctx, app, inst, p.Engine)
 			if err := p.Down(context.WithoutCancel(ctx), !keepData); err != nil {
 				return engineFailure(err)
 			}

@@ -16,7 +16,7 @@ use crate::{
         format_policy::{
             OriginalImageRequest, default_transform_quality,
             effective_animated_image_output_format, extension_from_mime,
-            is_browser_displayable_image, is_svg_content_type,
+            is_browser_displayable_image, is_untransformed_fallback_image,
             same_format_loaded_image_request_can_use_original_with_sniff,
         },
         media_operations::spool_stored_media,
@@ -34,7 +34,7 @@ use crate::{
             CachedVideoTransformRequest, ServeBytesRequest,
             cache::{
                 CachedTransformRequest, cached_transform, cached_transform_hit,
-                coalescer_failure_response,
+                coalescer_error_is_transient, coalescer_failure_response, forbid_storing,
             },
             cache_key::{TransformCacheKeyInput, transform_cache_key},
             cached_video_transform_response,
@@ -50,6 +50,7 @@ use axum::{
     http::{HeaderMap, Method, StatusCode, header},
     response::Response,
 };
+use bytes::Bytes;
 pub(in crate::server) use passthrough::serve_stored_raw;
 use passthrough::{PassthroughDisposition, serve_stored_passthrough_stream};
 use std::{collections::HashMap, sync::Arc};
@@ -149,7 +150,7 @@ pub(in crate::server) async fn serve_asset_image(
     if let Some(hit) = cached_transform_hit(runtime, &cache_key) {
         return generated_media_response(GeneratedMediaResponse {
             method,
-            data: hit.data.as_bytes().clone().into(),
+            data: hit.data,
             content_type: hit.format.mime(),
             disposition: Some(content_disposition_header(
                 hit.format.mime(),
@@ -181,7 +182,7 @@ pub(in crate::server) async fn serve_asset_image(
     })
     .await
     {
-        Ok(bytes) => bytes.as_bytes().clone(),
+        Ok(bytes) => bytes,
         Err(error) => {
             let detail = format!(
                 "asset key={} src_ct={} out={} size={:?} animated={}",
@@ -204,7 +205,7 @@ pub(in crate::server) async fn serve_asset_image(
     };
     generated_media_response(GeneratedMediaResponse {
         method,
-        data: transformed.into(),
+        data: transformed,
         content_type: out_ext.mime(),
         disposition: Some(content_disposition_header(
             out_ext.mime(),
@@ -234,19 +235,18 @@ fn asset_transform_failure_response(failure: AssetTransformFailure<'_>) -> Respo
     } else {
         stored_ct
     };
-    let src_is_displayable = src_ct.starts_with("image/")
-        && src_ct != "image/heic"
-        && src_ct != "image/heif"
-        && failure.source_format != AssetExtension::Svg
-        && !is_svg_content_type(src_ct);
-    if src_is_displayable && failure.error != CoalescerError::RequestTimeout {
-        return media_response(MediaResponse {
+    if is_untransformed_fallback_image(src_ct, Some(failure.source_format)) {
+        let mut response = media_response(MediaResponse {
             method: failure.method,
             data: failure.object.data.into(),
             content_type: src_ct,
             range_header: failure.range_header,
             disposition: None,
         });
+        if coalescer_error_is_transient(failure.error) {
+            forbid_storing(&mut response);
+        }
+        return response;
     }
     if let Some(response) =
         coalescer_failure_response(failure.error, "coalescer_timeout_asset_image")
@@ -273,16 +273,16 @@ async fn read_cdn_object_with_fallback(
 ) -> Result<CdnSourceObject, StorageError> {
     let bucket = &app.cfg.storage.bucket_cdn;
     let limit = constants::MAX_MEDIA_PROXY_BYTES;
-    let budget = storage::unversioned_read_budget(limit);
+    let budget = app.media.stored_buffer_bytes();
     let read = match app
         .store
-        .read_object_limited_with_digest(bucket, key, limit, &budget)
+        .read_object_limited_with_digest(bucket, key, limit, budget)
         .await
     {
         Err(StorageError::NotFound) => {
             let fallback_key = format!("{key}.{}", original_ext.name());
             app.store
-                .read_object_limited_with_digest(bucket, &fallback_key, limit, &budget)
+                .read_object_limited_with_digest(bucket, &fallback_key, limit, budget)
                 .await?
         }
         other => other?,
@@ -293,7 +293,7 @@ async fn read_cdn_object_with_fallback(
                 .expect("a digested read always reports its content digest"),
         ),
         object: storage::Object {
-            data: read.data.as_bytes().clone(),
+            data: Bytes::from_owner(read.data),
             content_type: read.content_type,
         },
     })
@@ -339,7 +339,11 @@ async fn read_attachment(
     }
     let object = match app
         .store
-        .read_object(&app.cfg.storage.bucket_cdn, key)
+        .read_object_within(
+            &app.cfg.storage.bucket_cdn,
+            key,
+            app.media.stored_buffer_bytes(),
+        )
         .await
     {
         Ok(object) => object,

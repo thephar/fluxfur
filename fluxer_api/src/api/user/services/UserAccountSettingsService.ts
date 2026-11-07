@@ -12,6 +12,7 @@ import {
 import type {ChannelOverride, UserGuildSettingsRow} from '@app/api/database/types/UserTypes';
 import {type ThreadViewer, viewerActive} from '@app/api/experiment/ChannelThreadsGate';
 import type {GuildRepository} from '@app/api/guild/repositories/GuildRepository';
+import {guildVisitRepository} from '@app/api/guild/visits/GuildVisitorAccess';
 import type {IGatewayService} from '@app/api/infrastructure/IGatewayService';
 import type {UserCacheService} from '@app/api/infrastructure/UserCacheService';
 import type {LimitConfigService} from '@app/api/limits/LimitConfigService';
@@ -41,6 +42,7 @@ import {
 } from '@fluxer/constants/src/UserConstants';
 import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
 import {InputValidationError} from '@fluxer/errors/src/domains/core/InputValidationError';
+import {UnknownGuildError} from '@fluxer/errors/src/domains/guild/UnknownGuildError';
 import {SyncedPreferencesConflictError} from '@fluxer/errors/src/domains/user/SyncedPreferencesConflictError';
 import {UnknownUserError} from '@fluxer/errors/src/domains/user/UnknownUserError';
 import {ValidationError} from '@fluxer/errors/src/ValidationError';
@@ -55,6 +57,9 @@ import type {
 	UserGuildSettingsUpdateRequest,
 	UserSettingsUpdateRequest,
 } from '@fluxer/schema/src/domains/user/UserRequestSchemas';
+import type {ICacheService} from '@pkgs/cache/src/ICacheService';
+
+const VOICE_ACTIVITY_SHARING_LOCK_TTL_SECONDS = 60;
 
 interface UserAccountSettingsServiceDeps {
 	userAccountRepository: UserRepository;
@@ -64,6 +69,7 @@ interface UserAccountSettingsServiceDeps {
 	userCacheService: UserCacheService;
 	guildRepository: GuildRepository;
 	limitConfigService: LimitConfigService;
+	cacheService: ICacheService;
 }
 
 export class UserAccountSettingsService {
@@ -86,10 +92,10 @@ export class UserAccountSettingsService {
 	async updateSettings(params: {
 		userId: UserID;
 		data: UserSettingsUpdateRequest;
-		dateOfBirth?: string | null;
+		ageUser: Pick<User, 'dateOfBirth'>;
 		flags?: bigint;
 	}): Promise<UserSettings> {
-		const {userId, data, dateOfBirth, flags = 0n} = params;
+		const {userId, data, ageUser, flags = 0n} = params;
 		const currentSettings = await this.deps.userAccountRepository.findSettings(userId);
 		if (!currentSettings) {
 			throw new UnknownUserError();
@@ -206,7 +212,7 @@ export class UserAccountSettingsService {
 		if (data.default_hide_muted_channels !== undefined) {
 			updatedRowData.default_hide_muted_channels = data.default_hide_muted_channels;
 		}
-		const userIsAdult = canUserAccessNsfwContent({isBot: false, dateOfBirth});
+		const userIsAdult = canUserAccessNsfwContent({isBot: false, ...ageUser});
 		if (userIsAdult) {
 			if (data.sensitive_content_friend_dm_filter !== undefined) {
 				updatedRowData.sensitive_content_friend_dm_filter = data.sensitive_content_friend_dm_filter;
@@ -216,6 +222,9 @@ export class UserAccountSettingsService {
 			}
 			if (data.sensitive_content_guild_filter !== undefined) {
 				updatedRowData.sensitive_content_guild_filter = data.sensitive_content_guild_filter;
+			}
+			if (data.allow_mature_content_on_ios !== undefined) {
+				updatedRowData.allow_mature_content_on_ios = data.allow_mature_content_on_ios;
 			}
 		} else {
 			if (data.sensitive_content_friend_dm_filter !== undefined) {
@@ -250,6 +259,16 @@ export class UserAccountSettingsService {
 					'AGE_RESTRICTED',
 					'Non-adult users cannot modify the guild content filter',
 				);
+			}
+			if (data.allow_mature_content_on_ios === true) {
+				throw ValidationError.fromPath(
+					'allow_mature_content_on_ios',
+					'AGE_RESTRICTED',
+					'Non-adult users cannot allow 18+ content on iOS',
+				);
+			}
+			if (data.allow_mature_content_on_ios === false) {
+				updatedRowData.allow_mature_content_on_ios = false;
 			}
 		}
 		if (isStaffUser) {
@@ -305,6 +324,10 @@ export class UserAccountSettingsService {
 	}): Promise<UserGuildSettings> {
 		const {userId, guildId, data} = params;
 		const currentSettings = await this.deps.userAccountRepository.findGuildSettings(userId, guildId);
+		if (guildId !== null && !currentSettings) {
+			if (!(await this.canCreateGuildSettings(userId, guildId))) throw new UnknownGuildError();
+			await this.deleteGuildSettingsOutsideCurrentGuilds(userId, guildId);
+		}
 		const resolvedGuildId = guildId ?? createGuildID(0n);
 		const baseRow: UserGuildSettingsRow = currentSettings
 			? {
@@ -379,6 +402,25 @@ export class UserAccountSettingsService {
 		return updatedSettings;
 	}
 
+	private async canCreateGuildSettings(userId: UserID, guildId: GuildID): Promise<boolean> {
+		if (await this.deps.guildRepository.getMember(guildId, userId)) return true;
+		return (await guildVisitRepository().get(userId, guildId)) !== null;
+	}
+
+	private async deleteGuildSettingsOutsideCurrentGuilds(userId: UserID, guildId: GuildID): Promise<void> {
+		const [rows, memberGuildIds, visits] = await Promise.all([
+			this.deps.userAccountRepository.findAllGuildSettings(userId),
+			this.deps.userAccountRepository.getUserGuildIds(userId),
+			guildVisitRepository().list(userId),
+		]);
+		const keep = new Set<GuildID>([createGuildID(0n), guildId, ...memberGuildIds, ...visits.map((v) => v.guild_id)]);
+		await Promise.all(
+			rows
+				.filter((row) => !keep.has(row.guildId))
+				.map((row) => this.deps.userAccountRepository.deleteGuildSettings(userId, row.guildId)),
+		);
+	}
+
 	private normalizeIncomingCallFlags(flags: number): number {
 		let normalizedFlags = flags;
 		const modifierFlags = flags & IncomingCallFlags.SILENT_EVERYONE;
@@ -417,6 +459,27 @@ export class UserAccountSettingsService {
 	}
 
 	async updateVoiceActivitySharingDefault(params: {
+		userId: UserID;
+		shareVoiceActivity: boolean;
+		requestCache: RequestCache;
+	}): Promise<User> {
+		const lockKey = `voice_activity_sharing_change:${params.userId}`;
+		const token = await this.deps.cacheService.acquireLock(lockKey, VOICE_ACTIVITY_SHARING_LOCK_TTL_SECONDS);
+		if (!token) {
+			throw InputValidationError.fromCode(
+				'share_voice_activity',
+				ValidationErrorCodes.VOICE_ACTIVITY_SHARING_ON_COOLDOWN,
+				{retry_after: VOICE_ACTIVITY_SHARING_LOCK_TTL_SECONDS},
+			);
+		}
+		try {
+			return await this.applyVoiceActivitySharingDefault(params);
+		} finally {
+			await this.deps.cacheService.releaseLock(lockKey, token);
+		}
+	}
+
+	private async applyVoiceActivitySharingDefault(params: {
 		userId: UserID;
 		shareVoiceActivity: boolean;
 		requestCache: RequestCache;

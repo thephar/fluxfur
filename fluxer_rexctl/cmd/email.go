@@ -16,6 +16,7 @@ import (
 
 	"github.com/fluxerapp/fluxer/fluxer_rexctl/internal/adminapi"
 	"github.com/fluxerapp/fluxer/fluxer_rexctl/internal/instance"
+	"github.com/fluxerapp/fluxer/fluxer_rexctl/internal/stack"
 	"github.com/fluxerapp/fluxer/fluxer_rexctl/internal/ui"
 )
 
@@ -80,7 +81,7 @@ func validTLS(mode, flag string) error {
 
 func tlsFix(message, fallback string) string {
 	if certificateFailed(message) {
-		return "Give your email server a certificate from a trusted authority. If it doesn't use encryption, run rexctl email set --tls none."
+		return "If your email server's certificate comes from your own CA, put that CA's PEM file in the ca folder of your instance, then run rexctl config set FLUXER_NODE_EXTRA_CA_CERTS " + stack.NodeCADir + "/<file>. If it doesn't use encryption, run rexctl email set --tls none."
 	}
 	if adminapi.StartTLSFailed(message) {
 		return "If your email server doesn't use encryption, run rexctl email set --tls none."
@@ -96,7 +97,7 @@ func smtpReason(message string) string {
 	if certificateFailed(message) {
 		return "Your email server's certificate isn't trusted. It may be self-signed."
 	}
-	return sentenceOf(message)
+	return sentenceOf(ui.Inline(message))
 }
 
 func newEmailCmd(app *App) *cobra.Command {

@@ -12,7 +12,7 @@ A message is one post in a [channel](/http-api/channels/), with its text, attach
 
 A private channel returns 404 `UNKNOWN_CHANNEL` when you're not a recipient. A guild channel needs [VIEW_CHANNEL](/http-api/permissions/), and in a thread you also need access to the parent and to a private thread, as [Thread permissions](/http-api/threads/#thread-permissions) describes.
 
-In a guild channel without [READ_MESSAGE_HISTORY](/http-api/permissions/), you only see messages created after the guild's message history cutoff, and nothing when the guild has no cutoff. In an age-restricted channel, the routes that read, send, edit or delete messages return 403 `NSFW_CONTENT_AGE_RESTRICTED` until the account passes the age check.
+In a guild channel without [READ_MESSAGE_HISTORY](/http-api/permissions/), you only see messages created after the guild's message history cutoff, and nothing when the guild has no cutoff. In an age-restricted channel, the routes that read, send, edit or delete messages return 403 `NSFW_CONTENT_AGE_RESTRICTED` until the account can see mature content.
 
 Routes that need `MANAGE_MESSAGES` also follow the guild's [MFA level](/http-api/guilds/#mfa-levels) for [elevated permissions](/http-api/permissions/#elevated-permissions).
 
@@ -709,6 +709,7 @@ To get the next page, set `before` to the `pinned_at` of the last item. Skip mes
 | banner | ?string | The guild banner hash |
 | description | ?string | The discovery description, or null when the guild isn't in discovery |
 | features | array of strings | `VERIFIED`, `PARTNERED` and `DISCOVERABLE` from [guild features](/http-api/guilds/#guild-features) |
+| badge_ids | array[snowflake] | The [custom badges](/http-api/instance/#guild-badge-object) of the guild. Look them up with [List guild badges](/http-api/instance/#list-guild-badges) |
 | approximate_member_count | ?integer | About how many members the guild has |
 | approximate_presence_count | ?integer | About how many members are online |
 | discoverable | boolean | Whether you can join through [Join discovery guild](/http-api/discovery/#join-discovery-guild) |
@@ -783,7 +784,7 @@ The rate limit is 100 requests per 10 seconds, on the `channel:message:read::cha
 
 Returns upload URLs for 1 to 10 files, as described in [Attachment upload objects](#attachment-upload-objects). In a guild channel you need `SEND_MESSAGES` and `ATTACH_FILES`.
 
-Each file can be up to the [`max_attachment_file_size`](/http-api/instance/#limit-keys) limit, which defaults to 524288000 bytes (500 MiB), or 26214400 bytes (25 MiB) without premium on an instance with premium tiers. Bots get at most 52428800 bytes (50 MiB).
+Each file can be up to the [`max_attachment_file_size`](/http-api/instance/#limit-keys) limit, which defaults to 524288000 bytes (500 MiB), or 26214400 bytes (25 MiB) without premium on an instance with premium tiers. A bot gets the lower of that limit and [`max_bot_attachment_file_size`](/http-api/instance/#limit-keys), which defaults to 52428800 bytes (50 MiB).
 
 ### JSON body
 
@@ -842,7 +843,7 @@ The rate limit is 10 requests per 10 seconds, on the `channel:attachment:upload:
 
 <RouteHeader method="POST" path="/v1/attachments/refresh-urls" bot />
 
-Signs 1 to 50 attachment URLs again, each valid for another 24 hours. OAuth2 tokens can't use this route.
+Signs 1 to 50 attachment URLs again. A refreshed URL is valid until its `ex`, which is 12 to 24 hours away. Check `ex` on each URL, because it isn't always a full day. OAuth2 tokens can't use this route.
 
 ### JSON body
 
@@ -862,7 +863,7 @@ Signs 1 to 50 attachment URLs again, each valid for another 24 hours. OAuth2 tok
 | --- | --- | --- |
 | 200 | response body | The URLs were signed |
 
-The rate limit is 20 requests per 10 seconds, on the `attachment:refresh_urls` bucket.
+The rate limit is 60 requests per 10 seconds, on the `attachment:refresh_urls` bucket.
 
 ## Create message
 
@@ -962,7 +963,7 @@ The body works like [Create message](#create-message), including multipart. Fiel
 | attachments?<sup>1</sup> | array[[pre-uploaded attachment](#pre-uploaded-attachment-object) object \| [existing attachment reference](#existing-attachment-reference-object) object] | The attachments to keep and add |
 | message_snapshots? | array | Not accepted, and returns 403 `MISSING_PERMISSIONS` |
 
-<sup>1</sup> Replaces the whole list, so include every existing item you want to keep
+<sup>1</sup> Replaces the whole list. Include every existing item you want to keep
 
 ### Response
 

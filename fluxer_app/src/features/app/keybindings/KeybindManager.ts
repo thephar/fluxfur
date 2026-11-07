@@ -82,11 +82,13 @@ import MacPermissions from '@app/features/permissions/system/state/MacPermission
 import {ensureMacPermission} from '@app/features/permissions/system/utils/MacPermissionGate';
 import {Logger} from '@app/features/platform/utils/AppLogger';
 import ReadStates from '@app/features/read_state/state/ReadStates';
+import ChannelThreads from '@app/features/threads/state/ChannelThreads';
+import ThreadGuilds from '@app/features/threads/state/ThreadGuilds';
 import KeyboardMode from '@app/features/ui/state/KeyboardMode';
 import {isWebReservedZoomShortcut} from '@app/features/ui/utils/AppZoomKeybindUtils';
 import {getElectronAPI, isNativeMacOS} from '@app/features/ui/utils/NativeUtils';
 import * as CallCommands from '@app/features/voice/commands/CallCommands';
-import MediaEngine from '@app/features/voice/engine/MediaEngineFacade';
+import VoiceRuntime from '@app/features/voice/engine/VoiceRuntime';
 import CallInitiator from '@app/features/voice/state/CallInitiator';
 import CallState from '@app/features/voice/state/CallState';
 import CompactVoiceCallHeight, {
@@ -357,15 +359,21 @@ class KeybindManager {
 	private getNavigableChannelsInCurrentContext(): ReadonlyArray<Channel> {
 		const guildId = this.currentGuildId;
 		if (!guildId) return [];
-		return this.flattenGuildChannelsByDisplayOrder(Channels.getGuildChannels(guildId));
+		return this.flattenGuildChannelsByDisplayOrder(guildId);
 	}
 
-	private flattenGuildChannelsByDisplayOrder(channels: ReadonlyArray<Channel>): Array<Channel> {
-		const groups = organizeChannels(channels);
+	private flattenGuildChannelsByDisplayOrder(guildId: string): Array<Channel> {
+		const groups = organizeChannels(Channels.getGuildChannels(guildId));
+		const threadsActive = ThreadGuilds.isActive(guildId);
+		const currentChannelId = this.currentChannelId;
+		const openThreadId =
+			Navigation.threadId ?? (currentChannelId && ChannelThreads.hasThread(currentChannelId) ? currentChannelId : null);
 		const flat: Array<Channel> = [];
 		for (const group of groups) {
 			for (const ch of group.textChannels) {
-				if (this.isNavigableChannel(ch)) flat.push(ch);
+				if (!this.isNavigableChannel(ch)) continue;
+				flat.push(ch);
+				if (threadsActive) flat.push(...ChannelThreads.getSidebarThreads(ch.id, openThreadId));
 			}
 			for (const ch of group.voiceChannels) {
 				if (this.isNavigableChannel(ch)) flat.push(ch);
@@ -415,9 +423,7 @@ class KeybindManager {
 	cycleFilteredChannelInCurrentGuild(predicate: (channel: Channel) => boolean, direction: 1 | -1): void {
 		const guildId = this.currentGuildId;
 		if (!guildId) return;
-		const channels = this.flattenGuildChannelsByDisplayOrder(Channels.getGuildChannels(guildId)).filter((c) =>
-			predicate(c),
-		);
+		const channels = this.flattenGuildChannelsByDisplayOrder(guildId).filter((c) => predicate(c));
 		if (!channels.length) return;
 		const target = this.getNextChannel(channels, direction);
 		this.navigateToChannel(guildId, target.id);
@@ -429,7 +435,7 @@ class KeybindManager {
 		const currentUserId = Authentication.currentUserId;
 		if (!currentUserId) return null;
 		for (const call of CallState.getActiveCalls()) {
-			if (MediaEngine.connected && MediaEngine.channelId === call.channelId) continue;
+			if (VoiceRuntime.connected && VoiceRuntime.channelId === call.channelId) continue;
 			if (CallInitiator.hasInitiated(call.channelId)) continue;
 			if (CallState.isUserPendingRinging(call.channelId, currentUserId)) {
 				return call.channelId;
@@ -463,7 +469,8 @@ class KeybindManager {
 			return Boolean(channelId && ReadStates.hasUnread(channelId));
 		}
 		if (action === 'chat_focus_textarea') {
-			return this.currentChannelId != null && document.querySelector(CHANNEL_TEXTAREA_SELECTOR) != null;
+			const composer = document.querySelector(CHANNEL_TEXTAREA_SELECTOR);
+			return this.currentChannelId != null && composer != null && composer.getAttribute('aria-disabled') !== 'true';
 		}
 		return true;
 	}
@@ -533,7 +540,7 @@ class KeybindManager {
 				}),
 			);
 		}
-		this.disposers.push(reactToPushToTalkModeChanges(() => MediaEngine.handlePushToTalkModeChange()));
+		this.disposers.push(reactToPushToTalkModeChanges(() => VoiceRuntime.engine?.handlePushToTalkModeChange()));
 		this.disposers.push(
 			reaction(
 				() => ({entries: this.buildHoldBindingEntries(), routing: this.getGlobalHoldRouting()}),
@@ -690,8 +697,8 @@ class KeybindManager {
 		const pushToMuteEngaged = Keybind.pushToMuteHeld;
 		Keybind.resetPushToTalkState();
 		Keybind.resetPushToMuteState();
-		if (pushToTalkEngaged) MediaEngine.applyPushToTalkHold(false);
-		if (pushToMuteEngaged) MediaEngine.applyPushToMuteHold(false);
+		if (pushToTalkEngaged) VoiceRuntime.engine?.applyPushToTalkHold(false);
+		if (pushToMuteEngaged) VoiceRuntime.engine?.applyPushToMuteHold(false);
 	}
 
 	private buildGlobalShortcutsSyncPayload(): GlobalShortcutsSyncPayload {
@@ -1770,7 +1777,7 @@ class KeybindManager {
 			});
 		}
 		if (!channel.isPrivate()) return false;
-		if (MediaEngine.channelId !== channel.id || !MediaEngine.connected) return false;
+		if (VoiceRuntime.channelId !== channel.id || !VoiceRuntime.connected) return false;
 		const call = CallState.getCall(channel.id);
 		if (!call) return false;
 		return isKeybindBlockedByCompactVoiceCallView({

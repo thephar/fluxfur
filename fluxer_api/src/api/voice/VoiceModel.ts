@@ -33,6 +33,12 @@ export interface VoiceServerRecord {
 	softConnectionLimit: number | null;
 	notes: string | null;
 	restrictions: VoiceRestriction;
+	internalEndpoint: string | null;
+	draining: boolean;
+	pinnedHostname: string | null;
+	pinnedSoftLimit: boolean;
+	publicIpv4: string | null;
+	publicIpv6: string | null;
 	createdAt: Date | null;
 	updatedAt: Date | null;
 }

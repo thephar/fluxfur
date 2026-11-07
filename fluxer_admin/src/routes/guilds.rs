@@ -43,6 +43,8 @@ struct GuildDetailQuery {
     page: Option<u32>,
     reports_page: Option<u32>,
     before: Option<String>,
+    badge_q: Option<String>,
+    badge_pick: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -127,11 +129,9 @@ async fn guild_detail(
     let csrf_token = csrf::get_csrf_token(&request);
 
     let client = AdminApiClient::new(state.http_client(), config, &auth.0.session);
-    let guild = client
-        .lookup_guild(&guild_id)
-        .await
-        .log_error("load guild detail")
-        .flatten();
+    let lookup = client.lookup_guild(&guild_id).await;
+    let load_failed = lookup.is_err();
+    let guild = lookup.log_error("load guild detail").flatten();
 
     let tq = to_tab_query(&query);
     let admin_acls = auth.0.acls();
@@ -170,6 +170,7 @@ async fn guild_detail(
         tab_body,
         is_detail_fragment,
         username_sign_in,
+        load_failed,
     );
     Html(markup.into_string()).into_response()
 }
@@ -277,6 +278,16 @@ async fn dispatch_guild_action(
                 client.clear_guild_fields(guild_id, &fields).await,
                 "Guild fields cleared",
                 "Failed to clear guild fields",
+            )
+        }
+        "clear_role_icon" => {
+            let Some(role_id) = get("role_id") else {
+                return FlashData::error("Role ID is required");
+            };
+            action_result(
+                client.clear_guild_role_icon(guild_id, &role_id).await,
+                "Role icon cleared",
+                "Failed to clear role icon",
             )
         }
         "update_name" => {
@@ -523,6 +534,15 @@ async fn guild_tab(
     request: Request,
 ) -> Response {
     let config = state.config();
+    if let Some(redirect) = htmx::tab_page_redirect(
+        request.headers(),
+        request.uri().query(),
+        &format!("{}/guilds", config.base_path),
+        &guild_id,
+        &tab,
+    ) {
+        return redirect;
+    }
     let csrf_token = csrf::get_csrf_token(&request);
     let client = AdminApiClient::new(state.http_client(), config, &auth.0.session);
     let admin_acls = auth.0.acls();
@@ -570,6 +590,8 @@ fn to_tab_query(q: &GuildDetailQuery) -> guild_tabs::GuildTabQuery {
         members_page: q.page,
         reports_page: q.reports_page,
         audit_before: q.before.clone(),
+        badge_query: q.badge_q.clone(),
+        badge_picks: crate::api::badges::parse_badge_picks(q.badge_pick.as_deref()),
     }
 }
 

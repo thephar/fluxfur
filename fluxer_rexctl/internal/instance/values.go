@@ -3,6 +3,7 @@
 package instance
 
 import (
+	"errors"
 	"maps"
 	"slices"
 	"strconv"
@@ -130,12 +131,19 @@ func importValues(in valueInput) (*valueResult, error) {
 		}
 	}
 
+	var conflict *settings.ListenConflict
+	if _, err := settings.SplitListenAddress(r.settings, nil); errors.As(err, &conflict) {
+		return nil, &AdoptError{Msg: "FLUXER_HTTP_PORT and FLUXER_HTTPS_PORT in .env use different addresses, and rexctl runs Fluxer on one address for both.", Fix: "Give FLUXER_HTTP_PORT and FLUXER_HTTPS_PORT in .env the same address, then run rexctl takeover again."}
+	}
+
 	for _, o := range in.overlays {
 		switch o {
 		case stack.OverlayProxy, stack.OverlayTunnel:
 			r.settings[settings.EdgeMode] = string(o)
 		case stack.OverlayIPv6:
 			r.settings[settings.IPv6] = "true"
+		case stack.OverlayExternalVoice:
+			r.settings[settings.VoiceBundled] = "false"
 		}
 	}
 	if err := dropRedundant(in.set, r); err != nil {

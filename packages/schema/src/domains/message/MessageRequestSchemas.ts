@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {MessageFlags, MessageFlagsDescriptions} from '@fluxer/constants/src/ChannelConstants';
-import {MAX_MESSAGE_LENGTH_NON_PREMIUM, MAX_MESSAGE_LENGTH_PREMIUM} from '@fluxer/constants/src/LimitConstants';
+import {
+	MAX_MESSAGE_LENGTH_NON_PREMIUM,
+	MAX_MESSAGE_LENGTH_PREMIUM,
+	MESSAGE_SEARCH_MAX_PAGE,
+} from '@fluxer/constants/src/LimitConstants';
 import {
 	ClientAttachmentReferenceRequest,
 	ClientAttachmentRequest,
@@ -20,6 +24,7 @@ import {
 	withOpenApiType,
 } from '@fluxer/schema/src/primitives/SchemaPrimitives';
 import {AttachmentURLType, URLType} from '@fluxer/schema/src/primitives/UrlValidators';
+import {schemaMetadata} from '@fluxer/schema/src/SchemaMetadata';
 import {z} from 'zod';
 
 const RICH_EMBED_AUTHOR_NAME_MAX_LENGTH = 256 as const;
@@ -36,7 +41,7 @@ function omitEmbedObjectWithoutRequiredField(value: unknown, requiredField: stri
 		return value;
 	}
 	const record = value as Record<string, unknown>;
-	if (record[requiredField] === undefined || record[requiredField] === null) {
+	if (record[requiredField] === undefined || record[requiredField] === null || record[requiredField] === '') {
 		return undefined;
 	}
 	return value;
@@ -84,13 +89,17 @@ export const RichEmbedFooterRequest = z.preprocess(
 
 export type RichEmbedFooterRequest = z.infer<typeof RichEmbedFooterRequest>;
 
-const RichEmbedFieldRequest = z.object({
-	name: createStringType(1, RICH_EMBED_FIELD_NAME_MAX_LENGTH).describe('Name of the field'),
-	value: createStringType(0, RICH_EMBED_FIELD_VALUE_MAX_LENGTH).describe(
-		`Value of the field (0-${RICH_EMBED_FIELD_VALUE_MAX_LENGTH} characters)`,
-	),
-	inline: z.boolean().default(false).describe('Whether the field should display inline'),
-});
+const RichEmbedFieldRequest = z
+	.object({
+		name: createStringType(0, RICH_EMBED_FIELD_NAME_MAX_LENGTH).describe(
+			`Name of the field (0-${RICH_EMBED_FIELD_NAME_MAX_LENGTH} characters)`,
+		),
+		value: createStringType(0, RICH_EMBED_FIELD_VALUE_MAX_LENGTH).describe(
+			`Value of the field (0-${RICH_EMBED_FIELD_VALUE_MAX_LENGTH} characters)`,
+		),
+		inline: z.boolean().default(false).describe('Whether the field should display inline'),
+	})
+	.register(schemaMetadata, {preserveEmptyValues: true});
 
 export const RichEmbedRequest = z.object({
 	url: URLType.nullish().describe('URL of the embed'),
@@ -217,7 +226,7 @@ export const MessageSearchRequest = z.object({
 		.number()
 		.int()
 		.min(1)
-		.max(400)
+		.max(MESSAGE_SEARCH_MAX_PAGE)
 		.default(1)
 		.describe('Page number for pagination (ignored when cursor is provided). Use cursor to page beyond this.'),
 	cursor: z

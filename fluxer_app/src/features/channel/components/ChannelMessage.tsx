@@ -21,6 +21,7 @@ import {useMessageHoverState} from '@app/features/channel/components/MessageHove
 import {MessageViewContextProvider} from '@app/features/channel/components/MessageViewContext';
 import type {Channel} from '@app/features/channel/models/Channel';
 import DeveloperOptions from '@app/features/devtools/state/DeveloperOptions';
+import type {GuildRole} from '@app/features/guild/models/GuildRole';
 import {parse} from '@app/features/messaging/components/markdown/renderers';
 import {MarkdownContext} from '@app/features/messaging/components/markdown/renderers/RendererTypes';
 import type {Message as MessageModel} from '@app/features/messaging/models/MessagingMessage';
@@ -30,6 +31,7 @@ import MessageReply from '@app/features/messaging/state/MessageReply';
 import {getMessageComponent} from '@app/features/messaging/utils/MessageComponentUtils';
 import {renderAstToPlaintext} from '@app/features/messaging/utils/markdown/Plaintext';
 import {NodeType} from '@app/features/messaging/utils/markdown/parser/Enums';
+import {isMarkdownParserReady} from '@app/features/messaging/utils/markdown/parser/MarkdownParserWasm';
 import {SystemMessageUtils} from '@app/features/messaging/utils/SystemMessageUtils';
 import * as ReadStateCommands from '@app/features/read_state/commands/ReadStateCommands';
 import styles from '@app/features/theme/styles/Message.module.css';
@@ -202,6 +204,7 @@ interface MessageProps {
 	previewOverrides?: {
 		usernameColor?: string;
 		displayName?: string;
+		iconRole?: GuildRole | null;
 	};
 	removeTopSpacing?: boolean;
 	isJumpTarget?: boolean;
@@ -256,13 +259,14 @@ export const Message: React.FC<MessageProps> = observer((props) => {
 		behaviorOverrides?.messageGroupSpacing ?? Accessibility.getMessageGroupSpacingValue(messageDisplayCompact);
 	const authorName =
 		previewOverrides?.displayName || NicknameUtils.getNickname(message.author, channel.guildId, channel.id);
+	const markdownParserReady = isMarkdownParserReady();
 	const {nodes: astNodes} = useMemo(
 		() =>
 			parse({
 				content: message.content,
 				context: MarkdownContext.STANDARD_WITH_JUMBO,
 			}),
-		[message.content],
+		[message.content, markdownParserReady],
 	);
 	const messageAriaLabel = useMemo(() => {
 		const timeLabel = DateUtils.getFormattedDateTime(message.timestamp);

@@ -298,6 +298,7 @@ describe('Date of birth gate route coverage', () => {
 				'POST /users/@me/harvest/filtered',
 				'POST /users/@me/sudo/email-code',
 				'POST /users/@me/sudo/webauthn/authentication-options',
+				'DELETE /users/@me/age-range',
 				'POST /users/@me/terms-acceptance',
 				'PUT /users/@me/date-of-birth',
 			].sort(),

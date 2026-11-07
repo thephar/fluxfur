@@ -19,6 +19,7 @@
 -define(PENDING_IDENTIFY_RETRY_BASE_MS, 1000).
 -define(PENDING_IDENTIFY_RETRY_JITTER_MS, 1000).
 -define(MAX_IGNORED_EVENTS, 256).
+-define(MAX_TOKEN_BYTES, 256).
 
 -spec handle_identify(map(), binary(), state()) -> ws_result().
 handle_identify(Data, PeerIP, State) ->
@@ -48,7 +49,7 @@ handle_identify_validated(Data, PeerIP, State) ->
     ),
     case ValidateResult of
         {ok, Token, Properties, Presence, IgnoredEvents, Flags, InitialGuildId, Shard} ->
-            do_identify(
+            identify_within_token_limit(
                 Token,
                 Properties,
                 Presence,
@@ -66,10 +67,58 @@ handle_identify_validated(Data, PeerIP, State) ->
                 <<"Invalid shard">>,
                 State
             );
+        {error, invalid_token} ->
+            gateway_handler_encode:close_with_reason(
+                authentication_failed,
+                <<"Invalid token">>,
+                State
+            );
         {error, _Reason} ->
             gateway_handler_encode:close_with_reason(
                 decode_error,
                 <<"Invalid identify payload">>,
+                State
+            )
+    end.
+
+-spec identify_within_token_limit(
+    binary(),
+    map(),
+    term(),
+    list(),
+    non_neg_integer(),
+    integer() | undefined,
+    gateway_sharding:shard() | undefined,
+    binary(),
+    gateway_timings:recorder(),
+    state()
+) -> ws_result().
+identify_within_token_limit(
+    Token,
+    Properties,
+    Presence,
+    IgnoredEvents,
+    Flags,
+    InitialGuildId,
+    Shard,
+    PeerIP,
+    GwTimings,
+    State
+) ->
+    case session_abuse_protection:check_token_identify_rate(Token) of
+        {error, identify_rate_limited} ->
+            hold_identify(<<"Identify rate limited">>, State);
+        ok ->
+            do_identify(
+                Token,
+                Properties,
+                Presence,
+                IgnoredEvents,
+                Flags,
+                InitialGuildId,
+                Shard,
+                PeerIP,
+                GwTimings,
                 State
             )
     end.
@@ -156,14 +205,33 @@ validate_identify_data(Data) when is_map(Data) ->
         IgnoredEventsRaw = maps:get(<<"ignored_events">>, Data, []),
         InitialGuildIdRaw = maps:get(<<"initial_guild_id">>, Data, undefined),
         ShardRaw = maps:get(<<"shard">>, Data, undefined),
-        validate_properties(
-            Token, Properties, IgnoredEventsRaw, InitialGuildIdRaw, ShardRaw, Data
-        )
+        case is_valid_token(Token) of
+            true ->
+                validate_properties(
+                    Token, Properties, IgnoredEventsRaw, InitialGuildIdRaw, ShardRaw, Data
+                );
+            false ->
+                {error, invalid_token}
+        end
     catch
         error:{badkey, _} -> {error, missing_required_field}
     end;
 validate_identify_data(_Data) ->
     {error, invalid_data}.
+
+-spec is_valid_token(term()) -> boolean().
+is_valid_token(Token) when is_binary(Token), byte_size(Token) =< ?MAX_TOKEN_BYTES ->
+    has_visible_byte(Token);
+is_valid_token(_) ->
+    false.
+
+-spec has_visible_byte(binary()) -> boolean().
+has_visible_byte(<<Byte, Rest/binary>>) when Byte =< 32 ->
+    has_visible_byte(Rest);
+has_visible_byte(<<_, _/binary>>) ->
+    true;
+has_visible_byte(<<>>) ->
+    false.
 
 -spec validate_properties(binary(), term(), term(), term(), term(), map()) ->
     {ok, binary(), map(), term(), [binary()], non_neg_integer(), integer() | undefined,

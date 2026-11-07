@@ -354,11 +354,11 @@ describe('Email change flow', () => {
 	});
 
 	it('refuses to claim an account with an address outside the allowed email domains', async () => {
-		await getInstanceConfigRepository().setRegistrationConfig({allowed_email_domains: ['example.com']});
 		const holder = await createBuilderWithoutAuth<{token: string}>(harness)
 			.post('/auth/register')
 			.body({username: 'outsideclaimer', consent: true, date_of_birth: '1995-05-05'})
 			.execute();
+		await getInstanceConfigRepository().setRegistrationConfig({allowed_email_domains: ['example.com']});
 		const {json} = await createBuilder<{errors: Array<{path: string; code: string}>}>(harness, holder.token)
 			.post('/users/@me/claim')
 			.body({email: `integration-claim-${Date.now()}@elsewhere.test`})
@@ -488,6 +488,7 @@ describe('Email change flow', () => {
 			backup_codes: true,
 			email_code: false,
 			password: false,
+			sso_reauth: false,
 		});
 		const passwordOnlyResp = await createBuilder<{
 			code: string;
@@ -509,6 +510,7 @@ describe('Email change flow', () => {
 			backup_codes: true,
 			email_code: false,
 			password: false,
+			sso_reauth: false,
 		});
 		const updated = await createBuilder<UserPrivateResponse>(harness, mfaAccount.token)
 			.patch('/users/@me')
@@ -587,6 +589,7 @@ describe('Email change flow', () => {
 			backup_codes: true,
 			email_code: false,
 			password: false,
+			sso_reauth: false,
 		});
 		const passwordOnlyResp = await createBuilder<{
 			code: string;
@@ -608,6 +611,7 @@ describe('Email change flow', () => {
 			backup_codes: true,
 			email_code: false,
 			password: false,
+			sso_reauth: false,
 		});
 		const updated = await createBuilder<UserPrivateResponse>(harness, mfaAccount.token)
 			.post('/users/@me/email-change/apply')
@@ -689,6 +693,7 @@ describe('Email change flow', () => {
 			backup_codes: true,
 			email_code: false,
 			password: false,
+			sso_reauth: false,
 		});
 		const applied = await createBuilder<UserPrivateResponse>(harness, mfaAccount.token)
 			.post('/users/@me/email-change/apply')

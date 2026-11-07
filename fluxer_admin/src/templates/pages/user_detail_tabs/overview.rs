@@ -3,17 +3,18 @@
 use crate::{
     acl, admin_flags,
     api::types::{
-        AdminCustomBadgeList, AdminUser, CustomBadgeType, LimitConfigResponse,
+        AdminUser, BadgeAssignment, CustomBadgeType, LimitConfigResponse,
         ListUserChangeLogResponse, account_tier_label,
     },
     config::AdminConfig,
     templates::components::{
         badge::{BadgeVariant, badge},
-        form::{Checkbox, csrf_input, form_actions, submit_button},
+        enforcement_fields::internal_note_field,
+        form::{Checkbox, csrf_input, danger_button, form_actions, submit_button},
         page_container::{card_with_header, detail_row},
     },
     templates::pages::{
-        badges::{custom_badge_list, custom_badge_picker, no_badges_defined},
+        badges::{BadgeAssignmentTargets, custom_badge_assignment},
         enforcement_decision::suspension_label,
     },
     utils::{
@@ -28,7 +29,7 @@ use maud::{Markup, html};
 pub struct OverviewSources<'a> {
     pub change_log: Option<&'a ListUserChangeLogResponse>,
     pub limit_config: Option<&'a LimitConfigResponse>,
-    pub custom_badges: Option<&'a AdminCustomBadgeList>,
+    pub custom_badges: Option<&'a BadgeAssignment>,
 }
 
 pub fn overview_tab(
@@ -370,8 +371,35 @@ fn flags_card(
                     }
                 },
             ))
+            @if can_update_flags && has_premium(user) {
+                (remove_premium_card(config, user, csrf_token))
+            }
         }
     }
+}
+
+fn has_premium(user: &AdminUser) -> bool {
+    user.premium_type.is_some_and(|value| value > 0)
+        || user.premium_flags & admin_flags::PREMIUM_ENABLED_OVERRIDE != 0
+}
+
+fn remove_premium_card(config: &AdminConfig, user: &AdminUser, csrf_token: &str) -> Markup {
+    card_with_header(
+        "Remove premium",
+        html! {
+            form method="post" action={(config.base_path) "/users/" (user.id) "?action=remove_premium&tab=overview"}
+                onsubmit="return confirm('Remove premium from this account now?')" class="space-y-4" {
+                (csrf_input(csrf_token))
+                p class="text-sm text-neutral-700" {
+                    "Ends premium now, the same way it ends when it expires. ENABLED_OVERRIDE is removed and \
+                     community profile perks are sanitized. Accounts with a Stripe or store subscription, \
+                     and Visionary on the hosted instance, are refused with what to do instead."
+                }
+                (internal_note_field("remove-premium", "Staff only. Saved in the audit log."))
+                (form_actions(danger_button("Remove premium")))
+            }
+        },
+    )
 }
 
 fn flag_form_shell(
@@ -467,33 +495,30 @@ fn custom_badges_card(
     user: &AdminUser,
     admin_acls: &[String],
     csrf_token: &str,
-    badges: &AdminCustomBadgeList,
+    assignment: &BadgeAssignment,
 ) -> Markup {
-    let definitions: Vec<_> = badges.of_type(CustomBadgeType::User).collect();
-    let assigned: Vec<_> = definitions
-        .iter()
-        .copied()
-        .filter(|badge| user.badge_ids.contains(&badge.id))
-        .collect();
     let can_edit = acl::has_permission(admin_acls, acl::USER_UPDATE_BADGES);
+    let search_action = format!("{}/users/{}", config.base_path, user.id);
+    let save_action = format!(
+        "{}/users/{}?action=update_badges&tab=overview",
+        config.base_path, user.id
+    );
     card_with_header(
         "Badges",
-        html! {
-            @if definitions.is_empty() {
-                (no_badges_defined(config, "user badges"))
-            } @else if can_edit {
-                form method="post" action={(config.base_path) "/users/" (user.id) "?action=update_badges&tab=overview"} {
-                    (csrf_input(csrf_token))
-                    div class="space-y-4" {
-                        (custom_badge_picker(&definitions, &user.badge_ids))
-                        (form_actions(html! { (submit_button("Save badges")) }))
-                    }
-                }
-            } @else {
-                (custom_badge_list(&assigned))
-                p class="mt-2 text-xs text-neutral-500" { "You need the user badges permission to change these." }
-            }
-        },
+        custom_badge_assignment(
+            config,
+            assignment,
+            &BadgeAssignmentTargets {
+                badge_type: CustomBadgeType::User,
+                noun: "user badges",
+                tab: "overview",
+                search_action: &search_action,
+                save_action: &save_action,
+                permission_note: "You need the user badges permission to change these.",
+            },
+            can_edit,
+            csrf_token,
+        ),
     )
 }
 

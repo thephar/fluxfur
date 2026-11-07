@@ -9,8 +9,15 @@ export const CustomBadgeTypes = {
 
 export type CustomBadgeType = ValueOf<typeof CustomBadgeTypes>;
 
-export const MAX_CUSTOM_BADGES_PER_TYPE = 10;
-export const MAX_CUSTOM_BADGES_PER_ENTITY = 10;
+export const CUSTOM_BADGES_PER_USER_CEILING = 1000;
+export const CUSTOM_BADGES_PER_GUILD_CEILING = 200;
+export const DEFAULT_CUSTOM_BADGES_PER_USER = 100;
+export const DEFAULT_CUSTOM_BADGES_PER_GUILD = 50;
+export const DISCOVERY_GUILD_BADGE_LIMIT = 100;
+export const CUSTOM_BADGE_LOOKUP_IDS_MAX = 100;
+export const CUSTOM_BADGE_PAGE_LIMIT_MAX = 200;
+export const CUSTOM_BADGE_PAGE_LIMIT_DEFAULT = 100;
+export const CUSTOM_BADGE_REORDER_IDS_MAX = 1000;
 export const CUSTOM_BADGE_NAME_MAX_LENGTH = 64;
 export const CUSTOM_BADGE_DESCRIPTION_MAX_LENGTH = 256;
 const PROFILE_BADGE_KINDS = [
@@ -28,7 +35,40 @@ export type ProfileBadgeKind = (typeof PROFILE_BADGE_KINDS)[number];
 
 export type ProfileBadgeKey = ProfileBadgeKind | `custom:${string}`;
 
-export const MAX_HIDDEN_PROFILE_BADGES = PROFILE_BADGE_KINDS.length + MAX_CUSTOM_BADGES_PER_TYPE;
+export const MAX_HIDDEN_PROFILE_BADGES = PROFILE_BADGE_KINDS.length + CUSTOM_BADGES_PER_USER_CEILING;
+
+export const BUILT_IN_GUILD_BADGE_KINDS = ['verified', 'partnered', 'discoverable'] as const;
+
+export type BuiltInGuildBadgeKind = (typeof BUILT_IN_GUILD_BADGE_KINDS)[number];
+
+const REPLACEABLE_PROFILE_BADGE_KINDS = ['staff', 'premium'] as const satisfies ReadonlyArray<ProfileBadgeKind>;
+
+export type ReplaceableProfileBadgeKind = (typeof REPLACEABLE_PROFILE_BADGE_KINDS)[number];
+
+export type BuiltInBadgeKind = ReplaceableProfileBadgeKind | `guild_${BuiltInGuildBadgeKind}`;
+
+export const BUILT_IN_BADGE_KINDS = [
+	...REPLACEABLE_PROFILE_BADGE_KINDS,
+	'guild_verified',
+	'guild_partnered',
+	'guild_discoverable',
+] as const satisfies ReadonlyArray<BuiltInBadgeKind>;
+
+export const HIDEABLE_BUILT_IN_BADGE_KINDS = [
+	'guild_verified',
+	'guild_partnered',
+	'guild_discoverable',
+] as const satisfies ReadonlyArray<BuiltInBadgeKind>;
+
+export type HideableBuiltInBadgeKind = (typeof HIDEABLE_BUILT_IN_BADGE_KINDS)[number];
+
+export function isHideableBuiltInBadgeKind(kind: BuiltInBadgeKind): kind is HideableBuiltInBadgeKind {
+	return (HIDEABLE_BUILT_IN_BADGE_KINDS as ReadonlyArray<string>).includes(kind);
+}
+
+export function isReplaceableProfileBadgeKind(kind: ProfileBadgeKind): kind is ReplaceableProfileBadgeKind {
+	return (REPLACEABLE_PROFILE_BADGE_KINDS as ReadonlyArray<string>).includes(kind);
+}
 
 export const PREMIUM_PROFILE_BADGE_KINDS: ReadonlyArray<ProfileBadgeKind> = ['plutonium', 'visionary', 'premium'];
 

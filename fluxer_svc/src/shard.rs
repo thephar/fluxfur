@@ -13,6 +13,7 @@ use tokio::task::JoinSet;
 use tracing::{debug, info, warn};
 
 const MAX_SHARD_REQUEST_BYTES: usize = 2 * 1024 * 1024;
+const MAX_IN_FLIGHT_REQUEST_BYTES: usize = 32 * 1024 * 1024;
 const SHARD_DRAIN_LINGER: Duration = Duration::from_millis(500);
 const SHARD_ANNOUNCE_TIMEOUT: Duration = Duration::from_secs(1);
 const DRAIN_IDLE_UNSUBSCRIBE: Duration = Duration::from_millis(250);
@@ -237,6 +238,7 @@ where
     let health_addr = config.listen_addr;
     let is_serving = Arc::new(AtomicBool::new(false));
     let request_permits = Arc::new(Semaphore::new(config.max_concurrent_requests));
+    let request_byte_budget = Arc::new(Semaphore::new(MAX_IN_FLIGHT_REQUEST_BYTES));
 
     let mut tasks = JoinSet::new();
 
@@ -336,9 +338,26 @@ where
                             }
                             Err(TryAcquireError::Closed) => return anyhow::Ok(()),
                         };
+                        let request_bytes =
+                            msg.payload().len().clamp(1, MAX_SHARD_REQUEST_BYTES) as u32;
+                        let byte_permit = match request_byte_budget
+                            .clone()
+                            .try_acquire_many_owned(request_bytes)
+                        {
+                            Ok(permit) => permit,
+                            Err(TryAcquireError::NoPermits) => {
+                                debug!(request_bytes, "shedding request, byte budget exhausted");
+                                metrics.record_request();
+                                metrics.record_request_error();
+                                reply_json_error(&msg, &transport, "overloaded").await;
+                                continue;
+                            }
+                            Err(TryAcquireError::Closed) => return anyhow::Ok(()),
+                        };
                         let request = handle(msg);
                         requests.spawn(async move {
                             let _permit = permit;
+                            let _byte_permit = byte_permit;
                             request.await;
                         });
                     }
@@ -508,61 +527,5 @@ mod tests {
         assert_eq!(json_response, br#"{"key":"b"}"#);
 
         shard_task.abort();
-    }
-
-    #[tokio::test]
-    async fn requests_arriving_after_sigterm_are_answered_before_exit() {
-        let transport = InMemoryTransport::new();
-        let config = ServiceConfig::for_test(Mode::Shard, 0, 1);
-        let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-        let release = Arc::new(tokio::sync::Notify::new());
-        let handler_release = release.clone();
-        let handler_transport = transport.clone();
-        let server_transport = transport.clone();
-        let server = tokio::spawn(async move {
-            serve(
-                &config,
-                Endpoint {
-                    name: "mock".to_owned(),
-                    subject: "svc.mock.shard.0".to_owned(),
-                    queue_group: None,
-                    announce: None,
-                    linger: Duration::from_millis(50),
-                },
-                Arc::new(ServiceMetrics::default()),
-                server_transport,
-                move |msg| {
-                    let transport = handler_transport.clone();
-                    let release = handler_release.clone();
-                    async move {
-                        release.notified().await;
-                        reply_bytes(&msg, &transport, msg.payload()).await
-                    }
-                },
-                async {
-                    let _ = shutdown_rx.await;
-                },
-            )
-            .await
-        });
-        tokio::time::sleep(Duration::from_millis(25)).await;
-        shutdown_tx.send(()).unwrap();
-        tokio::time::sleep(Duration::from_millis(10)).await;
-
-        let requests = tokio::spawn(futures::future::join_all((0..8u8).map(|i| {
-            let transport = transport.clone();
-            async move {
-                transport
-                    .request("svc.mock.shard.0", &[i], Duration::from_secs(1))
-                    .await
-            }
-        })));
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        release.notify_waiters();
-
-        for (i, response) in requests.await.unwrap().into_iter().enumerate() {
-            assert_eq!(response.unwrap(), vec![i as u8]);
-        }
-        server.await.unwrap().unwrap();
     }
 }

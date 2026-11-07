@@ -23,7 +23,7 @@ import {
 import {isDateOfBirthMissing} from '@app/api/user/DateOfBirth';
 import {hiddenUserPartial, isProfileHidden} from '@app/api/user/ProfileVisibility';
 import {deprecatedBadgeHideFields} from '@app/api/user/profile_badges/HiddenProfileBadges';
-import {canUserAccessNsfwContent} from '@app/api/utils/AgeUtils';
+import {canUserAccessNsfwContent, isMatureContentUnlocked} from '@app/api/utils/AgeUtils';
 import {AccountTiers} from '@fluxer/constants/src/AccountTierConstants';
 import type {ChannelMessageNotifications} from '@fluxer/constants/src/NotificationConstants';
 import {
@@ -192,7 +192,7 @@ export function mapUserToPrivateResponse(user: User): UserPrivateResponse {
 			(user.giftInventoryClientSeq == null || user.giftInventoryClientSeq < user.giftInventoryServerSeq),
 		unread_gift_inventory_count:
 			user.giftInventoryServerSeq != null ? user.giftInventoryServerSeq - (user.giftInventoryClientSeq ?? 0) : 0,
-		age_verified_adult: !!(user.flags & UserFlags.AGE_VERIFIED_ADULT) || undefined,
+		mature_content_unlocked: isMatureContentUnlocked(user),
 		terms_agreed_at: user.termsAgreedAt?.toISOString() ?? null,
 		privacy_agreed_at: user.privacyAgreedAt?.toISOString() ?? null,
 		claimed: accountTier !== AccountTiers.UNCLAIMED,
@@ -200,6 +200,7 @@ export function mapUserToPrivateResponse(user: User): UserPrivateResponse {
 		verification_need: getVerificationNeed(user),
 		has_password: user.passwordHash !== null,
 		date_of_birth_required: isDateOfBirthMissing(user),
+		has_age_range: user.attestedAgeFloor !== null,
 		profile_restricted: isProfileRestricted(user),
 		pending_bulk_message_deletion:
 			user.pendingBulkMessageDeletionAt != null
@@ -359,6 +360,7 @@ export function mapUserSettingsToResponse(params: {settings: UserSettings}): Use
 		sensitive_content_friend_dm_filter: settings.sensitiveContentFriendDmFilter,
 		sensitive_content_non_friend_dm_filter: settings.sensitiveContentNonFriendDmFilter,
 		sensitive_content_guild_filter: settings.sensitiveContentGuildFilter as 0 | 1,
+		allow_mature_content_on_ios: settings.allowMatureContentOnIos,
 		suppress_unprivileged_self_mentions: settings.suppressUnprivilegedSelfMentions,
 		suppress_unprivileged_self_mentions_bypass_user_ids: sortUserIds(
 			settings.suppressUnprivilegedSelfMentionBypassUserIds,

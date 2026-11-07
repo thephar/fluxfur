@@ -23,6 +23,7 @@ import (
 	"github.com/fluxerapp/fluxer/fluxer_rexctl/internal/engine"
 	"github.com/fluxerapp/fluxer/fluxer_rexctl/internal/envfile"
 	"github.com/fluxerapp/fluxer/fluxer_rexctl/internal/secrets"
+	"github.com/fluxerapp/fluxer/fluxer_rexctl/internal/settings"
 	"github.com/fluxerapp/fluxer/fluxer_rexctl/internal/stack"
 )
 
@@ -53,6 +54,7 @@ type ImportReport struct {
 	Changed       []string
 	DedupedEnv    bool
 	EngineProxies bool
+	ListenAddress string
 	RemovedEnv    bool
 	Images        map[string]string
 	Release       string
@@ -261,8 +263,9 @@ func setsImage(custom []byte, images map[string]string) bool {
 	if err := yaml.Unmarshal(custom, &doc); err != nil {
 		return true
 	}
+	fluxer := stack.RegistryServices()
 	for name, svc := range doc.Services {
-		if _, ok := svc["image"]; ok && images[name] != "" {
+		if _, ok := svc["image"]; ok && fluxer[name] && images[name] != "" {
 			return true
 		}
 	}
@@ -291,6 +294,7 @@ func fill(r *ImportReport, vals *valueResult, minted []string) {
 	r.Defaults = vals.defaults
 	r.AdminKeys = slices.Sorted(maps.Keys(vals.admin))
 	r.EngineProxies = vals.engineProxies
+	r.ListenAddress = vals.settings[settings.EdgeListen]
 }
 
 func pin(s *State, e *engine.Engine) {
@@ -473,7 +477,14 @@ func diskSet(dir, release string, profiles map[string]map[string]string) (*stack
 	return newSet(release, files, profiles)
 }
 
+func validRelease(release string) bool {
+	return release == "" || (filepath.IsLocal(release) && release == filepath.Base(release))
+}
+
 func writeReleaseSet(dir, release string) error {
+	if !validRelease(release) {
+		return fmt.Errorf("%w: %s", ErrNoReleaseSet, release)
+	}
 	target := filepath.Join(dir, StateDirName, ReleasesDir, release, StackDir)
 	if isDir(target) {
 		return nil
@@ -512,6 +523,9 @@ func recordRendered(dir string, s *State) error {
 }
 
 func releaseSet(dir, release string) (*stack.Set, error) {
+	if !validRelease(release) {
+		return nil, fmt.Errorf("%w: %s", ErrNoReleaseSet, release)
+	}
 	set, err := stack.LoadSet(filepath.Join(dir, StateDirName, ReleasesDir, release, StackDir))
 	if err == nil {
 		return set, nil

@@ -3,8 +3,9 @@
 use crate::templates::pages::instance_config::ConfigForm;
 use crate::{
     api::types::{
-        AppBrandingConfigResponse, BillingCatalogMode, BillingPriceSet, InstanceBillingResponse,
-        PremiumMode, TRI_STATE_DEFAULT, TRI_STATE_OFF, TRI_STATE_ON,
+        AppBrandingConfigResponse, BillingCatalogMode, BillingPriceSet, DISTRIBUTION_PRODUCTS_ALL,
+        DistributionPricingResponse, DistributionProduct, DistributionRuleResponse,
+        InstanceBillingResponse, PremiumMode, TRI_STATE_DEFAULT, TRI_STATE_OFF, TRI_STATE_ON,
     },
     templates::components::{
         badge::{BadgeVariant, badge},
@@ -208,9 +209,10 @@ fn checkout_options(billing: &InstanceBillingResponse) -> Markup {
         on_off(billing.effective_terms_consent_required)
     );
     let billing_emails = format!(
-        "Sends receipts, refund notices and failed payment notices from this instance. Turn off Stripe's own \
-         customer emails for successful payments, refunds and failed card payments when you turn this on, or buyers \
-         get both. Currently {}.",
+        "Sends emails about payments, refunds and failed payments from this instance. This instance issues no \
+         invoices or receipt documents, so buyers get those from your own Stripe receipt settings. Stripe can also \
+         email buyers about the same events, so check your Stripe customer email settings if you don't want buyers \
+         to get both. The customer portal uses your Stripe Dashboard settings. Currently {}.",
         on_off(billing.effective_billing_emails)
     );
     html! {
@@ -379,7 +381,8 @@ pub(crate) fn premium_billing_section(
                         }
                         p class="text-xs text-neutral-500" {
                             "Clients show this name wherever the premium tier is mentioned. Clear it to use the default. \
-                             The info URL is an optional page that describes the tier."
+                             The info URL is an optional page about the tier. The premium page and the premium badge on \
+                             profiles link to it. The comparison chart on the premium page comes from your limit settings."
                         }
                         @if matches!(premium_mode, PremiumMode::Everyone) {
                             p class="text-sm text-amber-700" {
@@ -482,6 +485,143 @@ pub(crate) fn premium_billing_section(
 
                     (form_actions(html! {
                         (submit_button("Save premium & billing"))
+                    }))
+                }
+            }
+        },
+    )
+}
+
+fn distribution_select(
+    name: &str,
+    label: &str,
+    options: &[(&str, &str)],
+    selected: &str,
+) -> Markup {
+    html! {
+        td class="px-2 py-2" {
+            div class="relative" {
+                select name=(name) aria-label=(label) class=(FORM_SELECT_CLASS) {
+                    @for (value, display) in options {
+                        option value=(value) selected[*value == selected] { (display) }
+                    }
+                }
+                (select_chevron())
+            }
+        }
+    }
+}
+
+fn distribution_rate_text(rate_bps: u64) -> String {
+    format!("{}.{:02}", rate_bps / 100, rate_bps % 100)
+        .trim_end_matches('0')
+        .trim_end_matches('.')
+        .to_owned()
+}
+
+fn distribution_products_value(products: &[DistributionProduct]) -> String {
+    match products {
+        [only] => only.to_string(),
+        _ => DISTRIBUTION_PRODUCTS_ALL.to_owned(),
+    }
+}
+
+fn distribution_row(rule: Option<&DistributionRuleResponse>) -> Markup {
+    let rate = rule
+        .map(|rule| distribution_rate_text(rule.rate_bps.get()))
+        .unwrap_or_default();
+    let products = rule.map_or_else(
+        || DISTRIBUTION_PRODUCTS_ALL.to_owned(),
+        |rule| distribution_products_value(&rule.products),
+    );
+    let active = if rule.is_none_or(|rule| rule.active) {
+        TRI_STATE_ON
+    } else {
+        TRI_STATE_OFF
+    };
+    html! {
+        tr {
+            td class="px-2 py-2" {
+                input type="text" name="distribution_id" value=(rule.map_or("", |rule| rule.id.as_str()))
+                    placeholder="ios_marketplace" maxlength="32" aria-label="Distribution id"
+                    autocomplete="off" spellcheck="false"
+                    class={(FORM_INPUT_CLASS) " w-48"};
+            }
+            td class="px-2 py-2" {
+                input type="text" name="distribution_rate" value=(rate)
+                    placeholder="5" inputmode="decimal" aria-label="Rate in percent"
+                    autocomplete="off" class={(FORM_INPUT_CLASS) " w-20"};
+            }
+            (distribution_select(
+                "distribution_products",
+                "Products",
+                &[
+                    (DISTRIBUTION_PRODUCTS_ALL, "Subscriptions and gifts"),
+                    ("plutonium_subscription", "Subscriptions"),
+                    ("plutonium_gift", "Gifts"),
+                ],
+                &products,
+            ))
+            (distribution_select(
+                "distribution_active",
+                "Active",
+                &[(TRI_STATE_ON, "On"), (TRI_STATE_OFF, "Off")],
+                active,
+            ))
+            td class="px-2 py-2 text-xs text-neutral-500 whitespace-nowrap" {
+                @if let Some(rule) = rule {
+                    "Version " (rule.rule_version) ", " (rule.prices.len())
+                    @if rule.prices.len() == 1 { " channel price" } @else { " channel prices" }
+                }
+            }
+        }
+    }
+}
+
+pub(crate) fn distribution_pricing_section(
+    base: &str,
+    config_form: ConfigForm<'_>,
+    pricing: &DistributionPricingResponse,
+) -> Markup {
+    section_card_with_description(
+        "Distribution pricing",
+        "App builds sold through a store that keeps a share of each sale send their distribution id with price \
+         and checkout requests. A matching rule charges the price divided by one minus the rate, rounded up, \
+         so the amount left after the store's share is at least the standard price. Every other request pays the \
+         standard price.",
+        html! {
+            form method="post" action={(base) "/instance-config?action=update_distribution_pricing"}
+                data-admin-result-form="true" {
+                (config_form.fields())
+                div class="space-y-4" {
+                    div class="overflow-x-auto" {
+                        table class="min-w-full text-sm" {
+                            thead {
+                                tr class="text-left text-xs text-neutral-500" {
+                                    th class="px-2 py-1 font-medium" { "Distribution id" }
+                                    th class="px-2 py-1 font-medium" { "Rate (%)" }
+                                    th class="px-2 py-1 font-medium" { "Products" }
+                                    th class="px-2 py-1 font-medium" { "Active" }
+                                    th class="px-2 py-1 font-medium" {}
+                                }
+                            }
+                            tbody {
+                                @for rule in &pricing.rules {
+                                    (distribution_row(Some(rule)))
+                                }
+                                (distribution_row(None))
+                            }
+                        }
+                    }
+                    p class="text-xs text-neutral-500" {
+                        "Changing a rate starts a new version. New checkouts and plan changes use \
+                         it, and existing subscriptions keep the price they signed up at. The API creates the \
+                         Stripe price for each channel the first time someone checks out. Clear a distribution id \
+                         to remove its rule. A rule that already has channel prices stays stored as inactive so \
+                         those subscriptions keep renewing."
+                    }
+                    (form_actions(html! {
+                        (submit_button("Save distribution pricing"))
                     }))
                 }
             }

@@ -406,6 +406,11 @@ export class RpcService {
 						userIds: request.user_ids.map(createUserID),
 					}),
 				};
+			case 'get_users_adult_content_allowed':
+				return {
+					type: 'get_users_adult_content_allowed',
+					data: {user_ids: await this.getUsersAdultContentAllowed(request.user_ids.map(createUserID))},
+				};
 			case 'voice_get_token': {
 				Logger.debug(
 					{type: 'voice_get_token', guildId: request.guild_id, channelId: request.channel_id, userId: request.user_id},
@@ -462,15 +467,15 @@ export class RpcService {
 				};
 			}
 			case 'voice_update_participant_permissions': {
-				await this.requireVoiceService().updateParticipantPermissions({
+				await this.requireVoiceService().updateConnectionPermissions({
 					guildId: request.guild_id !== undefined ? createGuildID(request.guild_id) : undefined,
 					channelId: createChannelID(request.channel_id),
 					userId: createUserID(request.user_id),
 					connectionId: request.connection_id,
+					deaf: request.deaf,
 					canSpeak: request.can_speak,
 					canStream: request.can_stream,
 					canVideo: request.can_video,
-					deaf: request.deaf,
 				});
 				return {
 					type: 'voice_update_participant_permissions',
@@ -877,6 +882,7 @@ export class RpcService {
 				{
 					tokenType,
 					tokenHashPrefix,
+					ip,
 					retryAfter: rateLimitResult.retryAfter,
 					limit: rateLimitResult.limit,
 					resetTime: rateLimitResult.resetTime,
@@ -908,6 +914,7 @@ export class RpcService {
 				{
 					tokenType,
 					tokenHashPrefix,
+					ip,
 				},
 				'RPC session token validation failed',
 			);
@@ -1627,7 +1634,10 @@ export class RpcService {
 			const needsIncomingCallRepair = settings.incomingCallFlags === 0;
 			const needsGroupDmRepair = settings.groupDmAddPermissionFlags === 0;
 			if (needsIncomingCallRepair || needsGroupDmRepair) {
-				const isAdult = canUserAccessNsfwContent({isBot: false, dateOfBirth: user.dateOfBirth});
+				const isAdult = canUserAccessNsfwContent({
+					isBot: false,
+					dateOfBirth: user.dateOfBirth,
+				});
 				const baseRow = settings.toRow();
 				const updatedRow = {
 					...baseRow,
@@ -1950,6 +1960,11 @@ export class RpcService {
 			result[userIds[index]!.toString()] = settledBlockedIds.value.map((blockedUserId) => blockedUserId.toString());
 		}
 		return result;
+	}
+
+	private async getUsersAdultContentAllowed(userIds: Array<UserID>): Promise<Array<string>> {
+		const users = await this.userRepository.listUsers(userIds);
+		return users.filter((user) => canUserAccessNsfwContent(user)).map((user) => user.id.toString());
 	}
 
 	private async kickTemporaryMember(params: {userId: UserID; guildIds: Array<GuildID>}): Promise<boolean> {

@@ -24,6 +24,7 @@ import {isSsoUserWithoutPassword} from '@app/api/user/UserHelpers';
 import {Validator} from '@app/api/Validator';
 import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
 import {InputValidationError} from '@fluxer/errors/src/domains/core/InputValidationError';
+import {UnauthorizedError} from '@fluxer/errors/src/domains/core/UnauthorizedError';
 import {
 	DisableTotpRequest,
 	EnableMfaTotpRequest,
@@ -34,6 +35,7 @@ import {
 	MfaBackupCodesChallengeVerifyResponse,
 	MfaBackupCodesRequest,
 	MfaBackupCodesResponse,
+	SsoStartResponse,
 	SudoMfaMethodsResponse,
 	SudoVerificationSchema,
 	WebAuthnChallengeResponse,
@@ -47,6 +49,7 @@ import {
 	PasskeyMigrationCompleteRequest,
 	PasskeyMigrationResponse,
 } from '@fluxer/schema/src/domains/auth/PasskeyMigrationSchemas';
+import {WebAuthnRpIdQuery} from '@fluxer/schema/src/domains/auth/WebAuthnSchemas';
 import {CredentialIdParam} from '@fluxer/schema/src/domains/common/CommonParamSchemas';
 import {EmptyBodyRequest} from '@fluxer/schema/src/domains/user/UserRequestSchemas';
 import {
@@ -185,6 +188,33 @@ export function UserAuthController(app: HonoApp) {
 			}
 			await requireSudoMode(ctx, user, ctx.req.valid('json'));
 			return ctx.json(await createRecoveryKit(user.id));
+		},
+	);
+	app.post(
+		'/users/@me/sso/link/start',
+		RateLimitMiddleware(RateLimitConfigs.AUTH_SSO_START),
+		LoginRequired,
+		DefaultUserOnly,
+		SudoModeMiddleware,
+		Validator('json', SudoVerificationSchema),
+		OpenAPI({
+			operationId: 'start_sso_link',
+			summary: 'Start connecting SSO',
+			responseSchema: SsoStartResponse,
+			statusCode: 200,
+			security: ['sessionToken'],
+			tags: ['Users'],
+			description:
+				'Start connecting the instance SSO provider to the current account. Send the user to authorization_url, then finish with complete_sso, which returns linked and creates no new session. Works while SSO is required. Requires sudo mode verification.',
+		}),
+		async (ctx) => {
+			const user = ctx.get('user');
+			const authSession = ctx.get('authSession');
+			if (!authSession) {
+				throw new UnauthorizedError();
+			}
+			await requireSudoMode(ctx, user, ctx.req.valid('json'));
+			return ctx.json(await ctx.get('ssoService').startLink(user, authSession.sessionIdHash));
 		},
 	);
 	app.post(
@@ -336,6 +366,7 @@ export function UserAuthController(app: HonoApp) {
 		DefaultUserOnly,
 		SudoModeMiddleware,
 		Validator('json', SudoVerificationSchema),
+		Validator('query', WebAuthnRpIdQuery),
 		OpenAPI({
 			operationId: 'get_webauthn_registration_options',
 			summary: 'Get WebAuthn registration options',
@@ -353,7 +384,9 @@ export function UserAuthController(app: HonoApp) {
 				issueSudoToken: false,
 			});
 			return ctx.json(
-				await ctx.get('userAuthRequestService').generateWebAuthnRegistrationOptions(user, ctx.req.header('origin')),
+				await ctx
+					.get('userAuthRequestService')
+					.generateWebAuthnRegistrationOptions(user, ctx.req.header('origin'), ctx.req.valid('query').rp_id),
 			);
 		},
 	);
@@ -560,6 +593,7 @@ export function UserAuthController(app: HonoApp) {
 		RateLimitMiddleware(RateLimitConfigs.SUDO_WEBAUTHN_OPTIONS),
 		LoginRequired,
 		DefaultUserOnly,
+		Validator('query', WebAuthnRpIdQuery),
 		OpenAPI({
 			operationId: 'get_sudo_webauthn_authentication_options',
 			summary: 'Get sudo WebAuthn authentication options',
@@ -572,7 +606,9 @@ export function UserAuthController(app: HonoApp) {
 		}),
 		async (ctx) => {
 			return ctx.json(
-				await ctx.get('userAuthRequestService').getSudoWebAuthnOptions(ctx.get('user'), ctx.req.header('origin')),
+				await ctx
+					.get('userAuthRequestService')
+					.getSudoWebAuthnOptions(ctx.get('user'), ctx.req.header('origin'), ctx.req.valid('query').rp_id),
 			);
 		},
 	);

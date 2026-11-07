@@ -2,15 +2,16 @@
 
 import {createUserID} from '@app/api/BrandedTypes';
 import {Logger} from '@app/api/Logger';
-import {createGiftCodeRow, generateUniqueGiftCode, mapGiftDurationMonthsToFields} from '@app/api/models/GiftCode';
+import {getWorkerService} from '@app/api/middleware/ServiceRegistry';
 import type {Payment} from '@app/api/models/Payment';
 import type {User} from '@app/api/models/User';
-import type {ProductInfo} from '@app/api/stripe/ProductRegistry';
 import {getProductRegistry} from '@app/api/stripe/ProductRegistry';
 import {syncStripeCustomerEmail} from '@app/api/stripe/StripeCustomer';
 import {extractId} from '@app/api/stripe/StripeUtils';
+import {enqueueBillingEmail} from '@app/api/stripe/services/BillingEmailService';
 import {bumpGiftInventory} from '@app/api/user/GiftInventory';
 import type {PaymentRepository} from '@app/api/user/repositories/PaymentRepository';
+import {createWorkerStripeService} from '@app/api/worker/tasks/WorkerStripeWebhookService';
 import {getWorkerDependencies} from '@app/api/worker/WorkerContext';
 import type {WorkerTaskHandler} from '@pkgs/worker/src/contracts/WorkerTask';
 import type Stripe from 'stripe';
@@ -69,7 +70,12 @@ async function reconcileCompletedGiftWithoutCode(payment: Payment, purchaser: Us
 		);
 		return;
 	}
-	const code = await createGiftCodeForPayment(payment, purchaser, paymentIntentId, productInfo);
+	const code = await createWorkerStripeService(getWorkerDependencies()).gifts.prepareGiftCode(
+		payment.checkoutSessionId,
+		purchaser,
+		productInfo,
+		paymentIntentId,
+	);
 	await userRepository.updatePayment({
 		checkout_session_id: payment.checkoutSessionId,
 		gift_code: code,
@@ -129,7 +135,12 @@ async function reconcileStuckGiftPayment(payment: Payment, purchaser: User, stri
 			);
 			return;
 		}
-		giftCode = await createGiftCodeForPayment(payment, purchaser, paymentIntentId, productInfo);
+		giftCode = await createWorkerStripeService(getWorkerDependencies()).gifts.prepareGiftCode(
+			payment.checkoutSessionId,
+			purchaser,
+			productInfo,
+			paymentIntentId,
+		);
 	}
 	await userRepository.updatePayment({
 		checkout_session_id: payment.checkoutSessionId,
@@ -149,6 +160,7 @@ async function reconcileStuckGiftPayment(payment: Payment, purchaser: User, stri
 			has_ever_purchased: true,
 		});
 	}
+	await enqueueBillingEmail(getWorkerService(), {kind: 'gift_paid', id: payment.checkoutSessionId});
 	Logger.info(
 		{checkoutSessionId: payment.checkoutSessionId, giftCode, userId: purchaser.id.toString()},
 		'Reconciled stuck gift payment',
@@ -231,6 +243,9 @@ async function reconcileMissingPaymentRecords(
 			{checkoutSessionId: session.id, userId: user.id.toString(), isGift, giftCode},
 			'Created missing payment record during reconciliation',
 		);
+		if (isGift) {
+			await enqueueBillingEmail(getWorkerService(), {kind: 'gift_paid', id: session.id});
+		}
 		if (isGift && !giftCode) {
 			const recoveredPayment = await paymentRepository.getPaymentByCheckoutSession(session.id);
 			if (recoveredPayment) {
@@ -300,27 +315,3 @@ const reconcileUserPayments: WorkerTaskHandler = async (payload, helpers) => {
 };
 
 export default reconcileUserPayments;
-
-async function createGiftCodeForPayment(
-	payment: Payment,
-	purchaser: User,
-	paymentIntentId: string | null,
-	productInfo: ProductInfo,
-): Promise<string> {
-	const {userRepository} = getWorkerDependencies();
-	const code = await generateUniqueGiftCode((c) => userRepository.findGiftCode(c));
-	const duration = mapGiftDurationMonthsToFields(productInfo.durationMonths);
-	await userRepository.createGiftCode(
-		createGiftCodeRow({
-			code: code,
-			durationType: duration.durationType,
-			durationQuantity: duration.durationQuantity,
-			createdAt: payment.createdAt,
-			createdByUserId: purchaser.id,
-			paymentIntentId: paymentIntentId,
-			checkoutSessionId: payment.checkoutSessionId,
-		}),
-	);
-	await userRepository.linkGiftCodeToCheckoutSession(code, payment.checkoutSessionId);
-	return code;
-}

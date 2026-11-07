@@ -29,13 +29,22 @@ The public description of one instance.
 | limits | [limit configuration](#limit-configuration-object) object | Limit rules and trait names |
 | push | [push configuration](#push-configuration-object) object | Web Push identity |
 | app_public | [public application configuration](#public-application-configuration-object) object | Branding, setup state and legal links |
-| age_policy? | [age policy](#age-policy-object) object | Regional age policy |
+| age_policy | [age policy](#age-policy-object) object | Regional age policy |
 | notice? | ?[instance notice](#instance-notice-object) object | The current notice from the instance admins, or null |
-| guild_badges? | array[[guild badge](#guild-badge-object) object] | The custom badges that guilds can show next to their name, in display order (at most 10) |
+| guild_badges?<sup>1</sup> | array[[guild badge](#guild-badge-object) object] | The first custom badges that guilds can show next to their name, in display order (at most 100) |
+| guild_badges_partial? | boolean | True when the instance has more guild badges than `guild_badges` lists |
+| custom_badges_version? | string | The badge catalog version. It changes whenever a badge is created, edited, deleted or moved |
+| built_in_guild_badge_images? | [built-in guild badge images](#built-in-guild-badge-images-object) object | The images the instance shows in place of the built-in guild badges |
+| hidden_built_in_guild_badges?<sup>2</sup> | array[string] | The built-in guild badges the instance doesn't show: any of `verified`, `partnered` and `discoverable` |
+| voice_origins? | array[string] | The origin of every voice server endpoint, such as `wss://voice.example.com`, for content security policies. Voice servers that share a domain are listed once as a wildcard, such as `wss://*.example.com` (at most 1000) |
+
+<sup>1</sup> An instance can have any number of guild badges. Discovery lists the first 100 in display order, and [List guild badges](#list-guild-badges) serves every one. A client that knows only `guild_badges` can't show a badge past the first 100
+
+<sup>2</sup> Guilds keep the feature behind a hidden badge, so a discoverable guild is still listed in discovery. When a guild has more than one of these badges, clients show the next one that isn't hidden
 
 ## Guild badge object
 
-A custom badge that instance admins give to guilds. A guild lists the badges it has in `badge_ids`, and clients skip any ID that isn't in `guild_badges`.
+A custom badge that instance admins give to guilds. A guild lists the badges it has in `badge_ids`. Clients look up the IDs they don't know with [List guild badges](#list-guild-badges), skip the IDs it leaves out, and show the badges in ascending `position` order.
 
 ### Structure
 
@@ -46,6 +55,30 @@ A custom badge that instance admins give to guilds. A guild lists the badges it 
 | description | ?string | The tooltip text under the name, or null |
 | asset_url | string | The badge image as WebP from the media proxy. Add a `size` query parameter to get it at the size you draw it |
 | href | ?string | The `https` URL a click opens, or null |
+| position? | string | The display position as a 64-bit integer string. Older instances leave it out, and clients keep the `guild_badges` order |
+
+### Loading badges
+
+A client can show guild badges without holding the whole catalog.
+
+1. Keep the badges from `guild_badges` and the `custom_badges_version` of the discovery document.
+2. For each guild, look up the IDs in `badge_ids` that you don't know, in batches of up to 100, with `ids` and `version` set.
+3. Remember the IDs the response leaves out, and don't ask for them again while the version stays the same.
+4. When discovery or a lookup returns a newer version, forget the badges you looked up and ask again when you need them.
+
+An instance without `custom_badges_version` doesn't have [List guild badges](#list-guild-badges). Use `guild_badges` alone and fetch discovery again for an unknown ID.
+
+## Built-in guild badge images object
+
+Instance admins can replace the artwork of the built-in guild badges. When a field has a URL, draw that image wherever the badge appears and keep the badge's usual tooltip. When it's null, draw the built-in artwork.
+
+### Structure
+
+| Field | Type | Description |
+| --- | --- | --- |
+| verified | ?string | The image for the verified badge, as WebP from the media proxy, or null |
+| partnered | ?string | The image for the partnered badge, or null |
+| discoverable | ?string | The image for the discoverable badge, or null |
 
 ## Instance notice object
 
@@ -72,6 +105,7 @@ Each value is an absolute URL. Use it exactly as published, including its scheme
 | api | string | Base URL of the client API, the same as `api_client` |
 | api_client | string | Base URL of the client API, used by the Fluxer apps |
 | api_public | string | Base URL of the public API, used by bots and other clients |
+| api_transport? | string | Base URL the official desktop app sends API requests to instead of `api_client`. Only Fluxer.app lists it, and the app ignores any address other than the matching fluxer.com one |
 | gateway | string | The [Gateway](/gateway/overview/) WebSocket URL, with a `ws` or `wss` scheme |
 | media | string | [Media Proxy](/media-proxy/overview/) base URL |
 | upload_relay? | string | Attachment [upload relay](/media-proxy/upload-relay/) base URL |
@@ -142,6 +176,7 @@ When `emails_enabled` is false, email verification, password recovery and IP aut
 | captcha_off | Instant accounts are on, but the CAPTCHA they need is off |
 | registration_closed | Public registration is closed |
 | approval_required | New accounts wait for admin approval |
+| email_domains_restricted | Public sign-ups must use an email address on an allowed domain |
 
 ### Email delivery states
 
@@ -318,8 +353,9 @@ A `feature_` key is `1` when the feature is available and `0` when it isn't. The
 | guild_visit_history_days_unverified | Days of history an unverified account sees while [visiting](/http-api/guilds/#visiting-guilds) a guild (user) |
 | max_attachment_file_size | Maximum size of each attachment in bytes (user and guild) |
 | max_attachments_per_message | Maximum attachments per message (user and guild) |
-| max_bio_length | Maximum characters in a bio, at most 320 (user) |
+| max_bio_length | Maximum characters in a bio, 320 by default and at most 1000 (user) |
 | max_bookmarks | Maximum bookmarked messages (user) |
+| max_bot_attachment_file_size | Maximum size of each attachment a bot uploads in bytes, 52428800 by default. A bot gets the lower of this and `max_attachment_file_size` (user and guild) |
 | max_channels_per_category | Maximum channels per category (guild) |
 | max_custom_backgrounds | Maximum custom profile backgrounds (user) |
 | max_embeds_per_message | Maximum embeds per message (user and guild) |
@@ -381,11 +417,17 @@ What a client needs before anyone signs in.
 | favicon_dark_url | ?string | Favicon URL for a dark color scheme, or null to use `favicon_url` |
 | theme_color | ?string | Brand color as lowercase `#rrggbb`, or null |
 | status_page_url | ?string | Status page URL, or null |
+| status_page_instatus | boolean | Whether the status page is an Instatus page browsers can read. Clients show its incidents only when this is true |
 | status_page_incident_history_url | ?string | Status page incident history URL, or null |
 | premium_product_name | string | The name of the premium tier, `Premium` unless an admin sets one |
 | premium_info_url | ?string | URL of a page about the premium tier, or null |
 | sign_in_backdrop_url | ?string | Image shown behind the sign-in screens, or null for the default |
-| custom_css | ?string | CSS the web and desktop app apply before the person's own theme, or null |
+| premium_page_color | ?string | Premium page color of a self-hosted instance as lowercase `#rrggbb`, or null |
+| premium_showcase_expressions_url | ?string | Image next to the emoji card on the premium page of a self-hosted instance, or null |
+| premium_showcase_profile_url | ?string | Image next to the profile card on the premium page of a self-hosted instance, or null |
+| premium_showcase_stream_url | ?string | Image next to the stream card on the premium page of a self-hosted instance, or null |
+| premium_showcase_upload_url | ?string | Image next to the upload card on the premium page of a self-hosted instance, or null |
+| custom_css | ?string | CSS the web and desktop app apply before the person's own theme, except on sign-in pages, or null |
 | upload_limit_message | ?string | Markdown shown when a file is over the upload limit, or null for the default text |
 | trusted_domains | string[] | Extra domains whose links open without a warning. Entries are hostnames, and a `*.` prefix also covers subdomains |
 
@@ -446,11 +488,11 @@ What a client needs before anyone signs in.
 | --- | --- | --- |
 | country_code | string | The ISO 3166-1 alpha-2 country code |
 | region_code | ?string | The ISO 3166-2 subdivision code, or null for the whole country |
-| action | string | `restrict` to need an age check, or `block` to refuse access |
+| action | string | `restrict` when a date of birth typed in is not enough for mature content, or `block` to refuse access |
 
 ## Geolocation object
 
-The approximate location of the request, and the places where mature content needs an age check or isn't available.
+The approximate location of the request, the places where a date of birth typed in is not enough for mature content, and the places where mature content isn't available.
 
 ### Structure
 
@@ -460,7 +502,7 @@ The approximate location of the request, and the places where mature content nee
 | regionCode | ?string | The upper-case ISO 3166-2 subdivision code, or null |
 | latitude | ?string | The approximate latitude as a decimal string, or null |
 | longitude | ?string | The approximate longitude as a decimal string, or null |
-| ageRestrictedGeos | array[[geo entry](#geo-entry-object) object] | Places where mature content needs an age check |
+| ageRestrictedGeos | array[[geo entry](#geo-entry-object) object] | Places where a date of birth typed in is not enough for mature content |
 | ageBlockedGeos | array[[geo entry](#geo-entry-object) object] | Places where mature content isn't available |
 
 When the location is unknown, all four location fields are null. Match `countryCode` and `regionCode` against the geo lists yourself.
@@ -497,6 +539,48 @@ Returns the [instance discovery object](#instance-discovery-object). The respons
 | 304 | None | The document hasn't changed |
 
 The rate limit is 60 requests per minute, on the `instance:info` bucket.
+
+## List guild badges
+
+<RouteHeader method="GET" path="/v1/instance/badges" unauthenticated />
+
+Returns custom guild badges in display order. Send `ids` to look up the badges of some guilds, or page through every badge with `after` and `limit`. User badges aren't listed here. They come back in each [profile](/http-api/users/#profile-badge-object) instead.
+
+### Query parameters
+
+| Field | Type | Description |
+| --- | --- | --- |
+| ids? | string | Up to 100 badge IDs separated by commas. Can't be sent with `after` |
+| after? | string | The `next` value of the previous page |
+| limit? | integer | How many badges to return when paging (1-200, default 100) |
+| version? | string | The `custom_badges_version` the client holds |
+
+### Response body
+
+| Field | Type | Description |
+| --- | --- | --- |
+| version | string | The current badge catalog version |
+| badges | array[[guild badge](#guild-badge-object) object] | The badges in display order. IDs that are unknown, deleted or user badges are left out |
+| next | ?string | Send this as `after` to get the next page, or null on the last page and for a lookup by `ids` |
+
+### Caching
+
+| Request | `Cache-Control` |
+| --- | --- |
+| `version` is the current version | `public, max-age=86400, immutable` |
+| no `version`, or an older one | `public, max-age=60, must-revalidate` |
+
+The response has an `ETag` header, and a request with a matching `If-None-Match` gets 304 with no body. A response read while the catalog changes gets the short lifetime and no `ETag`. The version also changes when the instance moves to a new media URL, because every `asset_url` changes with it.
+
+### Response
+
+| Status | Body | Condition |
+| --- | --- | --- |
+| 200 | response body | The badges were returned |
+| 304 | None | The badges haven't changed |
+| 400 | [error response](/http-api/#error-response) | `INVALID_FORM_BODY` for a bad parameter, a cursor from another list, or `ids` sent with `after` |
+
+The rate limit is 60 requests per minute, on the `instance:badges` bucket. A request with a valid token counts against the account, and a request without one counts against the IP address.
 
 ## Get client geolocation
 

@@ -44,7 +44,6 @@ import {
 import {
 	handleDeepLinkUrl,
 	isInternalChannelHost,
-	navigateToLinkedUserProfile,
 	parseChannelJumpLink,
 	parseChannelUrl,
 	parseMessageJumpLink,
@@ -57,6 +56,7 @@ import StreamerMode from '@app/features/streamer_mode/state/StreamerMode';
 import * as ThemeCommands from '@app/features/theme/commands/ThemeCommands';
 import markupStyles from '@app/features/theme/styles/Markup.module.css';
 import * as ThemeUtils from '@app/features/theme/utils/ThemeUtils';
+import {loadThreadsForMessages} from '@app/features/threads/commands/ThreadCommands';
 import TrustedDomain from '@app/features/trusted_domain/state/TrustedDomain';
 import {CopyLinkIcon, OpenLinkIcon} from '@app/features/ui/action_menu/ContextMenuIcons';
 import {MenuGroup} from '@app/features/ui/action_menu/MenuGroup';
@@ -69,6 +69,7 @@ import FocusRing from '@app/features/ui/focus_ring/FocusRing';
 import {CaretRightIcon} from '@app/features/ui/icons/DirectionalIcons';
 import {APP_PROTOCOL_PREFIX, APP_PROTOCOL_SCHEME, isAppProtocolUrl} from '@app/features/ui/utils/AppProtocol';
 import {openExternalUrl} from '@app/features/ui/utils/NativeUtils';
+import * as UserProfileCommands from '@app/features/user/commands/UserProfileCommands';
 import {
 	getUserSettingsSectionLabel,
 	getUserSettingsTabIconDescriptor,
@@ -793,8 +794,8 @@ export const LinkRenderer = observer(function LinkRenderer({
 	const {url, text} = node;
 	const openInBrowser = useOpenInBrowserOnMiddleClick(url);
 	const content = text ? renderChildren([text], LINK_CONTENT_OPTION_OVERRIDES) : url;
-	const inviteCode = InviteUtils.findInvite(url);
-	const themeCode = ThemeUtils.findTheme(url);
+	const inviteCode = InviteUtils.findInviteUrl(url);
+	const themeCode = ThemeUtils.findThemeUrl(url);
 	const userProfileId = parseUserProfileUrl(url);
 	const messageJumpTarget = parseMessageJumpLink(url);
 	const channelJumpTarget = messageJumpTarget ? null : parseChannelJumpLink(url);
@@ -809,11 +810,17 @@ export const LinkRenderer = observer(function LinkRenderer({
 		!Guilds.getGuild(jumpTarget.scope)
 			? jumpTarget.scope
 			: null;
+	const uncachedGuildId = jumpTarget && !jumpChannel && jumpTarget.scope !== ME ? jumpTarget.scope : null;
+	const uncachedChannelId = uncachedGuildId ? (jumpTarget?.channelId ?? null) : null;
+	useEffect(() => {
+		if (!uncachedGuildId || !uncachedChannelId) return;
+		void loadThreadsForMessages([{channel_id: uncachedChannelId, guild_id: uncachedGuildId}]);
+	}, [uncachedGuildId, uncachedChannelId]);
 	const settingsTarget = isAppProtocolUrl(url) ? parseUserSettingsDeepLink(url) : null;
 	const appPage = settingsTarget ? null : parseAppPageLink(url);
 	const isInlineReplyContext = isRestrictedInlineContext(options.context);
 	const shouldDisableInteractions = options.disableInteractions === true;
-	if (inviteCode && StreamerMode.shouldHideInviteLinks) {
+	if (StreamerMode.shouldHideInviteLinks && InviteUtils.findInvite(url)) {
 		return (
 			<span key={id} className={markupStyles.link} data-flx="messaging.markdown.renderers.link-renderer.invite-masked">
 				{i18n._(INVITE_LINK_MASKED_DESCRIPTOR)}
@@ -921,7 +928,7 @@ export const LinkRenderer = observer(function LinkRenderer({
 		handleClick = (event) => {
 			event.preventDefault();
 			event.stopPropagation();
-			navigateToLinkedUserProfile(userProfileId);
+			void UserProfileCommands.openLinkedUserProfile(userProfileId, options.guildId);
 		};
 		isInternal = true;
 	} else if (shouldShowAccessDeniedModal) {
@@ -1076,7 +1083,7 @@ export const LinkRenderer = observer(function LinkRenderer({
 			logger.warn('Invalid URL in link:', url);
 		}
 	}
-	const href = AttachmentUrlRefresher.fresh(url);
+	const href = AttachmentUrlRefresher.fresh(url, {refreshUnsigned: true});
 	const warmAttachmentUrl = () => AttachmentUrlRefresher.warm(url);
 	const showDestinationTooltip = text != null;
 	const linkElement = (

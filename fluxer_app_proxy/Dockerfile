@@ -70,6 +70,7 @@ COPY packages/markdown_parser/rust/benches/parser.rs ./packages/markdown_parser/
 COPY packages/markdown_parser/rust/src/ ./packages/markdown_parser/rust/src/
 COPY tools/ci/ ./tools/ci/
 COPY fluxer_app/index.html fluxer_app/lingui.config.js fluxer_app/package.json fluxer_app/postcss.config.js fluxer_app/rspack.config.mjs fluxer_app/tsconfig.base.json fluxer_app/tsconfig.json ./fluxer_app/
+COPY fluxer_app/inline_scripts/ ./fluxer_app/inline_scripts/
 COPY fluxer_app/pkgs/livekit-client/ ./fluxer_app/pkgs/livekit-client/
 COPY fluxer_app/rust/ ./fluxer_app/rust/
 COPY fluxer_app/scripts/ ./fluxer_app/scripts/
@@ -153,8 +154,8 @@ LABEL org.opencontainers.image.title="fluxer-app-proxy"
 LABEL org.opencontainers.image.description="Fluxer web app and edge proxy"
 LABEL org.opencontainers.image.licenses="AGPL-3.0-or-later"
 LABEL org.opencontainers.image.vendor="Fluxer"
-LABEL org.opencontainers.image.url="https://fluxer.app"
-LABEL org.opencontainers.image.documentation="https://docs.fluxer.app"
+LABEL org.opencontainers.image.url="https://fluxer.com"
+LABEL org.opencontainers.image.documentation="https://docs.fluxer.com"
 LABEL org.opencontainers.image.source="https://github.com/thephar/fluxfur"
 LABEL org.opencontainers.image.version="${BUILD_VERSION}"
 LABEL org.opencontainers.image.revision="${SOURCE_SHA}"

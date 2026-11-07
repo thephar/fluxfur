@@ -59,6 +59,7 @@ import {
 	shouldCheckDesktopSourceScreenRecordingPermission,
 	useScreenSharePickerDisplayPermission,
 } from '@app/features/voice/components/modals/screen_share_picker_modal/useScreenSharePickerDisplayPermission';
+import {WebStreamSetupModal} from '@app/features/voice/components/modals/screen_share_picker_modal/WebStreamSetupModal';
 import {
 	StreamSettingsMenuContent,
 	useHasHigherVideoQuality,
@@ -67,8 +68,9 @@ import {
 	offeredScreenShareResolution,
 	selectStreamSettingsAudioMenuState,
 } from '@app/features/voice/components/StreamSettingsMenuContentStateMachine';
-import MediaEngine, {useVoiceEngineV2Model} from '@app/features/voice/engine/MediaEngineFacade';
+import {useVoiceEngineV2Model} from '@app/features/voice/engine/MediaEngineFacade';
 import VoiceDevicePermissionState from '@app/features/voice/engine/VoiceDevicePermissionState';
+import VoiceRuntime from '@app/features/voice/engine/VoiceRuntime';
 import {selectVoiceEngineV2AppConnection} from '@app/features/voice/engine/v2/VoiceEngineV2AppSelectors';
 import {useMediaDevices} from '@app/features/voice/hooks/useMediaDevices';
 import ActiveScreenShareSource from '@app/features/voice/state/ActiveScreenShareSource';
@@ -376,7 +378,11 @@ export async function preloadScreenSharePickerSources(): Promise<ScreenSharePick
 
 export async function openScreenSharePickerModal(): Promise<void> {
 	if (!getElectronAPI()) {
-		await startConfiguredDisplayScreenShare(null);
+		ModalCommands.push(
+			ModalCommands.modal(() => (
+				<WebStreamSetupModal data-flx="voice.screen-share-picker-modal.open-screen-share-picker-modal.web-stream-setup-modal" />
+			)),
+		);
 		return;
 	}
 	ModalCommands.push(
@@ -603,7 +609,7 @@ const ScreenSharePreviewInfoModal = observer(() => {
 	const {i18n} = useLingui();
 	const voiceModel = useVoiceEngineV2Model();
 	const callContext = getScreenSharePreviewCallContext(
-		selectVoiceEngineV2AppConnection(voiceModel).channelId ?? MediaEngine.channelId,
+		selectVoiceEngineV2AppConnection(voiceModel).channelId ?? VoiceRuntime.channelId,
 	);
 	const previewsEnabled = !PrivacyPreferences.getDisableStreamPreviews();
 	const handlePreviewToggle = useCallback((enabled: boolean) => {

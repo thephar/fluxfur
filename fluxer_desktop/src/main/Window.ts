@@ -26,11 +26,13 @@ import {hasActiveDesktopTray, refreshDesktopTrayMenu} from '@electron/main/Deskt
 import {wakeDesktopUpdatePoll} from '@electron/main/DesktopUpdatePoll';
 import {drainPendingDisplayMediaRequests, registerDisplayMediaRequestHandler} from '@electron/main/DisplayMedia';
 import {isNativeGatewayAvailable} from '@electron/main/GatewaySocketNativeBoundary';
+import {armHiddenWindowMemoryRelease} from '@electron/main/HiddenWindowMemory';
 import {shouldDisableV8CodeCache} from '@electron/main/LaunchOptions';
 import {getDesktopLocalAppAuthorization} from '@electron/main/LocalAppProtocolAuthorization';
 import {isLocalAppRendererDocumentURL, isLocalAppURL} from '@electron/main/LocalAppURL';
 import {cancelPendingFullScreenHide, hideWindowLeavingFullScreen} from '@electron/main/MacFullScreenHide';
 import {t} from '@electron/main/MainI18n';
+import {getMainWindowCloseAction} from '@electron/main/MainWindowClose';
 import {MainWindowRevealGate, MainWindowRevealReason} from '@electron/main/MainWindowReveal';
 import {signalMainWindowCreated, signalMainWindowReady} from '@electron/main/ModuleBootHandoff';
 import {openExternalDeduped} from '@electron/main/OpenExternal';
@@ -148,6 +150,7 @@ let quickCssEditorWindow: BrowserWindow | null = null;
 let lastRestorableMainWindowMaximized = false;
 let mainWindowRendererGone = false;
 let closingMainWindowForUpdate = false;
+let quitAfterMainWindowCloses = false;
 const SHELL_PAGE_URL_PREFIX = 'file:';
 let mainWindowTakeover: (() => void) | null = null;
 const takeoverEndedListeners = new Set<() => void>();
@@ -318,12 +321,13 @@ export function clearSavedWindowBounds(): void {
 	}
 }
 
-function shouldHideMainWindowOnClose(): boolean {
-	if (process.platform === 'darwin') {
-		return true;
-	}
+function shouldKeepMainWindowInTrayOnClose(): boolean {
 	const settings = getDesktopWindowBehaviorSettings();
 	return hasActiveDesktopTray() && settings.showTrayIcon && settings.closeToTray;
+}
+
+function shouldHideMainWindowOnClose(): boolean {
+	return process.platform === 'darwin' || shouldKeepMainWindowInTrayOnClose();
 }
 
 function shouldHideMainWindowOnMinimize(): boolean {
@@ -733,6 +737,7 @@ export function createWindow(options: CreateWindowOptions = {}): BrowserWindow {
 		windowOptions.center = true;
 	}
 	mainWindow = new BrowserWindow(windowOptions);
+	armHiddenWindowMemoryRelease(mainWindow);
 	signalMainWindowCreated(mainWindow);
 	mainWindowRendererGone = false;
 	installHtmlFullscreenChromeGuard(mainWindow);
@@ -854,7 +859,14 @@ export function createWindow(options: CreateWindowOptions = {}): BrowserWindow {
 		if (saveTimeout) clearTimeout(saveTimeout);
 		endLiveResize();
 		saveWindowBounds();
-		if (!isQuitting && !closingMainWindowForUpdate && shouldHideMainWindowOnClose()) {
+		const closeAction = getMainWindowCloseAction({
+			platform: process.platform,
+			isQuitting,
+			closingForUpdate: closingMainWindowForUpdate,
+			keepInTray: shouldKeepMainWindowInTrayOnClose(),
+		});
+		quitAfterMainWindowCloses = closeAction === 'quit';
+		if (closeAction === 'hide') {
 			event.preventDefault();
 			logger.info(
 				process.platform === 'darwin'
@@ -867,6 +879,10 @@ export function createWindow(options: CreateWindowOptions = {}): BrowserWindow {
 	});
 	mainWindow.on('closed', () => {
 		mainWindow = null;
+		if (quitAfterMainWindowCloses && !isQuitting) {
+			logger.info('The main window closed and close to tray is off, quitting');
+			app.quit();
+		}
 	});
 	mainWindow.setMenuBarVisibility(false);
 	if (process.platform === 'win32') {

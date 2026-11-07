@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {existsSync, readdirSync} from 'node:fs';
+import {createHash} from 'node:crypto';
+import {existsSync, readdirSync, readFileSync} from 'node:fs';
 import path, {dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {
@@ -9,11 +10,14 @@ import {
 	DefinePlugin,
 	HtmlRspackPlugin,
 	LightningCssMinimizerRspackPlugin,
+	SubresourceIntegrityPlugin,
 	SwcJsMinimizerRspackPlugin,
 	sources,
 } from '@rspack/core';
+import {transformSync} from 'esbuild';
 import {getLinguiSwcPluginConfig} from './scripts/build/rspack/lingui.mjs';
 import {staticFilesPlugin} from './scripts/build/rspack/static-files.mjs';
+import {moduleMapPlugin} from './scripts/module-map/index.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -25,7 +29,10 @@ const PKGS_DIR = path.join(ROOT_DIR, 'pkgs');
 const PUBLIC_DIR = path.join(ROOT_DIR, 'assets');
 const BROWSER_ASSERT_STRICT_MODULE = path.join(SRC_DIR, 'features', 'platform', 'utils', 'BrowserAssertStrict.ts');
 const DEFAULT_DEV_SERVER_PORT = 3000;
-const BOOT_PRELOAD_CHUNK_GROUPS = ['app-bootstrap', 'boot-app'];
+const BOOT_PRELOAD_CHUNK_GROUPS = ['app-bootstrap'];
+const SIGNED_IN_PRELOAD_CHUNK_GROUPS = ['boot-app'];
+const SIGNED_IN_PRELOADS_ELEMENT_ID = 'fluxer-boot-app-preloads';
+const SIGNED_IN_HINT_STORAGE_KEY = 'fluxer:auth:active-account-key';
 const BOOT_PRELOAD_FONT_FILES = [
 	'FluxerSans/FluxerSans-Regular.woff2',
 	'FluxerSans/FluxerSans-SemiBold.woff2',
@@ -33,7 +40,7 @@ const BOOT_PRELOAD_FONT_FILES = [
 ];
 const BOOT_LOW_PRIORITY_FONT_FILES = ['FluxerSans/FluxerSans-Medium.woff2'];
 const AUTH_ENTRY_DOCUMENT = 'auth-index.html';
-const ENTRY_STYLESHEET_LINK_PATTERN = /<link href="([^"]+\.css)" rel="stylesheet">/gu;
+const ENTRY_STYLESHEET_LINK_PATTERN = /<link\b(?=[^>]*\brel="stylesheet")[^>]*\bhref="([^"]+\.css)"[^>]*>/gu;
 const CSS_URL_PATTERN = /url\(\s*['"]?([^'")]+)/gu;
 const DESKTOP_MODULE_ASSET_SOURCES = [
 	{
@@ -115,17 +122,19 @@ function isAcceptedCssOrderConflict(warning) {
 	});
 }
 
+const MAIN_RUNTIME_NAME = 'runtime';
+
 function isMainRuntimeChunk(chunk) {
 	const runtime = chunk.runtime;
 	if (runtime == null) {
-		return chunk.name === 'main';
+		return chunk.name === 'main' || chunk.name === MAIN_RUNTIME_NAME;
 	}
 	if (typeof runtime === 'string') {
-		return runtime === 'main';
+		return runtime === MAIN_RUNTIME_NAME;
 	}
 	if (typeof runtime[Symbol.iterator] === 'function') {
 		for (const name of runtime) {
-			if (name !== 'main') return false;
+			if (name !== MAIN_RUNTIME_NAME) return false;
 		}
 		return true;
 	}
@@ -149,7 +158,64 @@ function mirrorCacheGroups(groups) {
 	return mirrored;
 }
 
-function bootPreloadPlugin() {
+const ENTRY_RECOVERY_ATTRIBUTE = 'data-fluxer-entry';
+
+function subresourceIntegrity(source) {
+	return `sha384-${createHash('sha384').update(source).digest('base64')}`;
+}
+
+function entryRecoveryMarkerPlugin() {
+	return {
+		apply(compiler) {
+			compiler.hooks.thisCompilation.tap('EntryRecoveryMarkerPlugin', (compilation) => {
+				HtmlRspackPlugin.getCompilationHooks(compilation).alterAssetTags.tap('EntryRecoveryMarkerPlugin', (data) => {
+					for (const tag of [...data.assetTags.scripts, ...data.assetTags.styles]) {
+						tag.attributes = {...tag.attributes, [ENTRY_RECOVERY_ATTRIBUTE]: ''};
+					}
+					return data;
+				});
+			});
+		},
+	};
+}
+
+const INLINE_SCRIPTS_DIR = path.join(ROOT_DIR, 'inline_scripts');
+const INLINE_SCRIPT_TARGETS = ['chrome111', 'edge111', 'firefox114', 'safari16.4'];
+const INLINE_SCRIPT_MARKER_PATTERN = /<script data-inline-script="([a-z-]+)"><\/script>/gu;
+
+class InlineScriptError extends Error {
+	constructor(name, reason) {
+		super(`Cannot inline ${name}.js: ${reason}`);
+		this.name = 'InlineScriptError';
+	}
+}
+
+function inlineScriptTag(name, replacements = {}) {
+	let source = readFileSync(path.join(INLINE_SCRIPTS_DIR, `${name}.js`), 'utf8');
+	for (const [token, value] of Object.entries(replacements)) {
+		source = source.replaceAll(token, value);
+	}
+	const code = transformSync(source, {minify: true, target: INLINE_SCRIPT_TARGETS, legalComments: 'none'}).code.trim();
+	if (/<\/script/iu.test(code)) {
+		throw new InlineScriptError(name, 'it contains a closing script tag');
+	}
+	return `<script data-cfasync="false" nonce="{{CSP_NONCE_PLACEHOLDER}}">${code}</script>`;
+}
+
+function inlineScriptsPlugin() {
+	return {
+		apply(compiler) {
+			compiler.hooks.thisCompilation.tap('InlineScriptsPlugin', (compilation) => {
+				HtmlRspackPlugin.getCompilationHooks(compilation).beforeEmit.tap('InlineScriptsPlugin', (data) => {
+					data.html = data.html.replace(INLINE_SCRIPT_MARKER_PATTERN, (_marker, name) => inlineScriptTag(name));
+					return data;
+				});
+			});
+		},
+	};
+}
+
+function bootPreloadPlugin({withIntegrity}) {
 	return {
 		apply(compiler) {
 			compiler.hooks.thisCompilation.tap('BootPreloadPlugin', (compilation) => {
@@ -167,32 +233,58 @@ function bootPreloadPlugin() {
 						const configuredPublicPath = compilation.outputOptions.publicPath;
 						const base =
 							typeof configuredPublicPath === 'string' && configuredPublicPath !== 'auto' ? configuredPublicPath : '/';
-						const files = new Set();
-						for (const name of BOOT_PRELOAD_CHUNK_GROUPS) {
-							for (const group of compilation.chunkGroups) {
-								if (group.name !== name) {
-									continue;
-								}
-								for (const file of group.getFiles()) {
-									if (!html.includes(file)) {
-										files.add(file);
+						const collectFiles = (groupNames, excluded) => {
+							const files = new Set();
+							for (const name of groupNames) {
+								for (const group of compilation.chunkGroups) {
+									if (group.name !== name) {
+										continue;
+									}
+									for (const file of group.getFiles()) {
+										if (!html.includes(file) && !excluded.has(file)) {
+											files.add(file);
+										}
 									}
 								}
 							}
-						}
-						const ordered = [...files];
-						const links = [
-							...ordered
-								.filter((file) => file.endsWith('.css'))
-								.map((file) => `<link rel="preload" as="style" fetchpriority="low" href="${base}${file}">`),
-							...ordered
-								.filter((file) => file.endsWith('.js'))
-								.map((file) => `<link rel="preload" as="script" fetchpriority="low" href="${base}${file}">`),
-						].join('');
-						if (links === '') {
+							return [...files].sort((a, b) => Number(b.endsWith('.css')) - Number(a.endsWith('.css')));
+						};
+						const integrity = (file) => {
+							if (!withIntegrity) {
+								return null;
+							}
+							const source = compilation.getAsset(file)?.source.buffer();
+							return source == null ? null : subresourceIntegrity(source);
+						};
+						const preloadType = (file) => (file.endsWith('.css') ? 'style' : 'script');
+						const bootFiles = collectFiles(BOOT_PRELOAD_CHUNK_GROUPS, new Set());
+						const links = bootFiles
+							.map((file) => {
+								const hash = integrity(file);
+								const integrityAttributes = hash == null ? '' : ` crossorigin integrity="${hash}"`;
+								return `<link rel="preload" as="${preloadType(file)}" fetchpriority="low" href="${base}${file}"${integrityAttributes}>`;
+							})
+							.join('');
+						const signedInPreloads = collectFiles(SIGNED_IN_PRELOAD_CHUNK_GROUPS, new Set(bootFiles)).map((file) => {
+							const hash = integrity(file);
+							return {href: `${base}${file}`, as: preloadType(file), ...(hash == null ? {} : {integrity: hash})};
+						});
+						const signedInPreloadData = JSON.stringify(signedInPreloads).replaceAll('<', '\\u003c');
+						const signedInPreloadTags =
+							signedInPreloads.length === 0
+								? ''
+								: `<script type="application/json" id="${SIGNED_IN_PRELOADS_ELEMENT_ID}">${signedInPreloadData}</script>` +
+									inlineScriptTag('signed-in-preloads', {
+										'{{SIGNED_IN_HINT_STORAGE_KEY}}': SIGNED_IN_HINT_STORAGE_KEY,
+										'{{SIGNED_IN_PRELOADS_ELEMENT_ID}}': SIGNED_IN_PRELOADS_ELEMENT_ID,
+									});
+						if (links === '' && signedInPreloadTags === '') {
 							return;
 						}
-						compilation.updateAsset('index.html', new sources.RawSource(html.replace('</body>', `${links}</body>`)));
+						compilation.updateAsset(
+							'index.html',
+							new sources.RawSource(html.replace('</body>', () => `${links}${signedInPreloadTags}</body>`)),
+						);
 					},
 				);
 			});
@@ -298,6 +390,31 @@ function fontPreloadPlugin() {
 						});
 					}
 					data.headTags.unshift(...fonts);
+					return data;
+				});
+			});
+		},
+	};
+}
+
+const LIBFLUXCORE_WASM_URL_PLACEHOLDER = '{{LIBFLUXCORE_WASM_URL}}';
+const LIBFLUXCORE_WASM_SOURCE = 'pkgs/libfluxcore/libfluxcore_bg.wasm';
+
+function libfluxcoreWasmUrlPlugin({publicPath}) {
+	return {
+		apply(compiler) {
+			compiler.hooks.thisCompilation.tap('LibfluxcoreWasmUrlPlugin', (compilation) => {
+				HtmlRspackPlugin.getCompilationHooks(compilation).beforeEmit.tap('LibfluxcoreWasmUrlPlugin', (data) => {
+					if (!data.html.includes(LIBFLUXCORE_WASM_URL_PLACEHOLDER)) {
+						return data;
+					}
+					const asset = compilation
+						.getAssets()
+						.find((candidate) => String(candidate.info.sourceFilename ?? '').endsWith(LIBFLUXCORE_WASM_SOURCE));
+					if (asset == null) {
+						throw new Error(`Cannot preload ${LIBFLUXCORE_WASM_SOURCE}: no emitted asset came from it`);
+					}
+					data.html = data.html.replaceAll(LIBFLUXCORE_WASM_URL_PLACEHOLDER, `${publicPath}${asset.name}`);
 					return data;
 				});
 			});
@@ -456,13 +573,14 @@ export default () => {
 			? {main: path.join(SRC_DIR, 'index.tsx')}
 			: {
 					main: path.join(SRC_DIR, 'index.tsx'),
-					sw: path.join(SRC_DIR, 'features', 'platform', 'service_worker', 'Worker.ts'),
+					sw: {import: path.join(SRC_DIR, 'features', 'platform', 'service_worker', 'Worker.ts'), runtime: false},
 				},
 		output: {
 			path: DIST_DIR,
 			publicPath,
 			workerPublicPath: '/',
 			workerChunkLoading: false,
+			crossOriginLoading: isProduction && !isDesktopRenderer ? 'anonymous' : false,
 			filename: jsFilename,
 			chunkFilename: jsFilename,
 			cssFilename: isProduction ? 'assets/[contenthash:16].css' : devCssName,
@@ -559,7 +677,7 @@ export default () => {
 								experimental: {
 									plugins: [linguiSwcPlugin],
 								},
-								target: 'es2015',
+								target: 'es2022',
 							},
 						},
 					},
@@ -597,7 +715,7 @@ export default () => {
 								jsc: {
 									parser: {syntax: 'typescript', tsx: true},
 									transform: {react: {runtime: 'automatic', development: isDevelopment}},
-									target: 'es2015',
+									target: 'es2022',
 								},
 							},
 						},
@@ -670,10 +788,16 @@ export default () => {
 		},
 		plugins: [
 			nodeAssertStrictSchemePlugin(),
+			inlineScriptsPlugin(),
 			fontPreloadPlugin(),
+			libfluxcoreWasmUrlPlugin({publicPath: workerWasmPublicPath ?? publicPath}),
 			rocketLoaderOptOutPlugin(),
-			...(isProduction ? [bootPreloadPlugin()] : []),
+			...(isProduction ? [bootPreloadPlugin({withIntegrity: !isDesktopRenderer})] : []),
+			...(isProduction && !isDesktopRenderer ? [entryRecoveryMarkerPlugin()] : []),
 			...(isProduction && !isDesktopRenderer ? [authEntryDocumentPlugin()] : []),
+			...(isProduction && !isDesktopRenderer
+				? [new SubresourceIntegrityPlugin({hashFuncNames: ['sha384'], enabled: true})]
+				: []),
 			new HtmlRspackPlugin({
 				template: path.join(ROOT_DIR, 'index.html'),
 				filename: 'index.html',
@@ -734,6 +858,14 @@ export default () => {
 					});
 				},
 			},
+			...(isProduction
+				? [
+						moduleMapPlugin({
+							root: MONOREPO_ROOT,
+							build: {...buildInfo, desktopRenderer: isDesktopRenderer},
+						}),
+					]
+				: []),
 		],
 		optimization: {
 			splitChunks: isProduction
@@ -953,19 +1085,22 @@ export default () => {
 								name: 'vendor',
 								priority: 10,
 								reuseExistingChunk: true,
+								chunks: (chunk) => isMainRuntimeChunk(chunk) && chunk.canBeInitial(),
 							},
 						}),
 					}
 				: false,
-			runtimeChunk: false,
+			runtimeChunk: {name: MAIN_RUNTIME_NAME},
 			moduleIds: isProduction ? 'deterministic' : 'named',
 			chunkIds: isProduction ? 'deterministic' : 'named',
 			minimize: isProduction,
 			minimizer: [
 				new SwcJsMinimizerRspackPlugin({
-					compress: true,
-					mangle: true,
-					format: {comments: false},
+					minimizerOptions: {
+						compress: true,
+						mangle: true,
+						format: {comments: false, asciiOnly: isDesktopRenderer},
+					},
 					exclude: /\.worklet\.js$/,
 				}),
 				new LightningCssMinimizerRspackPlugin(),

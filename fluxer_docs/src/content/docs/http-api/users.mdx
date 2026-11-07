@@ -123,7 +123,8 @@ The current account as its owner sees it, returned by [Get current user](/http-a
 | has_unread_gift_inventory<sup>1</sup> | boolean | Whether the gift inventory has unread items |
 | unread_gift_inventory_count<sup>1</sup> | integer | The number of unread gift inventory items |
 | pending_bulk_message_deletion<sup>1</sup> | ?[pending bulk message deletion](#pending-bulk-message-deletion-object) object | The scheduled deletion of all the account's messages, or null |
-| age_verified_adult?<sup>1</sup> | boolean | Whether adult age verification is done, omitted when false |
+| mature_content_unlocked?<sup>1</sup> <sup>5</sup> | boolean | Whether the account can see mature content in places where a date of birth typed in is not enough |
+| has_age_range?<sup>1</sup> <sup>5</sup> | boolean | Whether Fluxer keeps an age range for the account. The range itself is not included |
 | terms_agreed_at<sup>1</sup> | ?ISO8601 timestamp | When the account last accepted the terms, or null |
 | privacy_agreed_at<sup>1</sup> | ?ISO8601 timestamp | When the account was last shown the current privacy policy, or null |
 | claimed?<sup>1</sup> | boolean | Whether the account can sign in on another device with an email, a password or a passkey |
@@ -140,6 +141,8 @@ The current account as its owner sees it, returned by [Get current user](/http-a
 <sup>3</sup> When the [accounts configuration](/admin-api/instance/#accounts-configuration-object) enforces it, most routes return 403 `DATE_OF_BIRTH_REQUIRED` until the date is set
 
 <sup>4</sup> After premium ends, a `random` tag-style instance gives the account a new discriminator at its next Gateway session
+
+<sup>5</sup> The iOS and Android apps can send an age range from the Apple or Google account, and Fluxer keeps it only when it is 18 or over. `mature_content_unlocked` is true when Fluxer keeps such a range, when staff set it, or when the account had mature content unlocked before. A self-hosted instance never keeps an age range
 
 ## Pending bulk message deletion object
 
@@ -272,6 +275,7 @@ The account-wide settings, returned by [Get current user settings](/http-api/use
 | sensitive_content_friend_dm_filter | integer | [Sensitive media filter](#sensitive-media-filters) for DMs from friends |
 | sensitive_content_non_friend_dm_filter | integer | [Sensitive media filter](#sensitive-media-filters) for DMs from others |
 | sensitive_content_guild_filter | integer | [Guild sensitive media filter](#guild-sensitive-media-filters) |
+| allow_mature_content_on_ios | boolean | Whether the iOS app allows 18+ communities, channels and the "Show" media option. Only adults can turn it on |
 | suppress_unprivileged_self_mentions<sup>1</sup> | boolean | Whether direct and reply mentions from unprivileged users are suppressed |
 | suppress_unprivileged_self_mentions_bypass_user_ids<sup>1</sup> | array[snowflake] | The users exempt from mention suppression |
 | staff_dm_access_user_ids<sup>1</sup> | array[snowflake] | The users granted staff DM access |
@@ -519,8 +523,8 @@ One badge on a [full user profile](#full-user-profile-object). The API picks the
 | key | string | The badge's identity, equal to `kind` for built-in badges and `custom:{id}` for a custom badge. Use it as the list key |
 | kind<sup>1</sup> | string | The badge type |
 | label | string | The badge description in your locale, for the tooltip and alt text. A custom badge uses its name |
-| asset<sup>2</sup> | ?string | The 16-character hex hash of the badge image, or null for a text badge or a custom badge |
-| asset_url<sup>3</sup> | ?string | The image URL of a custom badge, or null for other badges |
+| asset<sup>2</sup> | ?string | The hex hash of the badge image, or null for a text badge, a custom badge or a replaced built-in image |
+| asset_url<sup>3</sup> | ?string | The image URL of a custom badge or a built-in badge with a replaced image, or null for other badges |
 | aspect_ratio | ?number | Image width divided by height, or null for a square badge |
 | caption | ?string | Short text the badge stands for, shown in place of the image when `asset` is null |
 | href | ?string | The URL a click opens, or null |

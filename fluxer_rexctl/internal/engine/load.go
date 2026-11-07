@@ -26,38 +26,15 @@ func (e *Engine) Named(name, dir string) *Project {
 }
 
 func (e *Engine) Load(ctx context.Context, s Spec) (*Project, error) {
-	files := make([]string, 0, len(s.Files))
-	for _, f := range s.Files {
-		if !filepath.IsAbs(f) {
-			f = filepath.Join(s.Dir, f)
-		}
-		files = append(files, f)
-	}
+	files := absFiles(s)
 	for _, f := range files {
 		if err := refuseUnsupported(f); err != nil {
 			return nil, err
 		}
 	}
-	env := make([]string, 0, len(s.Env)+1)
-	for k, v := range s.Env {
-		env = append(env, k+"="+v)
-	}
-	if _, ok := s.Env["PWD"]; !ok {
-		env = append(env, "PWD="+s.Dir)
-	}
-	sort.Strings(env)
-	opts, err := cli.NewProjectOptions(files,
-		cli.WithWorkingDirectory(s.Dir),
-		cli.WithEnv(env),
-		cli.WithName(s.Name),
-		cli.WithDefaultProfiles(),
-	)
+	model, err := loadModel(ctx, s)
 	if err != nil {
-		return nil, &Error{Op: "load", Class: ClassInvalidConfig, Err: err}
-	}
-	model, err := opts.LoadProject(ctx)
-	if err != nil {
-		return nil, loadError(err)
+		return nil, err
 	}
 	for name, svc := range model.Services {
 		if svc.Build != nil {
@@ -78,6 +55,48 @@ func (e *Engine) Load(ctx context.Context, s Spec) (*Project, error) {
 	}
 	model = model.WithoutUnnecessaryResources()
 	return &Project{Engine: e, Name: model.Name, Dir: s.Dir, Model: model}, nil
+}
+
+func absFiles(s Spec) []string {
+	files := make([]string, 0, len(s.Files))
+	for _, f := range s.Files {
+		if !filepath.IsAbs(f) {
+			f = filepath.Join(s.Dir, f)
+		}
+		files = append(files, f)
+	}
+	return files
+}
+
+func loadModel(ctx context.Context, s Spec, extra ...cli.ProjectOptionsFn) (model *types.Project, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			model, err = nil, &Error{Op: "load", Class: ClassInvalidConfig, Err: fmt.Errorf("the compose files couldn't be read: %v", r)}
+		}
+	}()
+	env := make([]string, 0, len(s.Env)+1)
+	for k, v := range s.Env {
+		env = append(env, k+"="+v)
+	}
+	if _, ok := s.Env["PWD"]; !ok {
+		env = append(env, "PWD="+s.Dir)
+	}
+	sort.Strings(env)
+	fns := append([]cli.ProjectOptionsFn{
+		cli.WithWorkingDirectory(s.Dir),
+		cli.WithEnv(env),
+		cli.WithName(s.Name),
+		cli.WithDefaultProfiles(),
+	}, extra...)
+	opts, err := cli.NewProjectOptions(absFiles(s), fns...)
+	if err != nil {
+		return nil, &Error{Op: "load", Class: ClassInvalidConfig, Err: err}
+	}
+	model, err = opts.LoadProject(ctx)
+	if err != nil {
+		return nil, loadError(err)
+	}
+	return model, nil
 }
 
 func loadError(err error) error {
@@ -176,6 +195,28 @@ func (p *Project) Image(service string) string {
 		return ""
 	}
 	return p.Model.Services[service].Image
+}
+
+func (p *Project) HelperFor(service string) HelperOptions {
+	if p.Model == nil {
+		return HelperOptions{}
+	}
+	svc, ok := p.Model.Services[service]
+	if !ok {
+		return HelperOptions{}
+	}
+	o := HelperOptions{Image: svc.Image}
+	for _, k := range slices.Sorted(maps.Keys(svc.Environment)) {
+		if v := svc.Environment[k]; v != nil {
+			o.Env = append(o.Env, k+"="+*v)
+		}
+	}
+	for _, v := range svc.Volumes {
+		if v.Type == types.VolumeTypeBind && v.Source != "" {
+			o.Mounts = append(o.Mounts, Mount{Bind: v.Source, Target: v.Target, ReadOnly: v.ReadOnly})
+		}
+	}
+	return o
 }
 
 func (p *Project) Hashes() (map[string]string, error) {

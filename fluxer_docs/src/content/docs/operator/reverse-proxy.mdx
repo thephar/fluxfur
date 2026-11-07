@@ -119,6 +119,48 @@ If Cloudflare proxies your domain, change these settings in the Cloudflare dashb
 - Turn Bot Fight Mode off and don't add challenges for `/api/`, `/gateway` or `/livekit/`. The desktop and mobile apps can't solve a challenge.
 - Set the SSL/TLS encryption mode to "Full (strict)".
 
+### Purging deleted media
+
+Cloudflare keeps serving cached copies of media after someone deletes it, until the cached copy expires. Fluxer can ask Cloudflare to purge those copies right away. Create an API token with the Zone Cache Purge permission for your zone, find the zone ID on the zone's overview page, and set these variables.
+
+```bash
+rexctl config set FLUXER_CACHE_PURGE_ADAPTER http
+rexctl config set FLUXER_CACHE_PURGE_HTTP_ENDPOINT https://api.cloudflare.com/client/v4/zones/<zone id>/purge_cache
+rexctl config set FLUXER_CACHE_PURGE_HTTP_TOKEN <api token>
+```
+
+Fluxer sends at most 100 prefixes per request, which is the most Cloudflare accepts. See [Environment variables](/operator/environment/#media) for the other cache purge settings.
+
 ## Voice and video
 
-Call audio and video don't go through your proxy. They connect directly to the machine on TCP port 7881 and UDP port 7882, and both ports need to be open. A tunnel such as Cloudflare Tunnel can't forward them, and an instance you only serve through a tunnel has no voice or video calls.
+Call audio and video don't go through your proxy. They connect directly to the machine on TCP port 7881 and UDP port 7882, and both ports need to be open. A tunnel such as Cloudflare Tunnel can't forward them.
+
+Extra voice servers on this machine from [`rexctl voice add`](/operator/voice-servers/#on-the-fluxer-machine) use paths on your domain, such as `/livekit-default-server-2/`. A proxy that forwards every path already passes them. Their media ports skip the proxy too. Open each server's TCP and UDP port as well.
+
+### Voice behind a tunnel
+
+If you only serve Fluxer through a tunnel, calls need a TURN server. It relays call media between people's devices and LiveKit. Run one on a machine with a public address, such as coturn on a small VPS, and open its port there, usually UDP port 3478.
+
+Then give LiveKit the relay as a JSON array in `FLUXER_LIVEKIT_TURN_SERVERS`.
+
+```sh
+rexctl config set FLUXER_LIVEKIT_TURN_SERVERS '[{"host":"turn.example.com","port":3478,"protocol":"udp","username":"fluxer","credential":"a-long-password"}]'
+```
+
+Without rexctl, put the same value in `.env` between single quotes and run `docker compose up -d`.
+
+LiveKit hands the relay to browsers and apps when they join a call, and they use it when they can't connect to LiveKit directly. Voice servers that rexctl adds or joins hand out the same relays. See [TURN servers](/operator/voice-servers/#turn-servers). Keep `FLUXER_LIVEKIT_USE_EXTERNAL_IP` at `true` so LiveKit tells them its public address. LiveKit opens the path to the relay from its own side, which most routers let through without open ports. If calls still don't connect, your router probably blocks this and you need to open TCP port 7881 and UDP port 7882 after all.
+
+On Kubernetes, add the relay to `livekit.extraConfig` in your values file.
+
+```yaml
+livekit:
+  extraConfig:
+    rtc:
+      turn_servers:
+        - host: turn.example.com
+          port: 3478
+          protocol: udp
+          username: fluxer
+          credential: a-long-password
+```

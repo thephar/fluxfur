@@ -2,6 +2,8 @@
 
 import type {UserID} from '@app/api/BrandedTypes';
 import type {BillingRepository} from '@app/api/billing/repositories/BillingRepository';
+import {mapBillingDocument} from '@app/api/billing_documents/BillingDocumentMappers';
+import {BillingDocumentRepository} from '@app/api/billing_documents/BillingDocumentRepository';
 import {Config} from '@app/api/Config';
 import type {
 	BillingInvoiceRow,
@@ -27,6 +29,7 @@ import {
 import type {StoreBillingRepository} from '@app/api/store_billing/StoreBillingRepository';
 import {isStripeSubscriptionActive} from '@app/api/store_billing/StoreEntitlementWriter';
 import {isBillingActive} from '@app/api/stripe/BillingConfigCache';
+import {applyDistributionToQuote, resolveListPriceId} from '@app/api/stripe/DistributionPricing';
 import {getProductRegistry, type RecurringBillingCycle} from '@app/api/stripe/ProductRegistry';
 import {getStripeClient} from '@app/api/stripe/StripeClient';
 import {getCachedStripePriceSummary} from '@app/api/stripe/StripePriceSummaryCache';
@@ -34,6 +37,7 @@ import {getPrimarySubscriptionItem, loadSubscriptionSchedule} from '@app/api/str
 import {extractId} from '@app/api/stripe/StripeUtils';
 import {
 	buildRefundEligibility,
+	combinedRefundTarget,
 	googlePlayRefundEligibilityTarget,
 	latestRefundTarget,
 	type RefundEligibilityTarget,
@@ -51,7 +55,6 @@ import type {
 	ListPriceSwitchState,
 	PendingSubscriptionChangeKind,
 	PendingSubscriptionChangeResponse,
-	PremiumBillingInvoiceResponse,
 	PremiumBillingPaymentMethodResponse,
 	PremiumBillingSubscriptionResponse,
 	PremiumPricingState,
@@ -64,6 +67,7 @@ import type {ICacheService} from '@pkgs/cache/src/ICacheService';
 import type Stripe from 'stripe';
 
 const INVOICE_LIMIT = 12;
+const DOCUMENT_LIST_LIMIT = 50;
 const ACTIVE_SUBSCRIPTION_STATUSES = new Set(['active', 'trialing']);
 const RELEVANT_SUBSCRIPTION_STATUSES = new Set(['past_due', 'unpaid', 'incomplete']);
 const REFUND_BLOCKING_STATUSES = new Set(['pending', 'succeeded', 'requires_action']);
@@ -175,23 +179,6 @@ function resolveSubscriptionProvider(
 	return stripeEnd ? 'stripe' : null;
 }
 
-function mapInvoice(row: BillingInvoiceRow): PremiumBillingInvoiceResponse {
-	return {
-		id: row.provider_id,
-		number: row.number ?? null,
-		amount_due: toNumber(row.amount_due),
-		amount_paid: toNumber(row.amount_paid),
-		currency: row.currency ?? 'usd',
-		status: row.status ?? null,
-		created_at: toIsoOrNull(row.stripe_created_at),
-		paid_at: toIsoOrNull(row.paid_at),
-		billing_reason: row.billing_reason ?? null,
-		subscription_id: row.subscription_id ?? null,
-		hosted_invoice_url: row.hosted_invoice_url ?? null,
-		invoice_pdf: row.invoice_pdf ?? null,
-	};
-}
-
 function mapPaymentMethod(row: BillingPaymentMethodRow): PremiumBillingPaymentMethodResponse {
 	return {
 		id: row.provider_id,
@@ -216,12 +203,12 @@ export class PremiumStateService {
 		private readonly storeBillingRepository: StoreBillingRepository | null = null,
 	) {}
 
-	async getState(userId: UserID, countryCode?: string): Promise<PremiumStateResponse> {
+	async getState(userId: UserID, countryCode?: string, distribution?: string): Promise<PremiumStateResponse> {
 		const user = await this.userRepository.findUnique(userId);
 		if (!user) {
 			throw new UnknownUserError();
 		}
-		return this.buildState(user, countryCode);
+		return this.buildState(user, countryCode, distribution);
 	}
 
 	async setPerksDisabled(userId: UserID, disabled: boolean): Promise<PremiumStateResponse> {
@@ -242,7 +229,7 @@ export class PremiumStateService {
 		return this.buildState(updatedUser);
 	}
 
-	private async buildState(user: User, countryCode?: string): Promise<PremiumStateResponse> {
+	private async buildState(user: User, countryCode?: string, distribution?: string): Promise<PremiumStateResponse> {
 		const [customerIds, subscription, paymentDisputeOpen] = await Promise.all([
 			this.resolveCustomerIds(user),
 			this.resolvePrimarySubscription(user),
@@ -254,7 +241,7 @@ export class PremiumStateService {
 			this.resolvePaymentMethods(customerIds),
 			this.resolveSubscriptionPrice(subscription, user),
 			this.resolvePendingSubscriptionChange(user),
-			this.resolvePricing(countryCode),
+			this.resolvePricing(countryCode, distribution),
 		]);
 		const storeRow = await this.resolveActiveStoreSubscription(user);
 		const store = storeRow ? mapPremiumStoreSubscriptionState(storeRow) : null;
@@ -300,8 +287,11 @@ export class PremiumStateService {
 				pending_subscription_change: pendingBillingCycleChange,
 				list_price_switch: listPriceSwitch,
 				subscription: subscription ? await this.mapSubscription(subscription) : null,
-				invoices: invoices.rows.map(mapInvoice),
-				invoices_has_more: invoices.hasMore,
+				documents: Config.instance.selfHosted
+					? []
+					: (await new BillingDocumentRepository().listUserDocuments(user.id, null, DOCUMENT_LIST_LIMIT)).map(
+							mapBillingDocument,
+						),
 				payment_methods: paymentMethods.map(mapPaymentMethod),
 				refund_eligibility: refundEligibilityState,
 			},
@@ -524,7 +514,9 @@ export class PremiumStateService {
 			return null;
 		}
 		const currency = (price?.currency ?? subscription.currency ?? 'usd').toUpperCase();
-		const listPriceId = this.productRegistry.getRecurringSubscriptionPriceId(billingCycle, currency);
+		const baseListPriceId = this.productRegistry.getRecurringSubscriptionPriceId(billingCycle, currency);
+		const currentPriceId = price?.provider_id ?? subscription.primary_price_id;
+		const listPriceId = resolveListPriceId(currentPriceId ?? null, baseListPriceId);
 		const listPrice = listPriceId ? await this.billingRepository.prices.findById(listPriceId) : null;
 		const itemAmount = subscription.items?.[0]?.[3] ?? null;
 		const amountMinor = nullableNumber(price?.unit_amount ?? itemAmount);
@@ -756,16 +748,22 @@ export class PremiumStateService {
 		return total;
 	}
 
-	private async resolvePricing(countryCode: string | null | undefined): Promise<PremiumPricingState> {
+	private async resolvePricing(
+		countryCode: string | null | undefined,
+		distribution: string | undefined,
+	): Promise<PremiumPricingState> {
 		const normalizedCountryCode = normalizeCountryCode(countryCode);
-		const localized = await this.resolvePriceIds(normalizedCountryCode);
+		const localized = await this.resolvePriceIds(normalizedCountryCode, distribution);
 		return {
 			country_code: normalizedCountryCode,
 			localized,
 		};
 	}
 
-	private async resolvePriceIds(countryCode: string | null): Promise<PriceIdsResponse | null> {
+	private async resolvePriceIds(
+		countryCode: string | null,
+		distribution: string | undefined,
+	): Promise<PriceIdsResponse | null> {
 		const resolved = this.productRegistry.resolveLocalizedPriceIds(countryCode);
 		if (!resolved) {
 			return null;
@@ -776,13 +774,17 @@ export class PremiumStateService {
 			this.resolvePriceAmountMinor(resolved.gift_1_month),
 			this.resolvePriceAmountMinor(resolved.gift_1_year),
 		]);
-		return {
-			...resolved,
-			monthly_amount_minor: monthlyAmount,
-			yearly_amount_minor: yearlyAmount,
-			gift_1_month_amount_minor: gift1MonthAmount,
-			gift_1_year_amount_minor: gift1YearAmount,
-		};
+		return applyDistributionToQuote(
+			{
+				...resolved,
+				monthly_amount_minor: monthlyAmount,
+				yearly_amount_minor: yearlyAmount,
+				gift_1_month_amount_minor: gift1MonthAmount,
+				gift_1_year_amount_minor: gift1YearAmount,
+				distribution: null,
+			},
+			distribution,
+		);
 	}
 
 	private async resolvePriceAmountMinor(priceId: string | null): Promise<number | null> {
@@ -831,6 +833,7 @@ export class PremiumStateService {
 
 	private async resolveStripeRefundTarget(invoices: Array<BillingInvoiceRow>): Promise<RefundEligibilityTarget | null> {
 		const paidInvoices = invoices.filter((invoice) => invoice.status === 'paid' && toNumber(invoice.amount_paid) > 0);
+		const targets: Array<RefundEligibilityTarget> = [];
 		for (const invoice of paidInvoices) {
 			if (await this.invoiceHasBlockingRefund(invoice)) {
 				continue;
@@ -839,16 +842,17 @@ export class PremiumStateService {
 			if (!paidAt) {
 				continue;
 			}
-			return {
+			targets.push({
 				provider: 'stripe',
 				invoiceId: invoice.provider_id,
 				amountPaidCents: nullableNumber(invoice.amount_paid),
 				currency: invoice.currency,
 				paidAt,
 				subscriptionId: invoice.subscription_id,
-			};
+			});
 		}
-		return null;
+		const latest = latestRefundTarget(...targets);
+		return latest ? combinedRefundTarget(latest, targets) : null;
 	}
 
 	private async resolveGooglePlayRefundTarget(

@@ -6,6 +6,7 @@
 -export([
     compute_and_dispatch_visibility_changes/2,
     compute_and_dispatch_visibility_changes_for_users/3,
+    compute_and_dispatch_visibility_changes_for_sessions/2,
     compute_and_dispatch_visibility_changes_for_channels/3
 ]).
 
@@ -65,6 +66,18 @@ compute_and_dispatch_visibility_changes_for_users(UserIds, OldState, NewState) -
     ),
     ConnectedVoiceByUser = guild_visibility_channels:connected_voice_channel_sets(NewState),
     dispatch_for_sessions(TargetSessions, OldState, NewState, ConnectedVoiceByUser).
+
+-spec compute_and_dispatch_visibility_changes_for_sessions([binary()], guild_state()) ->
+    guild_state().
+compute_and_dispatch_visibility_changes_for_sessions([], State) ->
+    State;
+compute_and_dispatch_visibility_changes_for_sessions(SessionIds, State) ->
+    Sessions = maps:get(sessions, State, #{}),
+    SessionEntries = guild_visibility_channels:filter_connected_session_entries(
+        maps:with(SessionIds, Sessions)
+    ),
+    ConnectedVoiceByUser = guild_visibility_channels:connected_voice_channel_sets(State),
+    dispatch_for_sessions(SessionEntries, State, State, ConnectedVoiceByUser).
 
 -spec collect_target_session(binary(), map(), sets:set(user_id()), [{binary(), map()}]) ->
     [{binary(), map()}].
@@ -312,12 +325,15 @@ dispatch_per_channel_changes(
             {Memoised, Memo1} = guild_visibility_memo:pairs(
                 ChannelIds, OldState, NewState, ChangeContext, Memo
             ),
-            {FinalMap, StateAfter} = process_channel_list(
+            {FinalMap0, StateAfter} = process_channel_list(
                 ChannelIds, Memoised, InitialViewableMap, NewState, ChangeContext
+            ),
+            {FinalMap, Memo2} = reconcile_parent_categories(
+                ChannelIds, FinalMap0, StateAfter, ChangeContext, Memo1
             ),
             {
                 guild_sessions:set_session_viewable_channels(SessionId, FinalMap, StateAfter),
-                Memo1
+                Memo2
             }
     end.
 
@@ -467,3 +483,56 @@ gated_channel_create(ChId, Sid, SD, New, GId, VMap) ->
 -spec guild_id(guild_state()) -> integer() | undefined.
 guild_id(State) ->
     snowflake_id:parse_optional(maps:get(id, State, undefined)).
+
+-spec reconcile_parent_categories(
+    [channel_id()], map(), guild_state(), map(), guild_visibility_memo:memo()
+) -> {map(), guild_visibility_memo:memo()}.
+reconcile_parent_categories(ChannelIds, ViewableMap, NewState, ChangeContext, Memo) ->
+    case application:get_env(fluxer_gateway, reconcile_parent_categories, true) of
+        true ->
+            do_reconcile_parent_categories(
+                ChannelIds, ViewableMap, NewState, ChangeContext, Memo
+            );
+        _ ->
+            {ViewableMap, Memo}
+    end.
+
+-spec do_reconcile_parent_categories(
+    [channel_id()], map(), guild_state(), map(), guild_visibility_memo:memo()
+) -> {map(), guild_visibility_memo:memo()}.
+do_reconcile_parent_categories(ChannelIds, ViewableMap, NewState, ChangeContext, Memo) ->
+    #{
+        pid := Pid,
+        old_state := OldState,
+        guild_id := GuildId
+    } = ChangeContext,
+    {Categories, Memo1} = guild_visibility_memo:categories(
+        OldState, NewState, ChangeContext, Memo
+    ),
+    FinalMap = lists:foldl(
+        fun(Category, MapAcc) ->
+            apply_category(Category, MapAcc, ChannelIds, {Pid, OldState, GuildId})
+        end,
+        ViewableMap,
+        Categories
+    ),
+    {FinalMap, Memo1}.
+
+-spec apply_category(
+    guild_visibility_memo:category_visibility(),
+    map(),
+    [channel_id()],
+    {pid() | term(), guild_state(), integer()}
+) -> map().
+apply_category({CategoryId, OwnOld, ShownOld, ShownNew}, MapAcc, ChannelIds, Target) ->
+    HandledByTransition = OwnOld andalso lists:member(CategoryId, ChannelIds),
+    case {ShownOld, ShownNew, HandledByTransition} of
+        {true, false, false} ->
+            {Pid, OldState, GuildId} = Target,
+            guild_visibility_roles:dispatch_channel_delete(CategoryId, Pid, OldState, GuildId),
+            maps:remove(CategoryId, MapAcc);
+        {_, false, _} ->
+            maps:remove(CategoryId, MapAcc);
+        {_, true, _} ->
+            MapAcc#{CategoryId => true}
+    end.

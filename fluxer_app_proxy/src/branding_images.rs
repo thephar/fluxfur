@@ -105,11 +105,51 @@ fn instance_sources_from_discovery(discovery: &serde_json::Value) -> InstanceCsp
     {
         connect_origins.push(origin);
     }
+    for origin in voice_origins(discovery) {
+        if !connect_origins.contains(&origin) {
+            connect_origins.push(origin);
+        }
+    }
     InstanceCspSources {
         static_cdn_endpoint: http_origin("static_cdn"),
         media_endpoint: http_origin("media"),
         connect_origins,
     }
+}
+
+fn voice_origins(discovery: &serde_json::Value) -> Vec<String> {
+    let Some(values) = discovery
+        .pointer("/voice_origins")
+        .and_then(serde_json::Value::as_array)
+    else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for origin in values
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .filter_map(|value| voice_source(value.trim()))
+    {
+        let twin = origin
+            .strip_prefix("wss://")
+            .map(|rest| format!("https://{rest}"))
+            .or_else(|| {
+                origin
+                    .strip_prefix("ws://")
+                    .map(|rest| format!("http://{rest}"))
+            });
+        out.push(origin);
+        out.extend(twin);
+    }
+    out
+}
+
+fn voice_source(value: &str) -> Option<String> {
+    let Some((scheme, rest)) = value.split_once("://*.") else {
+        return connect_origin(value);
+    };
+    let origin = connect_origin(&format!("{scheme}://{rest}"))?;
+    Some(origin.replacen("://", "://*.", 1))
 }
 
 fn connect_origin(value: &str) -> Option<String> {

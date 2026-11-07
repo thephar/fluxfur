@@ -17,8 +17,8 @@ import type {ApplicationRepository} from '@app/api/oauth/repositories/Applicatio
 import type {OAuth2TokenRepository} from '@app/api/oauth/repositories/OAuth2TokenRepository';
 import {isSignInRefused} from '@app/api/user/UserHelpers';
 import {mapUserToOAuthResponse} from '@app/api/user/UserMappers';
-import {verifyPassword} from '@app/api/utils/PasswordUtils';
 import {randomBase64Url} from '@app/api/utils/SecretHash';
+import type {StoredSecretVerifier} from '@app/api/utils/StoredSecret';
 import {InvalidRequestError} from '@fluxer/errors/src/domains/core/InvalidRequestError';
 import {InvalidTokenError} from '@fluxer/errors/src/domains/core/InvalidTokenError';
 import {BotIsPrivateError} from '@fluxer/errors/src/domains/oauth/BotIsPrivateError';
@@ -30,14 +30,18 @@ import {InvalidScopeError} from '@fluxer/errors/src/domains/oauth/InvalidScopeEr
 import {MissingClientSecretError} from '@fluxer/errors/src/domains/oauth/MissingClientSecretError';
 import {MissingRedirectUriError} from '@fluxer/errors/src/domains/oauth/MissingRedirectUriError';
 
+const ADMIN_SSO_TOKEN_SCOPES = ['identify', 'email'];
+
 interface OAuth2ServiceDeps {
 	applicationRepository: ApplicationRepository;
 	oauth2TokenRepository: OAuth2TokenRepository;
+	storedSecrets: StoredSecretVerifier;
 }
 
 export class OAuth2Service {
 	private applications: ApplicationRepository;
 	private tokens: OAuth2TokenRepository;
+	private storedSecrets: StoredSecretVerifier;
 
 	constructor(
 		private readonly apiContext: ApiContext,
@@ -45,6 +49,16 @@ export class OAuth2Service {
 	) {
 		this.applications = deps.applicationRepository;
 		this.tokens = deps.oauth2TokenRepository;
+		this.storedSecrets = deps.storedSecrets;
+	}
+
+	async clientSecretMatches(application: Application, clientSecret: string): Promise<boolean> {
+		if (!application.clientSecretHash) return true;
+		return this.storedSecrets.matches(
+			`client_secret:${application.applicationId}`,
+			clientSecret,
+			application.clientSecretHash,
+		);
 	}
 
 	private async findActiveUser(userId: UserID) {
@@ -197,6 +211,62 @@ export class OAuth2Service {
 		};
 	}
 
+	async authenticateClient(args: {
+		authorizationHeader?: string;
+		clientId?: string;
+		clientSecret?: string;
+	}): Promise<Application> {
+		const basic = this.basicAuth(args.authorizationHeader);
+		const clientId = args.clientId ?? basic?.clientId ?? '';
+		const clientSecret = args.clientSecret ?? basic?.clientSecret;
+		let parsedClientId: ApplicationID;
+		try {
+			parsedClientId = BigInt(clientId) as ApplicationID;
+		} catch {
+			throw new InvalidClientError();
+		}
+		const application = await this.applications.getApplication(parsedClientId);
+		if (!application) {
+			Logger.debug({client_id_len: clientId.length}, 'OAuth2 client authentication: unknown application');
+			throw new InvalidClientError();
+		}
+		if (!clientSecret) {
+			Logger.debug(
+				{application_id: application.applicationId.toString()},
+				'OAuth2 client authentication: missing client_secret',
+			);
+			throw new MissingClientSecretError();
+		}
+		if (!(await this.clientSecretMatches(application, clientSecret))) {
+			Logger.debug(
+				{application_id: application.applicationId.toString()},
+				'OAuth2 client authentication: client_secret verification failed',
+			);
+			throw new InvalidClientSecretError();
+		}
+		return application;
+	}
+
+	async issueAdminSsoTokens(
+		application: Application,
+		userId: UserID,
+	): Promise<{
+		access_token: string;
+		token_type: 'Bearer';
+		expires_in: number;
+		scope: string;
+		refresh_token: string;
+	}> {
+		const res = await this.issueTokens({application, userId, scope: new Set(ADMIN_SSO_TOKEN_SCOPES)});
+		return {
+			access_token: res.accessToken.token_,
+			token_type: 'Bearer',
+			expires_in: res.expires_in,
+			scope: res.scope ?? '',
+			refresh_token: res.refreshToken.token_,
+		};
+	}
+
 	async tokenExchange(params: {
 		headersAuthorization?: string;
 		grantType: 'authorization_code' | 'refresh_token';
@@ -224,37 +294,11 @@ export class OAuth2Service {
 			},
 			'OAuth2 tokenExchange start',
 		);
-		const basic = this.basicAuth(params.headersAuthorization);
-		const clientId = params.clientId ?? basic?.clientId ?? '';
-		const clientSecret = params.clientSecret ?? basic?.clientSecret;
-		let parsedClientId: ApplicationID;
-		try {
-			parsedClientId = BigInt(clientId) as ApplicationID;
-		} catch {
-			throw new InvalidClientError();
-		}
-		const application = await this.applications.getApplication(parsedClientId);
-		if (!application) {
-			Logger.debug({client_id_len: clientId.length}, 'OAuth2 tokenExchange: unknown application');
-			throw new InvalidClientError();
-		}
-		if (!clientSecret) {
-			Logger.debug(
-				{application_id: application.applicationId.toString()},
-				'OAuth2 tokenExchange: missing client_secret',
-			);
-			throw new MissingClientSecretError();
-		}
-		if (application.clientSecretHash) {
-			const ok = await verifyPassword({password: clientSecret, passwordHash: application.clientSecretHash});
-			if (!ok) {
-				Logger.debug(
-					{application_id: application.applicationId.toString()},
-					'OAuth2 tokenExchange: client_secret verification failed',
-				);
-				throw new InvalidClientSecretError();
-			}
-		}
+		const application = await this.authenticateClient({
+			authorizationHeader: params.headersAuthorization,
+			clientId: params.clientId,
+			clientSecret: params.clientSecret,
+		});
 		if (params.grantType === 'authorization_code') {
 			const code = params.code!;
 			const authCode = await this.tokens.getAuthorizationCode(code);
@@ -409,11 +453,8 @@ export class OAuth2Service {
 		if (!application) {
 			throw new InvalidClientError();
 		}
-		if (application.clientSecretHash) {
-			const valid = await verifyPassword({password: auth.clientSecret, passwordHash: application.clientSecretHash});
-			if (!valid) {
-				throw new InvalidClientSecretError();
-			}
+		if (!(await this.clientSecretMatches(application, auth.clientSecret))) {
+			throw new InvalidClientSecretError();
 		}
 		if (tokenTypeHint === 'refresh_token') {
 			const refresh = await this.tokens.getRefreshToken(tokenStr);

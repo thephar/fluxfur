@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/compose-spec/compose-go/v2/types"
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/compose/v5/pkg/api"
 	"github.com/moby/moby/client"
 )
@@ -255,6 +256,14 @@ func (p *Project) present(ctx context.Context, op string, services []string) err
 }
 
 func (p *Project) Stop(ctx context.Context, services ...string) error {
+	return p.stop(ctx, nil, services)
+}
+
+func (p *Project) StopWithin(ctx context.Context, timeout time.Duration) error {
+	return p.stop(ctx, &timeout, nil)
+}
+
+func (p *Project) stop(ctx context.Context, timeout *time.Duration, services []string) error {
 	c, err := p.Engine.conn()
 	if err != nil {
 		return err
@@ -264,10 +273,10 @@ func (p *Project) Stop(ctx context.Context, services ...string) error {
 	} else if err != nil {
 		return err
 	}
-	if marker := p.stopMarker(); marker != "" && os.WriteFile(marker, []byte(strings.Join(services, "\n")), 0o600) == nil {
+	if marker := p.stopMarker(); marker != "" && p.writeStopMarker(services) == nil {
 		defer os.Remove(marker)
 	}
-	if err := c.svc.Stop(ctx, p.Name, api.StopOptions{Project: p.modelOrNil(), Services: services}); err != nil {
+	if err := c.svc.Stop(ctx, p.Name, api.StopOptions{Project: p.modelOrNil(), Services: services, Timeout: timeout}); err != nil {
 		return p.wrap("stop", err)
 	}
 	return p.stopPodmanCompose(ctx, services)
@@ -284,6 +293,23 @@ func (p *Project) stopMarker() string {
 		return ""
 	}
 	return filepath.Join(dir, "stopping")
+}
+
+func (p *Project) writeStopMarker(services []string) error {
+	root, err := os.OpenRoot(p.Dir)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	f, err := root.OpenFile(filepath.Join(".rexctl", "stopping"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	_, err = f.WriteString(strings.Join(services, "\n"))
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	return err
 }
 
 func (p *Project) finishStop(ctx context.Context, c *conn) error {
@@ -345,6 +371,14 @@ func (p *Project) Remove(ctx context.Context, services ...string) error {
 }
 
 func (p *Project) Down(ctx context.Context, volumes bool) error {
+	return p.down(ctx, volumes, nil)
+}
+
+func (p *Project) DownWithin(ctx context.Context, volumes bool, timeout time.Duration) error {
+	return p.down(ctx, volumes, &timeout)
+}
+
+func (p *Project) down(ctx context.Context, volumes bool, timeout *time.Duration) error {
 	c, err := p.Engine.conn()
 	if err != nil {
 		return err
@@ -356,7 +390,57 @@ func (p *Project) Down(ctx context.Context, volumes bool) error {
 	if err := p.removeHelpers(ctx, a); err != nil {
 		return err
 	}
-	return p.wrap("down", c.svc.Down(ctx, p.Name, api.DownOptions{Project: p.modelOrNil(), RemoveOrphans: true, Volumes: volumes}))
+	return p.wrap("down", c.svc.Down(ctx, p.Name, api.DownOptions{Project: p.modelOrNil(), RemoveOrphans: true, Volumes: volumes, Timeout: timeout}))
+}
+
+func (p *Project) DownKeeping(ctx context.Context, keep ...string) error {
+	if err := p.Down(ctx, false); err != nil {
+		return err
+	}
+	vols, err := p.Engine.Volumes(ctx, p.Name)
+	if err != nil {
+		return err
+	}
+	a, err := p.Engine.api()
+	if err != nil {
+		return err
+	}
+	for _, name := range volumesToDrop(p.Model, vols, p.Name, keep) {
+		if _, err := a.VolumeRemove(ctx, name, client.VolumeRemoveOptions{}); err != nil && !cerrdefs.IsNotFound(err) {
+			return p.wrap("down", err)
+		}
+	}
+	return nil
+}
+
+func volumesToDrop(model *types.Project, vols []Volume, project string, keep []string) []string {
+	var kept, out []string
+	if model != nil {
+		for short, v := range model.Volumes {
+			if slices.Contains(keep, short) {
+				kept = append(kept, v.Name)
+			}
+		}
+		for short, v := range model.Volumes {
+			if !bool(v.External) && v.Name != "" && !slices.Contains(keep, short) && !slices.Contains(kept, v.Name) {
+				out = append(out, v.Name)
+			}
+		}
+	}
+	for _, v := range vols {
+		if v.Project != project || slices.Contains(kept, v.Name) {
+			continue
+		}
+		short := v.Labels[api.VolumeLabel]
+		if short == "" {
+			short = strings.TrimPrefix(v.Name, project+"_")
+		}
+		if !slices.Contains(keep, short) {
+			out = append(out, v.Name)
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
 }
 
 func (p *Project) modelOrNil() *types.Project {
@@ -382,4 +466,47 @@ func (p *Project) wrap(op string, err error) error {
 		return err
 	}
 	return &Error{Op: op, Class: ClassOf(err), Err: err}
+}
+
+func (e *Engine) EnsureNetwork(ctx context.Context, name, project, key string, ipv6 bool) error {
+	c, err := e.api()
+	if err != nil {
+		return err
+	}
+	if _, err := c.NetworkInspect(ctx, name, client.NetworkInspectOptions{}); err == nil {
+		return nil
+	} else if !cerrdefs.IsNotFound(err) {
+		return err
+	}
+	opts := client.NetworkCreateOptions{
+		Driver: "bridge",
+		Labels: map[string]string{api.ProjectLabel: project, api.NetworkLabel: key},
+	}
+	if ipv6 {
+		opts.EnableIPv6 = &ipv6
+	}
+	_, err = c.NetworkCreate(ctx, name, opts)
+	if cerrdefs.IsConflict(err) {
+		return nil
+	}
+	return err
+}
+
+func (e *Engine) NetworkIPv6(ctx context.Context, name string) (bool, bool, error) {
+	c, err := e.api()
+	if err != nil {
+		return false, false, err
+	}
+	res, err := c.NetworkInspect(ctx, name, client.NetworkInspectOptions{})
+	if cerrdefs.IsNotFound(err) {
+		return false, false, nil
+	}
+	if err != nil {
+		return false, false, err
+	}
+	return true, res.Network.EnableIPv6, nil
+}
+
+func (e *Engine) IPv6Voice() bool {
+	return e.Kind == Docker && !e.Rootless && AtLeast(e.Version, MinDockerIPv6)
 }

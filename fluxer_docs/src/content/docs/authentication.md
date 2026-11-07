@@ -57,7 +57,7 @@ The user needs the `admin:authenticate` ACL or `*`, otherwise the request return
 
 A protected operation returns 401 `UNAUTHORIZED` for a missing, malformed, unknown, expired or revoked credential, and the response doesn't say which. A valid identity that the operation denies returns 403 `ACCESS_DENIED`.
 
-Requests to [threads](/http-api/threads/), [thread members](/http-api/thread-members/) and [forums](/http-api/forums/) need a bot token, or a session token with the `channel_threads` [client capability](/http-api/threads/#client-capability). Any other request to them gets 404 `NOT_FOUND` instead of 401.
+Requests to [threads](/http-api/threads/), [thread members](/http-api/thread-members/) and [forums](/http-api/forums/) need a bot token, or a session token with the `channel_threads` [client capability](/http-api/threads/#client-capability). Any other request to them gets 404 `NOT_FOUND`.
 
 A credential on an unauthenticated operation selects account-based [rate limits](/topics/rate-limits/) and can waive a [CAPTCHA](/topics/captcha/).
 
@@ -93,7 +93,7 @@ Sudo mode is a recent proof that the account holder re-verified a credential. An
 
 After a TOTP, passkey or emailed-code proof, the response returns a token in the `X-Fluxer-Sudo-Mode-JWT` header. Send it in that request header for five minutes to skip the proof. An account that proves sudo mode with its password gets no token and sends the password each time.
 
-A bot account, or an account with no password, TOTP secret, WebAuthn credential or confirmed email, passes sudo mode without a proof. An account with only a confirmed email proves it with an [emailed code](/http-api/users/mfa/#send-a-sudo-email-code). [Multi-factor authentication](/http-api/users/mfa/#sudo-mode) covers the accepted proofs and the [sudo mode methods object](/http-api/users/mfa/#sudo-mode-methods-object).
+A bot account, or an account with no password, TOTP secret, WebAuthn credential or confirmed email, passes sudo mode without a proof. If that account is connected to SSO, it passes only from a session that signed in with SSO in the last 10 minutes. While the instance has SSO turned off, such an account can't pass sudo mode, and the person needs a password set before SSO goes off. An account with only a confirmed email proves it with an [emailed code](/http-api/users/mfa/#send-a-sudo-email-code). [Multi-factor authentication](/http-api/users/mfa/#sudo-mode) covers the accepted proofs and the [sudo mode methods object](/http-api/users/mfa/#sudo-mode-methods-object).
 
 ## Gateway authentication
 

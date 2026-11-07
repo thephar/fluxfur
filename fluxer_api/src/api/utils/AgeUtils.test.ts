@@ -1,8 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import {Config} from '@app/api/Config';
 import {getCachedAccountsConfig, setCachedAccountsConfig} from '@app/api/instance/AccountsConfigCache';
-import {calculateAge, canUserAccessNsfwContent, parseDateOfBirth} from '@app/api/utils/AgeUtils';
+import {
+	calculateAge,
+	canUserAccessNsfwContent,
+	isMatureContentUnlocked,
+	parseDateOfBirth,
+} from '@app/api/utils/AgeUtils';
 import {DateOfBirthPolicies, type DateOfBirthPolicy} from '@fluxer/constants/src/AccountConfigConstants';
+import {AttestedAgeFloors} from '@fluxer/constants/src/AgeRangeConstants';
+import {UserFlags} from '@fluxer/constants/src/UserConstants';
 import {afterEach, describe, expect, it, vi} from 'vitest';
 
 function setDateOfBirthPolicy(dateOfBirth: DateOfBirthPolicy): void {
@@ -48,6 +56,25 @@ describe('canUserAccessNsfwContent', () => {
 	it('allows an account with a minor date of birth when the instance collects none', () => {
 		setDateOfBirthPolicy(DateOfBirthPolicies.OFF);
 		expect(canUserAccessNsfwContent({isBot: false, dateOfBirth: MINOR_DATE_OF_BIRTH})).toBe(true);
+	});
+});
+
+describe('isMatureContentUnlocked', () => {
+	afterEach(() => {
+		Config.instance.selfHosted = false;
+	});
+
+	it('counts only an adult age range or the staff flag', () => {
+		expect(isMatureContentUnlocked({flags: 0n, attestedAgeFloor: AttestedAgeFloors.ADULT})).toBe(true);
+		expect(isMatureContentUnlocked({flags: 0n, attestedAgeFloor: AttestedAgeFloors.MINOR})).toBe(false);
+		expect(isMatureContentUnlocked({flags: 0n, attestedAgeFloor: null})).toBe(false);
+		expect(isMatureContentUnlocked({flags: UserFlags.MATURE_CONTENT_UNLOCKED, attestedAgeFloor: null})).toBe(true);
+	});
+
+	it('ignores a stored age range on a self-hosted instance', () => {
+		Config.instance.selfHosted = true;
+		expect(isMatureContentUnlocked({flags: 0n, attestedAgeFloor: AttestedAgeFloors.ADULT})).toBe(false);
+		expect(isMatureContentUnlocked({flags: UserFlags.MATURE_CONTENT_UNLOCKED, attestedAgeFloor: null})).toBe(true);
 	});
 });
 

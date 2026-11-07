@@ -11,7 +11,13 @@ import {
 	setCassandraQueryExecutorForTesting,
 	shutdownCassandraQueryExecutorForTesting,
 } from '@app/api/database/CassandraQueryExecution';
-import type {IUsersServiceClient} from '@app/api/infrastructure/UsersServiceClient';
+import type {
+	AppAttestAgeAccepted,
+	AppAttestChallengeIssued,
+	AppAttestOutcome,
+	IUsersServiceClient,
+	PlayIntegrityOutcome,
+} from '@app/api/infrastructure/UsersServiceClient';
 import {setInjectedUsersServiceClient} from '@app/api/infrastructure/UsersServiceClient';
 import {initializeLogger} from '@app/api/Logger';
 import {setInjectedKVProvider, setInjectedSnowflakeService} from '@app/api/middleware/ServiceRegistry';
@@ -64,6 +70,8 @@ function setDefaultTestEnv(): void {
 		FLUXER_MEDIA_PROXY_ATTACHMENT_URL_SECRETS_BASE64: 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=',
 		FLUXER_ADMIN_SECRET_KEY_BASE: 'test-admin-secret',
 		FLUXER_ADMIN_OAUTH_CLIENT_SECRET: 'test-admin-oauth-secret',
+		FLUXER_ADMIN_SSO_ISSUER: 'https://1.1.1.1/admin-sso',
+		FLUXER_ADMIN_SSO_CLIENT_ID: 'admin-sso-test-client',
 		FLUXER_GATEWAY_RPC_AUTH_TOKEN: 'test-gateway-rpc-token',
 		FLUXER_SUDO_MODE_SECRET: 'test-sudo-secret',
 		FLUXER_CONNECTION_INITIATION_SECRET: 'test-connection-secret',
@@ -110,6 +118,26 @@ class RepositoryBackedUsersServiceClient implements IUsersServiceClient {
 	}
 
 	async invalidateUserCache(_userId: UserID): Promise<void> {}
+
+	async appAttestCreateChallenge(): Promise<AppAttestOutcome<AppAttestChallengeIssued>> {
+		return {ok: false, code: 'not_configured'};
+	}
+
+	async appAttestRegisterKey(): Promise<AppAttestOutcome<true>> {
+		return {ok: false, code: 'not_configured'};
+	}
+
+	async appAttestSubmitAge(): Promise<AppAttestOutcome<AppAttestAgeAccepted>> {
+		return {ok: false, code: 'not_configured'};
+	}
+
+	async playIntegrityCreateChallenge(): Promise<PlayIntegrityOutcome<AppAttestChallengeIssued>> {
+		return {ok: false, code: 'not_configured'};
+	}
+
+	async playIntegritySubmitAge(): Promise<PlayIntegrityOutcome<AppAttestAgeAccepted>> {
+		return {ok: false, code: 'not_configured'};
+	}
 }
 
 setDefaultTestEnv();
@@ -181,6 +209,7 @@ const testApiConfig: APIConfig = {
 	storeBilling: {
 		sandboxUserIds: [],
 		sandboxEntitlesAll: false,
+		sandboxSubscriptions: false,
 	},
 };
 testApiConfig.dev.relaxRegistrationRateLimits = true;

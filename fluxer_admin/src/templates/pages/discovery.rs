@@ -271,6 +271,17 @@ fn listed_card(
     )
 }
 
+fn discovery_disabled_page(config: &AdminConfig, auth: &AuthContext) -> Markup {
+    let content = html! {
+        (page_header("Explore", None))
+        div class="rounded-lg border border-neutral-200 bg-white p-6 text-sm text-neutral-500" {
+            "Explore is turned off on this instance. Set FLUXER_DISCOVERY_ENABLED to true to \
+             review applications."
+        }
+    };
+    admin_layout(config, auth, "Explore", "discovery", None, content)
+}
+
 pub fn discovery_page(
     config: &AdminConfig,
     auth: &AuthContext,
@@ -280,6 +291,9 @@ pub fn discovery_page(
     listed: Option<&[DiscoveryGuild]>,
     load_error: Option<&str>,
 ) -> Markup {
+    if !auth.discovery_enabled() {
+        return discovery_disabled_page(config, auth);
+    }
     let base = &config.base_path;
     let admin_acls = auth.acls();
     let can_review = acl::has_permission(admin_acls, acl::DISCOVERY_REVIEW);

@@ -4,10 +4,10 @@ import Accessibility from '@app/features/accessibility/state/Accessibility';
 import {messageActionMenuItemIds, useMessageActionMenuData} from '@app/features/channel/components/MessageActionMenu';
 import {getEffectiveContent, triggerAddReaction} from '@app/features/channel/components/MessageActionUtils';
 import {
+	QuickReactionEmoji,
 	REACT_WITH_EMOJI_DESCRIPTOR,
-	renderQuickReactionEmoji,
+	useReactionMenuEmojiSrc,
 	useReactionMenuImagePreload,
-	useReactionSubmenuEmojiSrc,
 } from '@app/features/channel/components/QuickReactionsRow';
 import type {Channel} from '@app/features/channel/models/Channel';
 import EmojiPicker from '@app/features/emoji/state/EmojiPicker';
@@ -23,7 +23,9 @@ import {MessageReactionsModal} from '@app/features/messaging/components/modals/M
 import {ReactionImage} from '@app/features/messaging/components/ReactionImage';
 import {useMessageReactions as useMessageReactionsSnapshot} from '@app/features/messaging/hooks/useMessageReactionStore';
 import type {Message} from '@app/features/messaging/models/MessagingMessage';
+import AttachmentUrlRefresher from '@app/features/messaging/state/AttachmentUrlRefresher';
 import MessagesState from '@app/features/messaging/state/MessagingMessages';
+import {refreshAttachmentUrlsInText} from '@app/features/messaging/utils/MessageCopyTextUtils';
 import {buildMessagePlaintextCopyText} from '@app/features/messaging/utils/MessagePlaintextCopyUtils';
 import {
 	buildMessageSelectionCopyTextForRange,
@@ -194,7 +196,7 @@ RemoveReactionsSubmenu.displayName = 'RemoveReactionsSubmenu';
 const AddReactionSubmenuItem = observer(
 	({emoji, onSelect}: {emoji: FlatEmoji; onSelect: (emoji: FlatEmoji) => void}) => {
 		const reactionEmoji = useMemo(() => toReactionEmoji(emoji), [emoji]);
-		const emojiUrl = useReactionSubmenuEmojiSrc(emoji);
+		const emojiUrl = useReactionMenuEmojiSrc(emoji);
 		const label = getEmojiNameWithColons(reactionEmoji);
 		const renderEmojiPreview = () => {
 			if (emojiUrl) {
@@ -268,7 +270,10 @@ const QuickReactionContextMenuItem = observer(
 					data-menu-shortcut={shortcut}
 					data-flx="ui.action-menu.message-context-menu.quick-reaction-context-menu-item.aria-menu-item"
 				>
-					{renderQuickReactionEmoji(emoji)}
+					<QuickReactionEmoji
+						emoji={emoji}
+						data-flx="ui.action-menu.message-context-menu.quick-reaction-context-menu-item.quick-reaction-emoji"
+					/>
 					{shouldShowShortcut && (
 						<span
 							className={contextMenuStyles.quickReactionShortcut}
@@ -387,12 +392,12 @@ export const MessageContextMenu: React.FC<MessageContextMenuProps> = observer(
 		}, [i18n.locale]);
 		const handleCopySelection = useCallback(async () => {
 			if (!selectionText) return;
-			await TextCopyCommands.copy(i18n, selectionText, true);
+			await TextCopyCommands.copy(i18n, await refreshAttachmentUrlsInText(selectionText), true);
 			onClose();
 		}, [selectionText, onClose, i18n]);
 		const handleCopyLink = useCallback(async () => {
 			if (!linkUrl) return;
-			await TextCopyCommands.copy(i18n, linkUrl, true);
+			await TextCopyCommands.copy(i18n, await AttachmentUrlRefresher.refresh(linkUrl), true);
 			onClose();
 		}, [linkUrl, onClose, i18n]);
 		const handleOpenLink = useCallback(() => {

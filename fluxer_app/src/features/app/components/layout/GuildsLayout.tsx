@@ -106,7 +106,7 @@ import StatusPage from '@app/features/user/state/StatusPage';
 import UserGuildSettings from '@app/features/user/state/UserGuildSettings';
 import UserSettings, {type GuildFolder} from '@app/features/user/state/UserSettings';
 import Users from '@app/features/user/state/Users';
-import MediaEngine from '@app/features/voice/engine/MediaEngineFacade';
+import VoiceRuntime from '@app/features/voice/engine/VoiceRuntime';
 import CallState from '@app/features/voice/state/CallState';
 import VoiceCallFullscreen from '@app/features/voice/state/VoiceCallFullscreen';
 import {flxElementClassName} from '@app/lib/react';
@@ -417,8 +417,8 @@ const getUnreadDMChannels = (dmChannels: ReadonlyArray<Channel>): Array<Channel>
 
 function resolvePinnedCallChannel(directMessagesDisabled: boolean): Channel | null {
 	if (directMessagesDisabled) return null;
-	if (!MediaEngine.connected) return null;
-	const channelId = MediaEngine.channelId;
+	if (!VoiceRuntime.connected) return null;
+	const channelId = VoiceRuntime.channelId;
 	if (channelId == null || channelId === '') return null;
 	const channel = Channels.getChannel(channelId);
 	if (channel == null) return null;
@@ -1287,6 +1287,7 @@ const SKELETON_NAGBAR_ROW_SHAPES: Record<NagbarType, SkeletonNagbarRowShape> = {
 	[NagbarType.LEGACY_PRICE_OPT_IN]: {tone: SkeletonNagbarTone.BRAND, hasActions: true},
 	[NagbarType.GIFT_INVENTORY]: {tone: SkeletonNagbarTone.BRAND, hasActions: true},
 	[NagbarType.DESKTOP_DOWNLOAD]: {tone: SkeletonNagbarTone.BRAND, hasActions: true},
+	[NagbarType.ANDROID_APP]: {tone: SkeletonNagbarTone.BRAND, hasActions: true},
 	[NagbarType.GUILD_MEMBERSHIP_CTA]: {tone: SkeletonNagbarTone.BRAND, hasActions: true},
 	[NagbarType.VISIONARY_MFA]: {tone: SkeletonNagbarTone.BRAND, hasActions: true},
 	[NagbarType.VOICE_SESSION_RESTORE]: {tone: SkeletonNagbarTone.VOICE, hasActions: true},
@@ -2287,6 +2288,7 @@ export const GuildsLayout = observer(({children}: {children: React.ReactNode}) =
 				<TopNagbarContext.Provider value={activeNagbars.length}>
 					<OutlineFrame
 						className={clsx(styles.outlineFrame, isVoiceCallFullscreenActive && styles.outlineFrameFullscreen)}
+						cornerCap={!isVoiceCallFullscreenActive}
 						sidebarDivider={!isVoiceCallFullscreenActive && shouldShowSidebarDivider}
 						sidebarResizeHandle={!isVoiceCallFullscreenActive && shouldShowSidebarDivider}
 						nagbar={

@@ -49,6 +49,7 @@ import type {GuildMember} from '@app/api/models/GuildMember';
 import type {User} from '@app/api/models/User';
 import type {UserRepository} from '@app/api/user/repositories/UserRepository';
 import {canUserAccessNsfwContent} from '@app/api/utils/AgeUtils';
+import {startEarly} from '@app/api/utils/ConcurrencyUtils';
 import {ChannelTypes, Permissions} from '@fluxer/constants/src/ChannelConstants';
 import {GUILD_VISITOR_PERMISSIONS_MASK} from '@fluxer/constants/src/GuildVisitConstants';
 import {
@@ -62,7 +63,7 @@ import {UnknownChannelError} from '@fluxer/errors/src/domains/channel/UnknownCha
 import {AccessDeniedError} from '@fluxer/errors/src/domains/core/AccessDeniedError';
 import {MissingPermissionsError} from '@fluxer/errors/src/domains/core/MissingPermissionsError';
 import {UnknownGuildError} from '@fluxer/errors/src/domains/guild/UnknownGuildError';
-import {NsfwContentRequiresAgeVerificationError} from '@fluxer/errors/src/domains/moderation/NsfwContentRequiresAgeVerificationError';
+import {NsfwContentAgeRestrictedError} from '@fluxer/errors/src/domains/moderation/NsfwContentAgeRestrictedError';
 import {UnknownUserError} from '@fluxer/errors/src/domains/user/UnknownUserError';
 import type {GuildMemberResponse} from '@fluxer/schema/src/domains/guild/GuildMemberSchemas';
 import type {GuildResponse} from '@fluxer/schema/src/domains/guild/GuildResponseSchemas';
@@ -330,6 +331,13 @@ export abstract class BaseChannelAuthService {
 			return this.getThreadChannelAuth({channel, userId, skipNsfwValidation});
 		}
 		const guildId = channel.guildId!;
+		const channelPermissionsTask = startEarly(
+			this.gatewayService.getUserPermissions({
+				guildId,
+				userId,
+				channelId: channel.id,
+			}),
+		);
 		const [authContextResult, guildMemberResult] = await Promise.all([
 			this.fetchGuildAuthContextOrThrow({guildId, userId, channelId: this.parentLookupChannelId(channel)}),
 			this.fetchGuildMemberOrThrow({guildId, userId}),
@@ -351,11 +359,7 @@ export abstract class BaseChannelAuthService {
 			guildData: guildDataResult,
 			userId,
 		});
-		const channelPermissions = await this.gatewayService.getUserPermissions({
-			guildId,
-			userId,
-			channelId: channel.id,
-		});
+		const channelPermissions = await channelPermissionsTask;
 		const hasPermission = async (permission: bigint): Promise<boolean> => {
 			const allowed = (channelPermissions & permission) === permission;
 			if (allowed) enforceGuildMfa(permission);
@@ -370,7 +374,7 @@ export abstract class BaseChannelAuthService {
 			channel,
 			parentChannel: authContextResult.parentChannel,
 		});
-		const requiresAgeVerification = computeEffectiveChannelNsfw(
+		const isAgeRestricted = computeEffectiveChannelNsfw(
 			channelToContentWarningView(channel),
 			parentCategory,
 			guildResponseToContentWarningView(guildDataResult),
@@ -383,12 +387,12 @@ export abstract class BaseChannelAuthService {
 				channel.type === ChannelTypes.GUILD_VOICE ||
 				channel.type === ChannelTypes.GUILD_LINK ||
 				THREAD_ONLY_CHANNEL_TYPES.has(channel.type)) &&
-			requiresAgeVerification
+			isAgeRestricted
 		) {
 			const user = await this.userRepository.findUnique(userId);
 			if (!user) throw new UnknownUserError();
 			if (!canUserAccessNsfwContent(user)) {
-				throw new NsfwContentRequiresAgeVerificationError();
+				throw new NsfwContentAgeRestrictedError();
 			}
 		}
 		return {
@@ -489,16 +493,16 @@ export abstract class BaseChannelAuthService {
 				channel: thread.parent,
 				parentChannel: context.parentCategory,
 			});
-			const requiresAgeVerification = computeEffectiveChannelNsfw(
+			const isAgeRestricted = computeEffectiveChannelNsfw(
 				channelToContentWarningView(thread.parent),
 				parentCategory,
 				guildResponseToContentWarningView(guild),
 			);
-			if (requiresAgeVerification) {
+			if (isAgeRestricted) {
 				const user = await this.userRepository.findUnique(userId);
 				if (!user) throw new UnknownUserError();
 				if (!canUserAccessNsfwContent(user)) {
-					throw new NsfwContentRequiresAgeVerificationError();
+					throw new NsfwContentAgeRestrictedError();
 				}
 			}
 		}

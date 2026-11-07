@@ -96,7 +96,6 @@ import {
 	getOAuth2TokenRepository,
 	getOperatorPassEntitlementService,
 	getOperatorPassRepository,
-	getOperatorPassWaitlistService,
 	getPasswordChangeRepository,
 	getPremiumStateReconciliationQueueService,
 	getPurgeQueue,
@@ -106,6 +105,7 @@ import {
 	getReportRepository,
 	getStorageService,
 	getStoreBillingRepository,
+	getStoredSecretVerifier,
 	getStreamPreviewService,
 	getSweegoWebhookService,
 	getThemeService,
@@ -124,7 +124,6 @@ import {OAuth2RequestService} from '@app/api/oauth/OAuth2RequestService';
 import {OAuth2Service} from '@app/api/oauth/OAuth2Service';
 import {OperatorPassCheckoutService} from '@app/api/operator_pass/OperatorPassCheckoutService';
 import type {OperatorPassEntitlementService} from '@app/api/operator_pass/OperatorPassEntitlementService';
-import type {OperatorPassWaitlistService} from '@app/api/operator_pass/OperatorPassWaitlistService';
 import {ReportRequestService} from '@app/api/report/ReportRequestService';
 import {ReportService} from '@app/api/report/ReportService';
 import {RpcService} from '@app/api/rpc/RpcService';
@@ -521,6 +520,7 @@ class RequestServices implements RequestScopedServices {
 			this.stripeService.getStripe(),
 			new JobLedgerRepository(),
 			this.storeEntitlementService,
+			this.stripeService.operatorPassFulfilment,
 		);
 		return this.cachedAdminService;
 	}
@@ -717,6 +717,7 @@ class RequestServices implements RequestScopedServices {
 		this.cachedOAuth2Service ??= new OAuth2Service(this.context, {
 			applicationRepository: getApplicationRepository(),
 			oauth2TokenRepository: getOAuth2TokenRepository(),
+			storedSecrets: getStoredSecretVerifier(),
 		});
 		return this.cachedOAuth2Service;
 	}
@@ -855,13 +856,6 @@ class RequestServices implements RequestScopedServices {
 		return getOperatorPassEntitlementService();
 	}
 
-	get operatorPassWaitlistService(): OperatorPassWaitlistService | undefined {
-		if (Config.instance.selfHosted) {
-			return undefined;
-		}
-		return getOperatorPassWaitlistService();
-	}
-
 	get operatorPassCheckoutService(): OperatorPassCheckoutService | undefined {
 		if (Config.instance.selfHosted) {
 			return undefined;
@@ -870,7 +864,6 @@ class RequestServices implements RequestScopedServices {
 			this.stripeService.getStripe(),
 			getOperatorPassRepository(),
 			getOperatorPassEntitlementService(),
-			getDonationRepository(),
 		);
 		return this.cachedOperatorPassCheckoutService;
 	}
@@ -906,6 +899,7 @@ class RequestServices implements RequestScopedServices {
 				getUserCacheService(),
 				getGatewayService(),
 				Config.instance.selfHosted ? null : getOperatorPassEntitlementService(),
+				Config.instance.selfHosted ? null : this.operatorPassServices.roleService,
 			);
 		}
 		return this.cachedUserAccountRequestService;

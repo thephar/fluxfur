@@ -153,6 +153,8 @@ secrets:
     # FLUXER_PUSH_APNS_PRIVATE_KEY: ""
     # FCM private key for Android push.
     # FLUXER_PUSH_FCM_PRIVATE_KEY: ""
+    # Client secret of the admin single sign-on provider.
+    # FLUXER_ADMIN_SSO_CLIENT_SECRET: ""
 
 # Extra non-secret settings for every Fluxer service, as NAME: value. The names
 # and meanings are on the configuration page of the operator docs. An empty
@@ -314,7 +316,7 @@ seaweedfs:
   enabled: true
   image:
     repository: chrislusf/seaweedfs
-    tag: "4.47"
+    tag: "4.52"
     digest: ""
     pullPolicy: IfNotPresent
   # Volumes grown per bucket. 1 keeps the store usable on small disks.
@@ -329,6 +331,7 @@ seaweedfs:
   # message is sent, so this removes uploads nobody sent. off removes the rule.
   uploadsTtl: 1d
   gomemlimit: 1536MiB
+  concurrentUploads: 5
   # Tries, 2 seconds apart, the bucket setup makes before it starts over.
   initAttempts: 60
   persistence:
@@ -358,8 +361,9 @@ s3:
     harvests: fluxer-harvests
 
 livekit:
-  # Run LiveKit for voice and video. false with no external.url turns voice off.
+  # Run LiveKit for voice and video. false turns voice off unless external.url or joined is set.
   enabled: true
+  joined: false
   # A LiveKit server of your own, used when enabled is false. Its key and
   # secret go in secrets.values.FLUXER_LIVEKIT_API_KEY and FLUXER_LIVEKIT_API_SECRET.
   # Point its webhook at <origin>/api/webhooks/livekit, signed with the same key.
@@ -706,7 +710,10 @@ edge:
       storageClassName: ""
   replicas: 1
   # Edge settings as NAME: value, overriding the chart's, for example
-  # FLUXER_EDGE_GLOBAL_OPTIONS or FLUXER_EDGE_ENCODE.
+  # FLUXER_EDGE_GLOBAL_OPTIONS, FLUXER_EDGE_ENCODE, or FLUXER_EDGE_TRUSTED_PROXIES
+  # set to the address range of your ingress controller, gateway or proxy.
+  # Outside loadBalancer mode the edge takes the client IP from X-Forwarded-For
+  # sent by any private address unless you narrow it.
   env: {}
   extraEnv: []
   resources:

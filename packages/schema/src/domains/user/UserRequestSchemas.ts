@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {MAX_GROUP_DM_OTHER_RECIPIENTS, MAX_GUILDS_PREMIUM} from '@fluxer/constants/src/LimitConstants';
+import {
+	MAX_BIO_LENGTH_CEILING,
+	MAX_CHANNEL_OVERRIDES,
+	MAX_GROUP_DM_OTHER_RECIPIENTS,
+	MAX_GUILDS_PREMIUM,
+} from '@fluxer/constants/src/LimitConstants';
 import {StatusTypes} from '@fluxer/constants/src/StatusConstants';
 import {
 	DEFAULT_GUILD_FOLDER_ICON,
@@ -23,6 +28,7 @@ import {
 	isValidSyncedPreferencesEncoding,
 	SYNCED_PREFERENCES_MAX_ENCODED_LENGTH,
 } from '@fluxer/schema/src/domains/user/SyncedPreferencesCodec';
+import {withBase64Binary} from '@fluxer/schema/src/primitives/Base64BinaryFields';
 import {isValidSingleUnicodeEmoji} from '@fluxer/schema/src/primitives/EmojiValidators';
 import {createBase64ImageType} from '@fluxer/schema/src/primitives/FileValidators';
 import {LocaleSchema} from '@fluxer/schema/src/primitives/LocaleSchema';
@@ -70,7 +76,9 @@ export const UserUpdateRequest = z
 		password: PasswordType.describe('The current password for verification'),
 		avatar: createBase64ImageType().nullish().describe('Base64-encoded avatar image'),
 		banner: createBase64ImageType().nullish().describe('Base64-encoded profile banner image'),
-		bio: createStringType(1, 320).nullish().describe('User biography text (max 320 characters)'),
+		bio: createStringType(1, MAX_BIO_LENGTH_CEILING)
+			.nullish()
+			.describe('User biography text, up to the instance max_bio_length limit (320 by default)'),
 		pronouns: createStringType(1, 40).nullish().describe('User pronouns (max 40 characters)'),
 		accent_color: ColorType.nullish().describe('Profile accent color as integer'),
 		timezone: createStringType(1, 128).nullish().describe('IANA timezone identifier saved for profile local time'),
@@ -397,6 +405,11 @@ export const UserSettingsUpdateRequest = z
 			SensitiveMediaGuildFilterLevelSchema,
 			'Sensitive media filter level for community channels',
 		),
+		allow_mature_content_on_ios: z
+			.boolean()
+			.describe(
+				'Whether 18+ communities, channels and the "Show" sensitive media option are allowed in the iOS app. Only adults can turn this on. The iOS app never offers this setting.',
+			),
 		suppress_unprivileged_self_mentions: z
 			.boolean()
 			.describe('Suppress direct mentions and reply mentions from unprivileged users'),
@@ -425,12 +438,14 @@ export const UserSettingsUpdateRequest = z
 			.describe(
 				'Version of the privacy setup the user just reviewed. The server also records privacy_setup_completed_at as the current time.',
 			),
-		synced_preferences: z
-			.string()
-			.max(SYNCED_PREFERENCES_MAX_ENCODED_LENGTH)
-			.refine((value) => isValidSyncedPreferencesEncoding(value), {
-				message: ValidationErrorCodes.INVALID_FORMAT,
-			})
+		synced_preferences: withBase64Binary(
+			z
+				.string()
+				.max(SYNCED_PREFERENCES_MAX_ENCODED_LENGTH)
+				.refine((value) => isValidSyncedPreferencesEncoding(value), {
+					message: ValidationErrorCodes.INVALID_FORMAT,
+				}),
+		)
 			.nullish()
 			.describe(
 				'Account-wide client preferences as a base64-encoded protobuf snapshot. Replaces the entire stored snapshot; pass null to clear it.',
@@ -485,6 +500,9 @@ export const UserGuildSettingsUpdateRequest = z
 		hide_muted_channels: z.boolean().describe('Hide muted channels'),
 		channel_overrides: z
 			.record(SnowflakeStringType, ChannelOverrideSchema)
+			.refine((overrides) => Object.keys(overrides).length <= MAX_CHANNEL_OVERRIDES, {
+				message: ValidationErrorCodes.TOO_LARGE,
+			})
 			.nullable()
 			.describe('Per-channel overrides'),
 		unread_badges: withFieldDescription(UserNotificationSettingsSchema, 'Default unread badges level for the guild')
@@ -812,6 +830,13 @@ export const BulkDeleteSelfMessagesFilter = z
 	});
 
 export type BulkDeleteSelfMessagesFilter = z.infer<typeof BulkDeleteSelfMessagesFilter>;
+
+export const UserAccountDeleteRequest = SudoVerificationSchema.extend({
+	immediate: z.boolean().optional().describe('Delete the account now instead of after the grace period'),
+	delete_messages: z.boolean().optional().describe('Also delete every message the account sent'),
+});
+
+export type UserAccountDeleteRequest = z.infer<typeof UserAccountDeleteRequest>;
 
 export const BulkDeleteSelfMessagesRequest = BulkDeleteSelfMessagesFilter.safeExtend(SudoVerificationSchema.shape);
 

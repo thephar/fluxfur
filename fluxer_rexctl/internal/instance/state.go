@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -16,18 +17,21 @@ import (
 
 	"github.com/fluxerapp/fluxer/fluxer_rexctl/internal/envfile"
 	"github.com/fluxerapp/fluxer/fluxer_rexctl/internal/settings"
+	"github.com/fluxerapp/fluxer/fluxer_rexctl/internal/voice"
 )
 
-const StateSchema = generatedSchema
+const StateSchema = generatedSchema + 2
 
 var ErrNewerState = errors.New("instance: state was written by a newer rexctl")
 
 type State struct {
 	Schema          int               `json:"schema"`
+	Kind            string            `json:"kind,omitempty"`
 	Project         string            `json:"project"`
 	Engine          EngineRef         `json:"engine"`
 	Release         string            `json:"release"`
 	PreviousRelease string            `json:"previous_release"`
+	PreviousBackup  string            `json:"previous_backup,omitempty"`
 	FailedRelease   string            `json:"failed_release"`
 	Upgrade         *Upgrade          `json:"upgrade"`
 	Pending         *Pending          `json:"pending"`
@@ -41,15 +45,103 @@ type State struct {
 	Rendered        map[string]string `json:"rendered"`
 	Mounted         map[string]string `json:"mounted"`
 	LeftInRoot      map[string]string `json:"left_in_root,omitempty"`
+	MovedSites      []string          `json:"moved_sites,omitempty"`
 	Ejected         *Ejected          `json:"ejected"`
 	BackupDir       string            `json:"backup_dir,omitempty"`
 	KeepBackups     int               `json:"keep_backups,omitempty"`
 	NotifyURL       string            `json:"notify_url,omitempty"`
+	Voice           []VoiceServer     `json:"voice,omitempty"`
+	VoiceEdge       *VoiceEdge        `json:"voice_edge,omitempty"`
 	InstalledAt     time.Time         `json:"installed_at"`
 	UpdatedAt       time.Time         `json:"updated_at"`
 
 	Unknown    []string `json:"-"`
+	Repaired   []string `json:"-"`
 	rootLayout bool
+}
+
+const KindVoice = "voice"
+
+type VoiceServer struct {
+	ID        string    `json:"id"`
+	Region    string    `json:"region"`
+	Endpoint  string    `json:"endpoint"`
+	Hostname  string    `json:"hostname,omitempty"`
+	Key       string    `json:"key"`
+	Secret    string    `json:"secret"`
+	TCPPort   int       `json:"tcp_port"`
+	UDPPort   int       `json:"udp_port"`
+	HTTPPort  int       `json:"http_port,omitempty"`
+	HTTPBind  string    `json:"http_bind,omitempty"`
+	NodeIP    string    `json:"node_ip,omitempty"`
+	NodeIPv6  string    `json:"node_ipv6,omitempty"`
+	IPPinned  bool      `json:"pinned_node_ip,omitempty"`
+	BindIP    string    `json:"bind_ip,omitempty"`
+	Image     string    `json:"image"`
+	Pinned    bool      `json:"pinned_image,omitempty"`
+	Memory    string    `json:"memory"`
+	SoftLimit int       `json:"soft_limit,omitempty"`
+	Opened    []string  `json:"opened,omitempty"`
+	Project   string    `json:"project"`
+	Network   string    `json:"network"`
+	Webhook   string    `json:"webhook"`
+	Instance  string    `json:"instance,omitempty"`
+	NodeURL   string    `json:"node_url,omitempty"`
+	Edge      string    `json:"edge,omitempty"`
+	Joined    bool      `json:"joined,omitempty"`
+	Drained   bool      `json:"drained,omitempty"`
+	Turn      string    `json:"turn_servers,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type VoiceEdge struct {
+	Email    string   `json:"email,omitempty"`
+	Opened   []string `json:"opened,omitempty"`
+	Instance string   `json:"instance,omitempty"`
+	IPv6     bool     `json:"ipv6,omitempty"`
+}
+
+func (s *State) IsVoice() bool { return s != nil && s.Kind == KindVoice }
+
+type VoicePort struct {
+	Number int
+	Proto  string
+	Server string
+}
+
+func (v VoiceServer) Ports() []VoicePort {
+	out := []VoicePort{{v.TCPPort, "tcp", v.ID}, {v.UDPPort, "udp", v.ID}}
+	if v.HTTPPort > 0 {
+		out = append(out, VoicePort{v.HTTPPort, "tcp", v.ID})
+	}
+	return out
+}
+
+func RecordedVoicePorts() []VoicePort {
+	var out []VoicePort
+	for _, dir := range ReadRecord(OwnScope()).Instances {
+		inst, err := Find(dir)
+		if err != nil || inst.State == nil {
+			continue
+		}
+		for _, v := range inst.State.Voice {
+			out = append(out, v.Ports()...)
+		}
+	}
+	return out
+}
+
+func (s *State) VoiceServer(id string) *VoiceServer {
+	for i := range s.Voice {
+		if s.Voice[i].ID == id {
+			return &s.Voice[i]
+		}
+	}
+	return nil
+}
+
+func (s *State) RemoveVoiceServer(id string) {
+	s.Voice = slices.DeleteFunc(s.Voice, func(v VoiceServer) bool { return v.ID == id })
 }
 
 type EngineRef struct {
@@ -64,6 +156,7 @@ type Upgrade struct {
 	Phase      string    `json:"phase"`
 	Backup     string    `json:"backup,omitempty"`
 	BackFailed bool      `json:"back_failed,omitempty"`
+	Sites      []string  `json:"sites,omitempty"`
 	StartedAt  time.Time `json:"started_at"`
 }
 
@@ -93,6 +186,7 @@ type SettingError struct {
 	Path    string
 	Key     string
 	Problem string
+	Remedy  string
 }
 
 func (e *SettingError) Error() string {
@@ -100,6 +194,9 @@ func (e *SettingError) Error() string {
 }
 
 func (e *SettingError) Fix() string {
+	if e.Remedy != "" {
+		return e.Remedy
+	}
 	return "Run rexctl config set " + e.Key + " <value>, or rexctl config unset " + e.Key + " to go back to the default."
 }
 
@@ -134,9 +231,17 @@ func parseStateRepairing(data []byte, dir string, repairing []string) (*State, e
 	if head.Project == "" {
 		return nil, fmt.Errorf("instance: the state in %s names no project", dir)
 	}
+	if !projectName.MatchString(head.Project) {
+		return nil, fmt.Errorf("instance: the state in %s names the project %q: %w", dir, head.Project, ErrBadProject)
+	}
 	s, err := parseState(data, dir, repairing)
 	if err != nil {
 		return nil, err
+	}
+	for _, v := range s.Voice {
+		if !voice.SafeDirName(v.ID) {
+			return nil, fmt.Errorf("instance: the state in %s has a voice server with the ID %q, which isn't a folder name", dir, v.ID)
+		}
 	}
 	s.rootLayout = head.Schema < generatedSchema
 	s.normalize()
@@ -144,10 +249,11 @@ func parseStateRepairing(data []byte, dir string, repairing []string) (*State, e
 }
 
 var stateFields = map[string]bool{
-	"schema": true, "project": true, "engine": true, "release": true, "previous_release": true, "failed_release": true,
+	"schema": true, "project": true, "engine": true, "release": true, "previous_release": true, "previous_backup": true, "failed_release": true,
 	"upgrade": true, "pending": true, "images": true, "settings": true, "secrets": true, "admin_import": true,
-	"setup_done": true, "installing": true, "stopped": true, "rendered": true, "mounted": true, "left_in_root": true, "ejected": true,
+	"setup_done": true, "installing": true, "stopped": true, "rendered": true, "mounted": true, "left_in_root": true, "moved_sites": true, "ejected": true,
 	"installed_at": true, "updated_at": true, "backup_dir": true, "keep_backups": true, "notify_url": true,
+	"kind": true, "voice": true, "voice_edge": true,
 }
 
 func parseState(data []byte, dir string, repairing []string) (*State, error) {
@@ -161,7 +267,7 @@ func parseState(data []byte, dir string, repairing []string) (*State, error) {
 			unknown = append(unknown, k)
 		}
 	}
-	values, more, err := checkSettings(raw["settings"], dir, repairing)
+	values, more, repaired, err := checkSettings(raw["settings"], dir, repairing)
 	if err != nil {
 		return nil, err
 	}
@@ -176,19 +282,20 @@ func parseState(data []byte, dir string, repairing []string) (*State, error) {
 		return nil, fmt.Errorf("instance: reading state in %s: %w", dir, err)
 	}
 	s.Settings = values
+	s.Repaired = repaired
 	slices.Sort(unknown)
 	s.Unknown = unknown
 	return &s, nil
 }
 
-func checkSettings(data json.RawMessage, dir string, repairing []string) (map[string]string, []string, error) {
+func checkSettings(data json.RawMessage, dir string, repairing []string) (map[string]string, []string, []string, error) {
 	out := map[string]string{}
 	if len(data) == 0 || string(data) == "null" {
-		return out, nil, nil
+		return out, nil, nil, nil
 	}
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, nil, fmt.Errorf("instance: reading settings in %s: %w", dir, err)
+		return nil, nil, nil, fmt.Errorf("instance: reading settings in %s: %w", dir, err)
 	}
 	keys := map[string]settings.Key{}
 	for _, k := range settings.Named() {
@@ -197,29 +304,35 @@ func checkSettings(data json.RawMessage, dir string, repairing []string) (map[st
 	path := filepath.Join(dir, StateDirName, StateFileName)
 	var unknown []string
 	for name, value := range raw {
-		k, isNamed := keys[name]
+		_, isNamed := keys[name]
 		var v string
 		if err := json.Unmarshal(value, &v); err != nil {
 			if isNamed {
-				return nil, nil, &SettingError{Path: path, Key: name, Problem: "the value is not text"}
+				return nil, nil, nil, &SettingError{Path: path, Key: name, Problem: "the value is not text"}
 			}
 			unknown = append(unknown, name)
 			continue
 		}
-		switch {
-		case isNamed && slices.Contains(repairing, name):
-		case isNamed:
-			if k.Validate != nil {
-				if err := k.Validate(v); err != nil {
-					return nil, nil, &SettingError{Path: path, Key: name, Problem: err.Error()}
-				}
-			}
-		case !isRaw(name):
+		if !isNamed && !isRaw(name) {
 			unknown = append(unknown, name)
 		}
 		out[name] = v
 	}
-	return out, unknown, nil
+	repaired, err := settings.SplitListenAddress(out, repairing)
+	var conflict *settings.ListenConflict
+	if errors.As(err, &conflict) {
+		return nil, nil, nil, &SettingError{Path: path, Key: settings.EdgeListen, Problem: conflict.Error(), Remedy: conflict.Fix()}
+	}
+	for _, name := range slices.Sorted(maps.Keys(out)) {
+		k, isNamed := keys[name]
+		if !isNamed || k.Validate == nil || slices.Contains(repairing, name) {
+			continue
+		}
+		if err := k.Validate(out[name]); err != nil {
+			return nil, nil, nil, &SettingError{Path: path, Key: name, Problem: err.Error()}
+		}
+	}
+	return out, unknown, repaired, nil
 }
 
 func isRaw(name string) bool {

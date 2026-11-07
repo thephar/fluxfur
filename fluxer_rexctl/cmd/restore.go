@@ -6,7 +6,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -19,6 +21,7 @@ import (
 	"github.com/fluxerapp/fluxer/fluxer_rexctl/internal/host"
 	"github.com/fluxerapp/fluxer/fluxer_rexctl/internal/instance"
 	"github.com/fluxerapp/fluxer/fluxer_rexctl/internal/ui"
+	"github.com/fluxerapp/fluxer/fluxer_rexctl/internal/voice"
 )
 
 const restoreReadyTimeout = 10 * time.Minute
@@ -28,7 +31,7 @@ func newRestoreCmd(app *App) *cobra.Command {
 	c := &cobra.Command{
 		Use:   "restore <file>",
 		Short: "Restore your instance from a backup",
-		Long:  "Restore your instance from a backup. This works on a new machine too. Copy the backup file there and run this command.",
+		Long:  "Restore your instance from a backup. This works on a new machine too. Copy the backup file there and run this command. A backup without uploads restores only on the instance it was made for, and the uploads there stay as they are.",
 		Args:  exactArgs("the backup file"),
 		RunE: func(c *cobra.Command, args []string) error {
 			return runRestore(c.Context(), app, args[0], confirm, engineFlag)
@@ -75,14 +78,36 @@ func runRestore(ctx context.Context, app *App, arg, confirm, engineFlag string) 
 		}
 	}
 
+	old := oldEngineRef(existing)
+	if m.WithoutUploads() {
+		if existing == nil && !backup.ResumesRestore(dir, m) || toDocker && existing != nil && old.Kind != string(engine.Docker) {
+			return uploadsNotHere(existing, m.Domain, m.Project, backup.ErrUploadsNotHere)
+		}
+		e, err := app.Engine(ctx, existing)
+		if err != nil {
+			return err
+		}
+		if toDocker && e.Kind != engine.Docker {
+			return uploadsNotHere(existing, m.Domain, m.Project, backup.ErrUploadsNotHere)
+		}
+		if err := checkUploadsInPlace(ctx, dir, existing, e, path); err != nil {
+			return err
+		}
+	}
+
 	made := backupTime(m.CreatedAt)
 	domain := m.Domain
 	what := fmt.Sprintf("This restores %s in %s from the backup made on %s.", m.Domain, dir, made)
-	if existing != nil {
+	switch {
+	case existing != nil && m.WithoutUploads():
+		domain = existing.Domain()
+		what = fmt.Sprintf("This replaces everything on %s except uploads with the backup made on %s. Uploads stay as they are.", domain, made)
+	case existing != nil:
 		domain = existing.Domain()
 		what = fmt.Sprintf("This replaces everything on %s with the backup made on %s.", domain, made)
+	case m.WithoutUploads():
+		what = fmt.Sprintf("This finishes restoring %s in %s from the backup made on %s. Uploads stay as they are.", m.Domain, dir, made)
 	}
-	old := oldEngineRef(existing)
 	if toDocker && old.Kind == string(engine.Podman) {
 		what += " Fluxer stops on Podman and starts on Docker. Podman keeps its copy of your data."
 	}
@@ -104,6 +129,34 @@ func runRestore(ctx context.Context, app *App, arg, confirm, engineFlag string) 
 		return app.Locked(ctx, existing, run)
 	}
 	return run()
+}
+
+func checkUploadsInPlace(ctx context.Context, dir string, existing *instance.Instance, e *engine.Engine, path string) error {
+	m, err := backup.ReadManifest(path)
+	if err != nil {
+		return backupFileErr(path, err)
+	}
+	err = backup.CheckUploadsInPlace(ctx, dir, existing, e, m)
+	switch {
+	case errors.Is(err, backup.ErrUploadsNotHere):
+		return uploadsNotHere(existing, m.Domain, m.Project, err)
+	case err != nil:
+		return engineFailure(err)
+	}
+	return nil
+}
+
+func uploadsNotHere(existing *instance.Instance, domain, project string, err error) error {
+	fix := "Restore a backup made with rexctl backup."
+	if existing != nil {
+		if list, lerr := backup.List(existing.BackupDir()); lerr == nil {
+			same := slices.DeleteFunc(list, func(b backup.Info) bool { return b.Domain != domain || b.Project != project })
+			if b := backup.NewestWithUploads(same); b != nil {
+				fix = fmt.Sprintf("Restore %s, the newest backup with uploads.", b.Path)
+			}
+		}
+	}
+	return &ui.ExitError{Code: ui.ExitRefused, Msg: "This backup leaves out uploads, and this machine doesn't have the uploads it belongs with.", Fix: fix, Err: err}
 }
 
 func oldEngineRef(inst *instance.Instance) instance.EngineRef {
@@ -133,6 +186,10 @@ func stopOnOldEngine(ctx context.Context, app *App, inst *instance.Instance, old
 
 func restoreInto(ctx context.Context, app *App, e *engine.Engine, path, dir string, m *backup.Manifest, existing *instance.Instance, old instance.EngineRef) error {
 	var inst *instance.Instance
+	var before []instance.VoiceServer
+	if existing != nil && existing.State != nil {
+		before = slices.Clone(existing.State.Voice)
+	}
 	err := app.UI.Step(ctx, "Checking the backup", func(ctx context.Context, s *ui.Step) error {
 		var err error
 		inst, err = backup.Restore(ctx, path, dir, e, backup.RestoreOptions{
@@ -140,12 +197,20 @@ func restoreInto(ctx context.Context, app *App, e *engine.Engine, path, dir stri
 				if t := restoreStageTitle(stage); t != "" {
 					s.Title(t)
 				}
+				if stage == backup.StageClearing {
+					for i := range before {
+						if err := removeVoiceServerProject(ctx, e, &before[i]); err != nil {
+							app.UI.Detail("stopping voice server %s: %v", before[i].ID, err)
+						}
+					}
+				}
 			},
 			OnEvent: func(ev engine.Event) {
 				if ev.Total > 0 {
 					s.Progress(ev.Current, ev.Total)
 				}
 			},
+			Adopted: matchRestoredSites(app),
 		})
 		if err != nil {
 			return err
@@ -177,10 +242,65 @@ func restoreInto(ctx context.Context, app *App, e *engine.Engine, path, dir stri
 		}
 		return ui.Wrap(err, "Fluxer didn't start after the restore.", "Run rexctl doctor to find the problem.")
 	}
+	restoreVoiceServers(ctx, app, e, p, inst, before)
 	if origin := inst.Origin(); origin != "" {
 		app.UI.Highlight(origin)
 	}
 	return nil
+}
+
+func droppedVoiceServers(before, after []instance.VoiceServer) []instance.VoiceServer {
+	var out []instance.VoiceServer
+	for _, b := range before {
+		if !slices.ContainsFunc(after, func(a instance.VoiceServer) bool { return a.ID == b.ID && a.Project == b.Project }) {
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+func restoreVoiceServers(ctx context.Context, app *App, e *engine.Engine, p *engine.Project, inst *instance.Instance, before []instance.VoiceServer) {
+	for _, gone := range droppedVoiceServers(before, inst.State.Voice) {
+		closeVoiceFirewall(ctx, app, gone.Opened)
+		_ = os.RemoveAll(voice.ServerDir(inst.Dir, gone.ID))
+		app.UI.Info("Removed the voice server %s, which isn't in the backup.", gone.ID)
+	}
+	if len(inst.State.Voice) == 0 {
+		return
+	}
+	err := app.UI.Step(ctx, "Starting the voice servers", func(ctx context.Context, s *ui.Step) error {
+		started := 0
+		for i := range inst.State.Voice {
+			srv := &inst.State.Voice[i]
+			err := writeVoiceServer(inst, srv)
+			if err == nil {
+				err = startVoiceServer(ctx, app, e, inst, srv, s)
+			}
+			if err != nil {
+				app.UI.Warn(fmt.Sprintf("Voice server %s didn't start (%v).", srv.ID, err), "Run rexctl voice status "+srv.ID+" to see why.")
+				continue
+			}
+			started++
+			if len(srv.Opened) > 0 {
+				for _, o := range openVoiceFirewall(ctx, app, voicePortStrings(srv), false) {
+					if !slices.Contains(srv.Opened, o) {
+						srv.Opened = append(srv.Opened, o)
+					}
+				}
+			}
+		}
+		if err := reloadCaddy(ctx, p, "edge", "/etc/caddy/Caddyfile"); err != nil {
+			app.UI.Detail("reloading the edge: %v", err)
+		}
+		if err := saveVoiceState(inst); err != nil {
+			return err
+		}
+		s.Done("Started %s.", plural(started, "voice server", "voice servers"))
+		return nil
+	})
+	if err != nil {
+		app.UI.Warn(fmt.Sprintf("The voice servers didn't start (%v).", err), "Run rexctl voice status to see why.")
+	}
 }
 
 func restoreBootUnit(ctx context.Context, app *App, inst *instance.Instance, e *engine.Engine, p *engine.Project, existing *instance.Instance, old instance.EngineRef) {
@@ -197,12 +317,20 @@ func restoreBootUnit(ctx context.Context, app *App, inst *instance.Instance, e *
 		prev.Podman = old.Kind == string(engine.Podman)
 		prev.Rootless = strings.Contains(old.Host, "/run/user/")
 		if prev.Rootless != u.Rootless {
-			if err := host.RemoveBootUnit(ctx, prev); err != nil {
+			steps, err := prev.RemoveSteps(ctx)
+			if err == nil {
+				err = host.RunSteps(ctx, steps)
+			}
+			if err != nil {
 				app.UI.Detail("%v", err)
 			}
 		}
 	}
-	if err := host.InstallBootUnit(ctx, u); err != nil {
+	steps, err := u.InstallSteps(ctx)
+	if err == nil {
+		err = host.RunSteps(ctx, steps)
+	}
+	if err != nil {
 		app.UI.Warn("Fluxer won't start again after this machine restarts.", "Run rexctl doctor --fix to start it with the machine.")
 		app.UI.Detail("%v", err)
 	}
@@ -255,13 +383,19 @@ func restoreEngine(ctx context.Context, app *App, existing *instance.Instance, d
 }
 
 func installDockerForRestore(ctx context.Context, app *App, dir string) (*engine.Engine, error) {
-	manual := ui.Refused("Docker isn't installed or isn't running.", engine.Docker.InstallHint()+", then run rexctl restore again.")
+	return installDockerHere(ctx, app, dir, "run rexctl restore again", func() (bool, error) {
+		return app.UI.Confirm("Install Docker?", true)
+	})
+}
+
+func installDockerHere(ctx context.Context, app *App, dir, again string, confirm func() (bool, error)) (*engine.Engine, error) {
+	manual := ui.Refused("Docker isn't installed or isn't running.", engine.Docker.InstallHint()+", then "+again+".")
 	info, err := host.Detect(ctx, dir)
 	if err != nil || !host.CanInstallDocker(info) {
 		return nil, manual
 	}
 	app.UI.Warn("Docker isn't installed.", "")
-	ok, err := app.UI.Confirm("Install Docker?", true)
+	ok, err := confirm()
 	if err != nil {
 		return nil, err
 	}
@@ -276,14 +410,14 @@ func installDockerForRestore(ctx context.Context, app *App, dir string) (*engine
 		return nil
 	})
 	if errors.Is(err, host.ErrRelogin) {
-		return nil, ui.Refused("Docker is installed, and your account can use it after you sign in again.", "Sign out and back in, then run rexctl restore again.")
+		return nil, ui.Refused("Docker is installed, and your account can use it after you sign in again.", "Sign out and back in, then "+again+".")
 	}
 	if err != nil {
-		return nil, ui.Wrap(err, "Couldn't install Docker.", "Install Docker, then run rexctl restore again.")
+		return nil, ui.Wrap(err, "Couldn't install Docker.", "Install Docker, then "+again+".")
 	}
 	e, err := engine.Connect(ctx, engine.ConnectOptions{Prefer: engine.Docker})
 	if err != nil || e.Kind != engine.Docker {
-		return nil, ui.Wrap(err, "Docker was installed but isn't answering.", "Start Docker, then run rexctl restore again.")
+		return nil, ui.Wrap(err, "Docker was installed but isn't answering.", "Start Docker, then "+again+".")
 	}
 	return e, nil
 }
@@ -308,6 +442,7 @@ func restoreErr(path string, err error, logPath string) error {
 	var inUse *backup.ProjectInUseError
 	var part *backup.RestoreError
 	var pull *backup.PullError
+	var space *backup.RestoreSpaceError
 	partFix := "Run rexctl restore again with --verbose to see why."
 	if logPath != "" {
 		partFix = fmt.Sprintf("Read %s to see why, then run rexctl restore again.", logPath)
@@ -318,6 +453,13 @@ func restoreErr(path string, err error, logPath string) error {
 			return engineFailure(pull.Err)
 		}
 		return ui.Wrap(pull.Err, "Couldn't download Fluxer.", "Run rexctl restore again with --verbose to see why.")
+	case errors.Is(err, backup.ErrUploadsNotHere):
+		return uploadsNotHere(nil, "", "", err)
+	case errors.As(err, &space):
+		return ui.Refused(
+			fmt.Sprintf("Restoring %s needs about %s of free disk space in %s, and %s is free.", path, ui.Bytes(int64(space.Need)), space.Dir, ui.Bytes(int64(space.Available))),
+			"Free up space there, then run rexctl restore again.",
+		)
 	case errors.As(err, &inUse):
 		return ui.Refused(
 			fmt.Sprintf("Another Fluxer instance on this machine is in %s.", inUse.Dir),

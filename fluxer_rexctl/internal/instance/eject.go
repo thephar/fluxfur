@@ -89,10 +89,17 @@ func Eject(inst *Instance, o EjectOptions) error {
 func writePlain(inst *Instance) (map[string]string, error) {
 	out := map[string]string{}
 	for _, name := range stack.FileNames() {
-		data, err := os.ReadFile(inst.Generated(name))
+		info, err := os.Lstat(inst.Generated(name))
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
+		if err != nil {
+			return nil, err
+		}
+		if !info.Mode().IsRegular() {
+			continue
+		}
+		data, err := os.ReadFile(inst.Generated(name))
 		if err != nil {
 			return nil, err
 		}
@@ -169,7 +176,7 @@ func importEjected(ctx context.Context, dir string, e *engine.Engine, s *State, 
 			return nil, nil, err
 		}
 		r.Minted, r.Release = minted, updated.Release
-		s.PreviousRelease, s.Release = s.Release, updated.Release
+		s.PreviousRelease, s.Release, s.PreviousBackup = s.Release, updated.Release, ""
 		s.Images = Images{Release: updated.Release, Refs: maps.Clone(updated.Images)}
 		if s.Rendered, err = stack.Hashes(stack.Embedded(), stack.OverlaysFor(s.Settings), s.Images.Refs, s.Project); err != nil {
 			return nil, nil, err
@@ -221,12 +228,13 @@ func handUpdate(ctx context.Context, dir string, e *engine.Engine, s *State, cus
 		return nil, err
 	}
 	own := stack.ComposeImages(custom)
+	registry := stack.RegistryServices()
 	var updated *stack.ImageSet
 	for _, seen := range []map[string]string{stack.ComposeImages(compose), live.images} {
 		maps.DeleteFunc(seen, func(svc, ref string) bool {
 			_, fluxer := shipped.Images[svc]
 			_, mine := own[svc]
-			return !fluxer || mine || strings.Contains(ref, "${")
+			return !fluxer || !registry[svc] || mine || strings.Contains(ref, "${")
 		})
 		switch {
 		case sameImages(seen, s.Images.Refs):

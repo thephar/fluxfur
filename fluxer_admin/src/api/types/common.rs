@@ -277,6 +277,10 @@ pub struct GuildRoleSummary {
     pub permissions: String,
     pub hoist: bool,
     pub mentionable: bool,
+    #[serde(default)]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub unicode_emoji: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

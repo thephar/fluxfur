@@ -148,6 +148,11 @@ func (v *configView) fallback(k settings.Key, inst *instance.Instance) string {
 		return settings.EdgeBundled
 	case settings.IPv6:
 		return "false"
+	case settings.SignedMedia:
+		if mode := inst.Setting(settings.SignatureModeVar); mode != "" {
+			return mode
+		}
+		return "off"
 	}
 	if len(k.Vars) == 0 {
 		return ""
@@ -218,6 +223,28 @@ func restartText(services []string) string {
 	return "Restarts " + ui.JoinAnd(parts)
 }
 
+var rexctlKeyHelp = map[string]string{
+	stack.SettingsLoadedVar: "rexctl sets this. Docker Compose refuses to start without it.",
+	instance.SetupTokenVar:  "The token the setup wizard asks for before it creates the first admin account. rexctl generates it when it installs Fluxer, and rexctl setup token shows it.",
+}
+
+func keyHelp(k settings.Key) string {
+	if k.Help != "" || k.Kind != settings.Raw {
+		return k.Help
+	}
+	if help := rexctlKeyHelp[k.Name]; help != "" {
+		return help
+	}
+	return instance.EnvHelp(k.Name)
+}
+
+func firstSentence(text string) string {
+	if i := strings.Index(text, ". "); i >= 0 {
+		return text[:i+1]
+	}
+	return text
+}
+
 type configRow struct {
 	Key      string   `json:"key"`
 	Kind     string   `json:"kind"`
@@ -235,7 +262,7 @@ func (v *configView) row(k settings.Key, reveal bool) configRow {
 	if reveal {
 		shown = value
 	}
-	r := configRow{Key: k.Name, Kind: "deployment", Type: k.Type, Value: shown, Secret: k.Secret, Help: k.Help, Restarts: []string{}}
+	r := configRow{Key: k.Name, Kind: "deployment", Type: k.Type, Value: shown, Secret: k.Secret, Help: keyHelp(k), Restarts: []string{}}
 	if k.Name != settings.EngineHost {
 		r.Restarts = deploy.Promised(v.set, v.custom, k)
 	}
@@ -263,6 +290,9 @@ func (v *configView) deploymentKeys() []settings.Key {
 	}
 	slices.Sort(raw)
 	for _, name := range slices.Compact(raw) {
+		if name == stack.SettingsLoadedVar {
+			continue
+		}
 		k, err := settings.Lookup(v.set, v.vars, name, nil)
 		if err == nil && k.Kind == settings.Raw {
 			out = append(out, k)
@@ -296,7 +326,7 @@ func newConfigListCmd(app *App) *cobra.Command {
 				}
 			}
 			rows = append(rows, r)
-			table = append(table, []string{r.Key, clip(fmt.Sprint(r.Value)), v.applies(k), r.Help})
+			table = append(table, []string{r.Key, clip(fmt.Sprint(r.Value)), v.applies(k), firstSentence(r.Help)})
 		}
 		instanceKeys, apiErr := instanceValues(ctx, app)
 		for _, k := range instanceKeys {
@@ -365,8 +395,8 @@ func newConfigGetCmd(app *App) *cobra.Command {
 			rows = append(rows, []string{"Default", fmt.Sprint(r.Default)})
 		}
 		rows = append(rows, []string{"Applies", v.applies(k)})
-		if k.Help != "" {
-			rows = append(rows, []string{"Help", k.Help})
+		if r.Help != "" {
+			rows = append(rows, []string{"Help", r.Help})
 		}
 		app.UI.Table([]string{"Setting", k.Name}, rows)
 		return nil
@@ -455,12 +485,20 @@ func newConfigSetCmd(app *App) *cobra.Command {
 			return nil
 		},
 	}
+	var migrate, noMigrate bool
+	set.Flags().BoolVar(&migrate, "migrate-identities", false, "when sso.issuer changes, move SSO links to the new issuer")
+	set.Flags().BoolVar(&noMigrate, "no-migrate-identities", false, "when sso.issuer changes, leave SSO links on the old issuer")
+	set.MarkFlagsMutuallyExclusive("migrate-identities", "no-migrate-identities")
 	set.RunE = func(c *cobra.Command, args []string) error {
 		changes, err := parseSetArgs(app, args)
 		if err != nil {
 			return err
 		}
-		return runConfigChange(c.Context(), app, changes)
+		var extra map[string]any
+		if migrate || noMigrate {
+			extra = map[string]any{"sso": map[string]any{"migrate_identities": migrate}}
+		}
+		return runConfigChange(c.Context(), app, changes, extra)
 	}
 	return set
 }
@@ -481,12 +519,12 @@ func newConfigUnsetCmd(app *App) *cobra.Command {
 		for _, a := range args {
 			changes = append(changes, configChange{name: strings.TrimSpace(a)})
 		}
-		return runConfigChange(c.Context(), app, changes)
+		return runConfigChange(c.Context(), app, changes, nil)
 	}
 	return unset
 }
 
-func runConfigChange(ctx context.Context, app *App, changes []configChange) error {
+func runConfigChange(ctx context.Context, app *App, changes []configChange, extra map[string]any) error {
 	typed := make([]string, 0, len(changes))
 	for _, ch := range changes {
 		typed = append(typed, ch.name)
@@ -513,7 +551,7 @@ func runConfigChange(ctx context.Context, app *App, changes []configChange) erro
 		admin = append(admin, ac)
 	}
 	finish := func(change *deploy.Change) error {
-		sent, err := applyAdminChanges(ctx, app, v.inst, admin)
+		sent, err := applyAdminChanges(ctx, app, v.inst, admin, extra)
 		if err != nil {
 			return err
 		}
@@ -574,7 +612,7 @@ func deploymentDone(name string, value *string) string {
 	case settings.SecretName(name) || name == settings.StorageSecret:
 		return fmt.Sprintf("Saved %s.", name)
 	}
-	return fmt.Sprintf("Set %s to %s.", name, clip(settings.Mask(settings.Key{}, *value)))
+	return fmt.Sprintf("Set %s to %s.", name, clip(settings.Mask(settings.Key{Name: name}, *value)))
 }
 
 type adminChange struct {
@@ -624,7 +662,7 @@ func parseAdminChange(schema []adminapi.ConfigKey, name string, raw *string) (ad
 	return adminChange{key: k, value: value, patch: adminapi.ConfigPatch(k.Key, value)}, nil
 }
 
-func applyAdminChanges(ctx context.Context, app *App, inst *instance.Instance, changes []adminChange) ([]adminChange, error) {
+func applyAdminChanges(ctx context.Context, app *App, inst *instance.Instance, changes []adminChange, extra map[string]any) ([]adminChange, error) {
 	pendingImport := inst.State.AdminImport != nil && inst.State.AdminImport.SentAt == ""
 	if len(changes) == 0 && !pendingImport {
 		return nil, nil
@@ -662,8 +700,13 @@ func applyAdminChanges(ctx context.Context, app *App, inst *instance.Instance, c
 	if len(sent) == 0 {
 		return nil, nil
 	}
-	if err := api.PatchConfig(ctx, patch); err != nil {
+	adminapi.MergePatch(patch, extra)
+	warnings, err := api.PatchConfigWithWarnings(ctx, patch)
+	if err != nil {
 		return nil, adminapi.Explain(err)
+	}
+	for _, w := range warnings {
+		app.UI.Warn(w, "")
 	}
 	return sent, nil
 }
@@ -733,6 +776,14 @@ func applySettings(ctx context.Context, app *App, inst *instance.Instance, e *en
 			r = <-done
 		}
 	}
+	if r.change != nil && len(r.change.VoiceDown) > 0 {
+		ids := ui.JoinAnd(r.change.VoiceDown)
+		if r.change.Applied || r.err != nil {
+			app.UI.Warn(fmt.Sprintf("Voice servers %s didn't start again.", ids), "Run rexctl voice status to see why.")
+		} else {
+			app.UI.Info("Stopped voice servers %s. They start again with Fluxer.", ids)
+		}
+	}
 	if errors.Is(r.err, deploy.ErrDeclined) {
 		return nil, &ui.ExitError{Code: ui.ExitRefused, Msg: "rexctl left your settings as they were.", Err: r.err}
 	}
@@ -741,6 +792,16 @@ func applySettings(ctx context.Context, app *App, inst *instance.Instance, e *en
 	}
 	if r.change.Applied && !r.change.Unchanged {
 		closePorts()
+		moveVoiceEndpoints(ctx, app, inst)
+	}
+	if _, ok := changes[settings.VoicePublicIP]; ok && !r.change.Unchanged {
+		moveVoicePublicIP(ctx, app, inst, e, r.change.Applied)
+	}
+	if _, ok := changes[settings.TurnServersVar]; ok && r.change.Applied && !r.change.Unchanged && len(inst.State.Voice) > 0 {
+		upgradeLocalVoiceServers(ctx, app, inst, e)
+	}
+	if _, ok := changes[settings.VoiceBundled]; ok && r.change.Applied && !r.change.Unchanged {
+		restoreBundledVoiceServer(ctx, app, inst)
 	}
 	return r.change, nil
 }
@@ -790,7 +851,7 @@ func confirmPreview(app *App, p deploy.Preview) (bool, error) {
 func openPorts(ctx context.Context, app *App, inst *instance.Instance, changes map[string]*string) (func(), error) {
 	nothing := func() {}
 	opened, closed, err := deploy.PortChanges(inst, changes)
-	if err != nil || len(opened) == 0 {
+	if err != nil || (len(opened) == 0 && len(closed) == 0) {
 		return nothing, err
 	}
 	fw, err := host.DetectFirewall(ctx)
@@ -813,6 +874,9 @@ func openPorts(ctx context.Context, app *App, inst *instance.Instance, changes m
 		}
 	}
 	return func() {
+		if len(closed) == 0 {
+			return
+		}
 		ok, err := app.UI.Confirm(fmt.Sprintf("Close port %s in the firewall? Fluxer doesn't use it any more.", deploy.PortList(closed)), true)
 		if err != nil || !ok {
 			return
@@ -843,7 +907,7 @@ func newConfigRenderCmd(app *App) *cobra.Command {
 				if generated || settings.SecretName(name) {
 					s.Env[name] = settings.Masked
 				} else {
-					s.Env[name] = settings.Mask(settings.Key{}, value)
+					s.Env[name] = settings.Mask(settings.Key{Name: name}, value)
 				}
 			}
 			var e engine.Engine

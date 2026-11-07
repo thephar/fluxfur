@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {requireSudoMode} from '@app/api/auth/services/SudoVerificationService';
-import {createAttachmentID, createChannelID, createMessageID} from '@app/api/BrandedTypes';
+import {createAttachmentID, createChannelID, createMessageID, type GuildID} from '@app/api/BrandedTypes';
 import type {MessageRequest, MessageUpdateRequest} from '@app/api/channel/MessageTypes';
 import {parseMessageRequestBody} from '@app/api/channel/services/message/MessageRequestParser';
 import {isPersonalNotesChannelId} from '@app/api/channel/services/PersonalNotesChannelRepair';
 import {viewerFromCtx} from '@app/api/experiment/ChannelThreadsGate';
 import {DefaultUserOnly, LoginRequired} from '@app/api/middleware/AuthMiddleware';
+import {assertGuildAvailableForRequest} from '@app/api/middleware/GuildAvailabilityMiddleware';
 import {RateLimitMiddleware} from '@app/api/middleware/RateLimitMiddleware';
+import {MultipartUploadRoute} from '@app/api/middleware/RequestBodyLimitMiddleware';
 import {OpenAPI} from '@app/api/middleware/ResponseTypeMiddleware';
 import {SudoModeMiddleware} from '@app/api/middleware/SudoModeMiddleware';
 import {RateLimitConfigs} from '@app/api/RateLimitConfig';
@@ -107,6 +109,23 @@ export function MessageController(app: HonoApp) {
 			const {requests} = ctx.req.valid('json');
 			const requestCache = ctx.get('requestCache');
 			const messageRequestService = ctx.get('messageRequestService');
+			const channelIds = new Set(requests.map((request) => createChannelID(request.channel_id)));
+			const channels = await Promise.all(
+				Array.from(channelIds, async (channelId) => {
+					const channel = await ctx.get('channelRepository').channelData.findUnique(channelId);
+					requestCache.channels.set(channelId, channel);
+					return channel;
+				}),
+			);
+			const guildIds = new Set<GuildID>();
+			for (const channel of channels) {
+				if (channel?.guildId) {
+					guildIds.add(channel.guildId);
+				}
+			}
+			await Promise.all(
+				Array.from(guildIds, (guildId) => assertGuildAvailableForRequest(ctx, guildId, ctx.get('user'))),
+			);
 			return ctx.json(
 				await messageRequestService.listMessagesBulk({
 					viewer: viewerFromCtx(ctx),
@@ -161,6 +180,7 @@ export function MessageController(app: HonoApp) {
 	);
 	app.post(
 		'/channels/:channel_id/messages',
+		MultipartUploadRoute(),
 		RateLimitMiddleware(RateLimitConfigs.CHANNEL_MESSAGE_CREATE),
 		LoginRequired,
 		Validator('param', ChannelIdParam),
@@ -256,6 +276,7 @@ export function MessageController(app: HonoApp) {
 	);
 	app.patch(
 		'/channels/:channel_id/messages/:message_id',
+		MultipartUploadRoute(),
 		RateLimitMiddleware(RateLimitConfigs.CHANNEL_MESSAGE_UPDATE),
 		LoginRequired,
 		Validator('param', ChannelIdMessageIdParam),

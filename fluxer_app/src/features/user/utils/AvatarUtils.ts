@@ -10,6 +10,7 @@ import {
 	snapMediaProxyImageSize,
 } from '@app/features/messaging/utils/MediaProxyUtils';
 import {mediaUrl, setPathQueryParams} from '@app/features/messaging/utils/MessagingUrlUtils';
+import {getAppRemScale} from '@app/features/ui/utils/AppZoomUtils';
 import type {User} from '@app/features/user/models/User';
 import avatar0 from '@app/media/images/avatars/0.png';
 import avatar1 from '@app/media/images/avatars/1.png';
@@ -84,6 +85,7 @@ export function getDefaultAvatarURLForInstance(id: string, instance: RuntimeConf
 export {snapMediaProxyImageSize};
 
 const GUILD_BANNER_CSS_WIDTH = 360;
+const GUILD_RAIL_ICON_CSS_SIZE = 44;
 const GUILD_EMBED_SPLASH_CSS_WIDTH = 360;
 const GUILD_SPLASH_FALLBACK_CSS_WIDTH = 1024;
 
@@ -91,6 +93,8 @@ const MEDIA_PROXY_WIDE_ASSET_SERVER_MIN_DIMENSION = 480;
 const MEDIA_PROXY_WIDE_ASSET_SERVER_MAX_DIMENSION = 2400;
 const MEDIA_PROXY_ICON_SERVER_MIN_DIMENSION = 128;
 const MEDIA_PROXY_ICON_SERVER_MAX_DIMENSION = 1024;
+const MEDIA_PROXY_ROLE_ICON_SERVER_MIN_DIMENSION = 16;
+const MEDIA_PROXY_ROLE_ICON_SERVER_MAX_DIMENSION = 512;
 
 function snapImageSizeWithinServerRange(
 	cssPixels: number,
@@ -216,7 +220,7 @@ const buildGuildMemberPngUrl = (params: Omit<GuildMemberMediaURLParams, 'format'
 export function getUserAvatarURL(
 	{id, avatar}: AvatarOptions,
 	animated = false,
-	size: MediaProxyImageSize = MEDIA_PROXY_AVATAR_SIZE_DEFAULT,
+	size: number = MEDIA_PROXY_AVATAR_SIZE_DEFAULT,
 ) {
 	if (!avatar) {
 		return getDefaultAvatarURLForIndex(getDefaultAvatarIndex(id));
@@ -314,7 +318,11 @@ export function getUserBannerURL({id, banner}: BannerOptions, animated = false, 
 
 const mediaURLCacheScope = (): string => `${RuntimeConfig.apiEndpoint} ${RuntimeConfig.mediaEndpoint}`;
 
-export function getGuildIconURL({id, icon}: IconOptions, animated = false) {
+export function getGuildIconURL(
+	{id, icon}: IconOptions,
+	animated = false,
+	size: number = MEDIA_PROXY_ICON_SIZE_DEFAULT,
+) {
 	if (!icon) {
 		return '';
 	}
@@ -323,8 +331,31 @@ export function getGuildIconURL({id, icon}: IconOptions, animated = false) {
 		path: 'icons',
 		id,
 		hash,
-		size: snapIconImageSize(MEDIA_PROXY_ICON_SIZE_DEFAULT),
+		size: snapIconImageSize(size),
 		animated: shouldAnimate,
+	});
+}
+
+export function getGuildRailIconURL(guild: IconOptions, animated = false) {
+	return getGuildIconURL(guild, animated, GUILD_RAIL_ICON_CSS_SIZE * getAppRemScale());
+}
+
+export function getRoleIconURL({id, icon}: {id: string; icon: string | null}, cssSize: number): string {
+	if (!icon) {
+		return '';
+	}
+	if (icon.startsWith('data:')) {
+		return icon;
+	}
+	return buildWebpMediaUrl({
+		path: 'role-icons',
+		id,
+		hash: icon,
+		size: snapImageSizeWithinServerRange(
+			cssSize * getAppRemScale() * Math.max(2, window.devicePixelRatio || 1),
+			MEDIA_PROXY_ROLE_ICON_SERVER_MIN_DIMENSION,
+			MEDIA_PROXY_ROLE_ICON_SERVER_MAX_DIMENSION,
+		),
 	});
 }
 
@@ -376,7 +407,7 @@ export function getGuildMemberAvatarURL({
 	avatar: string | null;
 	memberAvatar?: string | null;
 	animated?: boolean;
-	size?: MediaProxyImageSize;
+	size?: number;
 }) {
 	if (memberAvatar) {
 		const {hash, animated: shouldAnimate} = parseMediaHashForRequest(memberAvatar, animated);
@@ -415,7 +446,7 @@ export function getGuildMemberDisplayAvatarURL({
 	memberAvatar?: string | null;
 	avatarUnset?: boolean;
 	animated?: boolean;
-	size?: MediaProxyImageSize;
+	size?: number;
 }) {
 	if (avatarUnset) {
 		return getUserAvatarURL({id: user.id, avatar: null}, animated, size);

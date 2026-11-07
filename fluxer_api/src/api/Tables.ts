@@ -133,6 +133,7 @@ import {
 	type WebhooksBySourceChannelRow,
 } from '@app/api/database/types/ChannelTypes';
 import {USER_CONNECTION_STORAGE_COLUMNS, type UserConnectionStorageRow} from '@app/api/database/types/ConnectionTypes';
+import {CUSTOM_BADGE_COLUMNS, type CustomBadgeRow} from '@app/api/database/types/CustomBadgeTypes';
 import {
 	ENFORCEMENT_DECISION_BY_SUBJECT_COLUMNS,
 	ENFORCEMENT_DECISION_COLUMNS,
@@ -1124,6 +1125,34 @@ export const WebAuthnCredentialLookup = defineTable<
 	columns: ['credential_id', 'user_id'],
 	primaryKey: ['credential_id'],
 });
+export const AppAttestKeys = defineTable<
+	{
+		user_id: UserID;
+		key_id: string;
+		public_key: Buffer;
+		environment: string;
+		app_id: string;
+		counter: bigint;
+		created_at: Date;
+		last_used_at: Date | null;
+	},
+	'user_id' | 'key_id'
+>({
+	name: 'app_attest_keys',
+	columns: ['user_id', 'key_id', 'public_key', 'environment', 'app_id', 'counter', 'created_at', 'last_used_at'],
+	primaryKey: ['user_id', 'key_id'],
+});
+export const AppAttestKeyLookup = defineTable<
+	{
+		key_id: string;
+		user_id: UserID;
+	},
+	'key_id'
+>({
+	name: 'app_attest_key_lookup',
+	columns: ['key_id', 'user_id'],
+	primaryKey: ['key_id'],
+});
 export const IpAuthorizationTokens = defineTable<IpAuthorizationTokenRow, 'token_' | 'user_id'>({
 	name: 'ip_authorization_tokens',
 	columns: IP_AUTHORIZATION_TOKEN_COLUMNS,
@@ -1344,6 +1373,17 @@ export const InstanceConfiguration = defineTable<InstanceConfigurationRow, 'key'
 	name: 'instance_configuration',
 	columns: INSTANCE_CONFIGURATION_COLUMNS,
 	primaryKey: ['key'],
+});
+export const CustomBadges = defineTable<CustomBadgeRow, 'badge_id'>({
+	name: 'custom_badges',
+	columns: CUSTOM_BADGE_COLUMNS,
+	primaryKey: ['badge_id'],
+});
+export const CustomBadgesByPosition = defineTable<CustomBadgeRow, 'type' | 'position', 'type'>({
+	name: 'custom_badges_by_position',
+	columns: CUSTOM_BADGE_COLUMNS,
+	primaryKey: ['type', 'position'],
+	partitionKey: ['type'],
 });
 export const JobsById = defineTable<JobByIdRow, 'job_id'>({
 	name: 'jobs_by_id',

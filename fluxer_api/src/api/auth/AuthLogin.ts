@@ -386,6 +386,7 @@ export async function login(
 				inviteCode: createInviteCode(data.invite_code),
 				requestCache: createRequestCache(),
 				tierContext: tierContextFromRequest(request),
+				ip: clientIp,
 			});
 		} catch (error) {
 			Logger.warn({inviteCode: data.invite_code, error}, 'Failed to auto-join invite on login');
@@ -517,8 +518,9 @@ export async function createLoginSession(
 	ctx: ApiContext,
 	user: User,
 	request: Request,
+	authMethod?: 'sso',
 ): Promise<[token: string, AuthSessionModel]> {
-	return AuthSession.createAuthSession(ctx, {user, origin: AuthSession.resolveSessionOrigin(ctx, request)});
+	return AuthSession.createAuthSession(ctx, {user, origin: AuthSession.resolveSessionOrigin(ctx, request), authMethod});
 }
 
 export async function completeMfaLogin(
@@ -529,7 +531,10 @@ export async function completeMfaLogin(
 	ssoLinks: SsoPendingLinks,
 ): Promise<[token: string, AuthSessionModel]> {
 	const {cache, rateLimit} = ctx.services;
-	const sessionUser = await ssoLinks.completePendingLink(await applyPendingRecovery(ctx, user, ticket), ticket);
+	const {user: sessionUser, authMethod} = await ssoLinks.completePendingLink(
+		await applyPendingRecovery(ctx, user, ticket),
+		ticket,
+	);
 	if (await cache.get<boolean>(mfaTicketNetworkKey(ticket))) {
 		await cache.delete(mfaTicketNetworkKey(ticket));
 		await ctx.services.users.createAuthorizedIp(
@@ -540,7 +545,7 @@ export async function completeMfaLogin(
 	await cache.delete(`mfa-ticket:${ticket}`);
 	await rateLimit.resetLimit(`mfa:ticket:${ticket}`);
 	await rateLimit.resetLimit(`mfa:user:${user.id}`);
-	const session = await createLoginSession(ctx, sessionUser, request);
+	const session = await createLoginSession(ctx, sessionUser, request, authMethod);
 	emitLogin(sessionUser, true, {mfa: true});
 	return session;
 }

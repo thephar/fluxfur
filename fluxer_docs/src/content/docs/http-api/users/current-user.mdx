@@ -83,12 +83,12 @@ Changes the account and returns the updated [user](/http-api/users/#user-object)
 | password? | string | Current password (8-256 characters) |
 | avatar?<sup>5</sup> | ?string | Base64-encoded avatar image, or null to clear |
 | banner?<sup>5</sup> <sup>6</sup> | ?string | Base64-encoded banner image, or null to clear |
-| bio?<sup>7</sup> | ?string | Biography (1-320 characters), or null to clear |
+| bio?<sup>7</sup> | ?string | Biography (1 character up to the `max_bio_length` limit, 320 by default), or null to clear |
 | pronouns? | ?string | Pronouns (1-40 characters), or null to clear |
 | accent_color? | ?integer | Packed 24-bit RGB color (0-16777215), or null to clear |
 | timezone?<sup>8</sup> | ?string | IANA timezone identifier (1-128 characters), or null to clear |
 | timezone_privacy_flags? | integer | [Profile field privacy flags](/http-api/users/#profile-field-privacy-flags) for the timezone |
-| hidden_profile_badges?<sup>12</sup> | array[string] | The full list of [badge keys](/http-api/users/#hiding-badges) to hide from other people, at most 18 |
+| hidden_profile_badges?<sup>12</sup> | array[string] | The full list of [badge keys](/http-api/users/#hiding-badges) to hide from other people, at most 1008 |
 | premium_badge_hidden?<sup>13</sup> | boolean | Deprecated. Use the hidden badge list |
 | premium_badge_masked? | boolean | Whether to show a lifetime badge as an ordinary subscription badge |
 | premium_badge_timestamp_hidden? | boolean | Whether to hide the premium activation time |
@@ -325,21 +325,26 @@ Schedules deletion of the account and deletes every session. Needs [sudo verific
 
 ### JSON body
 
-The [sudo verification object](/http-api/users/mfa/#sudo-verification-object), which can be empty when you send a sudo token.
+The [sudo verification object](/http-api/users/mfa/#sudo-verification-object), which can be empty when you send a sudo token, and these fields.
+
+| Field | Type | Description |
+| --- | --- | --- |
+| immediate? | boolean | Delete the account now instead of after the grace period |
+| delete_messages? | boolean | Delete every message the account sent along with the account. Otherwise the messages stay, with the author removed |
 
 :::caution[Signing in cancels the deletion]
-The deletion happens 14 days later by default. Signing in before then cancels it, and once erasure starts it can't be cancelled.
+The deletion happens 14 days later by default, or within about a minute with `immediate`. Signing in before then cancels it, together with the message deletion, and once erasure starts it can't be cancelled.
 :::
 
 ### Response
 
 | Status | Body | Condition |
 | --- | --- | --- |
-| 204 | empty | The deletion was scheduled |
+| 200 | object with `pending_deletion_at`, an ISO 8601 timestamp | The deletion was scheduled for that time |
 | 400 | [error response](/http-api/#error-response) | The account owns a guild, `USER_OWNS_GUILDS` |
 | 409 | [error response](/http-api/#error-response) | `CONFLICT` when erasure has started |
 
-Fluxer emails the account when it has an address.
+Fluxer emails the account when it has an address, once when the deletion is scheduled for later and once when the deletion is done.
 
 The rate limit is 5 requests per hour, on the `user:account:delete` bucket.
 
@@ -398,8 +403,8 @@ A [profile badge](/http-api/users/#profile-badge-object) with a `hidden` field. 
 | key | string | The badge's identity, and the value to put in `hidden_profile_badges` |
 | kind | string | The badge type |
 | label | string | The badge description in your locale |
-| asset | ?string | The badge image hash, or null for a text badge or a custom badge |
-| asset_url | ?string | The image URL of a custom badge |
+| asset | ?string | The badge image hash, or null for a text badge, a custom badge or a built-in badge with a replaced image |
+| asset_url | ?string | The image URL of a custom badge or of a built-in badge with a replaced image |
 | aspect_ratio | ?number | The image width divided by its height |
 | caption | ?string | The short badge text, such as `#42` |
 | href | ?string | The URL a click opens |

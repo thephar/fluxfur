@@ -111,6 +111,8 @@ import type {
 	TemplateRole,
 	TemplateSerializedGuild,
 } from '@fluxer/schema/src/domains/guild/GuildTemplateSchemas';
+import {isValidSingleUnicodeEmoji} from '@fluxer/schema/src/primitives/EmojiValidators';
+import {normalizeString} from '@fluxer/schema/src/primitives/SchemaPrimitives';
 import {extractTimestamp} from '@fluxer/snowflake/src/SnowflakeUtils';
 import type {IWorkerService} from '@pkgs/worker/src/contracts/IWorkerService';
 
@@ -212,6 +214,16 @@ const TEMPLATE_AFK_TIMEOUT_MAX_SECONDS = 3600;
 
 function isSystemChannelType(type: number): boolean {
 	return type === ChannelTypes.GUILD_TEXT || type === ChannelTypes.GUILD_ANNOUNCEMENT;
+}
+
+function templateChannelFallbackName(type: number, locale: string | null): string {
+	if (type === ChannelTypes.GUILD_CATEGORY) {
+		return getContentMessage('guild.default_category_text', locale);
+	}
+	if (type === ChannelTypes.GUILD_VOICE) {
+		return getContentMessage('guild.default_channel_voice', locale);
+	}
+	return getContentMessage('guild.default_channel_text', locale);
 }
 
 export class GuildOperationsService {
@@ -1105,13 +1117,14 @@ export class GuildOperationsService {
 				GuildRoles.insert({
 					guild_id: guildId,
 					role_id: roleId,
-					name: role.name,
+					name: normalizeString(role.name) || 'new role',
 					permissions: this.parseTemplatePermissionBitfield(role.permissions_new ?? role.permissions, permissionMask),
 					position: nextRolePosition,
 					hoist_position: null,
 					color: role.color ?? 0,
 					icon_hash: null,
-					unicode_emoji: role.unicode_emoji ?? null,
+					unicode_emoji:
+						role.unicode_emoji != null && isValidSingleUnicodeEmoji(role.unicode_emoji) ? role.unicode_emoji : null,
 					hoist: role.hoist ?? false,
 					mentionable: role.mentionable ?? false,
 					version: 1,
@@ -1156,7 +1169,7 @@ export class GuildOperationsService {
 					channel_id: channelId,
 					guild_id: guildId,
 					type: fluxerType,
-					name: channel.name,
+					name: normalizeString(channel.name) || templateChannelFallbackName(fluxerType, locale),
 					topic: clipTemplateTopic(channel.topic, fluxerType),
 					icon_hash: null,
 					url: null,

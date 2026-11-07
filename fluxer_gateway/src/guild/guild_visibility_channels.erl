@@ -74,24 +74,16 @@ shares_viewable_channel(UserId, ChannelMap, State) ->
 shares_any_channel(UserId, Member, ChannelMap, Channels, State) ->
     lists:any(
         fun(Channel) ->
-            shares_channel_or_parent(Channel, UserId, Member, ChannelMap, Channels, State)
+            shares_channel(Channel, UserId, Member, ChannelMap, State)
         end,
         Channels
     ).
 
--spec shares_channel_or_parent(map(), user_id(), map(), map(), [map()], guild_state()) ->
-    boolean().
-shares_channel_or_parent(Channel, UserId, Member, ChannelMap, Channels, State) ->
-    channel_viewable(UserId, Member, Channel, State) andalso
-        (maps:is_key(channel_id(Channel), ChannelMap) orelse
-            shared_parent(channel_parent_id(Channel), ChannelMap, Channels)).
-
--spec shared_parent(channel_id() | undefined, map(), [map()]) -> boolean().
-shared_parent(undefined, _ChannelMap, _Channels) ->
-    false;
-shared_parent(ParentId, ChannelMap, Channels) ->
-    maps:is_key(ParentId, ChannelMap) andalso
-        lists:any(fun(C) -> channel_id(C) =:= ParentId end, Channels).
+-spec shares_channel(map(), user_id(), map(), map(), guild_state()) -> boolean().
+shares_channel(Channel, UserId, Member, ChannelMap, State) ->
+    not channel_types:is_category(maps:get(<<"type">>, Channel, undefined)) andalso
+        maps:is_key(channel_id(Channel), ChannelMap) andalso
+        channel_viewable(UserId, Member, Channel, State).
 
 -spec collect_missing_parent_ids([map()], map()) -> [channel_id()].
 collect_missing_parent_ids(Channels, MissingParents) ->
@@ -302,12 +294,9 @@ maybe_grant_virtual_access(UserId, ChannelId, State) ->
 add_created_channel_to_sessions(Channel, State) ->
     case channel_id(Channel) of
         ChannelId when is_integer(ChannelId) ->
-            Added = [Id || Id <- [ChannelId, channel_parent_id(Channel)], is_integer(Id)],
             {Sessions, _Visible} = maps:fold(
                 fun(SessionId, SessionData, {Acc, Memo}) ->
-                    add_created_channel(SessionId, SessionData, ChannelId, Added, State, {
-                        Acc, Memo
-                    })
+                    add_created_channel(SessionId, SessionData, ChannelId, State, {Acc, Memo})
                 end,
                 {maps:get(sessions, State, #{}), #{}},
                 maps:get(sessions, State, #{})
@@ -318,13 +307,12 @@ add_created_channel_to_sessions(Channel, State) ->
     end.
 
 -spec add_created_channel(
-    binary(), map(), channel_id(), [channel_id()], guild_state(), {map(), map()}
+    binary(), map(), channel_id(), guild_state(), {map(), map()}
 ) -> {map(), map()}.
 add_created_channel(
     SessionId,
     #{user_id := UserId, viewable_channels := Viewable} = SessionData,
     ChannelId,
-    Added,
     State,
     {Sessions, Memo}
 ) when is_integer(UserId), is_map(Viewable) ->
@@ -343,12 +331,14 @@ add_created_channel(
         end,
     case CanView of
         true ->
-            NewViewable = maps:merge(Viewable, maps:from_keys(Added, true)),
+            NewViewable = guild_visibility_roles:maybe_ensure_parent_category_visible(
+                ChannelId, Viewable#{ChannelId => true}, State, SessionData, maps:get(id, State)
+            ),
             {Sessions#{SessionId => SessionData#{viewable_channels => NewViewable}}, Memo1};
         false ->
             {Sessions, Memo1}
     end;
-add_created_channel(_SessionId, _SessionData, _ChannelId, _Added, _State, Acc) ->
+add_created_channel(_SessionId, _SessionData, _ChannelId, _State, Acc) ->
     Acc.
 
 -spec update_viewable_map_for_channel(map(), channel_id(), boolean()) -> map().

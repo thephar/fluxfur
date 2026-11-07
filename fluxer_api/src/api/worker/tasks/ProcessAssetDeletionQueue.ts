@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {createGuildID, createUserID} from '@app/api/BrandedTypes';
+import {createGuildID, createRoleID, createUserID} from '@app/api/BrandedTypes';
 import {Config} from '@app/api/Config';
 import type {GuildRepository} from '@app/api/guild/repositories/GuildRepository';
 import {stripAnimationPrefix} from '@app/api/infrastructure/AssetEntitlementUtils';
@@ -13,6 +13,7 @@ import type {
 	QueuedAssetType,
 } from '@app/api/infrastructure/IAssetDeletionQueue';
 import type {IStorageService} from '@app/api/infrastructure/IStorageService';
+import {isCustomBadgeAssetReferenced} from '@app/api/instance/custom_badges/CustomBadgeCatalog';
 import type {InstanceConfigRepository} from '@app/api/instance/InstanceConfigRepository';
 import {Logger} from '@app/api/Logger';
 import type {UserRepository} from '@app/api/user/repositories/UserRepository';
@@ -31,10 +32,10 @@ interface ProcessItemResult {
 
 interface AssetReferenceRepositories {
 	userRepository: Pick<UserRepository, 'findUnique'>;
-	guildRepository: Pick<GuildRepository, 'findUnique' | 'getMember'>;
+	guildRepository: Pick<GuildRepository, 'findUnique' | 'getMember' | 'getRole'>;
 	instanceConfigRepository: Pick<
 		InstanceConfigRepository,
-		'readStoredBrandingAssetKeys' | 'readStoredCustomBadgeAssetKeys'
+		'readStoredBrandingAssetKeys' | 'readStoredCustomBadgeReferences'
 	>;
 }
 
@@ -185,7 +186,10 @@ async function isQueuedAssetStillCurrent(
 		return (await deps.instanceConfigRepository.readStoredBrandingAssetKeys()).has(item.s3Key);
 	}
 	if (item.s3Key.startsWith('custom-badges/')) {
-		return (await deps.instanceConfigRepository.readStoredCustomBadgeAssetKeys()).has(item.s3Key);
+		return isCustomBadgeAssetReferenced(deps.instanceConfigRepository, item.s3Key);
+	}
+	if (item.s3Key.startsWith('role-icons/')) {
+		return isRoleIconStillCurrent(item, deps);
 	}
 	const references = inferAssetReferencesFromS3Key(item.s3Key);
 	const {staleReference} = item;
@@ -210,6 +214,28 @@ async function isQueuedAssetStillCurrent(
 		if (currentHash !== null && stripAnimationPrefix(currentHash) === reference.hash) return true;
 	}
 	return false;
+}
+
+async function isRoleIconStillCurrent(item: QueuedAssetDeletion, deps: AssetReferenceRepositories): Promise<boolean> {
+	const parts = item.s3Key.split('/');
+	const reference = item.staleReference;
+	if (
+		parts.length !== 3 ||
+		!reference ||
+		reference.entityType !== 'role' ||
+		reference.assetType !== 'role_icon' ||
+		!reference.guildId ||
+		reference.entityId !== parts[1] ||
+		stripAnimationPrefix(reference.hash) !== parts[2]
+	) {
+		Logger.warn({s3Key: item.s3Key}, 'Role icon deletion has no matching reference, keeping the asset');
+		return true;
+	}
+	const role = await deps.guildRepository.getRole(
+		createRoleID(parseAssetEntityId(reference.entityId, 'entityId')),
+		createGuildID(parseAssetEntityId(reference.guildId, 'guildId')),
+	);
+	return role?.iconHash != null && stripAnimationPrefix(role.iconHash) === parts[2];
 }
 
 async function getCurrentAssetHash(

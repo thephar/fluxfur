@@ -22,7 +22,7 @@ import type {WorkerTaskName} from '@app/api/worker/WorkerLaneConfig';
 import {WorkerQueueOverflowError} from '@app/api/worker/WorkerQueueOverflowError';
 import {ChannelTypes, MessageTypes, SENDABLE_MESSAGE_FLAGS} from '@fluxer/constants/src/ChannelConstants';
 import {GuildOperations} from '@fluxer/constants/src/GuildConstants';
-import {RelationshipTypes, UserFlags} from '@fluxer/constants/src/UserConstants';
+import {UserFlags} from '@fluxer/constants/src/UserConstants';
 import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
 import {InputValidationError} from '@fluxer/errors/src/domains/core/InputValidationError';
 import type {GuildResponse} from '@fluxer/schema/src/domains/guild/GuildResponseSchemas';
@@ -47,6 +47,7 @@ interface MentionReadRepairData {
 	channelMentions: Set<ChannelID>;
 	mentionsEveryone: boolean;
 	changed: boolean;
+	channelsChanged: boolean;
 }
 
 interface MentionableUser {
@@ -161,8 +162,8 @@ export class MessageMentionService {
 			changed:
 				!this.setsEqual(message.mentionedUserIds, userMentions) ||
 				!this.setsEqual(message.mentionedRoleIds, roleMentions) ||
-				!this.setsEqual(message.mentionedChannelIds, contentChannelMentions) ||
 				message.mentionEveryone !== mentionsEveryone,
+			channelsChanged: !this.setsEqual(message.mentionedChannelIds, contentChannelMentions),
 		};
 	}
 
@@ -187,7 +188,7 @@ export class MessageMentionService {
 		};
 	}
 
-	private setsEqual<T>(left: ReadonlySet<T>, right: ReadonlySet<T>): boolean {
+	setsEqual<T>(left: ReadonlySet<T>, right: ReadonlySet<T>): boolean {
 		if (left.size !== right.size) return false;
 		for (const value of left) {
 			if (!right.has(value)) return false;
@@ -316,14 +317,9 @@ export class MessageMentionService {
 				channelMentionPromise,
 			]);
 			const filteredRoles = canMentionRoles ? roles : roles.filter((role) => role.mentionable);
-			const blockFilteredMentions = await this.filterBlockedUserMentions({
+			const validUserIds = await this.filterSuppressedSelfMentions({
 				validUsers: users,
 				validUserIds: users.map((u) => u.id),
-				message,
-			});
-			const validUserIds = await this.filterSuppressedSelfMentions({
-				validUsers: blockFilteredMentions.validUsers,
-				validUserIds: blockFilteredMentions.validUserIds,
 				message,
 			});
 			return {
@@ -338,15 +334,10 @@ export class MessageMentionService {
 			validUserIds.length > 0 ? this.userRepository.listUsers(validUserIds) : Promise.resolve([]),
 			channelMentionPromise,
 		]);
-		const blockFilteredMentions = await this.filterBlockedUserMentions({
-			validUsers,
-			validUserIds,
-			message,
-		});
 		return {
 			validUserIds: await this.filterSuppressedSelfMentions({
-				validUsers: blockFilteredMentions.validUsers,
-				validUserIds: blockFilteredMentions.validUserIds,
+				validUsers,
+				validUserIds,
 				message,
 			}),
 			validRoleIds: [],
@@ -379,42 +370,12 @@ export class MessageMentionService {
 		return roles.map((role) => ({id: role.id, mentionable: role.isMentionable}));
 	}
 
-	private async filterBlockedUserMentions({
-		validUsers,
-		validUserIds,
-		message,
-	}: {
-		validUsers: Array<MentionableUser>;
-		validUserIds: Array<UserID>;
-		message: Pick<Message, 'authorId' | 'webhookId'>;
-	}): Promise<{
-		validUsers: Array<MentionableUser>;
-		validUserIds: Array<UserID>;
-	}> {
-		if (validUserIds.length === 0 || message.webhookId != null || message.authorId == null) {
-			return {validUsers, validUserIds};
-		}
-		const authorId = message.authorId;
-		const blockedUserIds = new Set(
-			(
-				await Promise.all(
-					validUserIds.map(async (targetUserId) => {
-						if (targetUserId === authorId) {
-							return null;
-						}
-						const block = await this.userRepository.getRelationship(targetUserId, authorId, RelationshipTypes.BLOCKED);
-						return block ? targetUserId : null;
-					}),
-				)
-			).filter((targetUserId): targetUserId is UserID => targetUserId != null),
-		);
-		if (blockedUserIds.size === 0) {
-			return {validUsers, validUserIds};
-		}
-		return {
-			validUsers: validUsers.filter((user) => !blockedUserIds.has(user.id)),
-			validUserIds: validUserIds.filter((userId) => !blockedUserIds.has(userId)),
-		};
+	async withoutUsersBlockingAuthor(authorId: UserID, userIds: Array<UserID>): Promise<Array<UserID>> {
+		const targets = userIds.filter((userId) => userId !== authorId);
+		if (targets.length === 0) return userIds;
+		const blockingUserIds = await this.userRepository.listUserIdsBlockingTarget(authorId, targets);
+		if (blockingUserIds.size === 0) return userIds;
+		return userIds.filter((userId) => !blockingUserIds.has(userId));
 	}
 
 	async validateChannelMentions({
@@ -487,7 +448,7 @@ export class MessageMentionService {
 	}): Promise<void> {
 		const {guildId, message, authorId, mentionHere = false} = params;
 		if (isPersonalNotesChannelId({userId: authorId, channelId: message.channelId})) return;
-		const mentionUserIds = Array.from(message.mentionedUserIds ?? []);
+		const mentionUserIds = await this.withoutUsersBlockingAuthor(authorId, Array.from(message.mentionedUserIds ?? []));
 		const mentionRoleIds = Array.from(message.mentionedRoleIds ?? []);
 		const mentionEveryone = message.mentionEveryone && !mentionHere;
 		const taskData = {

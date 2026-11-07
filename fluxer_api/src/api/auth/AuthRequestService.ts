@@ -174,7 +174,14 @@ export class AuthRequestService {
 
 	completeSso(data: SsoCompleteRequest, request: Request, requestCache: RequestCache, clientIp: string) {
 		return this.toSsoCompleteResponse(
-			this.ssoService.completeLogin({code: data.code, state: data.state, request, requestCache, clientIp}),
+			this.ssoService.completeLogin({
+				code: data.code,
+				state: data.state,
+				clientBinding: data.client_binding ?? undefined,
+				request,
+				requestCache,
+				clientIp,
+			}),
 		);
 	}
 
@@ -332,6 +339,8 @@ export class AuthRequestService {
 			consent: data.consent,
 			registrationUrlCode: data.registration_url_code,
 			inviteCode: data.invite_code,
+			username: data.username,
+			globalName: data.global_name,
 			request: params.request,
 			clientIp: params.clientIp,
 			requestCache: params.requestCache,
@@ -524,6 +533,9 @@ export class AuthRequestService {
 		resultPromise: ReturnType<SsoService['completeLogin']>,
 	): Promise<SsoCompleteResponse> {
 		const {redirect_to, ...result} = await resultPromise;
+		if ('linked' in result) {
+			return {linked: true, redirect_to};
+		}
 		return {...(await this.toAuthLoginResponse(result)), redirect_to};
 	}
 

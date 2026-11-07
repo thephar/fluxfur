@@ -20,7 +20,7 @@ Send one of these credentials in the `Authorization` header. [Authentication](/a
 
 The account needs `admin:authenticate` or `*`. The API refuses bot tokens and access tokens from any other OAuth2 application. No Admin route needs an OAuth2 scope, MFA or sudo mode.
 
-An [Admin API key](/admin-api/api-keys/) acts as the account that created it and only works on paths under `/v1/admin`. A request made with a key needs one of the route's ACLs on the key and one on the account that owns it, unless that account has `*`. Removing an ACL from the key or its owner takes effect on the next request.
+An [Admin API key](/admin-api/api-keys/) acts as the account that created it and only works on paths under `/v1/admin`. A request made with a key can only use ACLs that both the key and the account that owns it have. `*` on the key or the account counts as having every ACL. Removing an ACL from the key or its owner takes effect on the next request.
 
 ## ACL evaluation
 
@@ -89,7 +89,7 @@ Each route needs one or more ACLs, and the caller needs at least one of them. Th
 | enforcement:view | Reads [enforcement decisions](/admin-api/enforcement/). Ending one needs this ACL plus the ACL for its kind |
 | gateway:memory_stats | Reads main [Gateway](/admin-api/gateway/) statistics, memory statistics and voice state counts |
 | gateway:reload_all | Reloads guilds across the main Gateway |
-| gift_codes:generate | Generates [gift codes](/admin-api/gift-codes/) |
+| gift_codes:generate | Generates and revokes [gift codes](/admin-api/gift-codes/) |
 | guild:audit_log:view | Reads a guild's ordinary audit log |
 | guild:ban_member | Bans a guild member and removes a guild ban |
 | guild:delete | Deletes a guild |
@@ -143,6 +143,9 @@ Each route needs one or more ACLs, and the caller needs at least one of them. Th
 | user:update:profile | Clears profile fields |
 | user:update:traits | Replaces account traits |
 | user:update:username | Updates usernames and discriminators |
+| voice:join_token:create | Creates join tokens for new voice servers |
+| voice:join_token:list | Reads join tokens |
+| voice:join_token:revoke | Revokes join tokens |
 | voice:region:create | Creates [voice](/admin-api/voice/) regions |
 | voice:region:delete | Deletes voice regions |
 | voice:region:list | Reads voice regions |
@@ -271,7 +274,7 @@ Expect values that aren't in this table.
 | report | User report |
 | search_index | Search index |
 | system_dm | System DM broadcast |
-| gift_code | Batch of generated gift codes |
+| gift_code | Batch of generated gift codes, or one revoked gift code |
 | bulk_job | Background job |
 | admin_api_key | Admin API key |
 | audit_log | Admin audit entry |
@@ -355,6 +358,7 @@ These entries have `access` set to `read`.
 | list_user_relationships | The relationships of an account were read |
 | list_user_sessions | An account's login sessions were read |
 | list_user_sso_identities | The single sign-on identities of an account were read |
+| list_voice_join_tokens | Voice join tokens were listed |
 | list_voice_regions | Voice regions were listed |
 | list_voice_servers | The voice servers of a region were listed |
 | list_webauthn_credentials | An account's WebAuthn credentials were read |
@@ -401,14 +405,17 @@ These entries have `access` set to `write`.
 | change_username | A username or discriminator was changed |
 | clear_fields | Profile fields of an account, or fields of a guild, were cleared |
 | clear_report_legal_hold | The legal hold on a report was cleared |
+| clear_role_icon | The icon of a guild role was cleared |
 | create_admin_api_key | An Admin API key was created |
 | create_badge | A custom badge was made |
 | create_password_reset_link | A password reset link was created for an account |
 | create_registration_url | A registration URL was issued |
 | create_sign_in_link | A sign-in link was created for an admin account |
 | create_user | An account was created by an Admin |
+| create_voice_join_token | A voice join token was created |
 | create_voice_region | A voice region was created |
 | create_voice_server | A voice server was registered |
+| create_voice_server_test_token | A test token for a voice server was signed |
 | delete_all_user_messages | Deletion of every message an account sent was queued |
 | delete_all_user_messages_dry_run | Deletion of every message an account sent was previewed with `dry_run`, and nothing was deleted |
 | delete_badge | A custom badge was deleted |
@@ -423,10 +430,13 @@ These entries have `access` set to `write`.
 | end_enforcement_decision | An enforcement decision was ended as lifted or reversed |
 | force_add_to_guild | An account was added to a guild while bypassing the ban check |
 | generate_gift_codes | Gift codes were generated |
+| hide_built_in_badge | A built-in community badge was hidden on this instance |
 | kick_member | A member was removed from a guild |
 | limit_features | A feature limit decision was recorded for an account |
 | link_sso_identity | A single sign-on subject was bound to an account by hand |
 | migrate_sso_identities | Single sign-on subjects were moved from an earlier provider ID to the provider in use |
+| move_badge | One custom badge was moved in the display order |
+| preview_message_shred | The messages a shred would delete were listed |
 | purge_asset | A stored media asset was purged |
 | purge_guild_emoji_asset | A guild emoji asset was purged |
 | purge_guild_sticker_asset | A guild sticker asset was purged |
@@ -438,15 +448,21 @@ These entries have `access` set to `write`.
 | reload_guild | One guild was reloaded on the main Gateway |
 | reload_guilds | Many guilds were reloaded on the main Gateway |
 | remove_discovery_listing | A guild was removed from discovery |
+| remove_premium | Premium was removed from an account |
 | remove_relationship | One relationship was removed from an account |
 | remove_registration_url | A revoked registration URL was removed from the list |
 | remove_relationships_by_category | Every relationship in one category was removed from an account |
 | rename_registration_url | A registration URL was given a new label |
+| reorder_badges | The display order of the custom badges was changed |
+| replace_built_in_badge_image | The image of a built-in badge was replaced |
 | resend_verification_email | An email verification message was requested again for an account |
+| reset_built_in_badge_image | A built-in badge went back to its built-in image |
 | resolve_report | A report was updated or resolved |
 | revoke_admin_api_key | An Admin API key was revoked |
+| revoke_gift_code | A gift code nobody had redeemed was revoked |
 | revoke_recovery_kit | The recovery kit of an account was revoked |
 | revoke_registration_url | A registration URL was revoked |
+| revoke_voice_join_token | A voice join token was revoked |
 | schedule_deletion | Account deletion was scheduled |
 | send_password_reset | A password reset message was requested for an account |
 | set_acls | The Admin ACL set of an account was replaced |
@@ -455,6 +471,8 @@ These entries have `access` set to `write`.
 | set_system_status | The system flag of an account was changed |
 | set_traits | Account traits were replaced |
 | shutdown_guild | One guild was stopped on the main Gateway |
+| show_built_in_badge | A hidden built-in community badge was shown again |
+| sso_sign_in | An admin signed in to the admin panel through single sign-on |
 | system_dm.send | A system DM broadcast was created |
 | temp_ban | An account was suspended for a time or permanently |
 | terminate_sessions | Every login session of an account was revoked |
@@ -475,6 +493,7 @@ These entries have `access` set to `write`.
 | unlink_sso_identities | The single sign-on subjects of an account were released |
 | update_admin_api_key | An Admin API key was renamed or its ACLs were replaced |
 | update_badge | A custom badge was updated |
+| update_badge_settings | The limits on how many custom badges an account or guild can have were changed |
 | update_discovery_categories | Guilds were moved to a discovery category |
 | update_discovery_listing | A discovery listing was edited |
 | update_features | Guild features were added or removed |

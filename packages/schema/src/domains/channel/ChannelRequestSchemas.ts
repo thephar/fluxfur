@@ -31,6 +31,7 @@ import {
 } from '@fluxer/schema/src/domains/channel/ForumRequestSchemas';
 import {ThreadAutoArchiveDurationSchema} from '@fluxer/schema/src/domains/channel/ThreadRequestSchemas';
 import {ReadStateResponse} from '@fluxer/schema/src/domains/gateway/GatewaySchemas';
+import {withBase64Binary} from '@fluxer/schema/src/primitives/Base64BinaryFields';
 import {ChannelOverwriteTypeSchema, GeneralChannelNameType} from '@fluxer/schema/src/primitives/ChannelValidators';
 import {createBase64ImageType} from '@fluxer/schema/src/primitives/FileValidators';
 import {ContentWarningLevelSchema} from '@fluxer/schema/src/primitives/GuildValidators';
@@ -174,6 +175,7 @@ const ChannelCreateCategoryRequest = ChannelCreateCommon.extend({
 const ChannelCreateLinkRequest = ChannelCreateCommon.extend({
 	type: createNamedLiteral(ChannelTypes.GUILD_LINK, 'GUILD_LINK', 'Channel type (link channel)'),
 	name: GeneralChannelNameType.describe('The name of the channel'),
+	url: URLType.describe('External URL for link channels'),
 });
 
 const EXPERIMENT = {experiment: 'channel_threads'} as const;
@@ -250,6 +252,7 @@ const ChannelUpdateCategoryRequest = ChannelUpdateCommon.extend({
 const ChannelUpdateLinkRequest = ChannelUpdateCommon.extend({
 	type: createNamedLiteral(ChannelTypes.GUILD_LINK, 'GUILD_LINK', 'Channel type (link channel)'),
 	name: GeneralChannelNameType.nullish().describe('The name of the channel'),
+	url: URLType.optional().describe('External URL for link channels'),
 });
 
 const ChannelUpdateGroupDmRequest = z.object({
@@ -510,7 +513,7 @@ export type StreamUpdateBodySchema = z.infer<typeof StreamUpdateBodySchema>;
 
 export const StreamPreviewUploadBodySchema = z.object({
 	channel_id: SnowflakeType.describe('The ID of the channel where the stream is active'),
-	thumbnail: createStringType(1, 2000000).describe('Base64-encoded thumbnail image data'),
+	thumbnail: withBase64Binary(createStringType(1, 2000000)).describe('Base64-encoded thumbnail image data'),
 	content_type: createStringType(1, 64).optional().describe('MIME type of the thumbnail image'),
 });
 

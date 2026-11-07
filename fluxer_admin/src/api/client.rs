@@ -346,13 +346,22 @@ impl AdminApiClient {
         serde_json::from_value(json).map_err(|e| ApiError::Parse(e.to_string()))
     }
 
-    pub(crate) fn generated_error<E: std::fmt::Debug>(
+    pub(crate) fn generated_error<E: std::fmt::Debug + Serialize>(
         &self,
         error: progenitor_client::Error<E>,
     ) -> ApiError {
+        if let progenitor_client::Error::InvalidResponsePayload(_, err) = &error {
+            return ApiError::Parse(format!("invalid response payload: {err}"));
+        }
+        let message = match &error {
+            progenitor_client::Error::ErrorResponse(response) => {
+                serde_json::to_string(response.as_ref()).unwrap_or_else(|_| format!("{error:?}"))
+            }
+            _ => format!("{error:?}"),
+        };
         match error.status() {
-            Some(status) => ApiError::http(status.as_u16(), format!("{error:?}")),
-            None => ApiError::Network(format!("{error:?}")),
+            Some(status) => ApiError::http(status.as_u16(), message),
+            None => ApiError::Network(message),
         }
     }
 

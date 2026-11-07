@@ -4,11 +4,14 @@ import type {GuildID, UserID} from '@app/api/BrandedTypes';
 import {Config} from '@app/api/Config';
 import type {UserConnectionRow} from '@app/api/database/types/ConnectionTypes';
 import type {
+	OperatorPassCertificateRow,
+	OperatorPassLabsMemberRow,
 	OperatorPassOfferRow,
 	OperatorPassPurchaseRow,
 	OperatorPassRow,
 	OperatorPassUnitEventRow,
 	OperatorPassUnitRow,
+	OperatorPassVisionaryActivationRow,
 	OperatorPassWaitlistRow,
 	OperatorPassWallEntryRow,
 	OperatorPassWallEventRow,
@@ -32,8 +35,10 @@ import type {UserGuildSettings} from '@app/api/models/UserGuildSettings';
 import type {UserSettings} from '@app/api/models/UserSettings';
 import type {WebAuthnCredential} from '@app/api/models/WebAuthnCredential';
 import {mapStorePurchaseToResponse} from '@app/api/store_billing/StoreBillingMappers';
+import type {ExportedAppAttestKey} from '@app/api/user/AgeRange';
 import {resolveSessionClientInfo} from '@app/api/utils/SessionClientIdentity';
 import {getAnimatedAssetExtension} from '@app/api/worker/utils/AssetArchiveHelpers';
+import {PremiumFlags} from '@fluxer/constants/src/UserConstants';
 import {
 	decodeSyncedPreferencesLenient,
 	syncedPreferencesToJson,
@@ -69,6 +74,7 @@ interface ArchivedUserSettings {
 	inline_embed_media: boolean;
 	explicit_content_filter: number;
 	friend_source_flags: number;
+	allow_mature_content_on_ios: boolean;
 	default_guilds_restricted: boolean;
 	bot_default_guilds_restricted: boolean;
 	restricted_guilds: Array<string>;
@@ -111,6 +117,7 @@ interface UserDataJsonParams {
 	webAuthnCredentials: Array<WebAuthnCredential>;
 	mfaBackupCodes: Array<MfaBackupCode>;
 	recoveryKitCreatedAt: Date | null;
+	appAttestKeys: Array<ExportedAppAttestKey>;
 	createdGiftCodes: Array<GiftCode>;
 	payments: Array<Payment>;
 	storePurchases: Array<StorePurchaseRow>;
@@ -121,6 +128,9 @@ interface UserDataJsonParams {
 	operatorPassWallEvents: Array<OperatorPassWallEventRow>;
 	operatorPassUnits: Array<{unit: OperatorPassUnitRow; events: Array<OperatorPassUnitEventRow>}>;
 	operatorPassOffers: Array<OperatorPassOfferRow>;
+	operatorPassCertificates: Array<OperatorPassCertificateRow>;
+	operatorPassVisionaryActivation: OperatorPassVisionaryActivationRow | null;
+	operatorPassLabs: OperatorPassLabsMemberRow | null;
 	oauthClients: Array<Application>;
 	connections: Array<UserConnectionRow>;
 	pinnedDms: Array<{
@@ -218,6 +228,12 @@ export function mapSecurityData(params: {
 	};
 }
 
+export function getOperatorPassCertificateArchivePath(
+	certificate: Pick<OperatorPassCertificateRow, 'number' | 'version'>,
+): string {
+	return `operator_pass/certificates/${certificate.number}-copy-${certificate.version}.pdf`;
+}
+
 export function buildUserDataJson(params: UserDataJsonParams) {
 	const {
 		user,
@@ -237,6 +253,7 @@ export function buildUserDataJson(params: UserDataJsonParams) {
 		webAuthnCredentials,
 		mfaBackupCodes,
 		recoveryKitCreatedAt,
+		appAttestKeys,
 		createdGiftCodes,
 		payments,
 		storePurchases,
@@ -247,6 +264,9 @@ export function buildUserDataJson(params: UserDataJsonParams) {
 		operatorPassWallEvents,
 		operatorPassUnits,
 		operatorPassOffers,
+		operatorPassCertificates,
+		operatorPassVisionaryActivation,
+		operatorPassLabs,
 		oauthClients,
 		connections,
 		pinnedDms,
@@ -275,12 +295,15 @@ export function buildUserDataJson(params: UserDataJsonParams) {
 			pronouns: user.pronouns,
 			accent_color: user.accentColor,
 			date_of_birth: user.dateOfBirth,
+			age_range: user.attestedAgeFloor,
+			age_range_received_at: user.ageAttestedAt?.toISOString() ?? null,
 			locale: user.locale,
 			flags: user.flags.toString(),
 			premium_type: user.premiumType,
 			premium_since: user.premiumSince?.toISOString() ?? null,
 			premium_until: user.premiumUntil?.toISOString() ?? null,
 			premium_lifetime_sequence: user.premiumLifetimeSequence,
+			operator_pass_show_operators: (user.premiumFlags & PremiumFlags.OPERATORS_CHANNEL_HIDDEN) === 0,
 			stripe_customer_id: user.stripeCustomerId,
 			stripe_subscription_id: user.stripeSubscriptionId,
 			terms_agreed_at: user.termsAgreedAt?.toISOString() ?? null,
@@ -353,6 +376,7 @@ export function buildUserDataJson(params: UserDataJsonParams) {
 			inline_embed_media: userSettings.inlineEmbedMedia,
 			explicit_content_filter: userSettings.explicitContentFilter,
 			friend_source_flags: userSettings.friendSourceFlags,
+			allow_mature_content_on_ios: userSettings.allowMatureContentOnIos,
 			default_guilds_restricted: userSettings.defaultGuildsRestricted,
 			bot_default_guilds_restricted: userSettings.botDefaultGuildsRestricted,
 			restricted_guilds: Array.from(userSettings.restrictedGuilds).map((id) => id.toString()),
@@ -463,6 +487,13 @@ export function buildUserDataJson(params: UserDataJsonParams) {
 			created_at: cred.createdAt.toISOString(),
 			last_used_at: cred.lastUsedAt?.toISOString() ?? null,
 		})),
+		app_attest_keys: appAttestKeys.map((key) => ({
+			key_id: key.key_id,
+			environment: key.environment,
+			counter: Number(key.counter),
+			created_at: key.created_at.toISOString(),
+			last_used_at: key.last_used_at?.toISOString() ?? null,
+		})),
 		mfa_backup_codes: {
 			total_count: mfaBackupCodes.length,
 			consumed_count: mfaBackupCodes.filter((code) => code.consumed).length,
@@ -502,6 +533,7 @@ export function buildUserDataJson(params: UserDataJsonParams) {
 		operator_pass_wall: operatorPassWall
 			? {
 					name: operatorPassWall.name ?? null,
+					quote: operatorPassWall.quote ?? null,
 					opted_out: operatorPassWall.opted_out,
 					keep_as_is: operatorPassWall.keep_as_is,
 					release_list_opt_in: operatorPassWall.release_list_opt_in ?? false,
@@ -542,13 +574,12 @@ export function buildUserDataJson(params: UserDataJsonParams) {
 			quote_honored: purchase.quote_honored,
 			payment_intent_id: purchase.payment_intent_id ?? null,
 			invoice_id: purchase.invoice_id ?? null,
-			subscription_id: purchase.subscription_id ?? null,
 			created_at: purchase.created_at.toISOString(),
 			completed_at: purchase.completed_at?.toISOString() ?? null,
 			refunded_at: purchase.refunded_at?.toISOString() ?? null,
 			terms_version: purchase.operator_pass_terms_version ?? null,
 			purchased_at: purchase.purchased_at?.toISOString() ?? null,
-			delivered_at: purchase.perks_granted_at?.toISOString() ?? null,
+			delivered_at: (purchase.delivered_at ?? purchase.perks_granted_at)?.toISOString() ?? null,
 			withdrawal_ends_at: purchase.withdrawal_ends_at?.toISOString() ?? null,
 			withdrawn_at: purchase.withdrawn_at?.toISOString() ?? null,
 			withdrawal_name: purchase.withdrawal_name ?? null,
@@ -559,10 +590,13 @@ export function buildUserDataJson(params: UserDataJsonParams) {
 			waiver_consent_user_agent: purchase.waiver_consent_user_agent ?? null,
 			wall_name: purchase.wall_name ?? null,
 			wall_opt_out: purchase.wall_opt_out ?? null,
+			labs_greeting: purchase.labs_greeting ?? null,
 			withdrawal_country: purchase.withdrawal_country ?? null,
 			withdrawal_days: purchase.withdrawal_days ?? null,
 			withdrawal_rule_version: purchase.withdrawal_rule_version ?? null,
 			stripe_terms_consent: purchase.stripe_terms_consent ?? null,
+			certificate_names: purchase.certificate_names ?? null,
+			age_confirmed_at: purchase.age_confirmed_at?.toISOString() ?? null,
 		})),
 		operator_passes: operatorPassUnits.map(({unit, events}) => mapOperatorPassUnit(unit, events, userId)),
 		operator_pass_offers: operatorPassOffers.map((offer) => ({
@@ -576,7 +610,54 @@ export function buildUserDataJson(params: UserDataJsonParams) {
 			arrives_at: offer.completes_at?.toISOString() ?? null,
 			ended_at: offer.ended_at?.toISOString() ?? null,
 			wall_name: offer.recipient_id === userId ? (offer.wall_name ?? null) : null,
+			labs_greeting: offer.recipient_id === userId ? (offer.labs_greeting ?? null) : null,
 			terms_version: offer.terms_version ?? null,
+		})),
+		operator_pass_visionary: operatorPassVisionaryActivation
+			? {
+					visionary_since: operatorPassVisionaryActivation.visionary_since?.toISOString() ?? null,
+					visionary_sequence: operatorPassVisionaryActivation.visionary_sequence ?? null,
+					activated_at: operatorPassVisionaryActivation.activated_at?.toISOString() ?? null,
+					terms_version: operatorPassVisionaryActivation.terms_version ?? null,
+					terms_box_text: operatorPassVisionaryActivation.terms_box_text ?? null,
+					age_confirmed_at: operatorPassVisionaryActivation.age_confirmed_at?.toISOString() ?? null,
+					consent_ip: operatorPassVisionaryActivation.consent_ip ?? null,
+					consent_user_agent: operatorPassVisionaryActivation.consent_user_agent ?? null,
+					pass_id: operatorPassVisionaryActivation.pass_id ?? null,
+					certificate_number: operatorPassVisionaryActivation.certificate_number ?? null,
+					completed_at: operatorPassVisionaryActivation.completed_at?.toISOString() ?? null,
+					ended_at: operatorPassVisionaryActivation.ended_at?.toISOString() ?? null,
+					end_reason: operatorPassVisionaryActivation.end_reason ?? null,
+					notice_emailed_at: operatorPassVisionaryActivation.notice_emailed_at?.toISOString() ?? null,
+					notice_skip_reason: operatorPassVisionaryActivation.notice_skip_reason ?? null,
+					notice_dm_sent_at: operatorPassVisionaryActivation.notice_dm_sent_at?.toISOString() ?? null,
+				}
+			: null,
+		operator_pass_labs: operatorPassLabs
+			? {
+					greeting: operatorPassLabs.greeting ?? null,
+					added_at: operatorPassLabs.added_at?.toISOString() ?? null,
+					left_at: operatorPassLabs.left_at?.toISOString() ?? null,
+					left_reason: operatorPassLabs.left_reason ?? null,
+					greeted_at: operatorPassLabs.greeted_at?.toISOString() ?? null,
+					greeting_message_id: operatorPassLabs.greeting_message_id?.toString() ?? null,
+				}
+			: null,
+		operator_pass_certificates: operatorPassCertificates.map((certificate) => ({
+			pass_id: certificate.pass_id,
+			purchase_id: certificate.purchase_id ?? null,
+			number: certificate.number,
+			version: certificate.version,
+			holder_name: certificate.holder_name === '' ? null : certificate.holder_name,
+			issued_at: certificate.issued_at.toISOString(),
+			paid_at: certificate.paid_at.toISOString(),
+			phase: certificate.phase,
+			terms_version: certificate.terms_version,
+			sha256: certificate.sha256,
+			source: certificate.source,
+			cancelled_at: certificate.cancelled_at?.toISOString() ?? null,
+			reissue_reason: certificate.reissue_reason ?? null,
+			pdf_path: certificate.pdf.length > 0 ? getOperatorPassCertificateArchivePath(certificate) : null,
 		})),
 		operator_pass_waitlist: operatorPassWaitlistEntry
 			? {

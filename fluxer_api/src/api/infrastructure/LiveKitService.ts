@@ -5,17 +5,22 @@ import {Config} from '@app/api/Config';
 import {
 	type CreateTokenParams,
 	type DisconnectParticipantParams,
+	type GetParticipantResult,
 	ILiveKitService,
 	type ListParticipantsParams,
 	type ListParticipantsResult,
+	type ListRoomsParams,
+	type ListRoomsResult,
+	type LiveKitParticipantRef,
 	type MuteMicrophoneTrackParams,
+	type SetParticipantPermissionParams,
 	type UpdateParticipantParams,
-	type UpdateParticipantPermissionsParams,
 } from '@app/api/infrastructure/ILiveKitService';
 import {Logger} from '@app/api/Logger';
 import type {VoiceRegionMetadata, VoiceServerRecord} from '@app/api/voice/VoiceModel';
+import {resolveRoomServiceEndpoint, toHttpUrl} from '@app/api/voice/VoiceServerEndpoints';
 import type {VoiceTopology} from '@app/api/voice/VoiceTopology';
-import {AccessToken, RoomServiceClient, type TrackInfo, TrackSource} from 'livekit-server-sdk';
+import {AccessToken, RoomServiceClient, TrackSource} from 'livekit-server-sdk';
 
 interface ServerClientConfig {
 	endpoint: string;
@@ -49,10 +54,6 @@ export function computeLiveKitPublishSources(permissions: LiveKitPublishPermissi
 	return sources;
 }
 
-function toHttpUrl(wsUrl: string): string {
-	return wsUrl.replace(/^wss:\/\//, 'https://').replace(/^ws:\/\//, 'http://');
-}
-
 function createRoomServiceClient(endpoint: string, apiKey: string, apiSecret: string): RoomServiceClient {
 	const httpUrl = toHttpUrl(endpoint);
 	const parsed = new URL(httpUrl);
@@ -65,18 +66,6 @@ function createRoomServiceClient(endpoint: string, apiKey: string, apiSecret: st
 		}
 	}
 	return client;
-}
-
-function resolveRoomServiceEndpoint(server: VoiceServerRecord): string {
-	const defaultRegion = Config.voice.defaultRegion;
-	const internalUrl = Config.voice.internalUrl;
-	if (!defaultRegion || !internalUrl) {
-		return server.endpoint;
-	}
-	if (server.regionId !== defaultRegion.id || server.serverId !== `${defaultRegion.id}-server-1`) {
-		return server.endpoint;
-	}
-	return internalUrl;
 }
 
 export class LiveKitService extends ILiveKitService {
@@ -110,6 +99,7 @@ export class LiveKitService extends ILiveKitService {
 			connectionId,
 			regionId,
 			serverId,
+			mute = false,
 			deaf = false,
 			canSpeak = true,
 			canStream = true,
@@ -132,11 +122,12 @@ export class LiveKitService extends ILiveKitService {
 		} else {
 			metadata['dm_call'] = 'true';
 		}
-		const canPublishSources = computeLiveKitPublishSources({canSpeak, canStream, canVideo});
+		const canPublishSources = computeLiveKitPublishSources({canSpeak: canSpeak && !mute, canStream, canVideo});
 		const accessToken = new AccessToken(server.apiKey, server.apiSecret, {
 			identity: participantIdentity,
 			metadata: JSON.stringify(metadata),
 			ttl: VOICE_TOKEN_TTL_SECONDS,
+			...(mute ? {attributes: {[SERVER_MUTE_ATTRIBUTE]: 'true'}} : {}),
 		});
 		accessToken.addGrant({
 			roomJoin: true,
@@ -151,75 +142,63 @@ export class LiveKitService extends ILiveKitService {
 
 	async updateParticipant(params: UpdateParticipantParams): Promise<void> {
 		const {userId, guildId, channelId, connectionId, regionId, serverId, mute, deaf} = params;
+		if (mute === undefined && deaf === undefined) {
+			return;
+		}
 		const roomName = this.getRoomName(guildId, channelId);
 		const participantIdentity = this.getParticipantIdentity(userId, connectionId);
 		const server = this.resolveServerClient(regionId, serverId);
-		try {
-			const participants = await server.roomServiceClient.listParticipants(roomName);
-			const participant = participants.find((p) => p.identity === participantIdentity);
-			if (!participant) {
-				return;
+		const participants = await server.roomServiceClient.listParticipants(roomName);
+		const participant = participants.find((p) => p.identity === participantIdentity);
+		if (!participant) {
+			return;
+		}
+		const wasServerMuted = participant.attributes[SERVER_MUTE_ATTRIBUTE] === 'true';
+		const serverMuted = mute ?? wasServerMuted;
+		const deafened = deaf ?? participant.permission?.canSubscribe === false;
+		const currentSources = participant.permission?.canPublishSources ?? [];
+		const canPublishSources = computeLiveKitPublishSources({
+			canSpeak: (params.canSpeak ?? currentSources.includes(TrackSource.MICROPHONE)) && !serverMuted,
+			canStream: params.canStream ?? currentSources.includes(TrackSource.SCREEN_SHARE),
+			canVideo: params.canVideo ?? currentSources.includes(TrackSource.CAMERA),
+		});
+		const permission = {
+			canPublish: !deafened && canPublishSources.length > 0,
+			canSubscribe: !deafened,
+			canPublishSources,
+		};
+		if (serverMuted !== wasServerMuted) {
+			await this.setServerMuteAttribute(server, roomName, participantIdentity, serverMuted);
+		}
+		const updated = await server.roomServiceClient.updateParticipant(
+			roomName,
+			participantIdentity,
+			undefined,
+			permission,
+		);
+		for (const track of updated.tracks ?? participant.tracks) {
+			if (!track.sid) {
+				continue;
 			}
-			if (mute !== undefined) {
-				const tracks =
-					(await this.setServerMuteAttribute(server, roomName, participantIdentity, mute)) ?? participant.tracks;
-				for (const track of tracks) {
-					if (track.source === TrackSource.MICROPHONE && track.sid) {
-						await server.roomServiceClient.mutePublishedTrack(roomName, participantIdentity, track.sid, mute);
-					}
-				}
+			if (!canPublishSources.includes(track.source)) {
+				await this.setTrackMuted(server, roomName, participantIdentity, track.sid, true);
+			} else if (track.source === TrackSource.MICROPHONE && wasServerMuted) {
+				await this.setTrackMuted(server, roomName, participantIdentity, track.sid, false);
 			}
-			if (deaf !== undefined) {
-				const canPublishSources = computeLiveKitPublishSources({
-					canSpeak: params.canSpeak ?? true,
-					canStream: params.canStream ?? true,
-					canVideo: params.canVideo ?? true,
-				});
-				await server.roomServiceClient.updateParticipant(roomName, participantIdentity, undefined, {
-					canPublish: !deaf && canPublishSources.length > 0,
-					canSubscribe: !deaf,
-					canPublishSources,
-				});
-			}
-		} catch (error) {
-			Logger.error({error}, 'Error updating LiveKit participant');
 		}
 	}
 
-	async updateParticipantPermissions(params: UpdateParticipantPermissionsParams): Promise<void> {
-		const {userId, guildId, channelId, connectionId, regionId, serverId, canSpeak, canStream, canVideo, deaf} = params;
-		const roomName = this.getRoomName(guildId, channelId);
-		const participantIdentity = this.getParticipantIdentity(userId, connectionId);
-		const server = this.resolveServerClient(regionId, serverId);
+	private async setTrackMuted(
+		server: ServerClientConfig,
+		roomName: string,
+		participantIdentity: string,
+		trackSid: string,
+		muted: boolean,
+	): Promise<void> {
 		try {
-			const participants = await server.roomServiceClient.listParticipants(roomName);
-			const participant = participants.find((p) => p.identity === participantIdentity);
-			if (!participant) {
-				Logger.warn({participantIdentity, roomName}, 'Participant not found for permission update');
-				return;
-			}
-			const canPublishSources = computeLiveKitPublishSources({canSpeak, canStream, canVideo});
-			const participantPermission = {
-				canPublish: !deaf && canPublishSources.length > 0,
-				canPublishSources,
-				...(deaf !== undefined ? {canSubscribe: !deaf} : {}),
-			};
-			await server.roomServiceClient.updateParticipant(roomName, participantIdentity, undefined, {
-				...participantPermission,
-			});
-			const revokedSources = computeLiveKitPublishSources({
-				canSpeak: !canSpeak,
-				canStream: !canStream,
-				canVideo: !canVideo,
-			});
-			for (const track of participant.tracks) {
-				if (track.sid && revokedSources.includes(track.source)) {
-					await server.roomServiceClient.mutePublishedTrack(roomName, participantIdentity, track.sid, true);
-				}
-			}
-			Logger.debug({participantIdentity, roomName, canSpeak, canStream, canVideo}, 'Updated participant permissions');
+			await server.roomServiceClient.mutePublishedTrack(roomName, participantIdentity, trackSid, muted);
 		} catch (error) {
-			Logger.error({error}, 'Error updating LiveKit participant permissions');
+			Logger.debug({error, participantIdentity, roomName, trackSid, muted}, 'LiveKit declined track mute change');
 		}
 	}
 
@@ -228,15 +207,13 @@ export class LiveKitService extends ILiveKitService {
 		roomName: string,
 		participantIdentity: string,
 		mute: boolean,
-	): Promise<Array<TrackInfo> | null> {
+	): Promise<void> {
 		try {
-			const updated = await server.roomServiceClient.updateParticipant(roomName, participantIdentity, {
+			await server.roomServiceClient.updateParticipant(roomName, participantIdentity, {
 				attributes: {[SERVER_MUTE_ATTRIBUTE]: mute ? 'true' : ''},
 			});
-			return updated.tracks;
 		} catch (error) {
 			Logger.warn({error, participantIdentity, roomName}, 'Failed to record server mute on LiveKit participant');
-			return null;
 		}
 	}
 
@@ -258,24 +235,90 @@ export class LiveKitService extends ILiveKitService {
 
 	async disconnectParticipant(params: DisconnectParticipantParams): Promise<void> {
 		const {userId, guildId, channelId, connectionId, regionId, serverId} = params;
-		const roomName = this.getRoomName(guildId, channelId);
-		const participantIdentity = this.getParticipantIdentity(userId, connectionId);
+		await this.removeParticipant({
+			regionId,
+			serverId,
+			roomName: this.getRoomName(guildId, channelId),
+			identity: this.getParticipantIdentity(userId, connectionId),
+		});
+	}
+
+	async removeParticipant(params: LiveKitParticipantRef): Promise<void> {
+		const {regionId, serverId, roomName, identity} = params;
 		const server = this.tryResolveServerClient(regionId, serverId);
 		if (server === null) {
 			Logger.debug(
-				{regionId, serverId, participantIdentity, roomName},
+				{regionId, serverId, participantIdentity: identity, roomName},
 				'LiveKit disconnect skipped — pinned server no longer exists in topology',
 			);
 			return;
 		}
 		try {
-			await server.roomServiceClient.removeParticipant(roomName, participantIdentity);
+			await server.roomServiceClient.removeParticipant(roomName, identity);
 		} catch (error) {
 			if (LiveKitService.isHttp404(error)) {
-				Logger.debug({participantIdentity, roomName}, 'LiveKit participant already disconnected');
+				Logger.debug({participantIdentity: identity, roomName}, 'LiveKit participant already disconnected');
 				return;
 			}
 			Logger.error({error}, 'Error disconnecting LiveKit participant');
+		}
+	}
+
+	async getParticipant(params: LiveKitParticipantRef): Promise<GetParticipantResult> {
+		const {regionId, serverId, roomName, identity} = params;
+		const server = this.tryResolveServerClient(regionId, serverId);
+		if (server === null) {
+			return {status: 'error', errorCode: 'server_missing', retryable: false, serverMissing: true};
+		}
+		try {
+			const participant = await server.roomServiceClient.getParticipant(roomName, identity);
+			return {
+				status: 'ok',
+				participant: {joinedAt: Number(participant.joinedAt), metadata: participant.metadata},
+			};
+		} catch (error) {
+			if (LiveKitService.isHttp404(error)) {
+				return {status: 'ok', participant: null};
+			}
+			Logger.warn(
+				{error, regionId, serverId, roomName, participantIdentity: identity},
+				'LiveKit getParticipant failed',
+			);
+			return LiveKitService.lookupError(error);
+		}
+	}
+
+	async setParticipantPermission(params: SetParticipantPermissionParams): Promise<void> {
+		const {regionId, serverId, roomName, identity, permission} = params;
+		const server = this.tryResolveServerClient(regionId, serverId);
+		if (server === null) {
+			return;
+		}
+		try {
+			await server.roomServiceClient.updateParticipant(roomName, identity, undefined, permission);
+		} catch (error) {
+			if (LiveKitService.isHttp404(error)) {
+				return;
+			}
+			Logger.error({error, participantIdentity: identity, roomName}, 'Error updating LiveKit participant permission');
+		}
+	}
+
+	async listRooms(params: ListRoomsParams): Promise<ListRoomsResult> {
+		const {regionId, serverId} = params;
+		const server = this.tryResolveServerClient(regionId, serverId);
+		if (server === null) {
+			return {status: 'error', errorCode: 'server_missing', retryable: false, serverMissing: true};
+		}
+		try {
+			const rooms = await server.roomServiceClient.listRooms();
+			return {
+				status: 'ok',
+				rooms: rooms.map((room) => ({name: room.name, numParticipants: room.numParticipants})),
+			};
+		} catch (error) {
+			Logger.warn({error, regionId, serverId}, 'LiveKit listRooms failed');
+			return LiveKitService.lookupError(error);
 		}
 	}
 
@@ -295,18 +338,25 @@ export class LiveKitService extends ILiveKitService {
 			const participants = await server.roomServiceClient.listParticipants(roomName);
 			return {
 				status: 'ok',
-				participants: participants.map((participant) => ({identity: participant.identity})),
+				participants: participants.map((participant) => ({
+					identity: participant.identity,
+					joinedAt: Number(participant.joinedAt),
+					metadata: participant.metadata,
+				})),
 			};
 		} catch (error) {
 			Logger.warn({error, regionId, serverId, roomName}, 'LiveKit listParticipants failed');
-			const status = LiveKitService.getHttpStatus(error);
-			const isRetryable = status != null && status >= 500;
-			return {
-				status: 'error',
-				errorCode: error instanceof Error ? error.message : 'unknown',
-				retryable: isRetryable,
-			};
+			return LiveKitService.lookupError(error);
 		}
+	}
+
+	private static lookupError(error: unknown): {status: 'error'; errorCode: string; retryable: boolean} {
+		const status = LiveKitService.getHttpStatus(error);
+		return {
+			status: 'error',
+			errorCode: error instanceof Error ? error.message : 'unknown',
+			retryable: status != null && status >= 500,
+		};
 	}
 
 	private static isHttp404(error: unknown): boolean {
@@ -327,6 +377,16 @@ export class LiveKitService extends ILiveKitService {
 
 	private tryResolveServerClient(regionId: string, serverId: string): ServerClientConfig | null {
 		return this.serverClients.get(regionId)?.get(serverId) ?? null;
+	}
+
+	listServers(): Array<{regionId: string; serverId: string}> {
+		const servers: Array<{regionId: string; serverId: string}> = [];
+		for (const [regionId, regionServers] of this.serverClients) {
+			for (const serverId of regionServers.keys()) {
+				servers.push({regionId, serverId});
+			}
+		}
+		return servers;
 	}
 
 	getDefaultRegionId(): string | null {

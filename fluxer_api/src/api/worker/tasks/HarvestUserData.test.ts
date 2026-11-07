@@ -11,14 +11,18 @@ import {
 import {Config} from '@app/api/Config';
 import {upsertOne} from '@app/api/database/CassandraQueryExecution';
 import type {MessageRow} from '@app/api/database/types/MessageTypes';
+import type {OperatorPassPurchaseRow} from '@app/api/database/types/OperatorPassTypes';
 import type {StorePurchaseRow} from '@app/api/database/types/StoreBillingTypes';
 import type {ThreadMemberRow} from '@app/api/database/types/ThreadTypes';
 import {EMPTY_USER_ROW} from '@app/api/database/types/UserTypes';
 import {clearChannelThreadsTaintCacheForTesting, insertGuildThreadMarker} from '@app/api/experiment/ChannelThreadsGate';
 import {getSnowflakeService} from '@app/api/middleware/ServiceRegistry';
 import {getStoreBillingRepository} from '@app/api/middleware/ServiceSingletons';
+import {OperatorPassCertificateService} from '@app/api/operator_pass/OperatorPassCertificateService';
+import {OperatorPassRepository} from '@app/api/operator_pass/OperatorPassRepository';
 import {buildStorePurchaseRow} from '@app/api/store_billing/tests/StoreBillingTestUtils';
 import {
+	AppAttestKeys,
 	GuildMembersByUserId,
 	Messages,
 	MessagesByAuthorV2,
@@ -31,6 +35,7 @@ import {HarvestedMessagesSchema, harvestUserArchive} from '@app/api/test/UserArc
 import {clearWorkerDependencies, setWorkerDependencies} from '@app/api/worker/WorkerContext';
 import {initializeWorkerDependencies, type WorkerDependencies} from '@app/api/worker/WorkerDependencies';
 import {AccountIdentityModes} from '@fluxer/constants/src/AccountIdentityConstants';
+import {AttestedAgeFloors} from '@fluxer/constants/src/AgeRangeConstants';
 import {makeBucket} from '@fluxer/snowflake/src/SnowflakeBuckets';
 import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, it} from 'vitest';
 import {z} from 'zod';
@@ -268,6 +273,93 @@ describe('harvested user data', () => {
 		expect(data.recovery_kit).toEqual({created_at: '2026-10-01T12:00:00.000Z'});
 	});
 
+	it('exports every kept certificate copy, and only the name and file that survived an objection', async () => {
+		const repository = new OperatorPassRepository();
+		const purchase = {
+			checkout_session_id: 'cs_test_harvest_certificates',
+			purchaser_id: AUTHOR,
+			quantity: 1,
+			status: 'completed',
+			phase: 'standard',
+			amount_minor: 2900,
+			currency: 'EUR',
+			quote_honored: false,
+			created_at: new Date('2026-11-01T10:00:00Z'),
+			purchased_at: new Date('2026-11-01T10:00:00Z'),
+			certificate_names: ['Ada Lovelace'],
+			operator_pass_terms_version: '2026-10-31',
+			version: 1,
+		} as OperatorPassPurchaseRow;
+		await repository.createPurchase(purchase);
+		const certificates = new OperatorPassCertificateService(repository, deps.cacheService, deps.kvClient);
+		await certificates.issueForPurchase(purchase);
+		const passId = `${purchase.checkout_session_id}:1`;
+		await certificates.reissuePage({passId, holderName: 'Ada King', reason: 'name_change'});
+		const archive = await harvestUserArchive(harness, deps, AUTHOR);
+		const data = z
+			.object({
+				operator_pass_certificates: z.array(
+					z.object({version: z.number(), holder_name: z.string().nullable(), pdf_path: z.string().nullable()}),
+				),
+			})
+			.parse(archive.readJson('user.json'));
+		expect(data.operator_pass_certificates.map(({version, holder_name}) => [version, holder_name])).toEqual([
+			[1, 'Ada Lovelace'],
+			[2, 'Ada King'],
+		]);
+		for (const {pdf_path} of data.operator_pass_certificates) {
+			expect(archive.entries[pdf_path!]?.length).toBeGreaterThan(0);
+		}
+
+		await certificates.reissuePage({passId, holderName: 'Grace Hopper', reason: 'objection'});
+		const redacted = z
+			.object({
+				operator_pass_certificates: z.array(
+					z.object({version: z.number(), holder_name: z.string().nullable(), pdf_path: z.string().nullable()}),
+				),
+			})
+			.parse((await harvestUserArchive(harness, deps, AUTHOR)).readJson('user.json'));
+		expect(
+			redacted.operator_pass_certificates.map(({holder_name, pdf_path}) => [holder_name, pdf_path != null]),
+		).toEqual([
+			[null, false],
+			[null, false],
+			['Grace Hopper', true],
+		]);
+	});
+
+	it('exports the stored age range and the App Attest keys without the public key', async () => {
+		const user = await deps.userRepository.findUniqueAssert(AUTHOR);
+		await deps.userRepository.patchUpsert(
+			AUTHOR,
+			{attested_age_floor: AttestedAgeFloors.ADULT, age_attested_at: new Date('2026-11-01T08:00:00.000Z')},
+			user.toRow(),
+		);
+		await upsertOne(
+			AppAttestKeys.upsertAll({
+				user_id: AUTHOR,
+				key_id: 'key-1',
+				public_key: Buffer.from('public-key'),
+				environment: 'production',
+				app_id: 'TEAM.app.fluxer',
+				counter: 3n,
+				created_at: new Date('2026-10-30T08:00:00.000Z'),
+				last_used_at: new Date('2026-11-01T08:00:00.000Z'),
+			}),
+		);
+		const data = await exportUserData({});
+		expect(data.user).toMatchObject({age_range: 'adult', age_range_received_at: '2026-11-01T08:00:00.000Z'});
+		expect(data.app_attest_keys).toEqual([
+			{
+				key_id: 'key-1',
+				environment: 'production',
+				counter: 3,
+				created_at: '2026-10-30T08:00:00.000Z',
+				last_used_at: '2026-11-01T08:00:00.000Z',
+			},
+		]);
+	});
+
 	it('leaves the recovery kit out when the account has none', async () => {
 		const data = await exportUserData({});
 		expect('recovery_kit' in data).toBe(false);
@@ -344,6 +436,7 @@ describe('harvested user settings', () => {
 			sensitive_content_friend_dm_filter: 0,
 			sensitive_content_non_friend_dm_filter: 0,
 			sensitive_content_guild_filter: 0,
+			allow_mature_content_on_ios: true,
 			suppress_unprivileged_self_mentions: true,
 			suppress_unprivileged_self_mentions_bypass_user_ids: new Set([createUserID(6000000000000000000n)]),
 			staff_dm_access_user_ids: new Set([createUserID(7000000000000000000n)]),
@@ -373,6 +466,7 @@ describe('harvested user settings', () => {
 			inline_embed_media: false,
 			explicit_content_filter: 2,
 			friend_source_flags: 3,
+			allow_mature_content_on_ios: true,
 			default_guilds_restricted: true,
 			bot_default_guilds_restricted: false,
 			restricted_guilds: ['2000000000000000000'],

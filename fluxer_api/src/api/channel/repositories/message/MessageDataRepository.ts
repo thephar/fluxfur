@@ -25,6 +25,7 @@ import {
 	Messages,
 	MessagesByAuthorV2,
 } from '@app/api/Tables';
+import {startEarly} from '@app/api/utils/ConcurrencyUtils';
 import {generateSnowflake} from '@fluxer/snowflake/src/Snowflake';
 import * as BucketUtils from '@fluxer/snowflake/src/SnowflakeBuckets';
 
@@ -158,7 +159,7 @@ export class MessageDataRepository {
 
 	private async listMessagesBefore(channelId: ChannelID, before: MessageID, limit: number): Promise<Array<Message>> {
 		const state = await this.getChannelState(channelId);
-		const maxBucket = BucketUtils.makeBucket(before);
+		const maxBucket = Math.min(BucketUtils.makeBucket(before), BucketUtils.makeBucket(generateSnowflake()));
 		const minBucket = state?.created_bucket ?? BucketUtils.makeBucket(channelId);
 		getLogger().debug(
 			{
@@ -219,7 +220,7 @@ export class MessageDataRepository {
 		const low = Math.min(afterBucket, beforeBucket);
 		const createdMin = state?.created_bucket ?? BucketUtils.makeBucket(channelId);
 		const minBucket = Math.max(low, createdMin);
-		const maxBucket = high;
+		const maxBucket = Math.min(high, BucketUtils.makeBucket(generateSnowflake()));
 		getLogger().debug(
 			{
 				channelId: channelId.toString(),
@@ -665,7 +666,11 @@ export class MessageDataRepository {
 		return repairedMessage;
 	}
 
-	async upsertMessage(data: MessageRow, oldData?: MessageRow | null): Promise<Message> {
+	async upsertMessage(
+		data: MessageRow,
+		oldData?: MessageRow | null,
+		alongsideChannelState?: () => Promise<void>,
+	): Promise<Message> {
 		const expectedBucket = BucketUtils.makeBucket(data.message_id);
 		if (data.bucket !== expectedBucket) {
 			throw new Error(
@@ -759,7 +764,12 @@ export class MessageDataRepository {
 			}),
 		);
 		await batch.execute(false);
-		await this.recordChannelStateForMessage(data.channel_id, data.message_id, data.bucket);
+		const channelStateTask = startEarly(
+			this.recordChannelStateForMessage(data.channel_id, data.message_id, data.bucket),
+		);
+		const alongsideTask = startEarly(alongsideChannelState ? alongsideChannelState() : Promise.resolve());
+		await channelStateTask;
+		await alongsideTask;
 		return new Message({...data, version: finalVersion});
 	}
 

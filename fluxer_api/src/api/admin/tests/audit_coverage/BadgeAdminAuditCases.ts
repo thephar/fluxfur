@@ -39,6 +39,115 @@ export const BadgeAdminAuditCases: ReadonlyArray<AdminAuditCoverageCase> = [
 		},
 	},
 	{
+		method: 'PUT',
+		route: '/admin/badges/order',
+		async prepare({harness, admin}) {
+			const first = await createTestCustomBadge(harness, admin.token, 'user');
+			const second = await createTestCustomBadge(harness, admin.token, 'guild');
+			return {
+				request: {path: '/admin/badges/order', body: {badge_ids: [second.id, first.id]}},
+				expected: {
+					action: 'reorder_badges',
+					targetType: 'badge',
+					targetId: '0',
+					metadata: {badge_ids: `${second.id},${first.id}`},
+				},
+			};
+		},
+	},
+	{
+		method: 'PATCH',
+		route: '/admin/badges/settings',
+		async prepare() {
+			return {
+				request: {path: '/admin/badges/settings', body: {max_per_user: 20}},
+				expected: {
+					action: 'update_badge_settings',
+					targetType: 'badge',
+					targetId: '0',
+					metadata: {max_per_user: '20', max_per_guild: '50'},
+				},
+			};
+		},
+	},
+	{
+		method: 'PATCH',
+		route: '/admin/badges/order',
+		async prepare({harness, admin}) {
+			await createTestCustomBadge(harness, admin.token, 'user');
+			const badge = await createTestCustomBadge(harness, admin.token, 'user');
+			return {
+				request: {path: '/admin/badges/order', body: {badge_id: badge.id, direction: 'up'}},
+				expected: {
+					action: 'move_badge',
+					targetType: 'badge',
+					targetId: badge.id,
+					metadata: {direction: 'up'},
+				},
+			};
+		},
+	},
+	{
+		method: 'PUT',
+		route: '/admin/badges/built-in/:kind',
+		async prepare() {
+			return {
+				request: {path: '/admin/badges/built-in/staff', body: {image: getPngDataUrl()}},
+				expected: {
+					action: 'replace_built_in_badge_image',
+					targetType: 'badge',
+					targetId: '0',
+					metadata: {kind: 'staff'},
+				},
+			};
+		},
+	},
+	{
+		method: 'DELETE',
+		route: '/admin/badges/built-in/:kind',
+		async prepare() {
+			return {
+				request: {path: '/admin/badges/built-in/guild_verified'},
+				expected: {
+					action: 'reset_built_in_badge_image',
+					targetType: 'badge',
+					targetId: '0',
+					metadata: {kind: 'guild_verified'},
+				},
+			};
+		},
+	},
+	{
+		method: 'PUT',
+		route: '/admin/badges/built-in/:kind/hidden',
+		async prepare() {
+			return {
+				request: {path: '/admin/badges/built-in/guild_discoverable/hidden'},
+				expected: {
+					action: 'hide_built_in_badge',
+					targetType: 'badge',
+					targetId: '0',
+					metadata: {kind: 'guild_discoverable'},
+				},
+			};
+		},
+	},
+	{
+		method: 'DELETE',
+		route: '/admin/badges/built-in/:kind/hidden',
+		async prepare() {
+			return {
+				request: {path: '/admin/badges/built-in/guild_discoverable/hidden'},
+				expected: {
+					action: 'show_built_in_badge',
+					targetType: 'badge',
+					targetId: '0',
+					metadata: {kind: 'guild_discoverable'},
+				},
+			};
+		},
+	},
+	{
 		method: 'PATCH',
 		route: '/admin/badges/:badge_id',
 		async prepare({harness, admin}) {

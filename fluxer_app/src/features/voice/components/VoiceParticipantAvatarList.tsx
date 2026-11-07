@@ -19,7 +19,7 @@ import {
 	createVoiceParticipantSortSnapshot,
 	sortVoiceParticipantItemsWithSnapshot,
 } from '@app/features/voice/components/VoiceParticipantSortUtils';
-import MediaEngine, {useMediaEngineVersion, useVoiceEngineV2Model} from '@app/features/voice/engine/MediaEngineFacade';
+import VoiceRuntime, {useVoiceRuntimeVersion} from '@app/features/voice/engine/VoiceRuntime';
 import {selectVoiceEngineV2AppEffectiveSelfMuteForVoiceStatePayload} from '@app/features/voice/engine/v2/VoiceEngineV2AppSelectors';
 import LocalVoiceState from '@app/features/voice/state/LocalVoiceState';
 import {isParticipantVoicePermissionMuted} from '@app/features/voice/utils/VoicePermissionUtils';
@@ -201,24 +201,25 @@ export function useVoiceParticipantAvatarEntries({
 	guildId?: string | null;
 	channelId?: string | null;
 } = {}): Array<VoiceParticipantAvatarEntry> {
-	useMediaEngineVersion();
-	const voiceEngineV2Model = useVoiceEngineV2Model();
-	const participantSnapshots = MediaEngine.participants;
-	const connectionVoiceStates = MediaEngine.connectionVoiceStates;
-	const localEffectiveSelfMute = selectVoiceEngineV2AppEffectiveSelfMuteForVoiceStatePayload(voiceEngineV2Model);
+	useVoiceRuntimeVersion();
+	const voiceEngineV2Model = VoiceRuntime.voiceEngineV2Model;
+	const participantSnapshots = VoiceRuntime.participants;
+	const connectionVoiceStates = VoiceRuntime.connectionVoiceStates;
+	const localEffectiveSelfMute =
+		voiceEngineV2Model !== null && selectVoiceEngineV2AppEffectiveSelfMuteForVoiceStatePayload(voiceEngineV2Model);
 	const localSelfDeaf = LocalVoiceState.getSelfDeaf();
 	const sortSnapshotRef = useRef(createVoiceParticipantSortSnapshot());
 	return useMemo(() => {
 		if (!channelId) return [];
 		const nextEntries: Array<VoiceParticipantAvatarEntry> = [];
 		for (const [connectionId, voiceState] of Object.entries(
-			MediaEngine.getAllVoiceStatesInChannel(guildId ?? ME, channelId),
+			VoiceRuntime.getAllVoiceStatesInChannel(guildId ?? ME, channelId),
 		)) {
 			if (!voiceState.user_id) continue;
 			const user = Users.getUser(voiceState.user_id);
 			if (!user) continue;
-			const snapshot = MediaEngine.getParticipantByUserIdAndConnectionId(voiceState.user_id, connectionId) ?? null;
-			const isLocal = connectionId === MediaEngine.connectionId;
+			const snapshot = VoiceRuntime.getParticipantByUserIdAndConnectionId(voiceState.user_id, connectionId) ?? null;
+			const isLocal = connectionId === VoiceRuntime.connectionId;
 			const permissionMuted = isParticipantVoicePermissionMuted({
 				voiceState,
 				guildId,
@@ -596,7 +597,7 @@ export const VoiceParticipantWrappedAvatarList: React.FC<VoiceParticipantWrapped
 			return (
 				<motion.div
 					key={shouldAnimateAvatarChanges ? `${slot.key}:motion` : `${slot.key}:static`}
-					className={clsx(styles.wrapAvatarSlot, shouldAnimateAvatarChanges && styles.wrapAvatarSlotAnimated)}
+					className={styles.wrapAvatarSlot}
 					onContextMenu={(event) => handleContextMenu(event, slot.entry)}
 					initial={shouldAnimateAvatarChanges && isEntering ? {width: 0, flexBasis: 0} : false}
 					animate={
@@ -609,7 +610,7 @@ export const VoiceParticipantWrappedAvatarList: React.FC<VoiceParticipantWrapped
 					data-flx="voice.voice-participant-avatar-list.voice-participant-wrapped-avatar-list.wrap-avatar-slot"
 				>
 					<motion.div
-						className={clsx(styles.wrapAvatar, shouldAnimateAvatarChanges && styles.wrapAvatarAnimated)}
+						className={styles.wrapAvatar}
 						initial={shouldAnimateAvatarChanges && isEntering ? {opacity: 0, scale: 0.92} : false}
 						animate={
 							shouldAnimateAvatarChanges ? {opacity: isCollapsed ? 0 : 1, scale: isCollapsed ? 0.9 : 1} : undefined

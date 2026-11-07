@@ -7,16 +7,21 @@ use crate::static_asset_policy::{
     copy_asset_response_headers, guess_mime, is_font_mime,
 };
 use axum::{
-    body::Body,
+    body::{Body, Bytes},
     extract::{Path, State},
     http::{HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
 };
 use std::time::Duration;
-use tokio::sync::{OwnedSemaphorePermit, TryAcquireError};
+use tokio::sync::{OwnedSemaphorePermit, TryAcquireError, mpsc};
+use tokio::time::Instant;
 
 const ASSET_REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_ASSET_SIZE_BYTES: u64 = 100 * 1024 * 1024;
+const BUILD_ASSET_HASH_LEN: usize = 16;
+const ASSET_BODY_BUFFERED_CHUNKS: usize = 4;
+
+type AssetBodyItem = Result<Option<Bytes>, axum::Error>;
 
 pub async fn proxy_assets(
     State(state): State<AppState>,
@@ -36,10 +41,7 @@ pub async fn proxy_assets(
         }
     };
 
-    if path
-        .split('/')
-        .any(|segment| matches!(segment, "" | "." | ".."))
-    {
+    if !is_build_asset_path(&path) {
         return StatusCode::NOT_FOUND.into_response();
     }
 
@@ -58,6 +60,7 @@ pub async fn proxy_assets(
         }
     };
 
+    let deadline = Instant::now() + ASSET_REQUEST_TIMEOUT;
     let request_builder = state
         .http_client
         .get(&target_url)
@@ -94,59 +97,133 @@ pub async fn proxy_assets(
         state.csp.asset_header(),
     );
 
-    let body = upstream_asset_body(upstream_response, upstream_slot);
+    let body = upstream_asset_body(upstream_response, upstream_slot, deadline);
     let mut response = Response::new(body);
     *response.status_mut() = status;
     *response.headers_mut() = response_headers;
     response
 }
 
-struct UpstreamAssetReadState {
-    response: reqwest::Response,
-    _permit: OwnedSemaphorePermit,
-    remaining_bytes: u64,
-}
-
 fn upstream_asset_body(
     upstream_response: reqwest::Response,
     upstream_slot: OwnedSemaphorePermit,
+    deadline: Instant,
 ) -> Body {
-    let state = UpstreamAssetReadState {
-        response: upstream_response,
-        _permit: upstream_slot,
-        remaining_bytes: MAX_ASSET_SIZE_BYTES,
-    };
-    Body::from_stream(futures_util::stream::try_unfold(
-        state,
-        |mut state| async move {
-            let Some(chunk) = state
-                .response
-                .chunk()
-                .await
-                .inspect_err(|err| {
-                    tracing::warn!(%err, "upstream asset body ended early");
-                })
-                .map_err(axum::Error::new)?
-            else {
-                return Ok(None);
-            };
-            let chunk_bytes = chunk.len() as u64;
-            if chunk_bytes > state.remaining_bytes {
-                tracing::warn!(
-                    maximum_bytes = MAX_ASSET_SIZE_BYTES,
-                    remaining_bytes = state.remaining_bytes,
-                    chunk_bytes,
-                    "upstream asset body exceeds size cap"
-                );
-                return Err(axum::Error::new(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    format!("upstream asset body exceeds {MAX_ASSET_SIZE_BYTES} bytes"),
-                )));
+    let (sender, receiver) = mpsc::channel::<AssetBodyItem>(ASSET_BODY_BUFFERED_CHUNKS);
+    tokio::spawn(async move {
+        let _permit = upstream_slot;
+        if tokio::time::timeout_at(deadline, forward_upstream_asset(upstream_response, &sender))
+            .await
+            .is_err()
+        {
+            tracing::warn!("upstream asset body timed out");
+        }
+    });
+    Body::from_stream(futures_util::stream::unfold(
+        Some(receiver),
+        |receiver| async move {
+            let mut receiver = receiver?;
+            match receiver.recv().await {
+                Some(Ok(Some(chunk))) => Some((Ok(chunk), Some(receiver))),
+                Some(Ok(None)) => None,
+                Some(Err(err)) => Some((Err(err), None)),
+                None => Some((
+                    Err(axum::Error::new(std::io::Error::new(
+                        std::io::ErrorKind::UnexpectedEof,
+                        "upstream asset body ended early",
+                    ))),
+                    None,
+                )),
             }
-            state.remaining_bytes -= chunk_bytes;
-            Ok(Some((chunk, state)))
         },
     ))
+}
+
+async fn forward_upstream_asset(
+    mut response: reqwest::Response,
+    sender: &mpsc::Sender<AssetBodyItem>,
+) {
+    let mut remaining_bytes = MAX_ASSET_SIZE_BYTES;
+    loop {
+        let item = match response.chunk().await {
+            Ok(Some(chunk)) => {
+                let chunk_bytes = chunk.len() as u64;
+                if chunk_bytes > remaining_bytes {
+                    tracing::warn!(
+                        maximum_bytes = MAX_ASSET_SIZE_BYTES,
+                        remaining_bytes,
+                        chunk_bytes,
+                        "upstream asset body exceeds size cap"
+                    );
+                    Err(axum::Error::new(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!("upstream asset body exceeds {MAX_ASSET_SIZE_BYTES} bytes"),
+                    )))
+                } else {
+                    remaining_bytes -= chunk_bytes;
+                    Ok(Some(chunk))
+                }
+            }
+            Ok(None) => Ok(None),
+            Err(err) => {
+                tracing::warn!(%err, "upstream asset body ended early");
+                Err(axum::Error::new(err))
+            }
+        };
+        let finished = !matches!(item, Ok(Some(_)));
+        if sender.send(item).await.is_err() || finished {
+            return;
+        }
+    }
+}
+
+fn is_build_asset_path(path: &str) -> bool {
+    let (module, file) = match path.split_once('/') {
+        Some((module, file)) => (Some(module), file),
+        None => (None, path),
+    };
+    if module.is_some_and(|module| !is_module_name(module)) {
+        return false;
+    }
+    let mut parts = file.split('.');
+    let Some(first) = parts.next() else {
+        return false;
+    };
+    let rest: Vec<&str> = parts.collect();
+    let (name, hash, extension) = if is_content_hash(first) {
+        ("", first, rest.as_slice())
+    } else {
+        match rest.split_first() {
+            Some((hash, extension)) => (first, *hash, extension),
+            None => return false,
+        }
+    };
+    name.bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        && is_content_hash(hash)
+        && !extension.is_empty()
+        && extension.iter().all(|part| {
+            !part.is_empty()
+                && part
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+        })
+}
+
+fn is_module_name(segment: &str) -> bool {
+    segment.strip_prefix("fluxer_").is_some_and(|rest| {
+        !rest.is_empty()
+            && rest
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+    })
+}
+
+fn is_content_hash(segment: &str) -> bool {
+    segment.len() == BUILD_ASSET_HASH_LEN
+        && segment
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 pub fn bundles_app_assets(static_dir: &str) -> bool {

@@ -6,9 +6,10 @@ import type {
 	OperatorPassWithdrawalCountryTable,
 } from '@app/api/operator_pass/OperatorPassPrices';
 import type {WorkerTaskName} from '@app/api/worker/WorkerLaneConfig';
-import type {CachePurgeAdapterName, StoreProductSlotName} from '@fluxer/config/src/MasterConfig';
+import type {CachePurgeAdapterName, StoreProductSlotName, VoiceTurnServerConfig} from '@fluxer/config/src/MasterConfig';
 import type {AccountIdentityMode, TagStyle} from '@fluxer/constants/src/AccountIdentityConstants';
 import type {SmtpTlsMode} from '@fluxer/constants/src/SmtpConstants';
+import type {GeoEntry} from '@fluxer/schema/src/domains/geolocation/GeolocationSchemas';
 import type {OperatorPassCurrency} from '@fluxer/schema/src/domains/operator_pass/OperatorPassSchemas';
 
 export type APIWorkerMode = 'all_lanes' | 'single_lane' | 'single_task';
@@ -17,6 +18,10 @@ export type APIWorkerLaneName = 'realtime' | 'unfurl' | 'lifecycle' | 'batch' | 
 export interface AppStoreAppConfig {
 	bundleId: string;
 	appAppleId: number;
+}
+
+export interface AgePolicyConfig {
+	restricted: Array<GeoEntry>;
 }
 
 export interface TrustedCallerConfig {
@@ -40,17 +45,17 @@ interface APICachePurgeTarget {
 }
 
 export interface OperatorPassConfig {
-	saleOpensAt: Date | null;
 	priceRisesAt: Date | null;
 	graceMs: number;
 	clockOffsetMs: number;
 	labsGuildId: bigint | null;
 	labsOperatorRoleId: bigint | null;
+	labsVisionaryRoleId: bigint | null;
+	labsAccessRoleId: bigint | null;
+	labsOperatorsChannelId: bigint | null;
 	standardPricesMinor: OperatorPassPriceTable | null;
 	releaseLists: OperatorPassReleaseListTable;
-	transferLockMs: number;
 	withdrawalCountries: OperatorPassWithdrawalCountryTable;
-	stoppedCountries: ReadonlySet<string>;
 	disabledCurrencies: ReadonlySet<OperatorPassCurrency>;
 	wallTierMinimums: ReadonlyArray<number>;
 	maxQuantity: number;
@@ -82,6 +87,7 @@ export interface APIConfig {
 	headersTimeoutMs: number;
 	requestTimeoutMs: number;
 	maxInflightRequests: number;
+	maxConcurrentFormUploads: number;
 	automatedMessageDeletionDelayDays: number;
 	ipBanExemptIps: Array<string>;
 	cassandra: {
@@ -152,6 +158,8 @@ export interface APIConfig {
 	};
 	endpoints: {
 		apiPublic: string;
+		apiPublicDiscovery: string;
+		apiTransportDiscovery: string | null;
 		apiClient: string;
 		webApp: string;
 		webAppOrigins: Array<string>;
@@ -192,6 +200,7 @@ export interface APIConfig {
 		fromEmail: string;
 		fromName: string;
 		replyToEmail: string;
+		supportAlertEmail: string | null;
 		appBaseUrl: string;
 		smtp?: SmtpConfig;
 		fallback?: {
@@ -211,6 +220,7 @@ export interface APIConfig {
 		apiSecret?: string;
 		url?: string;
 		internalUrl?: string;
+		bundled: boolean;
 		defaultRegion?: {
 			id: string;
 			name: string;
@@ -219,6 +229,11 @@ export interface APIConfig {
 			longitude: number;
 		};
 		p2pStunUrls?: Array<string>;
+		turnServers: Array<VoiceTurnServerConfig>;
+		joinAllowPrivateEndpoints: boolean;
+		healthIntervalMs: number;
+		participantSweepEnabled: boolean;
+		participantSweepDryRun: boolean;
 	};
 	stripe: {
 		enabled: boolean;
@@ -277,6 +292,10 @@ export interface APIConfig {
 	};
 	admin: {
 		oauthClientSecret?: string;
+		sso: {
+			issuer: string;
+			clientId: string;
+		};
 	};
 	auth: {
 		sudoModeSecret: string;
@@ -321,6 +340,7 @@ export interface APIConfig {
 		};
 		accountIdentity: AccountIdentityMode | null;
 		tagStyle: TagStyle | null;
+		agePolicy: AgePolicyConfig;
 	};
 	discovery: {
 		enabled: boolean;
@@ -374,6 +394,7 @@ export interface APIConfig {
 	storeBilling: {
 		sandboxUserIds: Array<string>;
 		sandboxEntitlesAll: boolean;
+		sandboxSubscriptions: boolean;
 	};
 	worker: {
 		mode: APIWorkerMode;

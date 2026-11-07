@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -23,12 +24,13 @@ import (
 	"github.com/fluxerapp/fluxer/fluxer_rexctl/internal/engine"
 	"github.com/fluxerapp/fluxer/fluxer_rexctl/internal/host"
 	"github.com/fluxerapp/fluxer/fluxer_rexctl/internal/instance"
+	"github.com/fluxerapp/fluxer/fluxer_rexctl/internal/settings"
 	"github.com/fluxerapp/fluxer/fluxer_rexctl/internal/stack"
 	"github.com/fluxerapp/fluxer/fluxer_rexctl/internal/ui"
 )
 
 const (
-	docsURL                = "https://docs.fluxer.app/operator/"
+	docsURL                = "https://docs.fluxer.com/operator/"
 	changeHowFluxerRunsURL = docsURL + "running/#change-how-fluxer-runs"
 )
 
@@ -52,11 +54,13 @@ type App struct {
 	engine  *engine.Engine
 	warned  bool
 	located *instance.Located
+	command string
 
 	keepLayout bool
 }
 
 func (a *App) init(c *cobra.Command) {
+	a.command = c.CommandPath()
 	a.UI = ui.New(ui.Options{
 		Context: c.Context(),
 		Yes:     a.Flags.Yes,
@@ -228,7 +232,13 @@ func (a *App) InstanceRepairing(keys []string) (*instance.Instance, error) {
 		if err := rootlessGuard(inst); err != nil {
 			return nil, err
 		}
+		if inst.State.IsVoice() && !voiceCommandAllowed(a.command) {
+			return nil, ui.Refused(fmt.Sprintf("%s holds voice servers that joined %s, not a Fluxer instance.", dir, voiceInstances(inst)), "On a voice machine, use rexctl voice status, rexctl doctor or rexctl upgrade.")
+		}
 		a.warnUnknown(inst)
+		if len(keys) == 0 {
+			a.saveRepaired(inst)
+		}
 		a.rememberFirst(inst)
 		return inst, nil
 	case errors.Is(err, instance.ErrNotFound):
@@ -238,9 +248,34 @@ func (a *App) InstanceRepairing(keys []string) (*instance.Instance, error) {
 	case errors.Is(err, instance.ErrNewerState):
 		return nil, ui.Refused(fmt.Sprintf("A newer rexctl manages the instance in %s.", dir), "Download the latest rexctl, then try again.")
 	case errors.As(err, &se):
-		return nil, &ui.ExitError{Code: ui.ExitRefused, Msg: fmt.Sprintf("The setting %s in %s isn't valid.", se.Key, dir), Fix: se.Fix(), Err: err}
+		return nil, settingRefusal(dir, se)
 	}
 	return nil, ui.Wrap(err, fmt.Sprintf("rexctl can't read the instance in %s.", dir), "Run rexctl as the account that installed Fluxer.")
+}
+
+func settingRefusal(dir string, se *instance.SettingError) error {
+	msg := fmt.Sprintf("The setting %s in %s isn't valid.", se.Key, dir)
+	if se.Remedy != "" {
+		msg = se.Problem
+	}
+	return &ui.ExitError{Code: ui.ExitRefused, Msg: msg, Fix: se.Fix(), Err: se}
+}
+
+func (a *App) saveRepaired(inst *instance.Instance) {
+	if len(inst.State.Repaired) == 0 {
+		return
+	}
+	l, err := inst.Lock(context.Background())
+	if err != nil {
+		return
+	}
+	defer l.Release()
+	if err := inst.Save(); err != nil {
+		a.UI.Detail("%v", err)
+		return
+	}
+	a.UI.Info("rexctl moved the address in %s to %s=%s.", ui.JoinAnd(inst.State.Repaired), settings.EdgeListen, inst.State.Settings[settings.EdgeListen])
+	inst.State.Repaired = nil
 }
 
 func (a *App) warnUnknown(inst *instance.Instance) {
@@ -382,7 +417,23 @@ func (a *App) adminClient(inst *instance.Instance, p *engine.Project) *adminapi.
 	return c
 }
 
+var bootStarting = host.BootUnitStarting
+
 func (a *App) Locked(ctx context.Context, inst *instance.Instance, fn func() error) error {
+	l, err := inst.Lock(ctx)
+	if errors.Is(err, instance.ErrLocked) && bootStarting(ctx, inst.Project()) {
+		l, err = a.waitForBootStart(ctx, inst)
+	}
+	if errors.Is(err, instance.ErrLocked) {
+		return ui.Refused("Another rexctl command is changing this instance.", "Wait for it to finish, then try again.")
+	}
+	if err != nil {
+		return err
+	}
+	return a.holding(ctx, inst, l, fn)
+}
+
+func (a *App) lockedNow(ctx context.Context, inst *instance.Instance, fn func() error) error {
 	l, err := inst.Lock(ctx)
 	if errors.Is(err, instance.ErrLocked) {
 		return ui.Refused("Another rexctl command is changing this instance.", "Wait for it to finish, then try again.")
@@ -393,11 +444,42 @@ func (a *App) Locked(ctx context.Context, inst *instance.Instance, fn func() err
 	return a.holding(ctx, inst, l, fn)
 }
 
+func (a *App) waitForBootStart(ctx context.Context, inst *instance.Instance) (*instance.Lock, error) {
+	var l *instance.Lock
+	err := a.UI.Step(ctx, "Waiting for Fluxer to finish starting", func(ctx context.Context, s *ui.Step) error {
+		deadline := time.Now().Add(bootLockWait)
+		for {
+			got, err := inst.Lock(ctx)
+			if err == nil {
+				l = got
+				s.Done("Fluxer finished starting.")
+				return nil
+			}
+			if !errors.Is(err, instance.ErrLocked) {
+				return err
+			}
+			if time.Now().After(deadline) || !bootStarting(ctx, inst.Project()) {
+				return err
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(2 * time.Second):
+			}
+		}
+	})
+	return l, err
+}
+
 func (a *App) holding(ctx context.Context, inst *instance.Instance, l *instance.Lock, fn func() error) error {
 	defer l.Release()
 	if err := rootlessGuard(inst); err != nil {
 		return err
 	}
+	if err := checkOwnership(a, inst); err != nil {
+		return err
+	}
+	defer giveFilesBack(a, inst)
 	a.held = inst
 	defer func() { a.held = nil }()
 	a.migrate(ctx, inst)

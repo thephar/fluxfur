@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use crate::branding_images::BrandingSnapshot;
-use crate::config::HttpEndpoint;
+use crate::config::{HttpEndpoint, HttpUrl};
 use crate::csp::{CspHeaderValues, inline_script_hashes};
 use crate::instance_brand_colors::{THEMES, instance_brand_variables};
+use crate::local_files::entity_tag_matches;
 use crate::state::{
     AppProxyBudgets, AppState, MAX_RENDERED_SPA_INDEX_BYTES, MAX_SPA_INDEX_BYTES, SpaIndexSource,
 };
@@ -14,15 +15,15 @@ use axum::{
     http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
 };
+use futures_util::FutureExt;
+use sha2::{Digest, Sha256};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::assets_proxy::serve_local_asset;
 use super::file_stream::stream_file;
 
-const ACCEPT_CH_VALUE: &str = "DPR, Sec-CH-DPR, Sec-CH-Width, Save-Data, ECT, Downlink";
-const CRITICAL_CH_VALUE: &str = "Sec-CH-DPR, Sec-CH-Width, Save-Data";
 const DEV_NO_STORE_CACHE_CONTROL: &str = "no-store, no-cache, must-revalidate, max-age=0";
 const SHARED_SHELL_CACHE_CONTROL: &str = "public, max-age=0, s-maxage=1";
 const CSP_NONCE_PLACEHOLDER_ATTRIBUTE: &str = r#" nonce="{{CSP_NONCE_PLACEHOLDER}}""#;
@@ -243,7 +244,7 @@ async fn serve_spa_index(state: &AppState, headers: &HeaderMap, request_path: &s
         &branding.image_origins,
         &branding.instance_sources,
     );
-    build_spa_response(html.into_boxed_str(), &csp, should_bust_dev_assets)
+    build_spa_response(html.into_boxed_str(), &csp, should_bust_dev_assets, headers)
 }
 
 fn serves_same_origin_host(same_origin_hosts: &[String], headers: &HeaderMap) -> bool {
@@ -532,7 +533,7 @@ fn is_auth_entry_path(path: &str) -> bool {
 
 #[allow(clippy::result_large_err)]
 async fn load_spa_index_html(state: &AppState, request_path: &str) -> Result<String, Response> {
-    let index_upstream_url = match &state.spa_index_source {
+    let upstream = match &state.spa_index_source {
         SpaIndexSource::Bundled {
             shell,
             auth_entry_shell,
@@ -543,49 +544,79 @@ async fn load_spa_index_html(state: &AppState, request_path: &str) -> Result<Str
                 .unwrap_or(shell);
             return Ok(shell.to_string());
         }
-        SpaIndexSource::Upstream(index_upstream_url) => index_upstream_url,
+        SpaIndexSource::Upstream(upstream) => upstream,
     };
-    let response = state
-        .http_client
+    let fetch = {
+        let mut in_flight = upstream
+            .in_flight
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        match in_flight.as_ref().filter(|(_, task)| !task.is_finished()) {
+            Some((fetch, _)) => fetch.clone(),
+            None => {
+                let task = tokio::spawn(fetch_upstream_spa_index(
+                    state.http_client.clone(),
+                    upstream.url.clone(),
+                ));
+                let abort_handle = task.abort_handle();
+                let fetch = task
+                    .map(|joined| joined.unwrap_or(Err(StatusCode::INTERNAL_SERVER_ERROR)))
+                    .boxed()
+                    .shared();
+                *in_flight = Some((fetch.clone(), abort_handle));
+                fetch
+            }
+        }
+    };
+    fetch
+        .await
+        .map(|html| html.to_string())
+        .map_err(IntoResponse::into_response)
+}
+
+async fn fetch_upstream_spa_index(
+    http_client: reqwest::Client,
+    index_upstream_url: Arc<HttpUrl>,
+) -> Result<Arc<str>, StatusCode> {
+    let mut response = http_client
         .get(index_upstream_url.as_url().clone())
         .timeout(Duration::from_secs(10))
         .send()
         .await
         .map_err(|err| {
             tracing::error!(url = %index_upstream_url, %err, "failed to fetch upstream index.html");
-            StatusCode::BAD_GATEWAY.into_response()
+            StatusCode::BAD_GATEWAY
         })?;
     if !response.status().is_success() {
         let status = response.status();
         tracing::error!(url = %index_upstream_url, %status, "upstream index.html returned non-success status");
-        return Err(StatusCode::BAD_GATEWAY.into_response());
+        return Err(StatusCode::BAD_GATEWAY);
     }
     if response
         .content_length()
         .is_some_and(|length| length > MAX_SPA_INDEX_BYTES as u64)
     {
         tracing::error!(url = %index_upstream_url, "upstream index.html exceeds the size limit");
-        return Err(StatusCode::BAD_GATEWAY.into_response());
+        return Err(StatusCode::BAD_GATEWAY);
     }
-    let mut response = response;
     let mut bytes: Vec<u8> = Vec::new();
     loop {
         let chunk = response.chunk().await.map_err(|err| {
             tracing::error!(url = %index_upstream_url, %err, "failed to read upstream index.html body");
-            StatusCode::BAD_GATEWAY.into_response()
+            StatusCode::BAD_GATEWAY
         })?;
         let Some(chunk) = chunk else {
             break;
         };
         if chunk.len() > MAX_SPA_INDEX_BYTES - bytes.len() {
             tracing::error!(url = %index_upstream_url, "upstream index.html exceeds the size limit");
-            return Err(StatusCode::BAD_GATEWAY.into_response());
+            return Err(StatusCode::BAD_GATEWAY);
         }
         bytes.extend_from_slice(&chunk);
     }
-    String::from_utf8(bytes).map_err(|err| {
+    String::from_utf8(bytes).map(Arc::from).map_err(|err| {
         tracing::error!(url = %index_upstream_url, %err, "upstream index.html is not valid UTF-8");
-        StatusCode::BAD_GATEWAY.into_response()
+        StatusCode::BAD_GATEWAY
     })
 }
 
@@ -599,9 +630,21 @@ impl AsRef<[u8]> for SpaDocumentBody {
     }
 }
 
-fn build_spa_response(html: Box<str>, csp: &CspHeaderValues, dev_no_store: bool) -> Response {
-    let body = Bytes::from_owner(SpaDocumentBody { html });
-    let mut response = Response::new(Body::from(body));
+fn build_spa_response(
+    html: Box<str>,
+    csp: &CspHeaderValues,
+    dev_no_store: bool,
+    request_headers: &HeaderMap,
+) -> Response {
+    let entity_tag = (!dev_no_store).then(|| shell_entity_tag(&html, csp));
+    let mut response = if entity_tag
+        .as_ref()
+        .is_some_and(|entity_tag| entity_tag_matches(request_headers, entity_tag))
+    {
+        StatusCode::NOT_MODIFIED.into_response()
+    } else {
+        Response::new(Body::from(Bytes::from_owner(SpaDocumentBody { html })))
+    };
     let headers = response.headers_mut();
 
     headers.insert(header::CONTENT_SECURITY_POLICY, csp.enforced.clone());
@@ -636,20 +679,29 @@ fn build_spa_response(html: Box<str>, csp: &CspHeaderValues, dev_no_store: bool)
             HeaderValue::from_static(SHARED_SHELL_CACHE_CONTROL),
         );
     }
+    if let Some(entity_tag) = entity_tag {
+        headers.insert(header::ETAG, entity_tag);
+    }
     super::set_security_headers(headers);
     headers.insert(
         HeaderName::from_static("x-fluxer-app-shell"),
         HeaderValue::from_static("1"),
     );
-    headers.insert(
-        axum::http::HeaderName::from_static("accept-ch"),
-        HeaderValue::from_static(ACCEPT_CH_VALUE),
-    );
-    headers.insert(
-        axum::http::HeaderName::from_static("critical-ch"),
-        HeaderValue::from_static(CRITICAL_CH_VALUE),
-    );
     response
+}
+
+fn shell_entity_tag(html: &str, csp: &CspHeaderValues) -> HeaderValue {
+    let mut hasher = Sha256::new();
+    hasher.update(html.as_bytes());
+    hasher.update([0]);
+    hasher.update(csp.enforced.as_bytes());
+    if let Some(report_only) = &csp.report_only {
+        hasher.update([0]);
+        hasher.update(report_only.as_bytes());
+    }
+    let digest = hasher.finalize();
+    HeaderValue::from_str(&format!("\"{}\"", hex::encode(&digest[..16])))
+        .expect("a hex entity tag must be a valid HTTP header value")
 }
 
 fn current_dev_asset_cache_buster() -> String {
@@ -814,6 +866,73 @@ mod tests {
                 saturation_preboot_tag()
             )
         );
+    }
+
+    fn shell_response(html: &str, csp: &str, request_headers: &HeaderMap) -> Response {
+        build_spa_response(
+            Box::from(html),
+            &CspHeaderValues {
+                enforced: HeaderValue::from_str(csp).unwrap(),
+                report_only: None,
+            },
+            false,
+            request_headers,
+        )
+    }
+
+    fn revalidation_headers(entity_tag: &HeaderValue) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::IF_NONE_MATCH, entity_tag.clone());
+        headers
+    }
+
+    #[tokio::test]
+    async fn shell_revalidates_to_an_empty_not_modified_until_the_document_changes() {
+        let first = shell_response("<html>a</html>", "default-src 'self'", &HeaderMap::new());
+        assert_eq!(first.status(), StatusCode::OK);
+        assert!(first.headers().get("accept-ch").is_none());
+        assert!(first.headers().get("critical-ch").is_none());
+        let entity_tag = first.headers().get(header::ETAG).unwrap().clone();
+        assert!(!entity_tag.to_str().unwrap().starts_with("W/"));
+
+        let revalidated = shell_response(
+            "<html>a</html>",
+            "default-src 'self'",
+            &revalidation_headers(&entity_tag),
+        );
+        assert_eq!(revalidated.status(), StatusCode::NOT_MODIFIED);
+        assert_eq!(revalidated.headers().get(header::ETAG), Some(&entity_tag));
+        assert_eq!(
+            revalidated.headers().get(header::CACHE_CONTROL).unwrap(),
+            SHARED_SHELL_CACHE_CONTROL
+        );
+        let body = axum::body::to_bytes(revalidated.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert!(body.is_empty());
+
+        for (html, csp) in [
+            ("<html>b</html>", "default-src 'self'"),
+            ("<html>a</html>", "default-src 'none'"),
+        ] {
+            let changed = shell_response(html, csp, &revalidation_headers(&entity_tag));
+            assert_eq!(changed.status(), StatusCode::OK);
+            assert_ne!(changed.headers().get(header::ETAG), Some(&entity_tag));
+        }
+    }
+
+    #[test]
+    fn dev_shell_sends_no_entity_tag() {
+        let response = build_spa_response(
+            Box::from("<html></html>"),
+            &CspHeaderValues {
+                enforced: HeaderValue::from_static("default-src 'self'"),
+                report_only: None,
+            },
+            true,
+            &HeaderMap::new(),
+        );
+        assert!(response.headers().get(header::ETAG).is_none());
     }
 
     fn saturation_preboot_tag() -> String {
