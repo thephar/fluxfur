@@ -17,8 +17,8 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
 
-pub(crate) const RELEASE_REPOSITORY: &str = "fluxerapp/fluxer";
-const RELEASE_COMPARE_URL: &str = "https://github.com/fluxerapp/fluxer/compare";
+pub(crate) const RELEASE_REPOSITORY: &str = "thephar/fluxfur";
+const RELEASE_COMPARE_URL: &str = "https://github.com/thephar/fluxfur/compare";
 pub(crate) const DESKTOP_RELEASE_DESCRIPTOR_SCHEMA_VERSION: u8 = 2;
 const DESKTOP_RELEASE_ARCHES: [&str; 2] = ["x64", "arm64"];
 
