@@ -2185,6 +2185,10 @@ msgstr "{productName} wordt niet bijgewerkt tijdens het opstarten. Als er een up
 msgid "{productName} wordmark"
 msgstr "{productName}-woordmerk"
 
+#: src/features/connection/components/modals/AddConnectionModal.tsx
+msgid "{providerName} opens in your browser. Sign in there to connect your account."
+msgstr "{providerName} opent in je browser. Meld je daar aan om je account te koppelen."
+
 #. Reaction tooltip. Preserve {emojiName}, {reactors}; they are inserted by code. {reactorCount} is how many people reacted, for verb agreement. Order the parts so the emoji never reads as the one doing the reacting.
 #: src/features/messaging/utils/ReactionUtils.ts
 msgid "{reactorCount, plural, one {{emojiName} reacted by {reactors}} other {{emojiName} reacted by {reactors}}}"
@@ -3339,10 +3343,10 @@ msgstr "Voeg \";\" toe aan het einde van deze regel."
 msgid "Add \":\" between the property and its value."
 msgstr "Voeg \":\" toe tussen de eigenschap en de waarde."
 
-#. Button or menu action label in the linked accounts tab. Keep it concise. Preserve {blueskyProviderName}; it is inserted by code.
+#. Button or menu action label in the linked accounts tab. Keep it concise. Preserve {providerName}; it is the provider name, inserted by code.
 #: src/features/user/components/modals/tabs/LinkedAccountsTab.tsx
-msgid "Add {blueskyProviderName} connection"
-msgstr "Verbinding met {blueskyProviderName} toevoegen"
+msgid "Add {providerName} connection"
+msgstr "Verbinding met {providerName} toevoegen"
 
 #. OAuth scope description shown on the consent screen for the bot scope.
 #: src/features/app/constants/AppConstants.ts
@@ -9528,6 +9532,11 @@ msgstr "Community bijgewerkt"
 msgid "Community voice"
 msgstr "Spraakchat in communities"
 
+#. Report flow: section heading above the card of the community being reported.
+#: src/features/moderation/components/report_flow/ReportFlowCopy.ts
+msgid "Community you're reporting"
+msgstr "Community die je meldt"
+
 #. Permission category for permissions that affect the whole community.
 #: src/features/permissions/utils/PermissionLabelDescriptors.ts
 msgid "Community-wide"
@@ -11321,10 +11330,10 @@ msgstr "Verificatie-e-mail kon niet worden verzonden"
 msgid "Couldn't sign you in"
 msgstr "Kon je niet aanmelden"
 
-#. Toast error shown when starting the OAuth flow for a connection provider fails. Preserve {blueskyProviderName}; it is inserted by code and must appear verbatim in the translation.
+#. Toast error shown when starting the OAuth flow for a connection provider fails. Preserve {providerName}; it is the provider name, inserted by code, and must appear verbatim in the translation.
 #: src/features/connection/commands/ConnectionCommands.ts
-msgid "Couldn't start {blueskyProviderName} authorization"
-msgstr "Autorisatie van {blueskyProviderName} kon niet worden gestart"
+msgid "Couldn't start {providerName} authorization"
+msgstr "Autorisatie van {providerName} kon niet worden gestart"
 
 #. Title of the generic fallback error modal shown when creating a checkout session fails unexpectedly.
 #: src/features/app/components/dialogs/components/plutonium/hooks/useCheckoutActions.tsx
@@ -21460,8 +21469,8 @@ msgid "Link warnings"
 msgstr "Linkwaarschuwingen"
 
 #: src/features/user/components/modals/tabs/LinkedAccountsTab.tsx
-msgid "Link your {BLUESKY_PROVIDER_NAME} account or verify domain ownership to display them on your profile."
-msgstr "Koppel je {BLUESKY_PROVIDER_NAME}-account of verifieer het eigendom van een domein om je account of domein op je profiel te tonen."
+msgid "Link your accounts or verify domain ownership to display them on your profile."
+msgstr "Koppel je accounts of verifieer het eigendom van een domein om ze op je profiel te tonen."
 
 #. Settings search synonym. Used to match this term when the user types it in the settings search bar.
 #: src/features/user/components/settings_utils/search_index/LinkedAccountsIndex.ts
@@ -24649,6 +24658,11 @@ msgstr "Geen lokale bestanden waarnaar wordt verwezen"
 msgid "No logs yet"
 msgstr "Nog geen logboeken"
 
+#. Label for a linked account whose provider this instance removed or turned off. The account is hidden from the profile.
+#: src/features/connection/components/ConnectionIcon.tsx
+msgid "No longer available"
+msgstr "Niet meer beschikbaar"
+
 #: src/features/app/components/dialogs/shared/AddOverridePopout.tsx
 msgid "No matches"
 msgstr "Geen overeenkomsten"
@@ -27331,6 +27345,11 @@ msgstr "Machtigingen"
 msgid "Permissions for {0}"
 msgstr "Machtigingen voor {0}"
 
+#. Report flow: section heading above the card of the person being reported.
+#: src/features/moderation/components/report_flow/ReportFlowCopy.ts
+msgid "Person you're reporting"
+msgstr "Persoon die je meldt"
+
 #. Settings search synonym. Used to match this term when the user types it in the settings search bar.
 #: src/features/user/utils/UserMessageDescriptors.ts
 msgid "Personal dictionary"
@@ -28339,11 +28358,6 @@ msgstr "Profieltype"
 #: src/features/user/components/modals/tabs/MyProfileTab.tsx
 msgid "Profile updated"
 msgstr "Profiel bijgewerkt"
-
-#. Report flow: section heading above the card of the user whose profile is being reported.
-#: src/features/moderation/components/report_flow/ReportFlowCopy.ts
-msgid "Profile you're reporting"
-msgstr "Profiel dat je meldt"
 
 #. Settings search synonym. Used to match this term when the user types it in the settings search bar.
 #: src/features/user/components/settings_utils/search_index/ChatSettingsIndex.ts
@@ -29966,6 +29980,11 @@ msgstr "Antwoord op {replyAuthorName}: {authorName} zei: {formatted}"
 msgid "Replying to <0>{authorNickname}</0>"
 msgstr "Antwoorden op <0>{authorNickname}</0>"
 
+#. Voice and call participant menu action that reports this person to the safety team, for example for something they said or showed in the call.
+#: src/features/ui/action_menu/items/VoiceParticipantMenuData.tsx
+msgid "Report"
+msgstr "Melden"
+
 #. Report flow target option. Selects reporting an entire community (server). Use the localized term for community, not server.
 #: src/features/moderation/components/report/OptionDescriptors.ts
 msgid "Report a community"
@@ -29980,6 +29999,11 @@ msgstr "Meld een bericht"
 #: src/features/moderation/components/report/OptionDescriptors.ts
 msgid "Report a user profile"
 msgstr "Een gebruikersprofiel melden"
+
+#. Action label in community menus, on invites and in Explore, and the title of the report window it opens. Reports a whole community to the safety team.
+#: src/features/moderation/utils/ModerationMessageDescriptors.ts
+msgid "Report community"
+msgstr "Community melden"
 
 #: src/features/moderation/components/report/ReportStepDetails.tsx
 msgid "Report details"
@@ -30001,7 +30025,12 @@ msgstr "Probleem melden"
 msgid "Report message"
 msgstr "Bericht melden"
 
-#. Action label in the full user profile's overflow menu, and the title of the report window it opens. Reports the user's profile: their photo, name or bio.
+#. Action in a forum post's menu. Reports the post's opening message to the safety team. A post is a topic thread in a forum channel.
+#: src/features/forum/utils/ForumMessageDescriptors.ts
+msgid "Report post"
+msgstr "Post melden"
+
+#. Action label in user right-click menus and the full user profile's overflow menu, and the title of the report window it opens. Reports the user's profile: their photo, name or bio.
 #: src/features/moderation/utils/ModerationMessageDescriptors.ts
 msgid "Report profile"
 msgstr "Profiel melden"
@@ -36519,6 +36548,11 @@ msgstr "Het <0>privacybeleid</0> en de <1>privacyverklaring van de {OPERATOR_PAS
 msgid "The <0>privacy policy</0> explains how we handle your data."
 msgstr "Het <0>privacybeleid</0> legt uit hoe we met je gegevens omgaan."
 
+#. Report flow: body of the final screen after a report was sent, on a self-hosted instance whose own administrators handle reports. The second sentence promises the reported person is not told who reported them.
+#: src/features/moderation/components/report_flow/ReportFlowCopy.ts
+msgid "The administrators of this instance will review your report. We won't reveal that it came from you."
+msgstr "De beheerders van deze instantie bekijken je melding. We maken niet bekend dat de melding van jou komt."
+
 #. Error shown when the setup wizard cannot load because the API origin differs from the page origin.
 #: src/features/app/components/setup/SelfHostedSetupWizardGate.tsx
 msgid "The API is on a different origin than this page, so setup requests are sent without your session. Check the public origin and port this instance is configured with, then reload."
@@ -36578,6 +36612,10 @@ msgstr "De community waar dit vandaan komt, heeft klonen uitgeschakeld, dus het 
 #: src/features/app/components/layout/GuildLayout.tsx
 msgid "The community you're looking for may have been deleted or you may not have access to it."
 msgstr "De community die je zoekt is mogelijk verwijderd of je hebt er geen toegang toe."
+
+#: src/features/connection/components/pages/ConnectionCallbackPage.tsx
+msgid "The connection was not allowed. You can close this tab and try again."
+msgstr "De verbinding is niet toegestaan. Je kunt dit tabblad sluiten en het opnieuw proberen."
 
 #. Body of the confirmation dialog before replacing the private link to an Operator certificate page. The certificate is a PDF, and each page has a number and the date and time of payment. The new copy of the page has the new link printed on it.
 #: src/features/premium/components/operator_pass/OperatorPassPurchasesSection.tsx
@@ -43185,6 +43223,10 @@ msgstr "Je hebt al een groep met deze gebruikers. Wil je echt een nieuwe aanmake
 msgid "You already have lifetime {premiumProductName}"
 msgstr "Je hebt al levenslang {premiumProductName}"
 
+#: src/features/connection/components/pages/ConnectionCallbackPage.tsx
+msgid "You already have the most connections an account can have. Remove one and try again."
+msgstr "Je hebt al het maximale aantal verbindingen dat een account kan hebben. Verwijder er een en probeer het opnieuw."
+
 #. Body text in the connection add connection modal.
 #: src/features/connection/components/modals/AddConnectionModal.tsx
 msgid "You already have this connection."
@@ -44159,6 +44201,11 @@ msgstr "Je bekijkt oudere berichten"
 #: src/features/app/components/alerts/DmActionErrorModal.tsx
 msgid "You've added more people than a group DM allows. Remove a few and try again."
 msgstr "Je hebt meer mensen toegevoegd dan een groeps-DM toestaat. Verwijder er een paar en probeer het opnieuw."
+
+#. Report flow: note on the summary screen when the reporter already reported this community.
+#: src/features/moderation/components/report_flow/ReportFlowCopy.ts
+msgid "You've already reported this community."
+msgstr "Je hebt deze community al gemeld."
 
 #. Report flow: note on the summary screen when the reporter already reported this message.
 #: src/features/moderation/components/report_flow/ReportFlowCopy.ts

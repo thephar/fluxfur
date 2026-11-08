@@ -2185,6 +2185,10 @@ msgstr "{productName} nebus atnaujinamas paleidžiant. Kai bus pasiekiama naujin
 msgid "{productName} wordmark"
 msgstr "{productName} pavadinimo logotipas"
 
+#: src/features/connection/components/modals/AddConnectionModal.tsx
+msgid "{providerName} opens in your browser. Sign in there to connect your account."
+msgstr "„{providerName}“ atsidaro jūsų naršyklėje. Prisijunkite ten, kad susietumėte savo paskyrą."
+
 #. Reaction tooltip. Preserve {emojiName}, {reactors}; they are inserted by code. {reactorCount} is how many people reacted, for verb agreement. Order the parts so the emoji never reads as the one doing the reacting.
 #: src/features/messaging/utils/ReactionUtils.ts
 msgid "{reactorCount, plural, one {{emojiName} reacted by {reactors}} other {{emojiName} reacted by {reactors}}}"
@@ -3339,10 +3343,10 @@ msgstr "Pridėkite \";\" šios eilutės pabaigoje."
 msgid "Add \":\" between the property and its value."
 msgstr "Pridėkite \":\" tarp savybės ir jos reikšmės."
 
-#. Button or menu action label in the linked accounts tab. Keep it concise. Preserve {blueskyProviderName}; it is inserted by code.
+#. Button or menu action label in the linked accounts tab. Keep it concise. Preserve {providerName}; it is the provider name, inserted by code.
 #: src/features/user/components/modals/tabs/LinkedAccountsTab.tsx
-msgid "Add {blueskyProviderName} connection"
-msgstr "Pridėti {blueskyProviderName} ryšį"
+msgid "Add {providerName} connection"
+msgstr "Pridėti {providerName} ryšį"
 
 #. OAuth scope description shown on the consent screen for the bot scope.
 #: src/features/app/constants/AppConstants.ts
@@ -9528,6 +9532,11 @@ msgstr "Bendruomenė atnaujinta"
 msgid "Community voice"
 msgstr "Bendruomenės balso kanalai"
 
+#. Report flow: section heading above the card of the community being reported.
+#: src/features/moderation/components/report_flow/ReportFlowCopy.ts
+msgid "Community you're reporting"
+msgstr "Bendruomenė, apie kurią pranešate"
+
 #. Permission category for permissions that affect the whole community.
 #: src/features/permissions/utils/PermissionLabelDescriptors.ts
 msgid "Community-wide"
@@ -11321,10 +11330,10 @@ msgstr "Nepavyko išsiųsti patvirtinimo el. laiško"
 msgid "Couldn't sign you in"
 msgstr "Nepavyko prisijungti"
 
-#. Toast error shown when starting the OAuth flow for a connection provider fails. Preserve {blueskyProviderName}; it is inserted by code and must appear verbatim in the translation.
+#. Toast error shown when starting the OAuth flow for a connection provider fails. Preserve {providerName}; it is the provider name, inserted by code, and must appear verbatim in the translation.
 #: src/features/connection/commands/ConnectionCommands.ts
-msgid "Couldn't start {blueskyProviderName} authorization"
-msgstr "Nepavyko pradėti „{blueskyProviderName}“ autorizavimo"
+msgid "Couldn't start {providerName} authorization"
+msgstr "Nepavyko pradėti „{providerName}“ autorizavimo"
 
 #. Title of the generic fallback error modal shown when creating a checkout session fails unexpectedly.
 #: src/features/app/components/dialogs/components/plutonium/hooks/useCheckoutActions.tsx
@@ -21461,8 +21470,8 @@ msgid "Link warnings"
 msgstr "Nuorodų įspėjimai"
 
 #: src/features/user/components/modals/tabs/LinkedAccountsTab.tsx
-msgid "Link your {BLUESKY_PROVIDER_NAME} account or verify domain ownership to display them on your profile."
-msgstr "Susiekite savo „{BLUESKY_PROVIDER_NAME}“ paskyrą arba patvirtinkite domeno nuosavybę, kad jie būtų rodomi jūsų profilyje."
+msgid "Link your accounts or verify domain ownership to display them on your profile."
+msgstr "Susiekite savo paskyras arba patvirtinkite domeno nuosavybę, kad jie būtų rodomi jūsų profilyje."
 
 #. Settings search synonym. Used to match this term when the user types it in the settings search bar.
 #: src/features/user/components/settings_utils/search_index/LinkedAccountsIndex.ts
@@ -24650,6 +24659,11 @@ msgstr "Nenurodyta jokių vietinių failų"
 msgid "No logs yet"
 msgstr "Kol kas nėra žurnalų"
 
+#. Label for a linked account whose provider this instance removed or turned off. The account is hidden from the profile.
+#: src/features/connection/components/ConnectionIcon.tsx
+msgid "No longer available"
+msgstr "Nebepasiekiama"
+
 #: src/features/app/components/dialogs/shared/AddOverridePopout.tsx
 msgid "No matches"
 msgstr "Nėra atitikmenų"
@@ -27332,6 +27346,11 @@ msgstr "Leidimai"
 msgid "Permissions for {0}"
 msgstr "{0} leidimai"
 
+#. Report flow: section heading above the card of the person being reported.
+#: src/features/moderation/components/report_flow/ReportFlowCopy.ts
+msgid "Person you're reporting"
+msgstr "Asmuo, apie kurį pranešate"
+
 #. Settings search synonym. Used to match this term when the user types it in the settings search bar.
 #: src/features/user/utils/UserMessageDescriptors.ts
 msgid "Personal dictionary"
@@ -28340,11 +28359,6 @@ msgstr "Profilio tipas"
 #: src/features/user/components/modals/tabs/MyProfileTab.tsx
 msgid "Profile updated"
 msgstr "Profilis atnaujintas"
-
-#. Report flow: section heading above the card of the user whose profile is being reported.
-#: src/features/moderation/components/report_flow/ReportFlowCopy.ts
-msgid "Profile you're reporting"
-msgstr "Profilis, apie kurį pranešate"
 
 #. Settings search synonym. Used to match this term when the user types it in the settings search bar.
 #: src/features/user/components/settings_utils/search_index/ChatSettingsIndex.ts
@@ -29967,6 +29981,11 @@ msgstr "Atsakant į {replyAuthorName} žinutę, {authorName} parašė: {formatte
 msgid "Replying to <0>{authorNickname}</0>"
 msgstr "Atsakoma į <0>{authorNickname}</0>"
 
+#. Voice and call participant menu action that reports this person to the safety team, for example for something they said or showed in the call.
+#: src/features/ui/action_menu/items/VoiceParticipantMenuData.tsx
+msgid "Report"
+msgstr "Pranešti"
+
 #. Report flow target option. Selects reporting an entire community (server). Use the localized term for community, not server.
 #: src/features/moderation/components/report/OptionDescriptors.ts
 msgid "Report a community"
@@ -29981,6 +30000,11 @@ msgstr "Pranešti apie žinutę"
 #: src/features/moderation/components/report/OptionDescriptors.ts
 msgid "Report a user profile"
 msgstr "Pranešti apie naudotojo profilį"
+
+#. Action label in community menus, on invites and in Explore, and the title of the report window it opens. Reports a whole community to the safety team.
+#: src/features/moderation/utils/ModerationMessageDescriptors.ts
+msgid "Report community"
+msgstr "Pranešti apie bendruomenę"
 
 #: src/features/moderation/components/report/ReportStepDetails.tsx
 msgid "Report details"
@@ -30002,7 +30026,12 @@ msgstr "Pranešti apie problemą"
 msgid "Report message"
 msgstr "Pranešti apie žinutę"
 
-#. Action label in the full user profile's overflow menu, and the title of the report window it opens. Reports the user's profile: their photo, name or bio.
+#. Action in a forum post's menu. Reports the post's opening message to the safety team. A post is a topic thread in a forum channel.
+#: src/features/forum/utils/ForumMessageDescriptors.ts
+msgid "Report post"
+msgstr "Pranešti apie įrašą"
+
+#. Action label in user right-click menus and the full user profile's overflow menu, and the title of the report window it opens. Reports the user's profile: their photo, name or bio.
 #: src/features/moderation/utils/ModerationMessageDescriptors.ts
 msgid "Report profile"
 msgstr "Pranešti apie profilį"
@@ -36520,6 +36549,11 @@ msgstr "<0>Privatumo politikoje</0> ir <1>{OPERATOR_PASS_NAME} privatumo praneš
 msgid "The <0>privacy policy</0> explains how we handle your data."
 msgstr "<0>Privatumo politikoje</0> paaiškinta, kaip tvarkome jūsų duomenis."
 
+#. Report flow: body of the final screen after a report was sent, on a self-hosted instance whose own administrators handle reports. The second sentence promises the reported person is not told who reported them.
+#: src/features/moderation/components/report_flow/ReportFlowCopy.ts
+msgid "The administrators of this instance will review your report. We won't reveal that it came from you."
+msgstr "Šios instancijos administratoriai peržiūrės jūsų pranešimą. Mes neatskleisime, kad jį pateikėte jūs."
+
 #. Error shown when the setup wizard cannot load because the API origin differs from the page origin.
 #: src/features/app/components/setup/SelfHostedSetupWizardGate.tsx
 msgid "The API is on a different origin than this page, so setup requests are sent without your session. Check the public origin and port this instance is configured with, then reload."
@@ -36579,6 +36613,10 @@ msgstr "Bendruomenė, iš kurios tai gauta, išjungė klonavimą, todėl to nuko
 #: src/features/app/components/layout/GuildLayout.tsx
 msgid "The community you're looking for may have been deleted or you may not have access to it."
 msgstr "Bendruomenė, kurios ieškote, galėjo būti ištrinta arba neturite prieigos prie jos."
+
+#: src/features/connection/components/pages/ConnectionCallbackPage.tsx
+msgid "The connection was not allowed. You can close this tab and try again."
+msgstr "Ryšys nebuvo leistas. Galite uždaryti šį skirtuką ir bandyti dar kartą."
 
 #. Body of the confirmation dialog before replacing the private link to an Operator certificate page. The certificate is a PDF, and each page has a number and the date and time of payment. The new copy of the page has the new link printed on it.
 #: src/features/premium/components/operator_pass/OperatorPassPurchasesSection.tsx
@@ -43186,6 +43224,10 @@ msgstr "Jau turite grupę su šiais naudotojais. Ar tikrai norite sukurti naują
 msgid "You already have lifetime {premiumProductName}"
 msgstr "Jau turite {premiumProductName} visam laikui"
 
+#: src/features/connection/components/pages/ConnectionCallbackPage.tsx
+msgid "You already have the most connections an account can have. Remove one and try again."
+msgstr "Jau turite didžiausią ryšių skaičių, kurį gali turėti paskyra. Pašalinkite vieną ir bandykite dar kartą."
+
 #. Body text in the connection add connection modal.
 #: src/features/connection/components/modals/AddConnectionModal.tsx
 msgid "You already have this connection."
@@ -44160,6 +44202,11 @@ msgstr "Peržiūrite senesnes žinutes"
 #: src/features/app/components/alerts/DmActionErrorModal.tsx
 msgid "You've added more people than a group DM allows. Remove a few and try again."
 msgstr "Pridėjote daugiau žmonių, nei leidžia grupės DM. Pašalinkite kelis ir bandykite dar kartą."
+
+#. Report flow: note on the summary screen when the reporter already reported this community.
+#: src/features/moderation/components/report_flow/ReportFlowCopy.ts
+msgid "You've already reported this community."
+msgstr "Jau pranešėte apie šią bendruomenę."
 
 #. Report flow: note on the summary screen when the reporter already reported this message.
 #: src/features/moderation/components/report_flow/ReportFlowCopy.ts

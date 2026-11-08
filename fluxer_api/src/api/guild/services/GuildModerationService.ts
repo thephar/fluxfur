@@ -154,7 +154,7 @@ export class GuildModerationService {
 				seconds: effectiveDeleteMessageSeconds,
 			});
 		}
-		const targetIp = isIpBanExempt(targetUser.lastActiveIp) ? null : targetUser.lastActiveIp || null;
+		const targetIp = isIpBanExempt(targetUser.moderationIp) ? null : targetUser.moderationIp || null;
 		const targetEmail = targetUser.email?.toLowerCase() || null;
 		let expiresAt: Date | null = null;
 		if (banDurationSeconds && banDurationSeconds > 0) {
@@ -206,14 +206,7 @@ export class GuildModerationService {
 		await onGuildBanAdded({guildId, targetUserId: targetId, targetIp, gateway: this.gatewayService});
 		if (targetMember) {
 			await this.guildRepository.deleteMember(guildId, targetId);
-			const guild = await this.guildRepository.findUnique(guildId);
-			if (guild) {
-				await this.guildRepository.upsertPartial(
-					guildId,
-					{member_count: Math.max(0, guild.memberCount - 1)},
-					guild.toRow(),
-				);
-			}
+			await this.guildRepository.syncMemberCount(guildId);
 			await this.dispatchGuildMemberRemove({guildId, userId: targetId});
 			await this.gatewayService.leaveGuild({userId: targetId, guildId});
 			const guildForSearch = await this.guildRepository.findUnique(guildId);

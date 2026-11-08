@@ -16,7 +16,7 @@ import {
 	sendFriendRequestByTag,
 } from '@app/api/user/tests/RelationshipTestUtils';
 import {fetchUserMe} from '@app/api/user/tests/UserTestUtils';
-import {RelationshipTypes, UserFlags} from '@fluxer/constants/src/UserConstants';
+import {DELETED_USER_ID, RelationshipTypes, UserFlags} from '@fluxer/constants/src/UserConstants';
 import {afterAll, beforeAll, beforeEach, describe, expect, test} from 'vitest';
 
 async function markUserScheduledForDeletion(harness: ApiTestHarness, userId: string): Promise<void> {
@@ -132,6 +132,24 @@ describe('UserRelationshipStateTransitions', () => {
 			const {json: aliceRels} = await listRelationships(harness, alice.token);
 			expect(aliceRels).toHaveLength(1);
 			assertRelationshipType(aliceRels[0]!, RelationshipTypes.FRIEND);
+		});
+		test('accepting a request while holding your own request to that user leaves only the friendship', async () => {
+			const alice = await createTestAccount(harness);
+			const bob = await createTestAccount(harness);
+			await sendFriendRequest(harness, bob.token, alice.userId);
+			await setFlags(harness, alice.userId, UserFlags.SPAMMER);
+			await sendFriendRequest(harness, alice.token, bob.userId);
+			await setFlags(harness, alice.userId, 0n);
+			const {json: aliceBefore} = await listRelationships(harness, alice.token);
+			expect(aliceBefore.map((r) => r.type).sort()).toEqual([
+				RelationshipTypes.INCOMING_REQUEST,
+				RelationshipTypes.OUTGOING_REQUEST,
+			]);
+			await acceptFriendRequest(harness, alice.token, bob.userId);
+			const {json: aliceRels} = await listRelationships(harness, alice.token);
+			expect(aliceRels.map((r) => r.type)).toEqual([RelationshipTypes.FRIEND]);
+			const {json: bobRels} = await listRelationships(harness, bob.token);
+			expect(bobRels.map((r) => r.type)).toEqual([RelationshipTypes.FRIEND]);
 		});
 		test('sending back to an ignored sender you blocked is rejected', async () => {
 			const alice = await createTestAccount(harness);
@@ -254,6 +272,16 @@ describe('UserRelationshipStateTransitions', () => {
 				})
 				.expect(HTTP_STATUS.BAD_REQUEST, 'FRIEND_REQUEST_BLOCKED')
 				.execute();
+		});
+		test('cannot send friend request to the deleted user placeholder', async () => {
+			const alice = await createTestAccount(harness);
+			await createBuilder(harness, alice.token)
+				.post(`/users/@me/relationships/${DELETED_USER_ID.toString()}`)
+				.body({})
+				.expect(HTTP_STATUS.BAD_REQUEST, 'FRIEND_REQUEST_BLOCKED')
+				.execute();
+			const {json: aliceRels} = await listRelationships(harness, alice.token);
+			expect(aliceRels).toHaveLength(0);
 		});
 		test('cannot accept request when requester is deleted', async () => {
 			const alice = await createTestAccount(harness);

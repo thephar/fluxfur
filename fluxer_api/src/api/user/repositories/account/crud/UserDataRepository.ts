@@ -13,6 +13,7 @@ import {User} from '@app/api/models/User';
 import {Users} from '@app/api/Tables';
 import {shiftGiftExtensionPastPremiumUntil} from '@app/api/user/GiftExtensionShift';
 import {isPendingDeletionBlocked} from '@app/api/user/services/PendingDeletionCoordinator';
+import {isAccountClosed} from '@app/api/user/UserHelpers';
 import {APIErrorCodes} from '@fluxer/constants/src/ApiErrorCodes';
 import {DELETED_USER_ID, UserFlags} from '@fluxer/constants/src/UserConstants';
 import {ConflictError} from '@fluxer/errors/src/domains/core/ConflictError';
@@ -33,6 +34,11 @@ const FETCH_ACTIVITY_TRACKING_CQL = Users.selectCql({
 	where: Users.where.eq('user_id'),
 	limit: 1,
 });
+const FETCH_ACTIVITY_TARGET_CQL = Users.selectCql({
+	columns: ['username', 'flags', 'bot', 'deletion_started_at', 'last_active_at', 'last_active_ip'],
+	where: Users.where.eq('user_id'),
+	limit: 1,
+});
 
 type UserPatch = Partial<{
 	[K in Exclude<keyof UserRow, 'user_id'> & string]: DbOp<UserRow[K]>;
@@ -44,6 +50,12 @@ function assertOrdinaryUserPatch(patch: UserPatch): void {
 	if (patch.pending_deletion_at || patch.deletion_started_at) {
 		throw new Error('User deletion state must be changed through the deletion lifecycle');
 	}
+}
+
+function withWholeTag(patch: UserPatch, row: UserRow | null): UserPatch {
+	if (!row || (patch.username === undefined) === (patch.discriminator === undefined)) return patch;
+	if (patch.username === undefined) return {...patch, username: Db.set(row.username)};
+	return {...patch, discriminator: Db.set(row.discriminator)};
 }
 
 function assertWritableUserId(userId: UserID): void {
@@ -149,20 +161,21 @@ export class UserDataRepository {
 	}> {
 		assertWritableUserId(userId);
 		assertOrdinaryUserPatch(patch);
+		let written = patch;
 		const result = await executeVersionedUpdate<UserRow, 'user_id'>(
 			async () => {
 				return fetchOne<UserRow>(FETCH_USER_BY_ID_CQL, {user_id: userId});
 			},
-			(_current) => ({
-				pk: {user_id: userId},
-				patch,
-			}),
+			(current) => {
+				written = withWholeTag(patch, current);
+				return {pk: {user_id: userId}, patch: written};
+			},
 			Users,
 			{initialData: oldData},
 		);
 		const previousData = result.previousData;
 		const updatedData = {
-			...(applyPatchToRow<UserRow>(previousData, patch) as UserRow),
+			...(applyPatchToRow<UserRow>(previousData, written) as UserRow),
 			user_id: userId,
 			version: result.finalVersion ?? nextVersion(previousData?.version),
 		};
@@ -326,6 +339,7 @@ export class UserDataRepository {
 	}
 
 	async updateLastActiveAt(params: {userId: UserID; lastActiveAt: Date; lastActiveIp?: string}): Promise<{
+		isBot: boolean;
 		previousData: {
 			last_active_at: Date | null;
 			last_active_ip: string | null;
@@ -334,22 +348,34 @@ export class UserDataRepository {
 			last_active_at: Date | null;
 			last_active_ip: string | null;
 		};
-	}> {
+	} | null> {
 		const {userId, lastActiveAt, lastActiveIp} = params;
 		assertWritableUserId(userId);
-		const previousData = (await this.getActivityTracking(userId)) ?? {last_active_at: null, last_active_ip: null};
+		const current = await fetchOne<
+			Pick<UserRow, 'username' | 'flags' | 'bot' | 'deletion_started_at' | 'last_active_at' | 'last_active_ip'>
+		>(FETCH_ACTIVITY_TARGET_CQL, {user_id: userId});
+		if (
+			!current?.username ||
+			isAccountClosed({flags: current.flags ?? 0n, deletionStartedAt: current.deletion_started_at ?? null})
+		) {
+			return null;
+		}
+		const previousData = {
+			last_active_at: current.last_active_at ?? null,
+			last_active_ip: current.last_active_ip ?? null,
+		};
 		await upsertOne(
 			Users.patchByPk(
 				{user_id: userId},
-				{
-					last_active_at: Db.set(lastActiveAt),
-					last_active_ip: lastActiveIp !== undefined ? Db.set(lastActiveIp) : Db.clear(),
-				},
+				lastActiveIp !== undefined
+					? {last_active_at: Db.set(lastActiveAt), last_active_ip: Db.set(lastActiveIp)}
+					: {last_active_at: Db.set(lastActiveAt)},
 			),
 		);
 		return {
+			isBot: current.bot ?? false,
 			previousData,
-			updatedData: {last_active_at: lastActiveAt, last_active_ip: lastActiveIp ?? null},
+			updatedData: {last_active_at: lastActiveAt, last_active_ip: lastActiveIp ?? previousData.last_active_ip},
 		};
 	}
 

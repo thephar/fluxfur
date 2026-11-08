@@ -39,6 +39,7 @@ import {
 	mapGuildToGuildResponse,
 } from '@app/api/guild/GuildModel';
 import type {GuildRepository} from '@app/api/guild/repositories/GuildRepository';
+import {GuildMemberSearchIndexService} from '@app/api/guild/services/member/GuildMemberSearchIndexService';
 import {enqueueEndGuildVisitsForCode} from '@app/api/guild/visits/GuildVisitLifecycle';
 import {resolveSessionGuildVisits} from '@app/api/guild/visits/GuildVisitSession';
 import {stripAnimationPrefix} from '@app/api/infrastructure/AssetEntitlementUtils';
@@ -270,13 +271,6 @@ export class RpcService {
 			return;
 		}
 		await ensurePersonalNotesChannelExists({channelRepository: this.channelRepository.channelData, userId: user.id});
-	}
-
-	private async updateGuildMemberCount(guild: Guild, actualMemberCount: number): Promise<Guild> {
-		if (guild.memberCount === actualMemberCount) {
-			return guild;
-		}
-		return await this.guildRepository.upsertPartial(guild.id, {member_count: actualMemberCount}, guild.toRow());
 	}
 
 	private async migrateStickerAnimated(sticker: GuildSticker): Promise<GuildSticker> {
@@ -1267,8 +1261,7 @@ export class RpcService {
 	}): Promise<RpcResponseGuildCollectionData> {
 		const guild = await this.getGuildOrThrow(guildId);
 		await this.ensureThreadPermissionsSeeded(guildId);
-		const memberCount = await this.guildRepository.countMembers(guildId);
-		const repairedMemberCountGuild = await this.updateGuildMemberCount(guild, memberCount);
+		const repairedMemberCountGuild = (await this.guildRepository.syncMemberCount(guildId)) ?? guild;
 
 		const repairedBannerGuild = await this.repairGuildAssetDimensions(
 			repairedMemberCountGuild,
@@ -1979,7 +1972,8 @@ export class RpcService {
 						]);
 						if (member?.isTemporary && guild) {
 							await this.guildRepository.deleteMember(guildId, userId);
-							await this.updateGuildMemberCount(guild, Math.max(0, guild.memberCount - 1));
+							await new GuildMemberSearchIndexService().deleteMember(guildId, userId);
+							await this.guildRepository.syncMemberCount(guildId);
 							await this.gatewayService.dispatchGuild({
 								guildId,
 								event: 'GUILD_MEMBER_REMOVE',

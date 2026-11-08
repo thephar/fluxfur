@@ -265,7 +265,11 @@ export class UserAccountRepository {
 			await this.finalizeEmailClaimOrRevert(emailClaim, userId, previousData);
 			await this.releasePreviousEmailIfChanged(previousData, updatedData);
 			if (deletionTransition !== 'anonymise') {
-				await this.indexRepo.syncIndices(updatedData, previousData);
+				await this.indexRepo.syncIndices(
+					updatedData,
+					previousData,
+					new Set(Object.keys(userPatch) as Array<keyof UserRow>),
+				);
 			}
 			await this.searchRepo.updateUser(updatedUser);
 			if (legacyHiddenProfileBadges(updatedData.flags ?? 0n, updatedData.premium_flags ?? 0).length > 0) {
@@ -311,7 +315,7 @@ export class UserAccountRepository {
 
 	async updateLastActiveAt(params: {userId: UserID; lastActiveAt: Date; lastActiveIp?: string}): Promise<void> {
 		const activityUpdate = await this.dataRepo.updateLastActiveAt(params);
-		if (params.lastActiveIp !== undefined) {
+		if (activityUpdate && !activityUpdate.isBot && params.lastActiveIp !== undefined) {
 			await this.indexRepo.updateLastActiveIpIndex(
 				params.userId,
 				activityUpdate.updatedData.last_active_ip ?? params.lastActiveIp,

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import {randomUUID} from 'node:crypto';
 import type {UserID} from '@app/api/BrandedTypes';
 import {fetchMany, upsertOne} from '@app/api/database/CassandraQueryExecution';
 import {Db, type PreparedQuery} from '@app/api/database/CassandraTypes';
@@ -17,6 +18,8 @@ import {seconds} from 'itty-time';
 
 const PENDING_HASH_KEY = 'user_activity:pending';
 const PENDING_AUTH_SESSION_HASH_KEY = 'auth_session_activity:pending';
+const USER_FLUSH_LOCK_KEY = 'user_activity:flush_lock';
+const USER_FLUSH_LOCK_TTL_SECONDS = seconds('1 minute');
 const AUTH_SESSION_TOUCH_KEY_PREFIX = 'auth_session_activity:touched:';
 const WRITE_CONCURRENCY = 64;
 const AUTH_SESSION_TOUCH_DEBOUNCE_TTL_SECONDS = seconds('5 minutes');
@@ -82,10 +85,12 @@ async function flushActivityEntries<T>(
 	entries: ReadonlyArray<T>,
 	write: (entry: T) => Promise<unknown>,
 	failureMessage: string,
+	keepLock?: () => Promise<unknown>,
 ): Promise<FlushStats> {
 	let written = 0;
 	let skipped = 0;
 	for (let index = 0; index < entries.length; index += WRITE_CONCURRENCY) {
+		if (index > 0) await keepLock?.();
 		const results = await Promise.allSettled(
 			entries.slice(index, index + WRITE_CONCURRENCY).map(async (entry) => write(entry)),
 		);
@@ -144,6 +149,28 @@ function authSessionActivityStatements(
 				app_release_channel: app.releaseChannel,
 				session_id_hash: sessionIdHash,
 				user_id: session.userId,
+			}),
+		);
+	}
+	return statements;
+}
+
+function revokedAuthSessionCleanupStatements(
+	sessionIdHash: Buffer,
+	entry: PendingAuthSessionEntry,
+	session: LiveAuthSession,
+): Array<PreparedQuery> {
+	const statements = [AuthSessions.deleteByPk({session_id_hash: sessionIdHash})];
+	const before = {platform: session.appPlatform, releaseChannel: session.appReleaseChannel};
+	const after = {platform: entry.app?.platform ?? null, releaseChannel: entry.app?.releaseChannel ?? null};
+	const sameChannel = before.platform === after.platform && before.releaseChannel === after.releaseChannel;
+	for (const channel of sameChannel ? [before] : [before, after]) {
+		if (!channel.platform || !channel.releaseChannel) continue;
+		statements.push(
+			AuthSessionsByAppChannel.deleteByPk({
+				app_platform: channel.platform,
+				app_release_channel: channel.releaseChannel,
+				session_id_hash: sessionIdHash,
 			}),
 		);
 	}
@@ -230,17 +257,26 @@ export class UserActivityBuffer {
 	}
 
 	private async drainAndFlushUsers(): Promise<FlushStats> {
-		const drained = await this.atomicDrain();
-		return flushActivityEntries(
-			drained,
-			({userId, entry}) =>
-				this.accounts.updateLastActiveAt({
-					userId,
-					lastActiveAt: new Date(entry.ts),
-					lastActiveIp: entry.ip ?? undefined,
-				}),
-			'Failed to flush a user activity entry',
-		);
+		const lockToken = randomUUID();
+		if (!(await this.kv.acquireLock(USER_FLUSH_LOCK_KEY, lockToken, USER_FLUSH_LOCK_TTL_SECONDS))) {
+			return {drained: 0, written: 0, skipped: 0};
+		}
+		try {
+			const drained = await this.atomicDrain();
+			return await flushActivityEntries(
+				drained,
+				({userId, entry}) =>
+					this.accounts.updateLastActiveAt({
+						userId,
+						lastActiveAt: new Date(entry.ts),
+						lastActiveIp: entry.ip ?? undefined,
+					}),
+				'Failed to flush a user activity entry',
+				() => this.kv.extendLock(USER_FLUSH_LOCK_KEY, lockToken, USER_FLUSH_LOCK_TTL_SECONDS),
+			);
+		} finally {
+			await this.kv.releaseLock(USER_FLUSH_LOCK_KEY, lockToken);
+		}
 	}
 
 	private async drainAndFlushAuthSessions(): Promise<FlushStats> {
@@ -259,7 +295,31 @@ export class UserActivityBuffer {
 			},
 			'Failed to flush an auth session activity entry',
 		);
+		await this.undoWritesForRevokedSessions(writable);
 		return {...stats, drained: drained.length, skipped: stats.skipped + drained.length - writable.length};
+	}
+
+	private async undoWritesForRevokedSessions(
+		written: ReadonlyArray<{sessionIdHash: Buffer; entry: PendingAuthSessionEntry; session: LiveAuthSession}>,
+	): Promise<void> {
+		if (written.length === 0) return;
+		let live: Map<string, LiveAuthSession>;
+		try {
+			live = await this.liveAuthSessions(written.map(({sessionIdHash}) => sessionIdHash));
+		} catch (error) {
+			Logger.warn({error}, 'Failed to recheck auth sessions after flushing their activity');
+			return;
+		}
+		const revoked = written.filter(({sessionIdHash}) => !live.has(this.encodeSessionIdHash(sessionIdHash)));
+		await flushActivityEntries(
+			revoked,
+			async ({sessionIdHash, entry, session}) => {
+				for (const statement of revokedAuthSessionCleanupStatements(sessionIdHash, entry, session)) {
+					await this.writer(statement);
+				}
+			},
+			'Failed to undo activity written to a revoked auth session',
+		);
 	}
 
 	private async liveAuthSessions(sessionIdHashes: ReadonlyArray<Buffer>): Promise<Map<string, LiveAuthSession>> {

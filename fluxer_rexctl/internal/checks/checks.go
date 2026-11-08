@@ -55,6 +55,7 @@ type Env struct {
 	Bind     string
 	Admin    *adminapi.Client
 	Settings map[string]string
+	Prefer   engine.Kind
 
 	phase         Phase
 	prepared      bool
@@ -73,6 +74,7 @@ type Env struct {
 	publicIP      string
 	publicErr     error
 	publicDone    bool
+	planned       *engine.Roots
 	ps            []engine.Container
 	psErr         error
 	psDone        bool
@@ -129,6 +131,7 @@ var order = []string{
 	"voice-health",
 	"client-ip",
 	"sso-provider",
+	"connection-providers",
 	"backup-age",
 }
 
