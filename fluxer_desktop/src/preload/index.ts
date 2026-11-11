@@ -66,6 +66,8 @@ import type {
 	VirtmicNode,
 } from '@electron/common/Types';
 import {createAccountEnginePreloadAPI} from '@electron/preload/AccountEnginePreload';
+import {installBootFrame} from '@electron/preload/BootFramePreload';
+import {createBootStatePreloadAPI} from '@electron/preload/BootStatePreload';
 import {createBrowserHandoffPreloadAPI} from '@electron/preload/BrowserHandoffPreload';
 import {createDesktopStoragePreloadAPI} from '@electron/preload/DesktopStoragePreload';
 import {createFirstContentPaintSignal} from '@electron/preload/FirstContentPaint';
@@ -393,6 +395,8 @@ function reportPrebootTheme(renderer: typeof ipcRenderer): void {
 	}
 }
 
+const releaseBootFrame = installBootFrame(ipcRenderer, (callback) => window.requestAnimationFrame(callback));
+
 applyStartupDesktopWindowClasses();
 
 applyLegacyRawLocalStorage(ipcRenderer);
@@ -419,14 +423,17 @@ const api: ElectronAPI = {
 	...createNativeGatewayPreloadAPI(ipcRenderer),
 	...createAccountEnginePreloadAPI(ipcRenderer),
 	...createOtherPlatformTemplatePreloadAPI(ipcRenderer),
+	...createBootStatePreloadAPI(ipcRenderer),
 	reportLastRoute: (routePath: string): void => {
 		ipcRenderer.send(DESKTOP_LAST_ROUTE_CHANNEL, routePath);
 	},
 	reportInstanceProductName: (instanceKey: string, productName: string): void => {
 		ipcRenderer.send(DESKTOP_INSTANCE_PRODUCT_NAME_CHANNEL, {instanceKey, productName});
 	},
-	notifyFirstContentPainted: createFirstContentPaintSignal(ipcRenderer, (callback) =>
-		window.requestAnimationFrame(callback),
+	notifyFirstContentPainted: createFirstContentPaintSignal(
+		ipcRenderer,
+		(callback) => window.requestAnimationFrame(callback),
+		releaseBootFrame,
 	),
 	getDesktopInfo: (): Promise<DesktopInfo> => ipcRenderer.invoke('get-desktop-info'),
 	getGpuInfo: (): Promise<GpuInfo> => ipcRenderer.invoke('get-gpu-info'),
@@ -644,6 +651,7 @@ const api: ElectronAPI = {
 		ipcRenderer.send('set-zoom-factor', factor);
 	},
 	getAccessibilitySupportEnabled: (): Promise<boolean> => ipcRenderer.invoke('get-accessibility-support-enabled'),
+	getSystemLocale: (): Promise<string> => ipcRenderer.invoke('system-locale-get'),
 	onAccessibilitySupportChanged: (callback: (enabled: boolean) => void): (() => void) => {
 		const handler = (_event: Electron.IpcRendererEvent, enabled: boolean): void => callback(enabled);
 		ipcRenderer.on('accessibility-support-changed', handler);

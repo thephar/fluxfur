@@ -24,7 +24,7 @@ import {
 	ssoProviderIdOf,
 } from '@app/api/auth/services/SsoIdentityLinks';
 import {SsoIdentityRepository} from '@app/api/auth/services/SsoIdentityRepository';
-import {sanitizeSsoRedirectTo} from '@app/api/auth/services/SsoUtils';
+import {extractInviteCodeFromRedirect, sanitizeSsoRedirectTo} from '@app/api/auth/services/SsoUtils';
 import {userHasMfa} from '@app/api/auth/services/SudoMethods';
 import {resolveWebAuthnSecondFactor} from '@app/api/auth/services/WebAuthnSecondFactor';
 import {createRoleID, type UserID} from '@app/api/BrandedTypes';
@@ -34,6 +34,7 @@ import type {GuildMemberService} from '@app/api/guild/services/GuildMemberServic
 import {emitActivity} from '@app/api/infrastructure/activity/ActivityEvents';
 import type {DiscriminatorService} from '@app/api/infrastructure/DiscriminatorService';
 import type {KVActivityTracker} from '@app/api/infrastructure/KVActivityTracker';
+import {parseInviteCodeList} from '@app/api/instance/AutoJoinInviteCodes';
 import {instanceCollectsDateOfBirth} from '@app/api/instance/DateOfBirthCollectionCache';
 import {
 	type InstanceConfigRepository,
@@ -578,7 +579,14 @@ export class SsoService {
 			return {linked: true, redirect_to: redirectTo};
 		}
 		const linkedNeedsSecondFactor = !state.startsWith(SSO_MOBILE_STATE_PREFIX) || MOBILE_REQUIRES_SSO_SECOND_FACTOR;
-		const resolved = await this.resolveUserFromClaims(claims, config, requestCache, clientIp, linkedNeedsSecondFactor);
+		const resolved = await this.resolveUserFromClaims(
+			claims,
+			config,
+			requestCache,
+			clientIp,
+			linkedNeedsSecondFactor,
+			redirectTo,
+		);
 		if (resolved.secondFactorRequired) {
 			return {...(await this.challengeSecondFactor(resolved.user, claims, config)), redirect_to: redirectTo};
 		}
@@ -692,6 +700,7 @@ export class SsoService {
 		requestCache: RequestCache,
 		clientIp: string,
 		linkedNeedsSecondFactor: boolean,
+		redirectTo?: string,
 	): Promise<{user: User; secondFactorRequired: boolean}> {
 		const accountIdentity = await this.instanceConfigRepository.getAccountIdentity();
 		const usernameMode = accountIdentity.mode === AccountIdentityModes.USERNAME;
@@ -728,7 +737,12 @@ export class SsoService {
 			await assertEmailNotBlocklisted(email, 'email');
 		}
 		const pendingApproval = registrationConfig.mode === 'approval';
-		const autoJoinInviteCode = this.apiContext.services.config.instance.autoJoinInviteCode?.trim() || null;
+		const autoJoinInviteCode =
+			parseInviteCodeList(
+				[extractInviteCodeFromRedirect(redirectTo), this.apiContext.services.config.instance.autoJoinInviteCode]
+					.filter(Boolean)
+					.join(','),
+			).join(',') || null;
 		const user = await this.provisionUserFromClaims({...claims, email}, config, {
 			usernameMode,
 			uniqueUsernames: accountIdentity.tagStyle === TagStyles.NONE,
@@ -775,6 +789,7 @@ export class SsoService {
 						.filter(({group}) => memberOf.has(group))
 						.map(({roleId}) => createRoleID(BigInt(roleId))),
 				),
+				recordAudit: true,
 				requestCache,
 			});
 		} catch (error) {

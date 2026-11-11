@@ -162,6 +162,30 @@ Check that a backup is complete and readable.
 rexctl backup verify <file>
 ```
 
+## rexctl boot
+
+Show whether a systemd service starts Fluxer when this machine starts. With Docker, Docker already starts Fluxer again after a restart, and the service also starts its services in order and stops them cleanly. Podman has no daemon to do that, so it needs the service.
+
+```sh
+rexctl boot
+```
+
+### rexctl boot off
+
+Remove the systemd service that starts Fluxer with this machine, and the copy of rexctl in /usr/local/libexec/rexctl/rexctl when nothing else uses it. With Docker, Docker still starts Fluxer again after a restart. rexctl lists every change and asks first, unless you pass --yes.
+
+```sh
+rexctl boot off
+```
+
+### rexctl boot on
+
+Write a systemd service that starts Fluxer when this machine starts and stops it cleanly when it shuts down. On a root install it also copies rexctl to /usr/local/libexec/rexctl/rexctl for the service to run. rexctl lists every change and asks first, unless you pass --yes.
+
+```sh
+rexctl boot on
+```
+
 ## rexctl branding
 
 Change your instance's name, colour and images.
@@ -196,7 +220,7 @@ Read and change Fluxer's settings.
 
 ### rexctl config edit
 
-Opens custom.compose.yml in $VISUAL or $EDITOR. rexctl checks the file, says which services restart and applies it once you agree. Your file stays as it was until it passes the check.
+Opens custom.compose.yml in $VISUAL or $EDITOR. rexctl checks the file, says which services restart and applies it once you agree. Your file stays as it was until it passes the check. On a native instance, it opens the settings rexctl keeps for Fluxer as setting=value lines instead, checks them as rexctl config set does and restarts Fluxer with them.
 
 ```sh
 rexctl config edit
@@ -370,6 +394,10 @@ rexctl install [flags]
 
   Address your proxy or tunnel connects to, with --behind-proxy. The default is `127.0.0.1:8080`.
 
+- `--boot-service string`
+
+  On or off: add a systemd service that starts Fluxer with this machine. Podman needs it. With Docker, rexctl asks, and leaves it off without a terminal.
+
 - `--confirm string`
 
   Your instance's domain, to confirm without a prompt.
@@ -389,6 +417,10 @@ rexctl install [flags]
 - `--engine string`
 
   Container engine to use (docker or podman).
+
+- `--experimental-native`
+
+  Install Fluxer as one systemd service without containers, set up for this machine. This is experimental.
 
 - `--install-docker`
 
@@ -569,6 +601,50 @@ rexctl logs [service] [flags]
 
   Show lines newer than this, like 10m or 2h.
 
+## rexctl migrate
+
+Move your instance out of Docker, off Valkey or SeaweedFS, or onto one Rust process. This is experimental, so rexctl migrate runs only with --experimental-native. rexctl shows what each change saves and removes, backs up your instance first, moves the data, checks it and goes back if anything fails. After the move off SeaweedFS, uploads stay read-only until you open them with --open-writes. The old data stays until you remove it with --clean-up after a newer backup.
+
+```sh
+rexctl migrate [flags]
+```
+
+- `--clean-up`
+
+  Remove the Valkey or SeaweedFS data a change left behind, once a newer backup holds what replaced it.
+
+- `--confirm string`
+
+  Your domain, to confirm --clean-up without a prompt.
+
+- `--details`
+
+  Show the machine, versions, date and method behind the typical figures.
+
+- `--dry-run`
+
+  Show what each change saves and removes without changing anything.
+
+- `--experimental-native`
+
+  Turn on rexctl migrate, which is experimental.
+
+- `--migrate string`
+
+  The changes to make, separated by commas: docker, kv, rust and storage.
+
+- `--native-dir string`
+
+  The folder for the instance that runs without Docker, with --migrate docker.
+
+- `--open-writes`
+
+  Let people upload again after the move off SeaweedFS. rexctl can't move the files back after this.
+
+- `--undo string`
+
+  Go back from a change rexctl migrate made: kv, or storage until you open writes.
+
 ## rexctl proxy
 
 Use your own reverse proxy or tunnel in front of Fluxer.
@@ -643,7 +719,7 @@ rexctl restart
 
 ## rexctl restore
 
-Restore your instance from a backup. This works on a new machine too. Copy the backup file there and run this command. A backup without uploads restores only on the instance it was made for, and the uploads there stay as they are.
+Restore your instance from a backup. This works on a new machine too. Copy the backup file there and run this command. A backup without uploads restores only on the instance it was made for, and the uploads there stay as they are. A backup of a Fluxer that runs without containers restores into an empty folder or an instance that runs the same way.
 
 ```sh
 rexctl restore <file> [flags]
@@ -837,9 +913,17 @@ rexctl upgrade [flags]
 
   Show what would happen without changing anything.
 
+- `--experimental-native`
+
+  After the upgrade, show the experimental changes that run Fluxer with fewer services, and make the ones you pick.
+
 - `--json`
 
   Print JSON.
+
+- `--migrate string`
+
+  With --experimental-native, make these changes after the upgrade, separated by commas: docker, kv, rust and storage.
 
 - `--no-backup`
 

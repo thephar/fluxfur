@@ -6,6 +6,8 @@ import (
 	"context"
 
 	"github.com/fluxerapp/fluxer/fluxer_rexctl/internal/host"
+	"github.com/fluxerapp/fluxer/fluxer_rexctl/internal/settings"
+	"github.com/fluxerapp/fluxer/fluxer_rexctl/internal/stack"
 	"github.com/fluxerapp/fluxer/fluxer_rexctl/internal/voice"
 )
 
@@ -22,10 +24,13 @@ const (
 const overcommitOff = "Memory overcommit is off, so Fluxer's cache can fail to save data when memory runs low."
 
 func init() {
-	Register(Check{ID: "memory-overcommit", Phases: Preinstall | Installed, Run: runOvercommit, Fix: fixOvercommit, SafeFix: true})
+	Register(Check{ID: "memory-overcommit", Phases: Preinstall | Installed, Run: runOvercommit, Fix: fixOvercommit})
 }
 
 func runOvercommit(_ context.Context, e *Env) Result {
+	if e.chosen(settings.KVMode) == settings.KVPostgres || e.value(stack.KVModeVar) == settings.KVPostgres {
+		return skip("")
+	}
 	state := overcommit()
 	if (state == host.OvercommitOff || state == host.OvercommitLocked) && enoughForValkey(e) {
 		return pass("Memory overcommit is off, and this machine has enough free memory for Fluxer's cache to save its data.")

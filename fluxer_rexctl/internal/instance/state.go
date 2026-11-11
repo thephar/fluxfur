@@ -20,7 +20,7 @@ import (
 	"github.com/fluxerapp/fluxer/fluxer_rexctl/internal/voice"
 )
 
-const StateSchema = generatedSchema + 2
+const StateSchema = generatedSchema + 3
 
 var ErrNewerState = errors.New("instance: state was written by a newer rexctl")
 
@@ -29,6 +29,7 @@ type State struct {
 	Kind            string            `json:"kind,omitempty"`
 	Project         string            `json:"project"`
 	Engine          EngineRef         `json:"engine"`
+	Runtime         string            `json:"runtime"`
 	Release         string            `json:"release"`
 	PreviousRelease string            `json:"previous_release"`
 	PreviousBackup  string            `json:"previous_backup,omitempty"`
@@ -50,6 +51,7 @@ type State struct {
 	BackupDir       string            `json:"backup_dir,omitempty"`
 	KeepBackups     int               `json:"keep_backups,omitempty"`
 	NotifyURL       string            `json:"notify_url,omitempty"`
+	BootService     string            `json:"boot_service,omitempty"`
 	Voice           []VoiceServer     `json:"voice,omitempty"`
 	VoiceEdge       *VoiceEdge        `json:"voice_edge,omitempty"`
 	InstalledAt     time.Time         `json:"installed_at"`
@@ -61,6 +63,15 @@ type State struct {
 }
 
 const KindVoice = "voice"
+
+const (
+	BootServiceOn  = "on"
+	BootServiceOff = "off"
+	RuntimeCompose = "compose"
+	RuntimeNative  = "native"
+)
+
+func (s *State) IsNative() bool { return s != nil && s.Runtime == RuntimeNative }
 
 type VoiceServer struct {
 	ID        string    `json:"id"`
@@ -200,10 +211,6 @@ func (e *SettingError) Fix() string {
 	return "Run rexctl config set " + e.Key + " <value>, or rexctl config unset " + e.Key + " to go back to the default."
 }
 
-func LoadState(path string) (*State, error) {
-	return loadState(path, nil)
-}
-
 func loadState(path string, repairing []string) (*State, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -252,8 +259,8 @@ var stateFields = map[string]bool{
 	"schema": true, "project": true, "engine": true, "release": true, "previous_release": true, "previous_backup": true, "failed_release": true,
 	"upgrade": true, "pending": true, "images": true, "settings": true, "secrets": true, "admin_import": true,
 	"setup_done": true, "installing": true, "stopped": true, "rendered": true, "mounted": true, "left_in_root": true, "moved_sites": true, "ejected": true,
-	"installed_at": true, "updated_at": true, "backup_dir": true, "keep_backups": true, "notify_url": true,
-	"kind": true, "voice": true, "voice_edge": true,
+	"installed_at": true, "updated_at": true, "backup_dir": true, "keep_backups": true, "notify_url": true, "boot_service": true,
+	"kind": true, "voice": true, "voice_edge": true, "runtime": true,
 }
 
 func parseState(data []byte, dir string, repairing []string) (*State, error) {
@@ -345,6 +352,9 @@ func (s *State) normalize() {
 	s.Schema = StateSchema
 	if s.rootLayout {
 		s.Schema = generatedSchema - 1
+	}
+	if s.Runtime == "" {
+		s.Runtime = RuntimeCompose
 	}
 	if s.Settings == nil {
 		s.Settings = map[string]string{}

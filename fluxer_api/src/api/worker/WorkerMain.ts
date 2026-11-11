@@ -145,6 +145,10 @@ function registerCronJobs(cron: CronScheduler, jobsStreamMaxAgeMs: number, kvCli
 		);
 	}
 	cron.upsert('prunePostgresKvTtl', 'prunePostgresKvTtl', {}, '0 */5 * * * *', {ledger: false});
+	cron.upsert('sweepFilesystemStorage', 'sweepFilesystemStorage', {}, '15 */10 * * * *', {
+		ledger: false,
+		enabled: () => Config.storage.backend === 'filesystem',
+	});
 	cron.upsert('sweepVoiceParticipants', 'sweepVoiceParticipants', {}, '30 * * * * *', {
 		ledger: false,
 		enabled: () => Config.voice.enabled && Config.voice.participantSweepEnabled,
@@ -286,6 +290,7 @@ export async function startWorkerRuntime(options: WorkerRuntimeOptions): Promise
 						messageDeletionDelayMs: Config.automatedMessageDeletionDelayDays * ms('1 day'),
 					},
 					dependencies.channelRepository,
+					dependencies.operatorPassServices.roleService,
 				),
 				guildInvites: guildInvitePauseDeps(dependencies),
 			});

@@ -39,6 +39,7 @@ const defaultProject = "fluxer"
 type installFlags struct {
 	Domain        string
 	Engine        string
+	Native        bool
 	BehindProxy   bool
 	Bind          string
 	VoiceIP       string
@@ -48,6 +49,7 @@ type installFlags struct {
 	SetupPodman   bool
 	SetupWhere    string
 	NoStart       bool
+	BootService   string
 	DryRun        bool
 	TakeOver      bool
 	DeleteOld     bool
@@ -89,6 +91,7 @@ func newInstallCmd(app *App) *cobra.Command {
 	fl := c.Flags()
 	fl.StringVar(&f.Domain, "domain", "", "address people will use to open your instance, like chat.example.com")
 	fl.StringVar(&f.Engine, "engine", "", "container engine to use (docker or podman)")
+	fl.BoolVar(&f.Native, "experimental-native", false, "install Fluxer as one systemd service without containers, set up for this machine. This is experimental")
 	fl.BoolVar(&f.BehindProxy, "behind-proxy", false, "serve plain HTTP for your own reverse proxy or tunnel")
 	fl.StringVar(&f.Bind, "bind", "127.0.0.1:8080", "address your proxy or tunnel connects to, with --behind-proxy")
 	fl.StringVar(&f.VoiceIP, "voice-ip", "", "public IP address for voice and video (found automatically)")
@@ -98,6 +101,7 @@ func newInstallCmd(app *App) *cobra.Command {
 	fl.BoolVar(&f.SetupPodman, "setup-podman", true, "start Podman's API socket and start Fluxer with the machine")
 	fl.StringVar(&f.SetupWhere, "setup", "", "where to create your admin account (terminal or browser)")
 	fl.BoolVar(&f.NoStart, "no-start", false, "write the files without starting Fluxer")
+	fl.StringVar(&f.BootService, "boot-service", "", "on or off: add a systemd service that starts Fluxer with this machine. Podman needs it. With Docker, rexctl asks, and leaves it off without a terminal.")
 	fl.BoolVar(&f.DryRun, "dry-run", false, "show what would happen without changing anything")
 	fl.BoolVar(&f.TakeOver, "take-over", false, "take over Fluxer data found on this machine")
 	fl.BoolVar(&f.DeleteOld, "delete-old-data", false, "delete Fluxer data found on this machine and start fresh")
@@ -158,11 +162,17 @@ func runInstall(ctx context.Context, app *App, c *cobra.Command, f *installFlags
 	if err := f.Storage.validate(c); err != nil {
 		return err
 	}
+	if _, err := parseBootServiceFlag(f.BootService); err != nil {
+		return err
+	}
 	if err := oneStdinFlag(c); err != nil {
 		return err
 	}
 	if names := f.Setup.passedNames(c); f.SetupWhere == "browser" && len(names) > 0 {
 		return &ui.ExitError{Code: ui.ExitUsage, Msg: fmt.Sprintf("--setup browser doesn't take %s.", ui.JoinAnd(names)), Fix: "Pass --setup terminal instead, or leave out the setup options and enter them in the browser."}
+	}
+	if f.Native {
+		return runNativeInstall(ctx, app, c, f)
 	}
 	dir, err := installTarget(app)
 	if err != nil {
@@ -391,7 +401,7 @@ func validateDomain(v string) error {
 }
 
 func (in *installer) runChecks(ctx context.Context, phase checks.Phase, ids ...string) bool {
-	env := &checks.Env{Dir: in.dir, Domain: normaliseDomain(in.f.Domain), Engine: in.engine, Host: in.host, Behind: in.f.BehindProxy, Bind: in.f.Bind, Settings: in.settings(), Prefer: engine.Kind(in.f.Engine)}
+	env := &checks.Env{Dir: in.dir, Domain: normaliseDomain(in.f.Domain), Engine: in.engine, Host: in.host, Behind: in.f.BehindProxy, Native: in.f.Native, Bind: in.f.Bind, Settings: in.settings(), Prefer: engine.Kind(in.f.Engine)}
 	if in.engine == nil {
 		env.SetEngine(in.found, in.findErr)
 	}
@@ -1315,22 +1325,10 @@ func (in *installer) installBootUnit(ctx context.Context, inst *instance.Instanc
 	if loaded, err := deploy.Load(ctx, inst, in.engine); err == nil {
 		p = loaded
 	}
-	if err := installBootUnit(ctx, inst, in.engine, p); err != nil {
+	if err := setupBootService(ctx, in.app, inst, in.engine, p, in.f.BootService); err != nil {
 		in.app.UI.Detail("%v", err)
-		in.app.UI.Warn("Fluxer won't start by itself when this machine restarts.", "Run rexctl doctor --fix to set that up.")
+		in.app.UI.Warn("Fluxer won't start by itself when this machine restarts.", "Run rexctl boot on to set that up.")
 	}
-}
-
-func installBootUnit(ctx context.Context, inst *instance.Instance, e *engine.Engine, p *engine.Project) error {
-	u, err := checks.BootUnitFor(inst, e, p)
-	if err != nil {
-		return err
-	}
-	steps, err := u.InstallSteps(ctx)
-	if err != nil {
-		return err
-	}
-	return host.RunSteps(ctx, steps)
 }
 
 func refreshBootUnit(ctx context.Context, app *App, inst *instance.Instance, e *engine.Engine, p *engine.Project) error {
@@ -1342,11 +1340,13 @@ func refreshBootUnit(ctx context.Context, app *App, inst *instance.Instance, e *
 	if err != nil || len(steps) == 0 {
 		return err
 	}
-	if !u.Rootless && euid() != 0 {
-		app.UI.Info("Updating the service that starts Fluxer with this machine needs root, so sudo may ask for your password.")
-		for _, s := range steps {
-			app.UI.Info("  %s", s.Do)
-		}
+	ok, err := confirmHostSteps(app, steps, "Update the service that starts Fluxer with this machine?")
+	if err != nil {
+		return err
+	}
+	if !ok {
+		app.UI.Warn("The service that starts Fluxer with this machine still uses the old rexctl.", "Run rexctl doctor --fix to update it.")
+		return nil
 	}
 	return host.RunSteps(ctx, steps)
 }
