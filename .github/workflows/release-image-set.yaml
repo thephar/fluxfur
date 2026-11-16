@@ -472,8 +472,8 @@ jobs:
         with:
           client-id: ${{ vars.FLUXER_CI_APP_ID }}
           private-key: ${{ secrets.FLUXER_CI_APP_KEY }}
-          owner: fluxerapp
-          repositories: fluxer
+          owner: thephar
+          repositories: fluxfur
           permission-contents: write
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093

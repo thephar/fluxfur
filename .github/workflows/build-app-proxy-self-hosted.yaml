@@ -62,8 +62,8 @@ jobs:
         with:
           client-id: ${{ vars.FLUXER_CI_APP_ID }}
           private-key: ${{ secrets.FLUXER_CI_APP_KEY }}
-          owner: fluxerapp
-          repositories: fluxer
+          owner: thephar
+          repositories: fluxfur
           permission-contents: read
       - name: Check this build can be released before pushing images
         env:
