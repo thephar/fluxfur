@@ -19,12 +19,13 @@ import {
 	mapBotTokenResetResponse,
 	mapBotUserToResponse,
 } from '@app/api/oauth/OAuth2Mappers';
-import {filterOAuth2Scopes, parseOAuth2Scope} from '@app/api/oauth/OAuth2ScopeUtils';
+import {filterOAuth2Scopes, isOAuth2Scope, parseOAuth2Scope} from '@app/api/oauth/OAuth2ScopeUtils';
 import type {OAuth2Service} from '@app/api/oauth/OAuth2Service';
 import {ACCESS_TOKEN_TTL_SECONDS} from '@app/api/oauth/OAuth2TokenConstants';
 import type {ApplicationRepository} from '@app/api/oauth/repositories/ApplicationRepository';
 import type {OAuth2TokenRepository} from '@app/api/oauth/repositories/OAuth2TokenRepository';
 import {parseClientCredentials} from '@app/api/oauth/utils/ParseClientCredentials';
+import {assertAccountNotLimited} from '@app/api/user/AccountLimit';
 import {isSignInRefused} from '@app/api/user/UserHelpers';
 import {mapUserToOAuthResponse, mapUserToPartialResponse} from '@app/api/user/UserMappers';
 import {canAuthorizeBotInvite, normalizeBotInvitePermissions} from '@fluxer/constants/src/BotPermissionUtils';
@@ -42,6 +43,7 @@ import {BotUserNotFoundError} from '@fluxer/errors/src/domains/oauth/BotUserNotF
 import {InvalidClientError} from '@fluxer/errors/src/domains/oauth/InvalidClientError';
 import {InvalidGrantError} from '@fluxer/errors/src/domains/oauth/InvalidGrantError';
 import {InvalidResponseTypeForNonBotError} from '@fluxer/errors/src/domains/oauth/InvalidResponseTypeForNonBotError';
+import {InvalidScopeError} from '@fluxer/errors/src/domains/oauth/InvalidScopeError';
 import {MissingClientSecretError} from '@fluxer/errors/src/domains/oauth/MissingClientSecretError';
 import {NotABotApplicationError} from '@fluxer/errors/src/domains/oauth/NotABotApplicationError';
 import {RedirectUriRequiredForNonBotError} from '@fluxer/errors/src/domains/oauth/RedirectUriRequiredForNonBotError';
@@ -195,12 +197,18 @@ export class OAuth2RequestService {
 	}): Promise<OAuth2ConsentResponse> {
 		const scopeStr = params.body.scope;
 		const scopeSet = new Set(parseOAuth2Scope(scopeStr));
+		if (![...scopeSet].every(isOAuth2Scope)) {
+			throw new InvalidScopeError();
+		}
 		const isBotOnly = scopeSet.size === 1 && scopeSet.has('bot');
 		const responseType = params.body.response_type ?? (isBotOnly ? undefined : 'code');
 		const guildId = params.body.guild_id ? createGuildID(params.body.guild_id) : null;
 		const channelId = params.body.channel_id ? createChannelID(params.body.channel_id) : null;
 		if (guildId && channelId) {
 			throw InputValidationError.create('channel_id', 'channel_id cannot be used with guild_id');
+		}
+		if (scopeSet.has('bot') && (guildId || channelId)) {
+			assertAccountNotLimited(await this.apiContext.services.users.findUniqueAssert(params.userId));
 		}
 		const botPermissionMask = guildId ? THREAD_AWARE_ALL_PERMISSIONS : ALL_PERMISSIONS;
 		let requestedPermissions: bigint | null = null;

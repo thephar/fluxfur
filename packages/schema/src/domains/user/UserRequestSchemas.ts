@@ -654,6 +654,7 @@ export const UserMentionsQueryRequest = z.object({
 	everyone: QueryBooleanType.optional().default(true).describe('Whether to include @everyone mentions'),
 	guilds: QueryBooleanType.optional().default(true).describe('Whether to include guild mentions'),
 	before: SnowflakeType.optional().describe('Get mentions before this message ID'),
+	guild_id: SnowflakeType.optional().describe('Community to list mentions from when guilds is false'),
 });
 
 export type UserMentionsQueryRequest = z.infer<typeof UserMentionsQueryRequest>;
@@ -795,12 +796,12 @@ export const BulkDeleteSelfMessagesFilter = z
 				'The only guild IDs to apply this operation to. Used when include_guilds is true, guild_filter_mode is include_only, and scope is selected.',
 			),
 		start_date: z.iso
-			.datetime()
+			.datetime({offset: true})
 			.nullable()
 			.optional()
 			.describe('Inclusive ISO8601 lower bound for message timestamps. Null/omitted means unbounded in the past.'),
 		end_date: z.iso
-			.datetime()
+			.datetime({offset: true})
 			.nullable()
 			.optional()
 			.describe('Exclusive ISO8601 upper bound for message timestamps. Null/omitted means unbounded in the future.'),

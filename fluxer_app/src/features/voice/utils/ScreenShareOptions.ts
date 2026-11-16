@@ -220,7 +220,10 @@ export function capsAllowScreenShareFrameRate(caps: VideoQualityCaps, frameRate:
 	return frameRate <= caps.screenShareMaxFrameRate;
 }
 
-function capScreenShareResolution(caps: VideoQualityCaps, resolution: ScreenshareResolution): ScreenshareResolution {
+export function capScreenShareResolution(
+	caps: VideoQualityCaps,
+	resolution: ScreenshareResolution,
+): ScreenshareResolution {
 	let capped: ScreenshareResolution = BITRATE_RUNGS[0];
 	for (const candidate of BITRATE_RUNGS.slice(0, BITRATE_RUNGS.indexOf(resolution) + 1)) {
 		if (capsAllowScreenShareResolution(caps, candidate)) capped = candidate;
@@ -267,15 +270,6 @@ export function normaliseStreamingModeForContext(mode: StreamingMode, context: S
 		return 'gaming';
 	}
 	return mode;
-}
-
-export function normaliseResolutionForContext(
-	resolution: ScreenshareResolution,
-	context: ScreenShareContext,
-	caps: VideoQualityCaps,
-): ScreenshareResolution {
-	const capped = capScreenShareResolution(caps, resolution);
-	return context === 'device' && capped === 'source' ? capScreenShareResolution(caps, 'ultra') : capped;
 }
 
 const SENT_PIXEL_FILL_RATIO = 0.98;
@@ -365,8 +359,7 @@ function resolveEffectiveScreenShareQuality(input: ScreenShareQualityInput): {
 	frameRate: SupportedScreenShareFrameRate;
 } {
 	const mode = normaliseStreamingModeForContext(input.mode, input.context);
-	const resolution = normaliseResolutionForContext(input.storedResolution, input.context, input.caps);
-	const settings = resolveStreamingModeSettings(mode, resolution, input.storedFrameRate, input.caps);
+	const settings = resolveStreamingModeSettings(mode, input.storedResolution, input.storedFrameRate, input.caps);
 	return {mode, resolution: settings.resolution, frameRate: settings.frameRate};
 }
 
@@ -430,6 +423,7 @@ export function resolveScreenShareTarget(input: ScreenShareTargetInput): ScreenS
 export interface ScreenShareLayeringInput {
 	codec: VideoCodec | undefined;
 	svcSetting: ScreenShareScalabilityModePreference | undefined;
+	hardwareEncoder: boolean;
 }
 
 export interface ScreenShareLayering {
@@ -441,9 +435,10 @@ export function resolveScreenShareLayering(input: ScreenShareLayeringInput): Scr
 	if (input.codec !== 'av1' && input.codec !== 'vp9') {
 		return {simulcast: false, scalabilityMode: undefined};
 	}
+	const singleLayer = input.svcSetting === 'single_layer' || (input.svcSetting === undefined && input.hardwareEncoder);
 	return {
 		simulcast: false,
-		scalabilityMode: input.svcSetting === 'single_layer' ? 'L1T1' : 'L1T3',
+		scalabilityMode: singleLayer ? 'L1T1' : 'L1T3',
 	};
 }
 
@@ -588,7 +583,7 @@ export function resolveScreenShareQualityPick(
 	const effective = resolveEffectiveScreenShareQuality(input);
 	const stored = resolveEffectiveScreenShareQuality({...input, mode: 'custom'});
 	if (pick.axis === 'resolution') {
-		if (normaliseResolutionForContext(pick.resolution, input.context, input.caps) !== pick.resolution) return null;
+		if (!capsAllowScreenShareResolution(input.caps, pick.resolution)) return null;
 		if (pick.resolution === effective.resolution) return null;
 		return {
 			streamingMode: 'custom',

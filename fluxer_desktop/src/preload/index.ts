@@ -20,6 +20,7 @@ import type {
 	DesktopWindowBehaviorSettings,
 	DisplayMediaPortalSurfacePreference,
 	DisplayMediaRequestInfo,
+	DownloadEntryEvent,
 	DownloadFileResult,
 	ElectronAPI,
 	GetDesktopSourcesOptions,
@@ -75,6 +76,7 @@ import {applyLegacyRawLocalStorage} from '@electron/preload/LegacyRawStorageSeed
 import {createLocalAppPreloadAPI} from '@electron/preload/LocalAppPreload';
 import {createNativeGatewayPreloadAPI} from '@electron/preload/NativeGatewayPreload';
 import {createOtherPlatformTemplatePreloadAPI} from '@electron/preload/OtherPlatformTemplatePreload';
+import {DESKTOP_API_ATTACHMENT_AUTHORIZATION_CHANNEL} from '@fluxer/desktop_ipc/src/ApiAttachmentAuthorizationContract';
 import type {DesktopCapabilityManifest} from '@fluxer/desktop_ipc/src/CapabilityManifest';
 import {DESKTOP_CAPABILITY_MANIFEST_CHANNEL} from '@fluxer/desktop_ipc/src/CapabilityManifest';
 import {DESKTOP_DIRECT_MESSAGES_AVAILABLE_CHANNEL} from '@fluxer/desktop_ipc/src/DirectMessagesContract';
@@ -427,6 +429,8 @@ const api: ElectronAPI = {
 	reportLastRoute: (routePath: string): void => {
 		ipcRenderer.send(DESKTOP_LAST_ROUTE_CHANNEL, routePath);
 	},
+	setApiAttachmentAuthorization: (apiEndpoint: string, token: string | null): Promise<boolean> =>
+		ipcRenderer.invoke(DESKTOP_API_ATTACHMENT_AUTHORIZATION_CHANNEL, {apiEndpoint, token}) as Promise<boolean>,
 	reportInstanceProductName: (instanceKey: string, productName: string): void => {
 		ipcRenderer.send(DESKTOP_INSTANCE_PRODUCT_NAME_CHANNEL, {instanceKey, productName});
 	},
@@ -496,7 +500,29 @@ const api: ElectronAPI = {
 		ipcRenderer.send('window-close');
 	},
 	windowIsMaximized: (): Promise<boolean> => ipcRenderer.invoke('window-is-maximized'),
-
+	onDownloadsChanged: (handler: (entries: Array<DownloadEntryEvent>) => void): (() => void) => {
+		const listener = (_event: Electron.IpcRendererEvent, entries: Array<DownloadEntryEvent>): void => handler(entries);
+		ipcRenderer.on('downloads-changed', listener);
+		return () => {
+			ipcRenderer.off('downloads-changed', listener);
+		};
+	},
+	downloadsList: (): Promise<Array<DownloadEntryEvent>> => ipcRenderer.invoke('downloads-list'),
+	downloadCancel: (id: string): void => {
+		ipcRenderer.send('download-cancel', id);
+	},
+	downloadOpen: (id: string): void => {
+		ipcRenderer.send('download-open', id);
+	},
+	downloadReveal: (id: string): void => {
+		ipcRenderer.send('download-reveal', id);
+	},
+	downloadDismiss: (id: string): void => {
+		ipcRenderer.send('download-dismiss', id);
+	},
+	downloadsClear: (): void => {
+		ipcRenderer.send('downloads-clear');
+	},
 	popoutSetAlwaysOnTop: (key: string, flag: boolean): Promise<boolean> =>
 		ipcRenderer.invoke('popout:set-always-on-top', key, flag),
 	popoutFocus: (key: string): Promise<boolean> => ipcRenderer.invoke('popout:focus', key),

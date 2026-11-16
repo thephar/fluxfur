@@ -58,6 +58,7 @@ int fluxer_vips_read_delays_ms(VipsImage *image, int n_pages, int **out_delays, 
 int fluxer_vips_autorot(
     VipsImage *in, long long deadline_monotonic_ms, VipsImage **out);
 int fluxer_vips_srgb_without_alpha(VipsImage *in, VipsImage **out);
+int fluxer_vips_embedded_icc_to_srgb(VipsImage *in, VipsImage **out);
 int fluxer_vips_extract_area(VipsImage *in, VipsImage **out, int left, int top, int width, int height);
 int fluxer_vips_resize(VipsImage *in, VipsImage **out, double scale);
 int fluxer_vips_join_animation_pages(
@@ -84,6 +85,7 @@ void fluxer_free_int_array(int *values);
 
 int fluxer_heif_validate(
     const void *buf, size_t len, long long deadline_monotonic_ms);
+int fluxer_bmff_sample_tables_validate(const void *buf, size_t len);
 
 struct fluxer_heif_primary_still_decode_facts {
     int hdr_tone_mapped;

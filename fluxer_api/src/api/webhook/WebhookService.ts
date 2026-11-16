@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import {isGuardedAttachmentUrl} from '@app/api/attachment/AttachmentPublicUrl';
 import {stripOwnAttachmentSignature} from '@app/api/attachment/AttachmentUrls';
 import {
 	type ChannelID,
@@ -51,12 +52,12 @@ import {AuditLogActionType} from '@fluxer/constants/src/AuditLogActionType';
 import {
 	CHANNEL_FOLLOW_TARGET_TYPES,
 	ChannelTypes,
-	GUILD_TEXT_BASED_CHANNEL_TYPES,
 	Permissions,
 	WebhookTypes,
 } from '@fluxer/constants/src/ChannelConstants';
 import type {LimitKey} from '@fluxer/constants/src/LimitConfigMetadata';
 import {MAX_WEBHOOKS_PER_CHANNEL, MAX_WEBHOOKS_PER_GUILD} from '@fluxer/constants/src/LimitConstants';
+import {WEBHOOK_CHANNEL_TYPES} from '@fluxer/constants/src/ThreadConstants';
 import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
 import {ChannelAlreadyFollowedError} from '@fluxer/errors/src/domains/channel/ChannelAlreadyFollowedError';
 import {InvalidFollowTargetChannelError} from '@fluxer/errors/src/domains/channel/InvalidFollowTargetChannelError';
@@ -852,8 +853,7 @@ export class WebhookService {
 
 	private assertWebhookTargetChannel(channel: Channel): asserts channel is Channel & {guildId: GuildID} {
 		if (!channel.guildId) throw new UnknownChannelError();
-		if (GUILD_TEXT_BASED_CHANNEL_TYPES.has(channel.type)) return;
-		if (channel.isThreadOnly()) return;
+		if (WEBHOOK_CHANNEL_TYPES.has(channel.type)) return;
 		throw new UnknownChannelError();
 	}
 
@@ -911,7 +911,7 @@ export class WebhookService {
 		webhookId: WebhookID;
 		avatarUrl: string | null;
 	}): Promise<string | null> {
-		if (!requestedAvatarUrl) return null;
+		if (!requestedAvatarUrl || isGuardedAttachmentUrl(requestedAvatarUrl)) return null;
 		const avatarUrl = stripOwnAttachmentSignature(requestedAvatarUrl);
 		try {
 			const cacheKey = `webhook:${webhookId}:avatar:${avatarUrl}`;

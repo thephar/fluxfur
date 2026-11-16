@@ -62,6 +62,7 @@ interface UseAntiShiftFloatingOptions {
 	shouldAutoUpdate?: boolean;
 	shouldObserveFloatingResize?: boolean;
 	constrainHeight?: boolean;
+	ignoreTitlebarBoundary?: boolean;
 }
 
 function normalizePadding(padding: Padding): {top: number; right: number; bottom: number; left: number} {
@@ -233,7 +234,7 @@ function observeFloatingResize(floating: HTMLElement, updatePosition: () => void
 	};
 }
 
-function getNativeTitlebarInset(ownerDocument: Document): number {
+export function getNativeTitlebarInset(ownerDocument: Document): number {
 	const titlebar = ownerDocument.querySelector<HTMLElement>(TITLEBAR_SELECTOR);
 	if (titlebar == null) return 0;
 	const rect = titlebar.getBoundingClientRect();
@@ -265,6 +266,7 @@ export function useAntiShiftFloating(target: ReferenceElement | null, options: U
 		shouldAutoUpdate = true,
 		shouldObserveFloatingResize = true,
 		constrainHeight = false,
+		ignoreTitlebarBoundary = false,
 	} = options;
 	const floatingRef = useRef<HTMLElement>(null);
 	const [floatingElement, setFloatingElement] = useState<HTMLElement | null>(null);
@@ -304,7 +306,7 @@ export function useAntiShiftFloating(target: ReferenceElement | null, options: U
 			if (ownerWindow == null) return;
 			const adaptivePadding = getAdaptivePadding(ownerWindow);
 			const shiftPadding = Math.max(6, adaptivePadding);
-			const boundaryPadding = getBoundaryPadding(ownerDocument, shiftPadding);
+			const boundaryPadding = ignoreTitlebarBoundary ? shiftPadding : getBoundaryPadding(ownerDocument, shiftPadding);
 			const middleware: Array<Middleware> = [
 				offset({mainAxis: offsetMainAxis, crossAxis: offsetCrossAxis}),
 				flip({padding: boundaryPadding}),

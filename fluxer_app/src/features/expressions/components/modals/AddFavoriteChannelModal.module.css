@@ -1,5 +1,10 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 
+.pickerLayout {
+	flex: 1;
+	min-height: 0;
+}
+
 .selectContainer {
 	margin-bottom: 1rem;
 }
@@ -37,7 +42,6 @@
 	font-weight: 600;
 	color: var(--text-tertiary);
 	font-size: 0.75rem;
-	text-transform: uppercase;
 }
 
 .channelRow {

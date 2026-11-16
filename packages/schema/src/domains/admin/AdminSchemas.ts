@@ -770,6 +770,7 @@ const InstanceMediaResponse = z.object({
 		renew_window_days: z.number().int().positive().nullable(),
 		effective: AttachmentDecayEffectiveResponse,
 	}),
+	proxy_attachments_through_api: z.boolean(),
 });
 
 const ConnectionProviderKindSchema = createNamedStringLiteralUnion(
@@ -1092,6 +1093,12 @@ export const InstanceConfigUpdateRequest = z.object({
 				})
 				.register(schemaMetadata, {preserveNullFields: true})
 				.nullish(),
+			proxy_attachments_through_api: z
+				.boolean()
+				.optional()
+				.describe(
+					'Whether attachment links point at the API, which checks that the viewer can read the message before it hands over the file',
+				),
 		})
 		.nullish(),
 	policy: InstancePolicyUpdateSchema.nullish(),
@@ -1685,6 +1692,10 @@ const AdminLookupGuildSchema = z.object({
 	rules_channel_id: SnowflakeStringType.nullable(),
 	disabled_operations: Int32Type,
 	member_count: Int32Type,
+	planned_join_waves_until: z.iso
+		.datetime()
+		.nullable()
+		.describe('When PLANNED_JOIN_WAVES ends, or null when it has no end or is off'),
 	channels: z.array(AdminGuildChannelSummarySchema),
 	roles: z.array(AdminGuildRoleSummarySchema),
 });
@@ -1752,7 +1763,7 @@ export const AdminMessageSchema = z.object({
 	author_avatar: z.string().nullable(),
 	author_bot: z.boolean().optional(),
 	webhook_id: SnowflakeStringType.nullable().optional(),
-	content: createStringType(0, 4000),
+	content: z.string(),
 	timestamp: z.string(),
 	attachments: z.array(AdminMessageAttachmentSchema).max(10),
 	embeds: z.array(MessageEmbedResponse).optional(),

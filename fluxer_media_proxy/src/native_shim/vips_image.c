@@ -51,6 +51,8 @@ int fluxer_vips_probe_animated(const void *buf, size_t len, int *width, int *hei
     *bands = 0;
     *format = VIPS_FORMAT_NOTSET;
     if (buf == NULL || len == 0) return FLUXER_NATIVE_STATUS_CODEC_FAILURE;
+    int status = fluxer_bmff_sample_tables_validate(buf, len);
+    if (status != FLUXER_NATIVE_STATUS_OK) return status;
     VipsImage *header = vips_image_new_from_buffer(buf, len, "n=1", NULL);
     if (header == NULL) {
         return FLUXER_NATIVE_STATUS_CODEC_FAILURE;
@@ -93,6 +95,9 @@ int fluxer_vips_probe_animated(const void *buf, size_t len, int *width, int *hei
 
 VipsImage *fluxer_vips_image_new_from_buffer(const void *buf, size_t len, const char *option_string) {
     if (buf == NULL || len == 0 || option_string == NULL) return NULL;
+    if (fluxer_bmff_sample_tables_validate(buf, len) != FLUXER_NATIVE_STATUS_OK) {
+        return NULL;
+    }
     return vips_image_new_from_buffer(buf, len, option_string, NULL);
 }
 
@@ -238,6 +243,26 @@ int fluxer_vips_srgb_without_alpha(VipsImage *in, VipsImage **out) {
     }
     rc = vips_extract_band(srgb, out, 0, "n", vips_image_get_bands(srgb) - 1, NULL);
     g_object_unref(srgb);
+    return fluxer_vips_operation_status(rc, out);
+}
+
+int fluxer_vips_embedded_icc_to_srgb(VipsImage *in, VipsImage **out) {
+    if (out == NULL) return FLUXER_NATIVE_STATUS_CODEC_FAILURE;
+    *out = NULL;
+    if (in == NULL) return FLUXER_NATIVE_STATUS_CODEC_FAILURE;
+    VipsBandFormat format = vips_image_get_format(in);
+    if (vips_image_get_typeof(in, VIPS_META_ICC_NAME) == 0 ||
+        (format != VIPS_FORMAT_UCHAR && format != VIPS_FORMAT_USHORT)) {
+        g_object_ref(in);
+        *out = in;
+        return FLUXER_NATIVE_STATUS_OK;
+    }
+    int rc = vips_icc_transform(
+        in, out, "srgb",
+        "embedded", TRUE,
+        "intent", VIPS_INTENT_RELATIVE,
+        "depth", 8,
+        NULL);
     return fluxer_vips_operation_status(rc, out);
 }
 
@@ -631,6 +656,8 @@ int fluxer_vips_thumbnail_buffer_ex(
     };
     status = fluxer_vips_thumbnail_request_status(&request);
     if (status != FLUXER_NATIVE_STATUS_OK) return status;
+    status = fluxer_bmff_sample_tables_validate(buf, len);
+    if (status != FLUXER_NATIVE_STATUS_OK) return status;
     const char *options = fluxer_vips_thumbnail_options(&request);
     VipsImage *loaded = vips_image_new_from_buffer(buf, len, options, NULL);
     if (loaded == NULL) return FLUXER_NATIVE_STATUS_CODEC_FAILURE;
@@ -918,13 +945,16 @@ int fluxer_vips_image_to_rgba(VipsImage *in, VipsImage **out) {
     VipsImage *scaled = NULL;
     VipsImage *depth_normalized = NULL;
     if (format == VIPS_FORMAT_USHORT) {
-        if (interpretation != VIPS_INTERPRETATION_RGB16 &&
-            interpretation != VIPS_INTERPRETATION_GREY16) {
+        VipsInterpretation eight_bit_interpretation;
+        if (interpretation == VIPS_INTERPRETATION_RGB16) {
+            eight_bit_interpretation = VIPS_INTERPRETATION_sRGB;
+        } else if (interpretation == VIPS_INTERPRETATION_GREY16) {
+            eight_bit_interpretation = VIPS_INTERPRETATION_B_W;
+        } else {
             return FLUXER_NATIVE_STATUS_UNSUPPORTED;
         }
-        if (vips_cast(
-                in, &depth_normalized, VIPS_FORMAT_UCHAR,
-                "shift", TRUE, NULL) != 0 ||
+        if (vips_colourspace(
+                in, &depth_normalized, eight_bit_interpretation, NULL) != 0 ||
             depth_normalized == NULL) {
             if (depth_normalized != NULL) g_object_unref(depth_normalized);
             return FLUXER_NATIVE_STATUS_CODEC_FAILURE;

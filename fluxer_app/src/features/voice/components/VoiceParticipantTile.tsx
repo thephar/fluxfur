@@ -4,8 +4,8 @@ import Accessibility from '@app/features/accessibility/state/Accessibility';
 import {LongPressable} from '@app/features/app/components/LongPressable';
 import Channels from '@app/features/channel/state/Channels';
 import {isKeyboardActivationKey} from '@app/features/input/utils/KeyboardUtils';
+import GuildMembers from '@app/features/member/state/GuildMembers';
 import Permission from '@app/features/permissions/state/Permission';
-import {dimColor} from '@app/features/theme/utils/ColorUtils';
 import type {VoiceParticipantMenuSource} from '@app/features/ui/action_menu/items/VoiceParticipantMenuTypes';
 import {STREAM_VOLUME_DESCRIPTOR} from '@app/features/ui/action_menu/items/voice_participant_menu_data/shared';
 import {UserContextMenu} from '@app/features/ui/action_menu/UserContextMenu';
@@ -632,11 +632,15 @@ const VoiceParticipantTileInner = observer(function VoiceParticipantTileInner({
 	const watchFailedTitle = i18n._(WATCHING_FAILED_DESCRIPTOR);
 	const watchFailedSubtext =
 		graphWatchFailure == null ? '' : i18n._(WATCHING_FAILED_ERROR_CODE_DESCRIPTOR, {code: graphWatchFailure.code});
+	const participantMember = guildId ? GuildMembers.getMember(guildId, participantUser?.id) : null;
 	const placeholderColor = useMemo(
-		() => getPlaceholderAvatarColor(participantUser, DEFAULT_ACCENT_COLOR),
-		[participantUser],
+		() => getPlaceholderAvatarColor(participantUser, participantMember, DEFAULT_ACCENT_COLOR),
+		[participantUser, participantMember],
 	);
-	const placeholderBackgroundColor = useMemo(() => dimColor(placeholderColor), [placeholderColor]);
+	const placeholderBackgroundColor = useMemo(
+		() => `color-mix(in srgb, ${placeholderColor} 40%, var(--voice-surface-1, #151517))`,
+		[placeholderColor],
+	);
 	const placeholderStyle = useMemo<React.CSSProperties>(
 		() => ({backgroundColor: placeholderBackgroundColor}),
 		[placeholderBackgroundColor],
@@ -775,8 +779,20 @@ const VoiceParticipantTileInner = observer(function VoiceParticipantTileInner({
 	const isFocusedOnThisTile =
 		VoiceCallLayout.pinnedParticipantIdentity === identity &&
 		(pinnedParticipantSource == null || pinnedParticipantSource === trackRef.source);
+	const handleWatch = useCallback(
+		(e?: React.SyntheticEvent) => {
+			e?.stopPropagation();
+			startWatching();
+			VoiceCallLayoutCommands.setPinnedParticipant(identity, VoiceTrackSource.ScreenShare);
+		},
+		[identity, startWatching],
+	);
 	const handleTileClick = useCallback(() => {
 		if (isInsideTilePopout) return;
+		if (showWatchStreamOverlay) {
+			handleWatch();
+			return;
+		}
 		const wasFocused =
 			VoiceCallLayout.pinnedParticipantIdentity === identity &&
 			(pinnedParticipantSource == null || pinnedParticipantSource === trackRef.source);
@@ -786,7 +802,15 @@ const VoiceParticipantTileInner = observer(function VoiceParticipantTileInner({
 			VoiceCallLayoutCommands.setPinnedParticipant(identity, asPinnableVoiceTrackSource(trackRef.source));
 			onClick?.(identity);
 		}
-	}, [identity, isInsideTilePopout, onClick, pinnedParticipantSource, trackRef.source]);
+	}, [
+		handleWatch,
+		identity,
+		isInsideTilePopout,
+		onClick,
+		pinnedParticipantSource,
+		showWatchStreamOverlay,
+		trackRef.source,
+	]);
 	const handleTileKeyDown = useCallback(
 		(event: React.KeyboardEvent<HTMLDivElement>) => {
 			if (!isKeyboardActivationKey(event.key)) return;
@@ -828,14 +852,6 @@ const VoiceParticipantTileInner = observer(function VoiceParticipantTileInner({
 			MediaEngine.applyLocalAudioPreferencesForUser(userId);
 		},
 		[streamKey, userId],
-	);
-	const handleWatch = useCallback(
-		(e?: React.SyntheticEvent) => {
-			e?.stopPropagation();
-			startWatching();
-			VoiceCallLayoutCommands.setPinnedParticipant(identity, VoiceTrackSource.ScreenShare);
-		},
-		[identity, startWatching],
 	);
 	const handleAddStream = useCallback(
 		(event: React.SyntheticEvent) => {

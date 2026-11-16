@@ -1268,6 +1268,12 @@ msgstr "{count, plural, one {# κοινή κοινότητα} other {# κοιν�
 msgid "{count, plural, one {# new message} other {# new messages}}"
 msgstr "{count, plural, one {# νέο μήνυμα} other {# νέα μηνύματα}}"
 
+#. Short label in the footer of a forum post card, meaning "# new messages". count is the number of unread messages. Keep it as short as possible. It shares one line with the message count and the time.
+#: src/features/forum/utils/ForumMessageDescriptors.ts
+msgctxt "forum-card-footer"
+msgid "{count, plural, one {# new} other {# new}}"
+msgstr ""
+
 #. Heading of the list of Operator Passes in the Operator Pass settings, and the count of passes an account has. Operator Pass is a product name, keep it as is.
 #: src/features/premium/components/operator_pass/OperatorPassHoldingsSection.tsx
 msgid "{count, plural, one {# Operator Pass} other {# Operator Passes}}"
@@ -1794,7 +1800,7 @@ msgstr "{mentionCount, plural, one {# αναφορά} other {# αναφορές}
 msgid "{mentionCount, plural, one {# mention} other {# mentions}} on {accountCount, plural, one {# other account} other {# other accounts}}"
 msgstr "{mentionCount, plural, one {# αναφορά} other {# αναφορές}} σε {accountCount, plural, one {# άλλο λογαριασμό} other {# άλλους λογαριασμούς}}"
 
-#. Message group spacing option label.
+#. Current value and track label of the space between message groups slider, for example 16px.
 #: src/features/user/components/modals/tabs/appearance_tab/MessagesTab.tsx
 msgid "{messageGroupSpacing}px"
 msgstr "{messageGroupSpacing}px"
@@ -2190,6 +2196,11 @@ msgstr "Το {productName} δεν θα ενημερωθεί κατά την εκ
 msgid "{productName} wordmark"
 msgstr "Λεκτικό λογότυπο {productName}"
 
+#. Download progress shown under a file name in the downloads panel. {progress} is the formatted percentage downloaded so far, for example 42%. {total} is the formatted size of the whole file, for example 3.2 MB.
+#: src/features/app/components/layout/NativeDownloads.tsx
+msgid "{progress} of {total}"
+msgstr "{progress} από {total}"
+
 #: src/features/connection/components/modals/AddConnectionModal.tsx
 msgid "{providerName} opens in your browser. Sign in there to connect your account."
 msgstr "Το {providerName} ανοίγει στο πρόγραμμα περιήγησής σας. Συνδεθείτε εκεί για να συνδέσετε τον λογαριασμό σας."
@@ -2265,6 +2276,11 @@ msgstr "{resultCount, plural, one {# διαθέσιμο αποτέλεσμα} ot
 #: src/features/channel/components/bottomsheets/ChannelSearchBottomSheet.tsx
 msgid "{resultCount, plural, one {# result} other {# results}}"
 msgstr "{resultCount, plural, one {# αποτέλεσμα} other {# αποτελέσματα}}"
+
+#. OAuth authorize page error shown when the authorization link asks for a scope this app does not offer. Preserve {scope}, it is the technical scope name inserted by code.
+#: src/features/auth/components/pages/oauth_authorize_page/state/useAuthorizeFlow.ts
+msgid "{scope} is not a supported scope."
+msgstr ""
 
 #. AFK timeout label for a stored custom duration shown in the idle settings section.
 #. Generic duration label for a whole number of seconds.
@@ -2450,6 +2466,11 @@ msgstr "Ο/Η {username} ξεκίνησε μια κλήση."
 #: src/features/messaging/utils/SystemMessageUtils.tsx
 msgid "{username} started a thread: {threadName}"
 msgstr "Ο χρήστης {username} ξεκίνησε ένα νήμα: {threadName}"
+
+#. Screen reader value for the chat font size and group spacing sliders, shown on screen as 16px.
+#: src/features/user/components/modals/tabs/appearance_tab/ScalingTab.tsx
+msgid "{value} pixels"
+msgstr ""
 
 #. Size of the chosen branding image in the setup wizard. Width and height are numbers.
 #: src/features/app/components/setup/SetupBrandingAssetField.tsx
@@ -3393,6 +3414,26 @@ msgstr "Προσθήκη συντόμευσης"
 msgid "Add a passkey to sign in with your fingerprint, face or screen lock. You can also do this later in settings."
 msgstr "Προσθέστε ένα κλειδί πρόσβασης για να συνδεθείτε με το δακτυλικό σας αποτύπωμα, το πρόσωπό σας ή το κλείδωμα οθόνης. Μπορείτε επίσης να το κάνετε αργότερα στις ρυθμίσεις."
 
+#. Description of the account settings row for single sign-on when the account has no other way to sign in. providerName is the provider name typed by the admin.
+#: src/features/user/components/modals/tabs/account_security_tab/SsoDisconnectRow.tsx
+msgid "Add a password or passkey to your account before you disconnect {providerName}."
+msgstr "Πρόσθεσε κωδικό πρόσβασης ή κλειδί πρόσβασης στον λογαριασμό σου πριν αποσυνδέσεις το {providerName}."
+
+#. Description of the account settings row for single sign-on when the account has no other way to sign in and the admin has not given the provider a name.
+#: src/features/user/components/modals/tabs/account_security_tab/SsoDisconnectRow.tsx
+msgid "Add a password or passkey to your account before you disconnect single sign-on."
+msgstr "Πρόσθεσε κωδικό πρόσβασης ή κλειδί πρόσβασης στον λογαριασμό σου πριν αποσυνδέσεις την ενιαία σύνδεση."
+
+#. Description of the account settings row for single sign-on when the account has no other way to sign in and the instance allows sign-in with codes sent by email. providerName is the provider name typed by the admin.
+#: src/features/user/components/modals/tabs/account_security_tab/SsoDisconnectRow.tsx
+msgid "Add a password or passkey, or confirm your email address to sign in with emailed codes, before you disconnect {providerName}."
+msgstr "Πρόσθεσε κωδικό πρόσβασης ή κλειδί πρόσβασης ή επιβεβαίωσε τη διεύθυνση email σου για να συνδέεσαι με κωδικούς μέσω email, πριν αποσυνδέσεις το {providerName}."
+
+#. Description of the account settings row for single sign-on when the account has no other way to sign in, the instance allows sign-in with codes sent by email and the admin has not given the provider a name.
+#: src/features/user/components/modals/tabs/account_security_tab/SsoDisconnectRow.tsx
+msgid "Add a password or passkey, or confirm your email address to sign in with emailed codes, before you disconnect single sign-on."
+msgstr "Πρόσθεσε κωδικό πρόσβασης ή κλειδί πρόσβασης ή επιβεβαίωσε τη διεύθυνση email σου για να συνδέεσαι με κωδικούς μέσω email, πριν αποσυνδέσεις την ενιαία σύνδεση."
+
 #. Form placeholder for the tag input on an expression form.
 #: src/features/expressions/components/modals/TagListField.tsx
 msgid "Add a tag"
@@ -3430,7 +3471,9 @@ msgstr "Προσθήκη λογαριασμού"
 msgid "Add action."
 msgstr "Προσθήκη ενέργειας."
 
+#. Button on the startup screen shown when the current account's instance is offline or not responding. Restarts the app signed out so the person can sign in to an account on any instance. The current account stays saved.
 #. Last tile in the account switcher grid, and the title of the step it opens, where another saved account is added by signing in or registering.
+#: src/features/app/components/BootstrapErrorScreen.tsx
 #: src/features/auth/components/accounts/account_switcher_modal/AccountSwitcherAuthFlow.tsx
 msgid "Add an account"
 msgstr "Προσθήκη λογαριασμού"
@@ -6890,6 +6933,11 @@ msgstr "Κουμπί με μενού επιλογών"
 msgid "Buttons"
 msgstr "Κουμπιά"
 
+#. Help text under the theme color picker in the setup wizard branding step.
+#: src/features/app/components/setup/SetupBrandingFields.tsx
+msgid "Buttons and highlights across the app use this color, and phone browsers use it for their toolbar. Reset it to keep Fluxer's indigo."
+msgstr "Τα κουμπιά και οι επισημάνσεις σε όλη την εφαρμογή χρησιμοποιούν αυτό το χρώμα, και τα προγράμματα περιήγησης στα κινητά το χρησιμοποιούν για τη γραμμή εργαλείων τους. Κάντε επαναφορά για να κρατήσετε το λουλακί του Fluxer."
+
 #: src/features/user/components/modals/tabs/component_gallery_tab/ComponentGalleryTabButtonsTab.tsx
 msgid "Buttons can trigger context menus on click by passing the onClick event directly to openContextMenu."
 msgstr "Τα κουμπιά μπορούν να ανοίξουν μενού περιβάλλοντος με κλικ, περνώντας το συμβάν onClick απευθείας στο openContextMenu."
@@ -6906,11 +6954,6 @@ msgstr "Τα κουμπιά εμφανίζουν μια ένδειξη φόρτ�
 #: src/features/user/components/modals/tabs/component_gallery_tab/ComponentGalleryTabButtonsTab.tsx
 msgid "Buttons with icons"
 msgstr "Κουμπιά με εικονίδια"
-
-#. Help text under the theme color picker in the setup wizard branding step.
-#: src/features/app/components/setup/SetupBrandingFields.tsx
-msgid "Buttons, links and highlights across the app use this color, and phone browsers use it for their toolbar. Reset it to keep Fluxer's indigo."
-msgstr "Τα κουμπιά, οι σύνδεσμοι και οι επισημάνσεις σε όλη την εφαρμογή χρησιμοποιούν αυτό το χρώμα, και τα προγράμματα περιήγησης στα κινητά το χρησιμοποιούν για τη γραμμή εργαλείων τους. Κάντε επαναφορά για να κρατήσετε το λουλακί του Fluxer."
 
 #. Gift inventory empty-state description. premiumProductName is the premium tab name and product name.
 #: src/features/user/components/modals/tabs/GiftInventoryTab.tsx
@@ -7234,6 +7277,11 @@ msgstr "Δεν μπορείτε να ανεβάσετε αρχεία εδώ"
 msgid "Cancel"
 msgstr "Ακύρωση"
 
+#. Stops an in-progress download and deletes the partial file.
+#: src/features/app/components/layout/NativeDownloads.tsx
+msgid "Cancel download"
+msgstr "Ακύρωση λήψης"
+
 #. Button or menu action label in the channel and chat edit bar. Keep it concise.
 #: src/features/channel/components/ChannelEditBar.tsx
 msgid "Cancel editing message"
@@ -7309,6 +7357,11 @@ msgstr "Ακύρωση του αιτήματος φιλίας προς τον/τ
 #: src/features/user/components/settings_utils/section_registry/VoiceVideoSections.ts
 msgid "Cancellation"
 msgstr "Ακύρωση ηχούς"
+
+#. Status shown under a file name in the downloads panel after the user cancels the download. The part of the file that had already downloaded is deleted.
+#: src/features/app/components/layout/NativeDownloads.tsx
+msgid "Cancelled. The partial file was deleted."
+msgstr "Ακυρώθηκε. Το μερικώς ληφθέν αρχείο διαγράφηκε."
 
 #: src/features/app/components/dialogs/components/plutonium/SubscriptionDescription.tsx
 msgid "Cancels on <0>{cancelDate}</0>. <1/> remain active until then."
@@ -7925,7 +7978,7 @@ msgid "Channel access"
 msgstr "Πρόσβαση σε κανάλι"
 
 #. Title of the alert shown when clicking a message link the user does not have permission to view.
-#: src/features/messaging/components/markdown/renderers/LinkRenderer.tsx
+#: src/features/messaging/utils/InAppLinkUtils.tsx
 msgid "Channel access denied"
 msgstr "Δεν επιτρέπεται η πρόσβαση στο κανάλι"
 
@@ -8140,7 +8193,7 @@ msgstr "Γραμματοσειρά συνομιλίας"
 msgid "Chat font scaling"
 msgstr "Μέγεθος γραμματοσειράς συνομιλίας"
 
-#. Accessible label for the chat font size select.
+#. Label for the chat font size slider.
 #: src/features/user/components/modals/tabs/appearance_tab/ScalingTab.tsx
 msgid "Chat font size"
 msgstr "Μέγεθος γραμματοσειράς συνομιλίας"
@@ -8763,6 +8816,11 @@ msgstr "Να διαγραφούν όλες οι αντιδράσεις από α
 #: src/features/search/components/bottomsheets/QuickSwitcherBottomSheet.tsx
 msgid "Clear friends search"
 msgstr "Εκκαθάριση αναζήτησης φίλων"
+
+#. Removes finished downloads from the downloads panel. Downloaded files stay on disk and in-progress downloads stay in the list.
+#: src/features/app/components/layout/NativeDownloads.tsx
+msgid "Clear list"
+msgstr "Εκκαθάριση λίστας"
 
 #. Settings search synonym. Used to match this term when the user types it in the settings search bar.
 #: src/features/user/components/settings_utils/search_index/ChatSettingsIndex.ts
@@ -9599,6 +9657,11 @@ msgstr "Σύγκριση"
 msgid "Complete payment"
 msgstr "Ολοκλήρωση πληρωμής"
 
+#. Status shown under a file name in the downloads panel once the file has finished downloading. Keep it short.
+#: src/features/app/components/layout/NativeDownloads.tsx
+msgid "Completed"
+msgstr "Ολοκληρώθηκε"
+
 #: src/features/auth/components/pages/SignInLinkPage.tsx
 #: src/features/auth/components/pages/SsoCallbackPage.tsx
 msgid "Completing sign-in…"
@@ -10041,6 +10104,11 @@ msgstr "Συνδεδεμένοι στο φωνητικό κανάλι"
 msgctxt "us-state"
 msgid "Connecticut"
 msgstr "Κονέκτικατ"
+
+#. Heading on the SSO callback page while connecting single sign-on from account settings.
+#: src/features/auth/components/pages/SsoCallbackPage.tsx
+msgid "Connecting single sign-on…"
+msgstr "Γίνεται σύνδεση της ενιαίας σύνδεσης…"
 
 #. Auth status shown while connecting to an instance, when the instance selector resolves it or when sign-in waits for the live connection. Domain is interpolated.
 #: src/features/auth/flow/instance_selector/InstanceDiscoveryFailure.ts
@@ -10923,6 +10991,8 @@ msgid "Couldn't complete sign-in. Try again."
 msgstr "Δεν ήταν δυνατή η ολοκλήρωση της σύνδεσης. Δοκιμάστε ξανά."
 
 #. Error title shown when starting to connect single sign-on from account settings fails.
+#. Heading on the SSO callback page when connecting single sign-on from account settings failed.
+#: src/features/auth/components/pages/SsoCallbackPage.tsx
 #: src/features/user/components/modals/tabs/account_security_tab/SsoConnectRow.tsx
 msgid "Couldn't connect single sign-on"
 msgstr "Δεν ήταν δυνατή η σύνδεση της ενιαίας σύνδεσης"
@@ -11038,6 +11108,11 @@ msgstr "Δεν ήταν δυνατή η διαγραφή αυτού του webho
 #: src/features/guild/hooks/useDeleteMyMessagesInGuild.tsx
 msgid "Couldn't delete your messages"
 msgstr "Δεν ήταν δυνατή η διαγραφή των μηνυμάτων σας"
+
+#. Error title shown when disconnecting single sign-on fails.
+#: src/features/user/components/modals/tabs/account_security_tab/SsoDisconnectRow.tsx
+msgid "Couldn't disconnect single sign-on"
+msgstr "Δεν ήταν δυνατή η αποσύνδεση της ενιαίας σύνδεσης"
 
 #. Modal title shown when a desktop update download fails.
 #: src/features/updater/commands/UpdaterModalCommands.tsx
@@ -11165,6 +11240,10 @@ msgstr "Δεν ήταν δυνατή η φόρτωση αυτής της κοι�
 #: src/features/platform/components/loadable/LoadableComponent.tsx
 msgid "Couldn't load this part of the app. Check your connection and try again."
 msgstr "Δεν ήταν δυνατή η φόρτωση αυτού του τμήματος της εφαρμογής. Ελέγξτε τη σύνδεσή σας και δοκιμάστε ξανά."
+
+#: src/features/user/components/settings_utils/ChannelSettingsTabStates.tsx
+msgid "Couldn't load this tab. Check your connection and try again."
+msgstr ""
 
 #. Error modal title shown when the voice regions for a channel fail to load in channel settings.
 #: src/features/channel/components/alerts/VoiceRegionsLoadFailedModal.tsx
@@ -13343,13 +13422,13 @@ msgstr "Κατάσταση προγραμματιστή"
 #. Short label in the channel and chat utility buttons. Keep it concise.
 #. Title of the info alert shown when clicking an internal developer-tools deep link.
 #: src/features/channel/components/channel_header_components/UtilityButtons.tsx
-#: src/features/messaging/components/markdown/renderers/LinkRenderer.tsx
+#: src/features/messaging/utils/InAppLinkUtils.tsx
 #: src/features/ui/action_menu/items/StaffDeveloperUserControlsMenuItem.tsx
 msgid "Developer tools"
 msgstr "Εργαλεία προγραμματιστή"
 
 #. Body of the developer-tools info alert. Refers to the staff badge button in the channel header.
-#: src/features/messaging/components/markdown/renderers/LinkRenderer.tsx
+#: src/features/messaging/utils/InAppLinkUtils.tsx
 msgid "Developer tools are available from the staff badge in the channel header."
 msgstr "Τα εργαλεία προγραμματιστή είναι διαθέσιμα από το σήμα προσωπικού στην κεφαλίδα του καναλιού."
 
@@ -13501,6 +13580,7 @@ msgstr "Προεπισκοπήσεις απευθείας μηνυμάτων"
 #. Review row label for direct messages.
 #: src/features/app/components/setup/SetupWizardSteps.tsx
 #: src/features/channel/components/direct_message/DirectMessageList.tsx
+#: src/features/guild/components/modals/guild_tabs/GuildModerationTab.tsx
 #: src/features/i18n/utils/CommonMessageDescriptors.ts
 #: src/features/user/components/modals/tabs/privacy_safety_tab/ConnectionsTab.tsx
 msgid "Direct messages"
@@ -13747,6 +13827,17 @@ msgstr "Απόρριψη φωνητικού μηνύματος"
 msgid "Disconnect"
 msgstr "Αποσύνδεση"
 
+#. Button that disconnects the account from single sign-on.
+#: src/features/user/components/modals/tabs/account_security_tab/SsoDisconnectRow.tsx
+msgctxt "sso"
+msgid "Disconnect"
+msgstr "Αποσύνδεση"
+
+#. Confirmation title when disconnecting the current account from the instance's single sign-on provider. providerName is the provider name typed by the admin.
+#: src/features/user/components/modals/tabs/account_security_tab/SsoDisconnectRow.tsx
+msgid "Disconnect {providerName}?"
+msgstr "Αποσύνδεση από το {providerName};"
+
 #. Voice menu action that disconnects every active device or session from voice chat.
 #: src/features/voice/utils/VoiceMessageDescriptors.ts
 msgid "Disconnect all devices"
@@ -13768,6 +13859,11 @@ msgstr "Αποσύνδεση από το {channel}"
 #: src/features/platform/utils/DesktopLocaleBridge.ts
 msgid "Disconnect from voice"
 msgstr "Αποσύνδεση από τη φωνητική συνομιλία"
+
+#. Confirmation title when disconnecting the current account from single sign-on and the admin has not given the provider a name.
+#: src/features/user/components/modals/tabs/account_security_tab/SsoDisconnectRow.tsx
+msgid "Disconnect single sign-on?"
+msgstr "Αποσύνδεση της ενιαίας σύνδεσης;"
 
 #: src/features/channel/components/channel_header_components/developer_tools/ToolsMenu.tsx
 msgid "Disconnect socket"
@@ -14250,6 +14346,11 @@ msgstr "Κατεβάστε τη νέα έκδοση για να ενημερώσ
 #: src/features/ui/action_menu/items/MediaMenuData.tsx
 msgid "Download video"
 msgstr "Λήψη βίντεο"
+
+#. Heading of the downloads panel.
+#: src/features/app/components/layout/NativeDownloads.tsx
+msgid "Downloads"
+msgstr "Λήψεις"
 
 #. Short heading in the keyboard shortcuts cheatsheet.
 #. Short label in the keybinds tab. Keep it concise.
@@ -16192,6 +16293,11 @@ msgstr "Αποτυχία φόρτωσης μηνυμάτων"
 msgid "Fail message sends"
 msgstr "Αποτυχία αποστολής μηνυμάτων"
 
+#. Status shown under a file name in the downloads panel when the download did not finish. Keep it short.
+#: src/features/app/components/layout/NativeDownloads.tsx
+msgid "Failed"
+msgstr "Απέτυχε"
+
 #: src/features/moderation/components/modals/BanMemberModal.tsx
 msgid "Failed to ban member. Try again."
 msgstr "Αποτυχία αποκλεισμού μέλους. Δοκιμάστε ξανά."
@@ -17544,6 +17650,11 @@ msgstr "Οι φίλοι μπορούν πάντα να σου στείλουν �
 msgid "Friends can always message you. These settings cover people and bots you only share a community with."
 msgstr "Οι φίλοι μπορούν πάντα να σου στείλουν μήνυμα. Αυτές οι ρυθμίσεις αφορούν άτομα και bots με τα οποία μοιράζεσαι μόνο μια κοινότητα."
 
+#. Help text under the switch that turns off direct messages between community members who are not friends, in the community moderation settings tab.
+#: src/features/guild/components/modals/guild_tabs/GuildModerationTab.tsx
+msgid "Friends can still DM each other, and so can members who share another community. Bots aren't affected."
+msgstr "Οι φίλοι μπορούν ακόμα να στέλνουν DM ο ένας στον άλλον, όπως και τα μέλη που μοιράζονται άλλη κοινότητα. Τα bots δεν επηρεάζονται."
+
 #. Privacy option label for people connected through mutual friends.
 #: src/features/i18n/utils/CommonMessageDescriptors.ts
 msgid "Friends of friends"
@@ -18731,6 +18842,11 @@ msgstr "Απόκρυψη {appName}"
 #: src/features/user/components/modals/tabs/my_profile_tab/ProfileBadgeSettings.tsx
 msgid "Hide {premiumProductName} purchase date"
 msgstr "Απόκρυψη ημερομηνίας αγοράς {premiumProductName}"
+
+#. Context menu item on the Plutonium button in the direct messages list. Hides the button. productName is the premium product name, Plutonium on fluxer.com.
+#: src/features/channel/components/direct_message/DirectMessageList.tsx
+msgid "Hide {productName} button"
+msgstr ""
 
 #. Accessible label for the button that collapses the other accounts section in the inbox.
 #: src/features/messaging/components/popouts/inbox/OtherAccountsInboxSection.tsx
@@ -21512,7 +21628,7 @@ msgid "Link styling"
 msgstr "Στιλ συνδέσμου"
 
 #. Title of the alert shown when clicking an internal link that is not available to the current account.
-#: src/features/messaging/components/markdown/renderers/LinkRenderer.tsx
+#: src/features/messaging/utils/InAppLinkUtils.tsx
 msgid "Link unavailable"
 msgstr "Ο σύνδεσμος δεν είναι διαθέσιμος"
 
@@ -21902,6 +22018,11 @@ msgstr "Έχει προγραμματιστεί συντήρηση για {local
 #: src/features/ui/action_menu/GroupDMContextMenu.tsx
 msgid "Make {userName} the group owner? You'll lose owner privileges."
 msgstr "Να γίνει ο/η {userName} κάτοχος της ομάδας; Θα χάσετε τα δικαιώματα κατόχου."
+
+#. Description of the community ownership transfer section in community settings.
+#: src/features/guild/components/modals/guild_tabs/guild_overview_tab/sections/OwnerTransferSection.tsx
+msgid "Make another member the owner of this community. You cannot undo this."
+msgstr "Ορίστε ένα άλλο μέλος ως ιδιοκτήτη αυτής της κοινότητας. Δεν μπορείτε να αναιρέσετε αυτή την ενέργεια."
 
 #. Group DM action that transfers ownership of the group to the selected member.
 #. Group DM action that transfers ownership of the group to the selected member.
@@ -24171,6 +24292,12 @@ msgstr "Ποτέ αυτόματα"
 msgid "New"
 msgstr "Νέα"
 
+#. Short label in the footer of a forum post card, meaning "new messages", when the exact number is unknown. Keep it as short as possible. It shares one line with the message count and the time.
+#: src/features/forum/utils/ForumMessageDescriptors.ts
+msgctxt "forum-card-footer"
+msgid "New"
+msgstr ""
+
 #. Small badge on a new or recently added app navigation item.
 #: src/features/app/components/layout/GuildsLayout.tsx
 msgctxt "navigation-badge"
@@ -26234,6 +26361,11 @@ msgstr "Άνοιγμα της σελίδας πληρωμής ξανά"
 msgid "Open popup"
 msgstr "Άνοιγμα αναπτυσσόμενου πλαισίου"
 
+#. Tooltip on the media viewer button that closes the viewer and opens the media channel post the media belongs to.
+#: src/features/messaging/components/modals/media_modal/shared.ts
+msgid "Open post"
+msgstr "Άνοιγμα ανάρτησης"
+
 #. Accessible label for the avatar button in the channel header of a DM. Opens the recipient user profile.
 #: src/features/channel/components/channel_header/shared.ts
 msgid "Open profile for {directMessageName}"
@@ -26319,6 +26451,11 @@ msgstr "Άνοιξε τις Ρυθμίσεις Συστήματος → Απόρ
 #: src/features/guild/components/modals/add_guild_modal/TemplateImportForm.tsx
 msgid "Open template JSON"
 msgstr "Άνοιγμα JSON προτύπου"
+
+#. Explains where the code comes from, under the title of the browser page where it is typed. The code is shown by the app the user is signing in to, not by an app that is already signed in. "Signing in on another device?" is the label of a button in that app and must match its translation exactly. PRODUCT_NAME is the app name, such as Fluxer.
+#: src/features/auth/flow/HandoffApprovalFlow.tsx
+msgid "Open the {PRODUCT_NAME} app you're signing in to, select \"Signing in on another device?\" and type the code it shows here. Only enter a code from a device you control."
+msgstr "Ανοίξτε την εφαρμογή {PRODUCT_NAME} στην οποία συνδέεστε, επιλέξτε \"Συνδέεστε σε άλλη συσκευή;\" και πληκτρολογήστε εδώ τον κωδικό που εμφανίζει. Εισαγάγετε μόνο έναν κωδικό από μια συσκευή που ελέγχετε."
 
 #. Keyboard shortcut action label shown in the shortcuts list and keybind editor. Keep short, sentence case.
 #: src/features/input/state/input_keybind/shared.ts
@@ -27811,6 +27948,11 @@ msgstr "Παρακαλώ περιμένετε λίγο και δοκιμάστε
 #: src/features/emoji/components/emojis/EmojiListItem.tsx
 msgid "Please wait a moment and try renaming again."
 msgstr "Παρακαλώ περιμένετε λίγο και δοκιμάστε να μετονομάσετε ξανά."
+
+#. Settings search entry description. One-line summary of what the setting controls. Plutonium is the product name.
+#: src/features/user/components/settings_utils/search_index/AppearanceIndex.ts
+msgid "Plutonium button in the direct messages list"
+msgstr ""
 
 #. Country name. EU member state in the illegal-content report country dropdown.
 #: src/features/moderation/components/report/OptionDescriptors.ts
@@ -29589,6 +29731,11 @@ msgstr "Αφαίρεση από τα αγαπημένα"
 #: src/features/ui/action_menu/UserContextMenu.tsx
 msgid "Remove from group"
 msgstr "Αφαίρεση από την ομάδα"
+
+#. Removes a finished download from the downloads panel.
+#: src/features/app/components/layout/NativeDownloads.tsx
+msgid "Remove from list"
+msgstr "Αφαίρεση από τη λίστα"
 
 #. Context menu item that removes a self-hosted instance from the authentication instance picker history.
 #: src/features/auth/flow/instance_selector/InstancePickerRows.tsx
@@ -31714,6 +31861,11 @@ msgstr "Αναζήτηση κωδικού γλώσσας…"
 msgid "Search languages…"
 msgstr "Αναζήτηση γλωσσών…"
 
+#. Placeholder of the member search in the community ownership transfer section.
+#: src/features/guild/components/modals/guild_tabs/guild_overview_tab/sections/OwnerTransferSection.tsx
+msgid "Search members"
+msgstr "Αναζήτηση μελών"
+
 #. Placeholder of the search box in the add members or roles step of the create channel modal.
 #: src/features/channel/components/modals/ChannelCreateAccessStep.tsx
 msgid "Search members or roles"
@@ -33563,6 +33715,11 @@ msgstr "Εμφάνιση εικονιδίου όταν είναι συμπτυγ
 msgid "Show in all communities"
 msgstr "Εμφάνιση σε όλες τις κοινότητες"
 
+#. Opens the folder containing a downloaded file.
+#: src/features/app/components/layout/NativeDownloads.tsx
+msgid "Show in folder"
+msgstr "Εμφάνιση στον φάκελο"
+
 #. Setting label that shows a badge for incoming friend requests.
 #: src/features/ui/action_menu/FluxerButtonContextMenu.tsx
 msgid "Show incoming friend request count"
@@ -33729,6 +33886,11 @@ msgstr "Εμφάνιση κωδικού"
 #: src/features/user/components/settings_utils/search_index/VoiceVideoIndex.ts
 msgid "Show per-device participant volume sliders in voice menus"
 msgstr "Εμφάνιση ρυθμιστικών έντασης ήχου συμμετεχόντων ανά συσκευή στα μενού φωνής"
+
+#. Toggle label and settings search entry for showing the Plutonium button in the direct messages list. Plutonium is the product name.
+#: src/features/user/components/settings_utils/section_registry/SharedDescriptors.ts
+msgid "Show Plutonium button"
+msgstr ""
 
 #. Row in the quick CSS editor shortcuts dialog.
 #: src/features/theme_settings/components/QuickCssShortcutsModal.tsx
@@ -34200,7 +34362,7 @@ msgid "Single line"
 msgstr "Μία γραμμή"
 
 #. Heading of the single sign-on panel when the admin has not given the sign-in provider a name.
-#. Label of the account settings row for connecting single sign-on when the admin has not given the provider a name.
+#. Label of the account settings row for single sign-on when the admin has not given the provider a name.
 #: src/features/auth/flow/AuthSsoPanel.tsx
 #: src/features/user/components/modals/tabs/account_security_tab/SsoConnectRow.tsx
 msgid "Single sign-on"
@@ -35205,6 +35367,11 @@ msgstr "Ξεκίνησε από τον/την {name}"
 #: src/features/guild/utils/guild_tabs/audit_log/AuditLogRoleMessages.ts
 msgid "Started displaying members with this role separately"
 msgstr "Άρχισε η ξεχωριστή εμφάνιση των μελών με αυτόν τον ρόλο"
+
+#. Status shown under a file name in the downloads panel while the download is starting and no data has arrived yet. Keep it short.
+#: src/features/app/components/layout/NativeDownloads.tsx
+msgid "Starting"
+msgstr "Έναρξη"
 
 #. SMTP encryption option that upgrades only when the mail server offers STARTTLS.
 #: src/features/app/components/setup/SetupEmailSteps.tsx
@@ -36647,11 +36814,6 @@ msgstr "Αυτά ήταν όλα."
 msgid "The {PRODUCT_NAME} app asked to sign in as {requestedIdentifier}, but you chose {name}."
 msgstr "Η εφαρμογή {PRODUCT_NAME} ζήτησε να συνδεθείτε ως {requestedIdentifier}, αλλά επιλέξατε {name}."
 
-#. Explains where the code comes from, under the title of the browser page where it is typed. Signing in on another device is the label of a button in the app and must match its translation. PRODUCT_NAME is the app name, such as Fluxer.
-#: src/features/auth/flow/HandoffApprovalFlow.tsx
-msgid "The {PRODUCT_NAME} app on your other device shows it under Signing in on another device. Only enter a code from a device you control."
-msgstr "Η εφαρμογή {PRODUCT_NAME} στη συσκευή σας δείχνει \"Σύνδεση σε άλλη συσκευή\". Εισαγάγετε μόνο έναν κωδικό από μια συσκευή που ελέγχετε."
-
 #. Shown after the user cancelled the sign-in request in the browser. PRODUCT_NAME is the app name, such as Fluxer.
 #: src/features/auth/flow/HandoffApprovalFlow.tsx
 msgid "The {PRODUCT_NAME} app was not signed in. You can close this tab."
@@ -36769,6 +36931,11 @@ msgstr "Το emoji ανέβηκε από τον/την {user}"
 #: src/features/connection/components/modals/AddConnectionModal.tsx
 msgid "The file contains the verification token we will fetch from <0>{dnsUrl}</0>."
 msgstr "Το αρχείο περιέχει το token επαλήθευσης που θα ανακτήσουμε από το <0>{dnsUrl}</0>."
+
+#. Status shown under a file name in the downloads panel when the download finished but the file is no longer where it was saved.
+#: src/features/app/components/layout/NativeDownloads.tsx
+msgid "The file was moved or deleted."
+msgstr "Το αρχείο μετακινήθηκε ή διαγράφηκε."
 
 #. Body of the file-too-large alert when a single file exceeds the per-file size limit.
 #: src/features/messaging/components/alerts/FileSizeTooLargeModal.tsx
@@ -37603,6 +37770,11 @@ msgstr "Αυτή η κοινότητα έχει θέσει σε παύση τι�
 msgid "This community has paused invites. You can try again later."
 msgstr "Αυτή η κοινότητα έχει θέσει σε παύση τις προσκλήσεις. Μπορείτε να δοκιμάσετε ξανά αργότερα."
 
+#. Shown in the community privacy modal under the direct messages switch when the community admins have turned off direct messages between members who are not friends, so the personal switch has no effect.
+#: src/features/guild/components/modals/GuildPrivacySettingsModal.tsx
+msgid "This community has turned off DMs between members who aren't friends"
+msgstr "Αυτή η κοινότητα έχει απενεργοποιήσει τα DM μεταξύ μελών που δεν είναι φίλοι"
+
 #. Description text in the guild at capacity modal.
 #: src/features/guild/components/alerts/GuildAtCapacityModal.tsx
 msgid "This community is at its member limit and isn't accepting new members right now."
@@ -37888,6 +38060,16 @@ msgstr "Αυτή η παρουσία δεν χρησιμοποιεί HTTPS"
 msgid "This instance has not finished setting up single sign-on. Ask an administrator to enable it."
 msgstr "Αυτή η παρουσία δεν έχει ολοκληρώσει τη ρύθμιση της ενιαίας σύνδεσης. Ζητήστε από έναν διαχειριστή να την ενεργοποιήσει."
 
+#. Description of the account settings row for single sign-on when the instance requires it. providerName is the provider name typed by the admin.
+#: src/features/user/components/modals/tabs/account_security_tab/SsoDisconnectRow.tsx
+msgid "This instance requires you to sign in with {providerName}."
+msgstr "Αυτή η παρουσία απαιτεί να συνδέεσαι με {providerName}."
+
+#. Description of the account settings row for single sign-on when the instance requires it and the admin has not given the provider a name.
+#: src/features/user/components/modals/tabs/account_security_tab/SsoDisconnectRow.tsx
+msgid "This instance requires you to sign in with single sign-on."
+msgstr "Αυτή η παρουσία απαιτεί να συνδέεσαι με ενιαία σύνδεση."
+
 #. Setup wizard explanation of why the sign-in method is fixed: the instance is older than username sign-in.
 #: src/features/app/components/setup/SetupWizardSteps.tsx
 msgid "This instance was upgraded from a version of Fluxer that used email sign-in, so it stays on email."
@@ -38036,7 +38218,7 @@ msgid "This link has expired"
 msgstr "Αυτός ο σύνδεσμος έχει λήξει"
 
 #. Body of the link-unavailable alert.
-#: src/features/messaging/components/markdown/renderers/LinkRenderer.tsx
+#: src/features/messaging/utils/InAppLinkUtils.tsx
 msgid "This link is not available for your account."
 msgstr "Αυτός ο σύνδεσμος δεν είναι διαθέσιμος για τον λογαριασμό σας."
 
@@ -38715,6 +38897,11 @@ msgstr "Για να δημιουργήσετε ένα webhook, ανοίξτε <0
 msgid "To let people in, make a registration link in the admin panel."
 msgstr "Για να μπουν άτομα, δημιουργήστε σύνδεσμο εγγραφής στον πίνακα διαχείρισης."
 
+#. Description of the account settings row for single sign-on in the desktop app, which cannot connect it. providerName is the provider name typed by the admin.
+#: src/features/user/components/modals/tabs/account_security_tab/SsoConnectRow.tsx
+msgid "To sign in to this account with {providerName}, connect it in the web app in a browser."
+msgstr "Για να συνδέεσαι σε αυτόν τον λογαριασμό με {providerName}, σύνδεσέ τον στην εφαρμογή ιστού σε ένα πρόγραμμα περιήγησης."
+
 #: src/features/guild/components/modals/GuildOwnershipWarningModal.tsx
 msgid "To transfer ownership, go to {generalSettingsPath} and use the transfer ownership option."
 msgstr "Για να μεταβιβάσετε την ιδιοκτησία, μεταβείτε στις {generalSettingsPath} και χρησιμοποιήστε την επιλογή μεταβίβασης ιδιοκτησίας."
@@ -38802,6 +38989,11 @@ msgstr "Εναλλαγή αποθηκευμένων πολυμέσων"
 #: src/features/user/components/modals/tabs/component_gallery_tab/SelectionsTab.tsx
 msgid "Toggle switches on and off to see state changes."
 msgstr "Ενεργοποιήστε και απενεργοποιήστε τους διακόπτες για να δείτε τις αλλαγές κατάστασης."
+
+#. Keyboard shortcut action label shown in the shortcuts list and keybind editor. Keep short, sentence case.
+#: src/features/input/state/input_keybind/shared.ts
+msgid "Toggle the downloads panel"
+msgstr "Εναλλαγή πίνακα λήψεων"
 
 #. Keyboard shortcut action label shown in the shortcuts list and keybind editor. Keep short, sentence case.
 #: src/features/input/state/input_keybind/shared.ts
@@ -38943,8 +39135,8 @@ msgstr "Παρακολούθηση"
 msgid "Tracking parameters"
 msgstr "Παράμετροι παρακολούθησης"
 
-#. Short label in the transfer ownership modal. Keep it concise.
-#: src/features/guild/components/modals/TransferOwnershipModal.tsx
+#. Title of the community ownership transfer section in community settings and of its confirmation modal.
+#: src/features/i18n/utils/CommonMessageDescriptors.ts
 msgid "Transfer community ownership"
 msgstr "Μεταβίβαση ιδιοκτησίας κοινότητας"
 
@@ -38954,10 +39146,14 @@ msgid "Transfer group ownership to {userName}?"
 msgstr "Μεταβίβαση ιδιοκτησίας της ομάδας στον/στην {userName};"
 
 #. Action label in community settings that hands ownership of the community to another member.
-#: src/features/guild/components/modals/TransferOwnershipModal.tsx
 #: src/features/i18n/utils/CommonMessageDescriptors.ts
 msgid "Transfer ownership"
 msgstr "Μεταβίβαση ιδιοκτησίας"
+
+#. Disabled confirm button in the transfer ownership modal. The number is a countdown in seconds until the button can be pressed.
+#: src/features/guild/components/modals/TransferOwnershipModal.tsx
+msgid "Transfer ownership ({secondsRemaining})"
+msgstr "Μεταβίβαση ιδιοκτησίας ({secondsRemaining})"
 
 #. Activity log detail line under a community settings update, shown when the community got a new owner. It continues the entry summary, so it has no subject. It is a past tense record of a change the actor in the summary already made, never an instruction to the reader. Do not write it as a command, a button label or in first or second person. {user} is the new owner, shown as a clickable user chip.
 #: src/features/guild/utils/guild_tabs/audit_log/AuditLogGuildMessages.ts
@@ -39314,6 +39510,11 @@ msgstr "Απενεργοποίηση κάμερας συσκευής"
 msgid "Turn off device stream"
 msgstr "Απενεργοποίηση ροής συσκευής"
 
+#. Switch label in the community moderation settings tab. When on, members of this community who are not friends cannot start or continue direct messages through this community.
+#: src/features/guild/components/modals/guild_tabs/GuildModerationTab.tsx
+msgid "Turn off DMs between members who aren't friends"
+msgstr "Απενεργοποίηση DM μεταξύ μελών που δεν είναι φίλοι"
+
 #. Voice menu action that ends the current user screen share.
 #: src/features/ui/action_menu/items/voice_participant_menu_data/shared.ts
 msgid "Turn off stream"
@@ -39386,6 +39587,16 @@ msgstr "Μετατροπή φατσούλων κειμένου σε emoji"
 #: src/features/theme_settings/components/QuickCssFiles.tsx
 msgid "Turn this theme on to see your changes in the app."
 msgstr "Ενεργοποίησε αυτό το θέμα για να δεις τις αλλαγές σου στην εφαρμογή."
+
+#. Activity log detail line under a community settings update, shown when the setting that stops direct messages between community members who are not friends was turned off again. It continues the entry summary, so it has no subject. It is a past tense record of a change the actor in the summary already made, never an instruction to the reader. Do not write it as a command, a button label or in first or second person.
+#: src/features/guild/utils/guild_tabs/audit_log/AuditLogGuildMessages.ts
+msgid "Turned DMs between members who aren't friends back on"
+msgstr "Ενεργοποιήθηκαν ξανά τα DM μεταξύ μελών που δεν είναι φίλοι"
+
+#. Activity log detail line under a community settings update, shown when the setting that stops direct messages between community members who are not friends was turned on. It continues the entry summary, so it has no subject. It is a past tense record of a change the actor in the summary already made, never an instruction to the reader. Do not write it as a command, a button label or in first or second person.
+#: src/features/guild/utils/guild_tabs/audit_log/AuditLogGuildMessages.ts
+msgid "Turned off DMs between members who aren't friends"
+msgstr "Απενεργοποιήθηκαν τα DM μεταξύ μελών που δεν είναι φίλοι"
 
 #. Activity log detail line under a community settings update, shown when the Mature content setting of the community was turned off. It continues the entry summary, so it has no subject. It is a past tense record of a change the actor in the summary already made, never an instruction to the reader. Do not write it as a command, a button label or in first or second person.
 #: src/features/guild/utils/guild_tabs/audit_log/AuditLogGuildMessages.ts
@@ -41753,6 +41964,16 @@ msgstr "Προβολή λεπτομερειών"
 msgid "View devices that are signed in to your account"
 msgstr "Προβολή συσκευών που είναι συνδεδεμένες στον λογαριασμό σας"
 
+#. Button in the app layout native titlebar that opens the downloads panel.
+#: src/features/app/components/layout/NativeDownloads.tsx
+msgid "View downloads"
+msgstr "Προβολή λήψεων"
+
+#. Screen reader label of the titlebar button that opens the downloads panel, used while downloads are running. {count} is the number of downloads in progress.
+#: src/features/app/components/layout/NativeDownloads.tsx
+msgid "View downloads. {count, plural, one {# download in progress} other {# downloads in progress}}"
+msgstr "Προβολή λήψεων. {count, plural, one {# λήψη σε εξέλιξη} other {# λήψεις σε εξέλιξη}}"
+
 #: src/features/user/components/popouts/UserProfileShared.tsx
 msgid "View full profile"
 msgstr "Προβολή πλήρους προφίλ"
@@ -43386,10 +43607,11 @@ msgstr "Έχετε ήδη αυτήν τη σύνδεση."
 msgid "You are about to leave {productName}"
 msgstr "Πρόκειται να αποχωρήσετε από το {productName}"
 
+#. Warning in the ownership transfer confirmation. {0} is the new owner's display name and targetUserId is their numeric user ID, shown in brackets after the name.
 #. placeholder {0}: NicknameUtils.getNickname(targetUser, guildId)
 #: src/features/guild/components/modals/TransferOwnershipModal.tsx
-msgid "You are about to transfer ownership of this community to <0>{0}</0>. This action is <1>irreversible</1> and you will lose all owner privileges."
-msgstr "Πρόκειται να μεταβιβάσετε την ιδιοκτησία αυτής της κοινότητας στον/στην <0>{0}</0>. Αυτή η ενέργεια είναι <1>μη αναστρέψιμη</1> και θα χάσετε όλα τα προνόμια ιδιοκτήτη."
+msgid "You are about to transfer ownership of this community to <0>{0}</0> ({targetUserId}). This action is <1>irreversible</1> and you will lose all owner privileges."
+msgstr "Πρόκειται να μεταβιβάσετε την ιδιοκτησία αυτής της κοινότητας στον/στην <0>{0}</0> ({targetUserId}). Αυτή η ενέργεια είναι <1>μη αναστρέψιμη</1> και θα χάσετε όλα τα προνόμια ιδιοκτήτη."
 
 #. Error message in the user banned from guild modal. Keep the tone plain and specific.
 #: src/features/invite/commands/InviteCommands.tsx
@@ -43557,6 +43779,16 @@ msgstr "Μπορείτε να αφαιρέσετε το δικαίωμα <0>{rea
 #: src/features/auth/components/accounts/AccountSwitcherModal.tsx
 msgid "You can sign back in at any time."
 msgstr "Μπορείτε να συνδεθείτε ξανά οποιαδήποτε στιγμή."
+
+#. Description of the account settings row that disconnects the account from the instance's single sign-on provider. providerName is the provider name typed by the admin.
+#: src/features/user/components/modals/tabs/account_security_tab/SsoDisconnectRow.tsx
+msgid "You can sign in to this account with {providerName}."
+msgstr "Μπορείς να συνδέεσαι σε αυτόν τον λογαριασμό με {providerName}."
+
+#. Description of the account settings row that disconnects the account from single sign-on when the admin has not given the provider a name.
+#: src/features/user/components/modals/tabs/account_security_tab/SsoDisconnectRow.tsx
+msgid "You can sign in to this account with single sign-on."
+msgstr "Μπορείς να συνδέεσαι σε αυτόν τον λογαριασμό με ενιαία σύνδεση."
 
 #. Cooldown notice in the new thread pane when the parent channel has slowmode. seconds is the wait time.
 #: src/features/threads/utils/ThreadMessageDescriptors.ts
@@ -43818,7 +44050,7 @@ msgid "You changed your tag while on {PREMIUM_PRODUCT_NAME}. It will reroll rand
 msgstr "Αλλάξατε την ετικέτα σας ενώ είχατε {PREMIUM_PRODUCT_NAME}. Θα αλλάξει τυχαία όταν λήξει το {PREMIUM_PRODUCT_NAME} σας, εκτός αν ανανεωθεί."
 
 #. Body of the access-denied alert for clicked message links.
-#: src/features/messaging/components/markdown/renderers/LinkRenderer.tsx
+#: src/features/messaging/utils/InAppLinkUtils.tsx
 msgid "You do not have access to the channel where this message was sent."
 msgstr "Δεν έχετε πρόσβαση στο κανάλι όπου στάλθηκε αυτό το μήνυμα."
 
@@ -44099,6 +44331,16 @@ msgstr "Είστε σε σίγαση ήχου από συντονιστές"
 #: src/features/auth/components/pages/oauth_authorize_page/OAuthAuthorizeActions.tsx
 msgid "You will be taken to {redirectHostname} after authorizing."
 msgstr "Θα μεταφερθείτε στο {redirectHostname} μετά την εξουσιοδότηση."
+
+#. Warning shown before disconnecting single sign-on. providerName is the provider name typed by the admin.
+#: src/features/user/components/modals/tabs/account_security_tab/SsoDisconnectRow.tsx
+msgid "You won't be able to sign in with {providerName} anymore. You can still use your other sign-in methods."
+msgstr "Δεν θα μπορείς πλέον να συνδέεσαι με {providerName}. Μπορείς ακόμα να χρησιμοποιείς τις άλλες μεθόδους σύνδεσης."
+
+#. Warning shown before disconnecting single sign-on when the admin has not given the provider a name.
+#: src/features/user/components/modals/tabs/account_security_tab/SsoDisconnectRow.tsx
+msgid "You won't be able to sign in with single sign-on anymore. You can still use your other sign-in methods."
+msgstr "Δεν θα μπορείς πλέον να συνδέεσαι με ενιαία σύνδεση. Μπορείς ακόμα να χρησιμοποιείς τις άλλες μεθόδους σύνδεσης."
 
 #. Security settings: confirmation modal body for turning off passkey-based two-factor authentication when the account also has an authenticator app.
 #: src/features/user/components/modals/tabs/account_security_tab/SecurityTab.tsx
@@ -44696,6 +44938,11 @@ msgstr "Η εξαγωγή σας από {requestedAt} είναι έτοιμη. �
 msgid "Your fallback entrance sound for all communities and direct messages. More specific settings override it."
 msgstr "Ο προεπιλεγμένος ήχος εισόδου για όλες τις κοινότητες και τα απευθείας μηνύματα. Πιο συγκεκριμένες ρυθμίσεις τον παρακάμπτουν."
 
+#. Shown in the invite modal when every friend is already a member of this community.
+#: src/features/invite/components/modals/InviteModal.tsx
+msgid "Your friends are already in this community."
+msgstr ""
+
 #. Empty state title in the friends list Online tab when no friends are online. Tone can be friendly.
 #: src/features/channel/components/friends/views/FriendsList.tsx
 msgid "Your friends are stuck in another timeline"
@@ -44782,6 +45029,11 @@ msgstr "Το μήνυμά σας δεν παραδόθηκε επειδή επι
 #: src/features/messaging/state/MessageQueue.tsx
 msgid "Your message could not be delivered because it was flagged by our safety systems. If you believe this is a mistake, please contact the administrators of this instance."
 msgstr "Το μήνυμά σας δεν παραδόθηκε επειδή επισημάνθηκε από τα συστήματα ασφαλείας μας. Αν πιστεύετε ότι πρόκειται για λάθος, επικοινωνήστε με τους διαχειριστές αυτής της παρουσίας."
+
+#. System message in a DM after a send fails because the only community the two people share has turned off direct messages between members who are not friends.
+#: src/features/messaging/state/MessageQueue.tsx
+msgid "Your message could not be delivered. A community you share with this person has turned off direct messages between members who aren't friends."
+msgstr "Το μήνυμά σας δεν ήταν δυνατό να παραδοθεί. Μια κοινότητα που μοιράζεστε με αυτό το άτομο έχει απενεργοποιήσει τα απευθείας μηνύματα μεταξύ μελών που δεν είναι φίλοι."
 
 #. Label in the message queue state.
 #: src/features/messaging/state/MessageQueue.tsx
