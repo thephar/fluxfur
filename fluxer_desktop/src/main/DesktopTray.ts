@@ -20,9 +20,12 @@ import {
 import {buildAccountMenuEntries, buildAccountMenuItems, createRefreshThrottle} from '@electron/main/AccountMenu';
 import {getAppResourcesPath} from '@electron/main/DesktopDistributionPath';
 import {getDesktopUpdateState, observeDesktopUpdateState} from '@electron/main/DesktopUpdateGate';
-import {checkForUpdatesFromShell, startDesktopUpdateFromShell} from '@electron/main/DesktopUpdatePrompt';
+import {
+	canCheckForUpdatesFromShell,
+	checkForUpdatesFromShell,
+	startDesktopUpdateFromShell,
+} from '@electron/main/DesktopUpdatePrompt';
 import {readKdePanelDark, readKdePanelDarkSync, watchKdePanelTheme} from '@electron/main/KdePanelTheme';
-import {shouldDisableModuleUpdatesForLaunch} from '@electron/main/LaunchOptions';
 import {relaunchStableLaunchPath} from '@electron/main/LinuxLaunchPath';
 import {getLinuxDesktop} from '@electron/main/LinuxSession';
 import {onLocaleChange, t} from '@electron/main/MainI18n';
@@ -325,9 +328,10 @@ function resolveTrayIcon(): {key: string; image: Electron.NativeImage} | null {
 	trayBaseIcon ??= createTrayIcon();
 	if (!trayBaseIcon) return null;
 	const settings = getDesktopWindowBehaviorSettings();
+	const linuxDesktop = getLinuxDesktop();
 	const appearance = resolveTrayIconAppearance({
 		platform: process.platform,
-		linuxDesktop: getLinuxDesktop(),
+		linuxDesktop,
 		coloredTrayIcon: settings.coloredTrayIcon,
 		monochromeTone: settings.monochromeTrayIconTone,
 		darkWindowsTaskbar: nativeTheme.shouldUseDarkColorsForSystemIntegratedUI,
@@ -337,7 +341,7 @@ function resolveTrayIcon(): {key: string; image: Electron.NativeImage} | null {
 	const key = `${appearance}:${indicator}`;
 	let image = trayIconCache.get(key);
 	if (!image) {
-		image = renderTrayIcon(trayBaseIcon, appearance, indicator, process.platform);
+		image = renderTrayIcon(trayBaseIcon, appearance, indicator, process.platform, linuxDesktop);
 		trayIconCache.set(key, image);
 	}
 	return {key, image};
@@ -535,7 +539,7 @@ function buildTrayMenu(): Menu {
 			click: () => runTrayMenuAction(startDesktopUpdateFromShell),
 		});
 	}
-	if (!shouldDisableModuleUpdatesForLaunch()) {
+	if (canCheckForUpdatesFromShell()) {
 		menuTemplate.push({
 			label: t('desktop.tray.checkForUpdates'),
 			click: () =>

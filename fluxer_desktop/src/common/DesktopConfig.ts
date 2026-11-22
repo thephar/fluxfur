@@ -25,6 +25,7 @@ const CONFIG_FILE_NAME = 'settings.json';
 export const THEME_FOLDERS_MAX = 20;
 const MINIMIZE_TO_TRAY_STORAGE_KEY_V2 = 'minimizeToTrayV2';
 const CLOSE_TO_TRAY_STORAGE_KEY_V2 = 'closeToTrayV2';
+const UNREAD_LAUNCHER_BADGE_STORAGE_KEY_V2 = 'unreadLauncherBadgeV2';
 
 interface DesktopConfig extends Record<string, unknown> {
 	chromiumSwitches?: ChromiumSwitchesSetting;
@@ -73,6 +74,7 @@ interface PersistedDesktopWindowBehaviorSettings {
 	coloredTrayIcon?: boolean;
 	monochromeTrayIconTone?: MonochromeTrayIconTone;
 	darkTaskbarBadge?: boolean;
+	unreadLauncherBadgeV2?: boolean;
 	useNativeTitleBar?: boolean;
 	minimizeToTrayV2?: boolean;
 	closeToTrayV2?: boolean;
@@ -113,6 +115,7 @@ function getDefaultDesktopWindowBehaviorSettings(): DesktopWindowBehaviorSetting
 		coloredTrayIcon: false,
 		monochromeTrayIconTone: 'auto',
 		darkTaskbarBadge: false,
+		unreadLauncherBadge: false,
 		minimizeToTray: false,
 		closeToTray: true,
 		startMinimized: false,
@@ -146,6 +149,10 @@ function sanitizePersistedDesktopWindowBehaviorSettings(
 	}
 	if (typeof value.darkTaskbarBadge === 'boolean') {
 		settings.darkTaskbarBadge = value.darkTaskbarBadge;
+	}
+	const unreadLauncherBadgeV2 = value[UNREAD_LAUNCHER_BADGE_STORAGE_KEY_V2];
+	if (typeof unreadLauncherBadgeV2 === 'boolean') {
+		settings.unreadLauncherBadgeV2 = unreadLauncherBadgeV2;
 	}
 	if (typeof value.useNativeTitleBar === 'boolean') {
 		settings.useNativeTitleBar = value.useNativeTitleBar;
@@ -399,6 +406,11 @@ function normalizeDesktopWindowBehaviorSettings(
 			? settings.monochromeTrayIconTone
 			: defaults.monochromeTrayIconTone,
 		darkTaskbarBadge: firstBoolean(defaults.darkTaskbarBadge, settings?.darkTaskbarBadge),
+		unreadLauncherBadge: firstBoolean(
+			defaults.unreadLauncherBadge,
+			settings?.unreadLauncherBadge,
+			settings?.unreadLauncherBadgeV2,
+		),
 		minimizeToTray: firstBoolean(defaults.minimizeToTray, settings?.minimizeToTray, settings?.minimizeToTrayV2),
 		closeToTray: firstBoolean(defaults.closeToTray, settings?.closeToTray, settings?.closeToTrayV2),
 		startMinimized: firstBoolean(defaults.startMinimized, settings?.startMinimized),
@@ -452,6 +464,7 @@ function serializeDesktopWindowBehaviorSettings(
 		startMinimized: settings.startMinimized,
 		[MINIMIZE_TO_TRAY_STORAGE_KEY_V2]: settings.minimizeToTray,
 		[CLOSE_TO_TRAY_STORAGE_KEY_V2]: settings.closeToTray,
+		[UNREAD_LAUNCHER_BADGE_STORAGE_KEY_V2]: settings.unreadLauncherBadge,
 	};
 }
 
