@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+mod dual_store;
 mod keys;
 mod slow_stream;
 
@@ -14,7 +15,7 @@ use axum::response::Response;
 use bytes::Bytes;
 use http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, header};
 use parking_lot::Mutex;
-use std::{collections::HashMap, path::Path, sync::Arc};
+use std::{collections::HashMap, num::NonZeroU64, path::Path, sync::Arc};
 
 pub(crate) type CapturedRequest = (Method, http::Uri, HeaderMap, Bytes);
 
@@ -22,12 +23,13 @@ fn test_config(root: &Path) -> Config {
     Config {
         bind_host: "127.0.0.1".to_owned(),
         port: 0,
+        metrics_port: None,
         secret_key: SecretString::new("secret".to_owned()),
         public_endpoint: None,
         mode: DeploymentMode::Mp,
         read_only: false,
         shutdown_grace_ms: 0,
-        socket_io_timeout_ms: 0,
+        socket_io_timeout_ms: NonZeroU64::new(30_000).unwrap(),
         storage: StorageConfig {
             backend: StorageBackend::Local,
             root: root.display().to_string(),
@@ -44,6 +46,8 @@ fn test_config(root: &Path) -> Config {
             bucket_cdn: "cdn".to_owned(),
             bucket_uploads: "uploads".to_owned(),
             bucket_static: "static".to_owned(),
+            store_id: "primary".to_owned(),
+            dual_store: None,
         },
         media: MediaServingConfig {
             max_native_transforms: 2,
